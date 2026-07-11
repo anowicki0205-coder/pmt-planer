@@ -1,2 +1,2 @@
-1.1.0
-   Obsługa adresów wiejskich
+2.0.0
+Nowa wersja PMT Planer: błyskawiczne planowanie wizyt z pliku, plan dzienny/tygodniowy/miesięczny, podgląd na mapie.

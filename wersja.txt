@@ -1,3 +1,4 @@
-3.7.0
+3.7.1
 Kokpit dnia: po uruchomieniu od razu widzisz ile masz dzis wizyt
 Rozwinięte możliwości planowania tras
+Naprawa autoaktualizacji

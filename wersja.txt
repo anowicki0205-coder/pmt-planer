@@ -1,4 +1,5 @@
-3.7.3
+3.7.4
 Aktualizacja jest teraz naprawialna zdalnie
 Kokpit dnia: po uruchomieniu od razu widzisz ile masz dzis wizyt
-Rozwinięte możliwości planowania tras
+Rozwinięte możliwości planowania tras.
+Aktualizacja pobierania o ZIP.

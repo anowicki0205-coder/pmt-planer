@@ -1,4 +1,5 @@
-3.7.4
+3.9.0
+Piec nowosci: przycisk Plan Wizyt w menu bocznym, kopia zapasowa jednym klikiem, rozpoznawanie zmian przy ponownym imporcie listy, lista punktow bez lokalizacji (nie tylko liczba), oraz eksport planu i dziennika do Excela i PDF.
 Aktualizacja jest teraz naprawialna zdalnie
 Kokpit dnia: po uruchomieniu od razu widzisz ile masz dzis wizyt
 Rozwinięte możliwości planowania tras.

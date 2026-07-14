@@ -108,17 +108,40 @@ exit /b 1
 echo [3/3b] Plik podmieniony pomyslnie. >> "%LOG%"
 del /q "%NOWY%" >nul 2>&1
 
-rem === 4) Uruchom nowa wersje i ZWERYFIKUJ, ze naprawde wystartowala ===
+rem === 4) Usun stary znacznik "program zyje" (z ewentualnego poprzedniego ===
+rem === uruchomienia) - zeby nie dac falszywego pozytywnego wyniku nizej.  ===
+set "FLAGA=%TEMP%\pmt_zyje.flag"
+if exist "%FLAGA%" del /q "%FLAGA%" >nul 2>&1
+
+rem === 5) Krotka przerwa PRZED pierwszym uruchomieniem - realny przypadek ===
+rem === pokazal, ze odpalenie NATYCHMIAST po kopiowaniu czasem konczylo    ===
+rem === sie bledem brakujacej biblioteki (antywirus/system jeszcze         ===
+rem === "trzymal" swiezo skopiowany plik) - mimo ze plik byl w 100% OK:    ===
+rem === reczne uruchomienie chwile pozniej dzialalo bez zarzutu.           ===
+echo [4] Czekam chwile przed uruchomieniem (antywirus bywa jeszcze zajety plikiem)... >> "%LOG%"
+ping -n 3 127.0.0.1 >nul
 echo [4] Uruchamiam nowa wersje... >> "%LOG%"
 start "" "%CEL%"
 
+rem === 6) WERYFIKACJA PRZEZ ZNACZNIK - nie samo istnienie procesu!        ===
+rem === Bootloader PyInstallera, ktoremu nie udalo sie wczytac biblioteki  ===
+rem === Pythona, pokazuje natywne okno bledu Windows i CZEKA na klikniecie ===
+rem === OK - proces w tym czasie WCIAZ ISTNIEJE (tasklist by go znalazl!). ===
+rem === Prawdziwy dowod, ze program dziala: sam program zapisal znacznik  ===
+rem === zaraz po starcie. Brak znacznika = program sie nie uruchomil,     ===
+rem === niezaleznie od tego, co widac w tasklist.                        ===
 set "WYSTARTOWALA=0"
-for /l %%i in (1,1,6) do (
+set "PROBA_2=0"
+for /l %%i in (1,1,8) do (
     ping -n 2 127.0.0.1 >nul
-    tasklist /FI "IMAGENAME eq %NAZWA_EXE%" 2>nul | find /I "%NAZWA_EXE%" >nul
-    if not errorlevel 1 (
+    if exist "%FLAGA%" (
         set "WYSTARTOWALA=1"
         goto po_weryfikacji
+    )
+    if "!PROBA_2!"=="0" if %%i GEQ 3 (
+        echo [4] Znacznik sie nie pojawil - probuje uruchomic ponownie (drugie podejscie)... >> "%LOG%"
+        start "" "%CEL%"
+        set "PROBA_2=1"
     )
 )
 :po_weryfikacji

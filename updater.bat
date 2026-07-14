@@ -9,6 +9,12 @@ rem  znajdzie sie tu blad, wystarczy poprawic TEN plik w repo -
 rem  dziala to natychmiast u WSZYSTKICH uzytkownikow, bez wzgledu
 rem  na to, jaka wersje .exe maja aktualnie zainstalowana.
 rem
+rem  ZABEZPIECZENIE: przed podmiana robimy kopie STAREJ wersji.
+rem  Po uruchomieniu nowej wersji SPRAWDZAMY, czy proces naprawde
+rem  wystartowal - jesli nie (np. brakuje biblioteki systemowej),
+rem  automatycznie przywracamy poprzednia, dzialajaca wersje.
+rem  Uzytkownik nigdy nie zostaje bez dzialajacego programu.
+rem
 rem  Argumenty: %1=nowy plik  %2=plik docelowy  %3=PID starego programu
 rem ============================================================
 set "NOWY=%~1"
@@ -16,6 +22,8 @@ set "CEL=%~2"
 set "PID=%~3"
 set "LOG=%TEMP%\pmt_aktualizacja.log"
 set "PS1=%TEMP%\pmt_copy_elevated.ps1"
+set "KOPIA=%CEL%.poprzednia"
+for %%F in ("%CEL%") do set "NAZWA_EXE=%%~nxF"
 
 title Aktualizacja PMT Planer
 echo ============================== > "%LOG%"
@@ -47,26 +55,33 @@ echo [1] UWAGA: program nadal widoczny po 2 minutach - probuje mimo to. >> "%LOG
 :zamkniety
 echo [1] OK. >> "%LOG%"
 
-rem === 2) Zwykla kopia, z ponawianiem (plik bywa jeszcze chwile zablokowany) ===
-echo [2] Kopiuje plik (zwykle uprawnienia)... >> "%LOG%"
+rem === 2) Kopia zapasowa STAREJ, dzialajacej wersji - na wypadek gdyby ===
+rem === nowa sie nie uruchomila. Bez tego nie byloby do czego wracac.  ===
+echo [2] Zapisuje kopie poprzedniej wersji... >> "%LOG%"
+if exist "%CEL%" (
+    copy /y "%CEL%" "%KOPIA%" >nul 2>>"%LOG%"
+)
+
+rem === 3) Zwykla kopia, z ponawianiem (plik bywa jeszcze chwile zablokowany) ===
+echo [3] Kopiuje plik (zwykle uprawnienia)... >> "%LOG%"
 for /l %%i in (1,1,15) do (
     copy /y "%NOWY%" "%CEL%" >nul 2>>"%LOG%"
     if not errorlevel 1 goto podmieniono
     ping -n 2 127.0.0.1 >nul
 )
-echo [2] Zwykla kopia nie powiodla sie. >> "%LOG%"
+echo [3] Zwykla kopia nie powiodla sie. >> "%LOG%"
 
-rem === 2b) Proba z podniesionymi uprawnieniami - rozwiazuje przypadek        ===
+rem === 3b) Proba z podniesionymi uprawnieniami - rozwiazuje przypadek        ===
 rem === instalacji w C:\Program Files, gdzie zwykly zapis jest zablokowany.   ===
 rem === Sciezki wstawiamy do OSOBNEGO pliku .ps1 (juz podstawione, jako      ===
 rem === zwykly tekst) - bez tego trzeba by przenosic cudzyslowy przez trzy   ===
 rem === warstwy (cmd -> powershell -> cmd), co jest bardzo podatne na blad.  ===
-echo [2b] Probuje z uprawnieniami administratora (moze pojawic sie okno UAC)... >> "%LOG%"
+echo [3b] Probuje z uprawnieniami administratora (moze pojawic sie okno UAC)... >> "%LOG%"
 > "%PS1%" echo Copy-Item -LiteralPath '%NOWY%' -Destination '%CEL%' -Force
 powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','%PS1%') -Verb RunAs -Wait -PassThru | ForEach-Object { exit $_.ExitCode }" >> "%LOG%" 2>&1
 del /q "%PS1%" >nul 2>&1
 if not errorlevel 1 goto podmieniono
-echo [2b] Podniesione uprawnienia rowniez nie pomogly (albo uzytkownik odmowil UAC). >> "%LOG%"
+echo [3b] Podniesione uprawnienia rowniez nie pomogly (albo uzytkownik odmowil UAC). >> "%LOG%"
 
 echo.
 echo   ================================================================
@@ -90,12 +105,62 @@ pause
 exit /b 1
 
 :podmieniono
-echo [2/2b] Plik podmieniony pomyslnie. >> "%LOG%"
+echo [3/3b] Plik podmieniony pomyslnie. >> "%LOG%"
 del /q "%NOWY%" >nul 2>&1
 
-echo [3] Uruchamiam nowa wersje... >> "%LOG%"
+rem === 4) Uruchom nowa wersje i ZWERYFIKUJ, ze naprawde wystartowala ===
+echo [4] Uruchamiam nowa wersje... >> "%LOG%"
 start "" "%CEL%"
-echo [3] Gotowe: %DATE% %TIME% >> "%LOG%"
 
-rem === Skrypt kasuje sam siebie ===
+set "WYSTARTOWALA=0"
+for /l %%i in (1,1,6) do (
+    ping -n 2 127.0.0.1 >nul
+    tasklist /FI "IMAGENAME eq %NAZWA_EXE%" 2>nul | find /I "%NAZWA_EXE%" >nul
+    if not errorlevel 1 (
+        set "WYSTARTOWALA=1"
+        goto po_weryfikacji
+    )
+)
+:po_weryfikacji
+
+if "%WYSTARTOWALA%"=="1" goto sukces
+goto porazka
+
+:sukces
+echo [4] Nowa wersja dziala poprawnie. >> "%LOG%"
+if exist "%KOPIA%" del /q "%KOPIA%" >nul 2>&1
+echo [OK] Gotowe: %DATE% %TIME% >> "%LOG%"
 (goto) 2>nul & del "%~f0"
+
+:porazka
+rem === 5) Nowa wersja NIE wystartowala - automatyczny odwrot ===
+echo [4] BLAD: nowa wersja sie nie uruchomila. Przywracam poprzednia... >> "%LOG%"
+if not exist "%KOPIA%" goto brak_kopii
+
+copy /y "%KOPIA%" "%CEL%" >nul 2>>"%LOG%"
+del /q "%KOPIA%" >nul 2>&1
+start "" "%CEL%"
+echo.
+echo   ================================================================
+echo    Nowa wersja programu nie uruchomila sie poprawnie.
+echo    Automatycznie przywrocono poprzednia, dzialajaca wersje -
+echo    powinna wlasnie sie otworzyc.
+echo.
+echo    Sprobuj zaktualizowac ponownie pozniej. Jesli problem
+echo    sie powtorzy, skontaktuj sie z autorem programu.
+echo    Szczegoly: %LOG%
+echo   ================================================================
+echo.
+pause
+exit /b 1
+
+:brak_kopii
+echo.
+echo   ================================================================
+echo    Nowa wersja programu nie uruchomila sie, a nie znalazlem
+echo    kopii poprzedniej wersji do przywrocenia.
+echo    Szczegoly: %LOG%
+echo   ================================================================
+echo.
+pause
+exit /b 1

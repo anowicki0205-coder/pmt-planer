@@ -135,6 +135,173 @@ NOTATKI_DNI_STORE = os.path.join(os.path.expanduser("~"), ".pmt_notatki_dni.json
 # giną przy zmianie danych osobowych, (2) planer wizyt może je uwzględniać
 # i realnie omijać dni wolne przy układaniu tras. 
 
+
+# ~~~~~~~~~~~~~~~~~~~~ POCZATEK SEKCJI PMT-ONLINE ~~~~~~~~~~~~~~~~~~~~
+# =============================================================================
+#  PMT ONLINE — łączność z arkuszem Google (sekcja do wklejenia do
+#  PMT_Delegacje.py albo trzymana jako osobny moduł pmt_online.py)
+#
+#  ZASADA DZIAŁANIA (offline-first, zgodnie z ustaleniem):
+#   • Program NIGDY nie czeka na internet. Wszystkie zdarzenia (uruchomienie,
+#     utworzony dokument, minuty pracy) dopisują się do lokalnej kolejki
+#     (~/.pmt_kolejka.json).
+#   • Przy starcie i co SYNC_CO_MINUT program próbuje w tle wysłać kolejkę
+#     jednym "pulsem". Udało się → kolejka się zeruje, a odpowiedź serwera
+#     (do kiedy sesja, imię, rejon, nieobecności) ląduje w lokalnej pamięci
+#     podręcznej (~/.pmt_status.json). Nie udało się → nic się nie dzieje,
+#     spróbujemy później; dane NIE giną.
+#   • Ważność sesji offline ocenia się po ostatnim ZNANYM "wazne_do"
+#     z pamięci podręcznej — czyli przedłużenie w arkuszu dotrze do
+#     użytkownika przy pierwszym kontakcie z internetem.
+#
+#  INTEGRACJA — trzy punkty zaczepienia w PMT_Delegacje.py:
+#   1. Start programu (main, po utworzeniu QApplication):
+#        online_zdarzenie(uruchomienia=1)
+#        online_synchronizuj_w_tle()
+#        # + jeśli online_kod_uzytkownika() is None → pokaż dialog
+#        #   z pytaniem o 5-cyfrowy kod i zapisz go online_zapisz_kod(kod)
+#   2. Po wygenerowaniu PDF-a delegacji:
+#        online_zdarzenie(dokumenty=1)
+#   3. Przy zamykaniu programu (closeEvent):
+#        online_zdarzenie(minuty=<czas_sesji_w_minutach>)
+#        online_synchronizuj()   # ostatnia próba, bez czekania na wynik
+#
+#  Nieobecności dla planera tras: online_nieobecnosci() → lista słowników
+#  {kod, od, do, typ, zastepuje} — bieżące i przyszłe.
+# =============================================================================
+import time
+import threading   # (pozostale importy sa juz na gorze programu)
+
+# Adres wdrożenia Apps Script (kończy się na /exec) — wklej swój:
+URL_BACKENDU = "https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5nqSQgQYixkItuxvT3gu4HokQlaMz3yXbiL06S2jZgoYAw/exec"
+
+PLIK_KOLEJKI = os.path.join(os.path.expanduser("~"), ".pmt_kolejka.json")
+PLIK_STATUSU = os.path.join(os.path.expanduser("~"), ".pmt_status.json")
+SYNC_CO_MINUT = 30
+_blokada = threading.Lock()
+
+# --- pliki pomocnicze --------------------------------------------------------
+def _wczytaj(plik, domyslne):
+    try:
+        with open(plik, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return dict(domyslne)
+
+def _zapisz(plik, dane):
+    try:
+        tmp = plik + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(dane, f, ensure_ascii=False)
+        os.replace(tmp, plik)          # zapis atomowy — brak "urwanych" plików
+    except Exception:
+        pass
+
+# --- kod użytkownika ---------------------------------------------------------
+def online_kod_uzytkownika():
+    """Zwraca zapisany 5-cyfrowy kod albo None (trzeba zapytać w dialogu)."""
+    kod = str(_wczytaj(PLIK_STATUSU, {}).get("kod", "")).strip()
+    return kod if kod.isdigit() and len(kod) == 5 else None
+
+def online_zapisz_kod(kod: str):
+    st = _wczytaj(PLIK_STATUSU, {})
+    st["kod"] = str(kod).strip()
+    _zapisz(PLIK_STATUSU, st)
+
+# --- kolejka zdarzeń (offline-first) -----------------------------------------
+def online_zdarzenie(uruchomienia=0, dokumenty=0, minuty=0):
+    """Dopisuje zdarzenia do lokalnej kolejki. Błyskawiczne, bez internetu."""
+    with _blokada:
+        q = _wczytaj(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+        q["uruchomienia"] = int(q.get("uruchomienia", 0)) + uruchomienia
+        q["dokumenty"]    = int(q.get("dokumenty", 0))    + dokumenty
+        q["minuty"]       = int(q.get("minuty", 0))       + round(minuty)
+        _zapisz(PLIK_KOLEJKI, q)
+
+# --- synchronizacja ----------------------------------------------------------
+def online_synchronizuj() -> bool:
+    """Jedna próba wysłania pulsu. True = sukces (kolejka wyzerowana,
+    status odświeżony). Ciche niepowodzenie = zostajemy przy danych
+    z pamięci podręcznej. NIE wywoływać z wątku interfejsu — patrz
+    online_synchronizuj_w_tle()."""
+    kod = online_kod_uzytkownika()
+    if not kod or "TU_WKLEJ" in URL_BACKENDU:
+        return False
+    with _blokada:
+        q = _wczytaj(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+    try:
+        cialo = json.dumps({
+            "akcja": "puls", "kod": kod,
+            "wersja": globals().get("WERSJA_PROGRAMU", "?"),
+            "system": {"nt": "Windows"}.get(os.name,
+                      "macOS" if __import__("sys").platform == "darwin" else "Linux"),
+            "uruchomienia": q.get("uruchomienia", 0),
+            "dokumenty":    q.get("dokumenty", 0),
+            "minuty":       q.get("minuty", 0),
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            URL_BACKENDU, data=cialo,
+            headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except Exception:
+        return False
+
+    if odp.get("status") not in ("ok", "wygasla"):
+        return False           # np. zly_kod — kolejki nie zerujemy
+
+    with _blokada:
+        _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+        st = _wczytaj(PLIK_STATUSU, {})
+        st.update({
+            "kod": kod,
+            "status": odp.get("status"),
+            "imie": odp.get("imie", ""),
+            "rejon": odp.get("rejon", ""),
+            "wazne_do": odp.get("wazne_do", ""),
+            "nieobecnosci": odp.get("nieobecnosci", []),
+            "ostatnia_synchronizacja": datetime.date.today().isoformat(),
+        })
+        _zapisz(PLIK_STATUSU, st)
+    return True
+
+def online_synchronizuj_w_tle():
+    """Odpala synchronizację w osobnym wątku — start programu nic nie czeka."""
+    threading.Thread(target=online_synchronizuj, daemon=True).start()
+
+def online_petla_synchronizacji():
+    """Wywołać RAZ przy starcie: ponawia synchronizację co SYNC_CO_MINUT,
+    więc dane 'wypuszczają się' same, gdy tylko wróci internet."""
+    def _petla():
+        while True:
+            time.sleep(SYNC_CO_MINUT * 60)
+            online_synchronizuj()
+    threading.Thread(target=_petla, daemon=True).start()
+
+# --- status sesji i nieobecności (czytane z pamięci podręcznej) --------------
+def online_status_sesji():
+    """Zwraca (czy_wazna, dni_pozostalo, imie). Działa w pełni offline —
+    ocenia po ostatnim znanym 'wazne_do'. Brak jakiegokolwiek kontaktu
+    z serwerem w historii → (None, None, '') i wtedy program stosuje
+    dotychczasową lokalną zasadę 30 dni (demo_status)."""
+    st = _wczytaj(PLIK_STATUSU, {})
+    wazne_do = st.get("wazne_do", "")
+    if not wazne_do:
+        return None, None, st.get("imie", "")
+    try:
+        data = datetime.date.fromisoformat(wazne_do)
+    except Exception:
+        return None, None, st.get("imie", "")
+    dni = (data - datetime.date.today()).days
+    return dni >= 0, max(0, dni), st.get("imie", "")
+
+def online_nieobecnosci():
+    """Lista nieobecności (bieżące i przyszłe) z ostatniej synchronizacji:
+    [{kod, od, do, typ, zastepuje}, ...] — do użycia w planerze tras."""
+    return _wczytaj(PLIK_STATUSU, {}).get("nieobecnosci", [])
+
+# ~~~~~~~~~~~~~~~~~~~~ KONIEC SEKCJI PMT-ONLINE ~~~~~~~~~~~~~~~~~~~~~~
+
 # =============================================================================
 #  WERSJA DEMO — limit 30 dni od pierwszego uruchomienia
 #  Przy pierwszym starcie zapisujemy ukryty, lekko zaszyfrowany plik z datą.
@@ -235,7 +402,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.12.2"
+WERSJA_PROGRAMU = "3.13.0"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -3485,6 +3652,10 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf_path_summary = os.path.join(folder,f"rozliczenie_wydatków_{pracownik.imie.replace(' ','_')}_{ms}_{rok}r.pdf")
     try: pdf.output(pdf_path_summary)
     except OSError: raise ValueError(f"Plik podsumowania jest otwarty w innym programie!\nZamknij: rozliczenie_wydatków...pdf")
+    try:
+        online_zdarzenie(dokumenty=len(podsumowanie))
+    except Exception:
+        pass
     return podsumowanie
 
 def log_error(exc: Exception):
@@ -12306,8 +12477,47 @@ if __name__ == "__main__":
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
 
-    # --- Kontrola wersji DEMO (30 dni) ---
-    _wazna, _pozostalo = demo_status()
+    # --- Logowanie 5-cyfrowym kodem uzytkownika (raz; potem pamietany) ---
+    if online_kod_uzytkownika() is None:
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit
+        while True:
+            _kod, _ok = QInputDialog.getText(None, "PMT Planer \u2014 logowanie",
+                "Podaj sw\u00f3j 5-cyfrowy kod u\u017cytkownika\n(otrzymasz go od administratora):",
+                QLineEdit.EchoMode.Normal, "")
+            if not _ok:
+                sys.exit(0)
+            _kod = _kod.strip()
+            if _kod.isdigit() and len(_kod) == 5:
+                online_zapisz_kod(_kod)
+                break
+
+    online_zdarzenie(uruchomienia=1)
+    _START_PROGRAMU = datetime.datetime.now()
+
+    # --- Kontrola sesji: najpierw arkusz (online), awaryjnie lokalne 30 dni ---
+    _wazna_o, _dni_o, _imie_o = online_status_sesji()
+    if _wazna_o is None:
+        online_synchronizuj()          # pierwszy kontakt z serwerem (jesli jest siec)
+        _wazna_o, _dni_o, _imie_o = online_status_sesji()
+    elif _wazna_o is False:
+        online_synchronizuj()          # moze administrator wlasnie przedluzyl sesje
+        _wazna_o, _dni_o, _imie_o = online_status_sesji()
+    if _wazna_o is not None:
+        _wazna, _pozostalo = _wazna_o, _dni_o
+    else:
+        _wazna, _pozostalo = demo_status()   # nigdy nie bylo kontaktu z serwerem
+
+    online_synchronizuj_w_tle()
+    online_petla_synchronizacji()
+    import atexit
+    def _pmt_zamkniecie():
+        try:
+            _min = (datetime.datetime.now() - _START_PROGRAMU).total_seconds() / 60.0
+            online_zdarzenie(minuty=_min)
+            online_synchronizuj()
+        except Exception:
+            pass
+    atexit.register(_pmt_zamkniecie)
     if not _wazna:
         from PyQt6.QtWidgets import QMessageBox
         _mb = QMessageBox()
@@ -12315,9 +12525,9 @@ if __name__ == "__main__":
         if _ico: _mb.setWindowIcon(QIcon(_ico))
         _mb.setWindowTitle("PMT Planer — wersja DEMO")
         _mb.setIcon(QMessageBox.Icon.Warning)
-        _mb.setText("Okres próbny (30 dni) dobiegł końca.")
+        _mb.setText("Sesja dobiegła końca.")
         _mb.setInformativeText("Dziękujemy za przetestowanie PMT Planer.\n"
-                               "Aby korzystać z pełnej wersji, skontaktuj się z autorem programu.")
+                               "Aby przedłużyć dostęp, skontaktuj się z administratorem — po przedłużeniu wystarczy ponownie uruchomić program (przy dostępie do internetu).")
         _mb.setStandardButtons(QMessageBox.StandardButton.Ok)
         _mb.exec()
         sys.exit(0)

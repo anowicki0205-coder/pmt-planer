@@ -145,7 +145,7 @@ input:focus,select:focus{outline:2px solid var(--akcent);outline-offset:1px;bord
   </div>
   <div class="foto-pole" id="planFotoPole" onclick="document.getElementById('planFoto').click()">
     Stuknij, aby zrobić zdjęcie planogramu
-    <input type="file" id="planFoto" accept="image/*" capture="environment" hidden>
+    <input type="file" id="planFoto" accept="image/*" hidden>
   </div>
   <div style="height:12px"></div>
   <div id="planWynik"></div>
@@ -159,7 +159,7 @@ input:focus,select:focus{outline:2px solid var(--akcent);outline-offset:1px;bord
   <p class="pod">Zrób zdjęcie półki tak, żeby cała mieściła się w kadrze. Wynik przyjdzie w kilkanaście sekund; bez zasięgu — powiadomimy, gdy będzie gotowy.</p>
   <div class="foto-pole" id="przedPole" onclick="document.getElementById('przedFoto').click()">
     Stuknij, aby zrobić zdjęcie półki
-    <input type="file" id="przedFoto" accept="image/*" capture="environment" hidden>
+    <input type="file" id="przedFoto" accept="image/*" hidden>
   </div>
 </section>
 
@@ -180,7 +180,7 @@ input:focus,select:focus{outline:2px solid var(--akcent);outline-offset:1px;bord
   <div class="karta" id="poBraki"></div>
   <div class="foto-pole" id="poPole" onclick="document.getElementById('poFoto').click()">
     Stuknij, aby zrobić zdjęcie półki po uzupełnieniu
-    <input type="file" id="poFoto" accept="image/*" capture="environment" hidden>
+    <input type="file" id="poFoto" accept="image/*" hidden>
   </div>
 </section>
 
@@ -210,7 +210,7 @@ input:focus,select:focus{outline:2px solid var(--akcent);outline-offset:1px;bord
 </main>
 <script>
 /* ========== KONFIGURACJA ========== */
-const URL_BACKENDU = "https://script.google.com/macros/s/TU_WKLEJ_SWOJ_IDENTYFIKATOR/exec";
+const URL_BACKENDU = "https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5nqSQgQYixkItuxvT3gu4HokQlaMz3yXbiL06S2jZgoYAw/exec";
 
 /* ========== bezpieczny magazyn (dziala tez tam, gdzie localStorage jest zablokowany) ========== */
 const mag = {

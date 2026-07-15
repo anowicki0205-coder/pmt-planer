@@ -1,2 +1,2 @@
-3.12.2
-Naprawiono prawdziwa przyczyne, dla ktorej zabezpieczenie (rollback) nie zadzialalo mimo ze bylo na miejscu: weryfikacja "czy program wystartowal" sprawdzala tylko istnienie procesu, a bootloader PyInstallera przy bledzie ladowania biblioteki Pythona pokazuje okno bledu i CZEKA - proces wciaz "istnieje" mimo ze program nie dziala. Program teraz sam zapisuje znacznik zaraz po starcie; skrypt aktualizacji sprawdza TEN znacznik, nie sam proces. WAZNE: podmien plik updater.bat na GitHub tym nowym.
+3.13.0
+Nowosci: logowanie 5-cyfrowym kodem uzytkownika, sesje zarzadzane zdalnie przez administratora (przedluzanie bez dotykania komputera uzytkownika), statystyki pracy (uruchomienia, dokumenty, czas) wysylane do panelu administratora przy polaczeniu z internetem - offline wszystko czeka w kolejce i nic nie ginie. Wersje na Windows, macOS i Linux budowane automatycznie.

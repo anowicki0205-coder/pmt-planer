@@ -1,7 +1,2 @@
-3.12.3
-Widok miesiaca w Planie Wizyt: kolor dnia to teraz STATUS (zaplanowane/dzis/zalegle/zrobione), nie liczba wizyt. Mapa cieplna po wolumenie nie pokazywala roznicy, bo dni cykliczne maja bardzo zblizone liczby wizyt. Status pokazuje realna, uzyteczna informacje: gdzie sa zaleglosci (bursztynowy, jak baner), co jest zrobione (zielony), co dopiero przed Toba (cyjan).
-Piec nowosci: przycisk Plan Wizyt w menu bocznym, kopia zapasowa jednym klikiem, rozpoznawanie zmian przy ponownym imporcie listy, lista punktow bez lokalizacji (nie tylko liczba), oraz eksport planu i dziennika do Excela i PDF.
-Aktualizacja jest teraz naprawialna zdalnie
-Kokpit dnia: po uruchomieniu od razu widzisz ile masz dzis wizyt
-Rozwinięte możliwości planowania tras.
-Aktualizacja pobierania o ZIP.
+3.12.2
+Naprawiono prawdziwa przyczyne, dla ktorej zabezpieczenie (rollback) nie zadzialalo mimo ze bylo na miejscu: weryfikacja "czy program wystartowal" sprawdzala tylko istnienie procesu, a bootloader PyInstallera przy bledzie ladowania biblioteki Pythona pokazuje okno bledu i CZEKA - proces wciaz "istnieje" mimo ze program nie dziala. Program teraz sam zapisuje znacznik zaraz po starcie; skrypt aktualizacji sprawdza TEN znacznik, nie sam proces. WAZNE: podmien plik updater.bat na GitHub tym nowym.

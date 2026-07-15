@@ -1,0 +1,38 @@
+# =============================================================================
+#  Metadane wersji wbudowane w PMT_Delegacje.exe
+#  Dzięki nim Windows pokazuje nazwę programu, wersję i autora zamiast pustych
+#  pól (Właściwości pliku -> Szczegóły). Nadaje programowi profesjonalny wygląd
+#  i bywa łagodniej traktowany przez SmartScreen. NIE zastępuje podpisu
+#  cyfrowego, ale poprawia odbiór programu.
+#
+#  Jak zaktualizować wersję: zmień oba miejsca 'filevers' i 'prodvers'
+#  (czwórki liczb, np. 3,12,2,0 dla wersji 3.12.2) oraz teksty niżej.
+# =============================================================================
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(3, 12, 2, 0),
+    prodvers=(3, 12, 2, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'041504b0',
+        [StringStruct(u'CompanyName', u'PMT'),
+        StringStruct(u'FileDescription', u'PMT Planer — planowanie tras i wizyt'),
+        StringStruct(u'FileVersion', u'3.12.2'),
+        StringStruct(u'InternalName', u'PMT_Delegacje'),
+        StringStruct(u'LegalCopyright', u'© 2026 PMT. Wszelkie prawa zastrzeżone.'),
+        StringStruct(u'OriginalFilename', u'PMT_Delegacje.exe'),
+        StringStruct(u'ProductName', u'PMT Planer'),
+        StringStruct(u'ProductVersion', u'3.12.2')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1045, 1200])])
+  ]
+)

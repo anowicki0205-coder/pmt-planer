@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PMT Wizyty</title>
+<!-- ====================================================================
+  PMT WIZYTY — aplikacja terenowa (jeden plik, hosting np. GitHub Pages)
+
+  JAK URUCHOMIĆ:
+  1. Wklej niżej adres backendu (URL_BACKENDU — ten sam /exec co w programie).
+  2. Wgraj ten plik do repo na GitHubie, włącz GitHub Pages
+     (Settings → Pages → Deploy from branch) — dostajesz adres https.
+  3. Na telefonie otwórz adres i "Dodaj do ekranu początkowego"
+     (wymagane dla powiadomień push na iPhone).
+  UWAGA: plik musi działać z hostingu (https). Otwarty lokalnie lub w
+  podglądzie nie zapisze danych między sesjami.
+
+  PRZEPŁYW WIZYTY: sklep+planogram → skan PRZED → checklista (korekty
+  człowieka mają ostatnie słowo) → dokładanie → skan PO → delta → wysyłka.
+  OFFLINE: zdjęcia i raporty czekają w kolejce, wysyłka przy zasięgu.
+===================================================================== -->
+<style>
+:root{
+  --tlo:#F2F5F9; --karta:#FFFFFF; --atrament:#141D30; --wyblakly:#5D6A82;
+  --linia:#DDE4EE; --akcent:#3B4FD8; --akcent-c:#2E3FB0;
+  --brak:#D93B3B; --jest:#1F9D55; --magazyn:#C77414;
+  --r:14px; --cien:0 1px 3px rgba(20,29,48,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;
+  background:var(--tlo);color:var(--atrament);min-height:100vh;
+  padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+/* --- naglowek z krokiem wizyty --- */
+header{position:sticky;top:0;z-index:20;background:var(--karta);
+  border-bottom:1px solid var(--linia);padding:14px 18px 10px}
+header h1{font-size:15px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+header h1 span{color:var(--akcent)}
+#krokPasek{display:flex;gap:6px;margin-top:10px}
+#krokPasek i{flex:1;height:4px;border-radius:2px;background:var(--linia)}
+#krokPasek i.on{background:var(--akcent)}
+#krokNazwa{font-size:12px;color:var(--wyblakly);margin-top:6px}
+main{padding:18px;max-width:560px;margin:0 auto}
+.ekran{display:none}.ekran.on{display:block}
+h2{font-size:22px;font-weight:800;letter-spacing:-.01em;margin:6px 0 4px}
+.pod{font-size:14px;color:var(--wyblakly);margin-bottom:16px;line-height:1.45}
+.karta{background:var(--karta);border:1px solid var(--linia);
+  border-radius:var(--r);box-shadow:var(--cien);padding:16px;margin-bottom:12px}
+label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--wyblakly);display:block;margin-bottom:6px}
+input[type=text],input[type=tel],select{width:100%;font-size:17px;padding:13px 14px;
+  border:1.5px solid var(--linia);border-radius:10px;background:#FBFCFE;color:var(--atrament)}
+input:focus,select:focus{outline:2px solid var(--akcent);outline-offset:1px;border-color:var(--akcent)}
+/* --- przyciski --- */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+  font-size:17px;font-weight:700;padding:16px;border-radius:12px;border:none;
+  cursor:pointer;background:var(--akcent);color:#fff;touch-action:manipulation}
+.btn:active{background:var(--akcent-c)}
+.btn.drugi{background:var(--karta);color:var(--akcent);border:1.5px solid var(--akcent)}
+.btn:disabled{opacity:.45}
+.dol{position:fixed;left:0;right:0;bottom:0;padding:12px 18px calc(12px + env(safe-area-inset-bottom));
+  background:linear-gradient(transparent,var(--tlo) 30%);max-width:560px;margin:0 auto}
+/* --- SYGNATURA: wskaznik-polka (dostepnosc jako segmenty-facingi) --- */
+.polka{display:flex;gap:3px;height:34px;margin:8px 0 2px}
+.polka i{flex:1;border-radius:4px;background:var(--linia);
+  border-bottom:3px solid #C6CFDD;transition:background .4s}
+.polka i.pelny{background:var(--jest);border-bottom-color:#157A40}
+.polka i.pusty{background:#F3D2D2;border-bottom-color:var(--brak)}
+.polka-opis{display:flex;justify-content:space-between;font-size:13px;color:var(--wyblakly)}
+.procent{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
+/* --- checklista pozycji --- */
+.poz{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--linia)}
+.poz:last-child{border-bottom:none}
+.poz .info{flex:1;min-width:0}
+.poz .naz{font-size:15px;font-weight:600;line-height:1.3}
+.poz .kod{font-size:12.5px;color:var(--wyblakly);font-variant-numeric:tabular-nums}
+.poz .niepewne{color:var(--magazyn);font-size:12px;font-weight:700}
+.stan{display:flex;gap:4px}
+.stan button{font-size:12.5px;font-weight:700;padding:9px 10px;border-radius:9px;
+  border:1.5px solid var(--linia);background:var(--karta);color:var(--wyblakly);
+  cursor:pointer;touch-action:manipulation}
+.stan button.b.on{background:var(--brak);border-color:var(--brak);color:#fff}
+.stan button.j.on{background:var(--jest);border-color:var(--jest);color:#fff}
+.stan button.m.on{background:var(--magazyn);border-color:var(--magazyn);color:#fff}
+/* --- rozne --- */
+.znaczek{display:inline-block;font-size:12px;font-weight:700;padding:4px 10px;
+  border-radius:99px;background:#E9EDFB;color:var(--akcent);margin-bottom:10px}
+.info-pas{font-size:13.5px;line-height:1.5;padding:12px 14px;border-radius:10px;
+  background:#FFF6E8;border:1px solid #F0DDB8;color:#7A5716;margin-bottom:12px}
+.foto-pole{border:2px dashed var(--linia);border-radius:var(--r);padding:26px 16px;
+  text-align:center;color:var(--wyblakly);font-size:14.5px;background:var(--karta)}
+.foto-pole img{max-width:100%;border-radius:10px;margin-top:10px}
+.kreci{width:22px;height:22px;border:3px solid #fff;border-top-color:transparent;
+  border-radius:50%;animation:kr 1s linear infinite}
+@keyframes kr{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.kreci{animation:none}.polka i{transition:none}}
+.siec{position:fixed;top:0;left:0;right:0;z-index:30;background:var(--magazyn);color:#fff;
+  font-size:13px;font-weight:700;text-align:center;padding:6px;display:none}
+.siec.widac{display:block}
+</style>
+</head>
+<body>
+<div class="siec" id="pasekOffline">Brak internetu — dane czekają w kolejce i wyślą się same</div>
+<header>
+  <h1>PMT <span>Wizyty</span></h1>
+  <div id="krokPasek"><i></i><i></i><i></i><i></i><i></i></div>
+  <div id="krokNazwa"></div>
+</header>
+<main>
+
+<!-- EKRAN 0: logowanie -->
+<section class="ekran" id="e-login">
+  <h2>Zaloguj się</h2>
+  <p class="pod">Podaj swój 5-cyfrowy kod użytkownika. Znajdziesz go u administratora.</p>
+  <div class="karta">
+    <label for="kodWe">Kod użytkownika</label>
+    <input type="tel" id="kodWe" maxlength="5" inputmode="numeric" placeholder="np. 12345">
+  </div>
+  <button class="btn" onclick="zaloguj()">Rozpocznij pracę</button>
+</section>
+
+<!-- EKRAN 1: wybor sklepu i planogramu -->
+<section class="ekran" id="e-start">
+  <h2>Nowa wizyta</h2>
+  <p class="pod" id="powitanie"></p>
+  <div class="karta">
+    <label for="sklepWe">Sklep</label>
+    <input type="text" id="sklepWe" placeholder="np. Biedronka Radzymińska 12">
+    <div style="height:12px"></div>
+    <label for="planSel">Planogram</label>
+    <select id="planSel"></select>
+  </div>
+  <button class="btn drugi" onclick="pokazEkran('e-planogram')">+ Dodaj nowy planogram (zdjęcie)</button>
+  <div class="dol"><button class="btn" onclick="startWizyty()">Zacznij wizytę</button></div>
+</section>
+
+<!-- EKRAN 1b: dodanie planogramu ze zdjecia (raz, starannie) -->
+<section class="ekran" id="e-planogram">
+  <h2>Nowy planogram</h2>
+  <p class="pod">Zrób staranne zdjęcie na wprost, przy dobrym świetle. Analiza chwilę potrwa — potem sprawdzisz i poprawisz wynik ręcznie.</p>
+  <div class="karta">
+    <label for="planNazwa">Nazwa planogramu</label>
+    <input type="text" id="planNazwa" placeholder="np. Podajnik górny — strona 1">
+  </div>
+  <div class="foto-pole" id="planFotoPole" onclick="document.getElementById('planFoto').click()">
+    Stuknij, aby zrobić zdjęcie planogramu
+    <input type="file" id="planFoto" accept="image/*" capture="environment" hidden>
+  </div>
+  <div style="height:12px"></div>
+  <div id="planWynik"></div>
+  <div class="dol"><button class="btn" id="planZapisz" disabled onclick="zapiszPlanogram()">Zapisz planogram</button></div>
+</section>
+
+<!-- EKRAN 2: skan PRZED -->
+<section class="ekran" id="e-przed">
+  <span class="znaczek" id="zn-sklep"></span>
+  <h2>Skan półki — na wejściu</h2>
+  <p class="pod">Zrób zdjęcie półki tak, żeby cała mieściła się w kadrze. Wynik przyjdzie w kilkanaście sekund; bez zasięgu — powiadomimy, gdy będzie gotowy.</p>
+  <div class="foto-pole" id="przedPole" onclick="document.getElementById('przedFoto').click()">
+    Stuknij, aby zrobić zdjęcie półki
+    <input type="file" id="przedFoto" accept="image/*" capture="environment" hidden>
+  </div>
+</section>
+
+<!-- EKRAN 3: checklista brakow z korektami -->
+<section class="ekran" id="e-lista">
+  <span class="znaczek" id="zn-sklep2"></span>
+  <h2 id="listaTytul">Wynik analizy</h2>
+  <p class="pod">Sprawdź i popraw — Twoje oznaczenie ma zawsze ostatnie słowo nad AI. <b>B</b> = brak w półce, <b>OK</b> = jednak stoi, <b>MAG</b> = brak też na magazynie.</p>
+  <div class="karta" id="listaPojemnik"></div>
+  <div class="dol"><button class="btn" onclick="doDokladania()">Zatwierdź listę braków</button></div>
+</section>
+
+<!-- EKRAN 4: dokladanie i skan PO -->
+<section class="ekran" id="e-po">
+  <span class="znaczek" id="zn-sklep3"></span>
+  <h2>Dołóż towar i zeskanuj ponownie</h2>
+  <p class="pod" id="poOpis"></p>
+  <div class="karta" id="poBraki"></div>
+  <div class="foto-pole" id="poPole" onclick="document.getElementById('poFoto').click()">
+    Stuknij, aby zrobić zdjęcie półki po uzupełnieniu
+    <input type="file" id="poFoto" accept="image/*" capture="environment" hidden>
+  </div>
+</section>
+
+<!-- EKRAN 5: delta przed/po -->
+<section class="ekran" id="e-delta">
+  <span class="znaczek" id="zn-sklep4"></span>
+  <h2>Efekt wizyty</h2>
+  <p class="pod">Porównanie dostępności przed i po uzupełnieniu półki.</p>
+  <div class="karta">
+    <div class="polka-opis"><span>Na wejściu</span><span class="procent" id="prcPrzed">–</span></div>
+    <div class="polka" id="polkaPrzed"></div>
+    <div style="height:16px"></div>
+    <div class="polka-opis"><span>Po uzupełnieniu</span><span class="procent" id="prcPo">–</span></div>
+    <div class="polka" id="polkaPo"></div>
+  </div>
+  <div class="karta" id="deltaPodsumowanie"></div>
+  <div class="dol"><button class="btn" onclick="wyslijWizyte()">Wyślij raport wizyty</button></div>
+</section>
+
+<!-- EKRAN 6: koniec -->
+<section class="ekran" id="e-koniec">
+  <h2>Raport zapisany</h2>
+  <p class="pod" id="koniecOpis"></p>
+  <button class="btn" onclick="resetWizyty()">Następna wizyta</button>
+</section>
+
+</main>
+<script>
+/* ========== KONFIGURACJA ========== */
+const URL_BACKENDU = "https://script.google.com/macros/s/TU_WKLEJ_SWOJ_IDENTYFIKATOR/exec";
+
+/* ========== bezpieczny magazyn (dziala tez tam, gdzie localStorage jest zablokowany) ========== */
+const mag = {
+  d: {},
+  get(k, dom){ try{ const v = localStorage.getItem(k); return v===null?dom:JSON.parse(v);}catch(e){ return (k in this.d)?this.d[k]:dom; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} this.d[k]=v; }
+};
+
+/* ========== stan wizyty ========== */
+let W = null;           // {sklep, planogram, pozycje[], statusyPrzed{}, statusyPo{}, poprawki}
+let planogramy = mag.get("pmt_planogramy", []);
+const kroki = ["Logowanie","Wizyta","Skan na wejściu","Lista braków","Uzupełnienie","Efekt"];
+
+function pokazEkran(id){
+  document.querySelectorAll(".ekran").forEach(e=>e.classList.remove("on"));
+  document.getElementById(id).classList.add("on");
+  const nr = {"e-login":0,"e-start":1,"e-planogram":1,"e-przed":2,"e-lista":3,"e-po":4,"e-delta":5,"e-koniec":5}[id]||0;
+  document.querySelectorAll("#krokPasek i").forEach((p,i)=>p.classList.toggle("on", i<=nr-1));
+  document.getElementById("krokNazwa").textContent = kroki[Math.max(0,nr)] || "";
+  window.scrollTo(0,0);
+}
+
+/* ========== siec / kolejka offline ========== */
+function czyOnline(){ return navigator.onLine; }
+function pasekSieci(){ document.getElementById("pasekOffline").classList.toggle("widac", !czyOnline()); }
+addEventListener("online", ()=>{ pasekSieci(); ruszKolejke(); });
+addEventListener("offline", pasekSieci);
+
+async function backend(cialo){
+  const odp = await fetch(URL_BACKENDU, { method:"POST", body: JSON.stringify(cialo) });
+  return await odp.json();
+}
+// kolejka: raporty wizyt czekajace na zasieg
+function doKolejki(wpis){ const q = mag.get("pmt_kolejka_www", []); q.push(wpis); mag.set("pmt_kolejka_www", q); }
+async function ruszKolejke(){
+  if(!czyOnline()) return;
+  const q = mag.get("pmt_kolejka_www", []);
+  const zostaje = [];
+  for(const wpis of q){
+    try{ const o = await backend(wpis); if(o.status!=="ok") zostaje.push(wpis); }
+    catch(e){ zostaje.push(wpis); }
+  }
+  mag.set("pmt_kolejka_www", zostaje);
+}
+setInterval(ruszKolejke, 60000);
+
+/* ========== zdjecia: kompresja przed wyslaniem ========== */
+function wczytajICompresuj(plik){
+  return new Promise((res, rej)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const maxW = 1400, skala = Math.min(1, maxW/img.width);
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width*skala); c.height = Math.round(img.height*skala);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      res(c.toDataURL("image/jpeg",0.82).split(",")[1]);   // czysty base64
+    };
+    img.onerror = rej;
+    img.src = URL.createObjectURL(plik);
+  });
+}
+
+/* ========== logowanie ========== */
+function zaloguj(){
+  const kod = document.getElementById("kodWe").value.trim();
+  if(!/^\d{5}$/.test(kod)){ alert("Kod to dokładnie 5 cyfr."); return; }
+  mag.set("pmt_kod", kod);
+  if("Notification" in window && Notification.permission==="default") Notification.requestPermission();
+  startEkranu();
+}
+function startEkranu(){
+  const kod = mag.get("pmt_kod", null);
+  if(!kod){ pokazEkran("e-login"); return; }
+  document.getElementById("powitanie").textContent = "Kod: " + kod + ". Wybierz sklep i planogram tej półki.";
+  odswiezPlanogramy();
+  pokazEkran("e-start");
+}
+function odswiezPlanogramy(){
+  const sel = document.getElementById("planSel");
+  sel.innerHTML = "";
+  planogramy.forEach((p,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=p.nazwa+(p.sklep?" — "+p.sklep:""); sel.appendChild(o); });
+  if(!planogramy.length){ const o=document.createElement("option"); o.textContent="Brak planogramów — dodaj pierwszy"; o.value=-1; sel.appendChild(o); }
+  if(czyOnline()) backend({akcja:"pobierz_planogramy"}).then(o=>{
+    if(o.status==="ok" && o.planogramy.length){ planogramy=o.planogramy; mag.set("pmt_planogramy",planogramy); if(document.getElementById("e-start").classList.contains("on")) odswiezPlanogramy(); }
+  }).catch(()=>{});
+}
+
+/* ========== planogram ze zdjecia ========== */
+document.getElementById("planFoto").addEventListener("change", async ev=>{
+  const plik = ev.target.files[0]; if(!plik) return;
+  const pole = document.getElementById("planFotoPole");
+  pole.innerHTML = "Analizuję planogram… to potrwa do minuty";
+  if(!czyOnline()){ pole.innerHTML = "Do odczytania planogramu potrzebny jest internet — spróbuj przy zasięgu (półki możesz skanować offline)."; return; }
+  try{
+    const b64 = await wczytajICompresuj(plik);
+    const o = await backend({akcja:"analiza_polki", tryb:"planogram", obraz_b64:b64});
+    if(o.status!=="ok") throw new Error(o.opis||"analiza nie powiodła się");
+    W_plan_tmp = o.pozycje;
+    pole.innerHTML = "Odczytano " + o.pozycje.length + " pozycji ✓";
+    const w = document.getElementById("planWynik");
+    w.innerHTML = "<div class='karta'><label>Sprawdź odczyt (możesz edytować)</label>" +
+      o.pozycje.map((p,i)=>`<div class='poz'><div class='info'><input type='text' style='font-size:14px;padding:8px' value="${(p.produkt||"").replace(/"/g,"&quot;")}" onchange="W_plan_tmp[${i}].produkt=this.value"><div class='kod'>rząd ${p.rzad??"?"} · kod ${p.kod||"—"}${(p.pewnosc??1)<0.7?" · <span class='niepewne'>sprawdź!</span>":""}</div></div></div>`).join("") + "</div>";
+    document.getElementById("planZapisz").disabled = false;
+  }catch(e){ pole.innerHTML = "Nie udało się odczytać: " + e.message + ". Stuknij, aby spróbować ponownie."; }
+});
+let W_plan_tmp = [];
+async function zapiszPlanogram(){
+  const nazwa = document.getElementById("planNazwa").value.trim() || "Planogram " + new Date().toLocaleDateString("pl");
+  const wpis = {akcja:"zapisz_planogram", kod: mag.get("pmt_kod",""), nazwa, sklep:"", pozycje: W_plan_tmp};
+  planogramy.push({id:"lokalny"+Date.now(), nazwa, sklep:"", pozycje:W_plan_tmp});
+  mag.set("pmt_planogramy", planogramy);
+  try{ if(czyOnline()) await backend(wpis); else doKolejki(wpis); }catch(e){ doKolejki(wpis); }
+  odswiezPlanogramy(); pokazEkran("e-start");
+}
+
+/* ========== wizyta ========== */
+function startWizyty(){
+  const sklep = document.getElementById("sklepWe").value.trim();
+  const idx = Number(document.getElementById("planSel").value);
+  if(!sklep){ alert("Podaj nazwę sklepu."); return; }
+  if(idx<0 || !planogramy[idx]){ alert("Najpierw dodaj planogram."); return; }
+  W = {sklep, planogram: planogramy[idx], statusyPrzed:{}, statusyPo:{}, poprawki:0};
+  document.querySelectorAll("#zn-sklep,#zn-sklep2,#zn-sklep3,#zn-sklep4").forEach(z=>z.textContent=sklep);
+  pokazEkran("e-przed");
+}
+
+async function analizujPolke(plik, faza){   // faza: "przed" | "po"
+  const pole = document.getElementById(faza==="przed"?"przedPole":"poPole");
+  pole.innerHTML = "Analizuję zdjęcie…";
+  const b64 = await wczytajICompresuj(plik);
+  const zad = {akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje: W.planogram.pozycje};
+  if(!czyOnline()){
+    doKolejki(Object.assign({_faza:faza,_sklep:W.sklep}, zad));
+    pole.innerHTML = "Brak zasięgu — zdjęcie czeka w kolejce. Dostaniesz powiadomienie, gdy wynik będzie gotowy. Możesz kontynuować wizytę ręcznie:";
+    // fallback reczny: pelna checklista do odhaczenia bez AI
+    zastosujWynik(W.planogram.pozycje.map(p=>({kod:p.kod,produkt:p.produkt,status:"jest",pewnosc:0})), faza, true);
+    return;
+  }
+  try{
+    const o = await backend(zad);
+    if(o.status!=="ok") throw new Error(o.opis||"błąd analizy");
+    zastosujWynik(o.pozycje, faza, false);
+    if("Notification" in window && Notification.permission==="granted"){
+      const braki = o.pozycje.filter(p=>p.status==="brak").length;
+      new Notification("PMT Wizyty — " + W.sklep, {body: faza==="przed" ? ("Brakuje " + braki + " produktów — lista gotowa") : "Skan po uzupełnieniu gotowy"});
+    }
+  }catch(e){ pole.innerHTML = "Analiza nie powiodła się: " + e.message + ". Stuknij, aby spróbować ponownie."; }
+}
+document.getElementById("przedFoto").addEventListener("change", ev=>{ if(ev.target.files[0]) analizujPolke(ev.target.files[0], "przed"); });
+document.getElementById("poFoto").addEventListener("change", ev=>{ if(ev.target.files[0]) analizujPolke(ev.target.files[0], "po"); });
+
+function zastosujWynik(pozycje, faza, reczny){
+  const cel = faza==="przed" ? W.statusyPrzed : W.statusyPo;
+  pozycje.forEach(p=>{ cel[p.kod||p.produkt] = {produkt:p.produkt, status:p.status, pewnosc:p.pewnosc??1}; });
+  if(faza==="przed"){ rysujListe(reczny); pokazEkran("e-lista"); }
+  else { rysujDelte(); pokazEkran("e-delta"); }
+}
+
+/* checklista z korektami czlowieka */
+function rysujListe(reczny){
+  document.getElementById("listaTytul").textContent = reczny ? "Odhacz ręcznie" : "Wynik analizy";
+  const box = document.getElementById("listaPojemnik");
+  box.innerHTML = "";
+  Object.entries(W.statusyPrzed).forEach(([klucz,p])=>{
+    const w = document.createElement("div"); w.className="poz";
+    const niepewne = !reczny && p.pewnosc < 0.7 ? " <span class='niepewne'>sprawdź!</span>" : "";
+    w.innerHTML = `<div class="info"><div class="naz">${p.produkt||klucz}</div>
+      <div class="kod">${klucz}${niepewne}</div></div>
+      <div class="stan">
+        <button class="b${p.status==="brak"?" on":""}">B</button>
+        <button class="j${p.status==="jest"?" on":""}">OK</button>
+        <button class="m${p.status==="magazyn"?" on":""}">MAG</button>
+      </div>`;
+    const [bB,bJ,bM] = w.querySelectorAll("button");
+    const ustaw = s=>{ if(W.statusyPrzed[klucz].status!==s) W.poprawki++;
+      W.statusyPrzed[klucz].status=s;
+      bB.classList.toggle("on",s==="brak"); bJ.classList.toggle("on",s==="jest"); bM.classList.toggle("on",s==="magazyn"); };
+    bB.onclick=()=>ustaw("brak"); bJ.onclick=()=>ustaw("jest"); bM.onclick=()=>ustaw("magazyn");
+    box.appendChild(w);
+  });
+}
+
+function doDokladania(){
+  const braki = Object.entries(W.statusyPrzed).filter(([,p])=>p.status==="brak");
+  const mag_ = Object.entries(W.statusyPrzed).filter(([,p])=>p.status==="magazyn");
+  document.getElementById("poOpis").textContent = braki.length
+    ? "Do dołożenia z zaplecza: " + braki.length + " prod." + (mag_.length? " Braki magazynowe ("+mag_.length+") pomiń — trafią do raportu jako do zamówienia." : "")
+    : "Brak braków — zrób skan kontrolny i zamknij wizytę.";
+  document.getElementById("poBraki").innerHTML = braki.map(([k,p])=>`<div class="poz"><div class="info"><div class="naz">${p.produkt||k}</div><div class="kod">${k}</div></div></div>`).join("") || "<div class='pod'>Pełna dostępność na wejściu 🎯</div>";
+  pokazEkran("e-po");
+}
+
+/* delta przed/po + wskaznik-polka */
+function procent(statusy){
+  const wszystkie = Object.values(statusy); if(!wszystkie.length) return 0;
+  return Math.round(100 * wszystkie.filter(p=>p.status==="jest").length / wszystkie.length);
+}
+function rysujPolke(el, statusy){
+  el.innerHTML = "";
+  Object.values(statusy).forEach(p=>{ const i=document.createElement("i");
+    i.className = p.status==="jest" ? "pelny" : "pusty"; el.appendChild(i); });
+}
+function rysujDelte(){
+  const pPrzed = procent(W.statusyPrzed), pPo = procent(W.statusyPo);
+  document.getElementById("prcPrzed").textContent = pPrzed + "%";
+  document.getElementById("prcPo").textContent = pPo + "%";
+  rysujPolke(document.getElementById("polkaPrzed"), W.statusyPrzed);
+  rysujPolke(document.getElementById("polkaPo"), W.statusyPo);
+  const brakiPrzed = Object.values(W.statusyPrzed).filter(p=>p.status!=="jest").length;
+  const brakiPo   = Object.values(W.statusyPo).filter(p=>p.status!=="jest").length;
+  const magazynowe = Object.values(W.statusyPrzed).filter(p=>p.status==="magazyn").length;
+  document.getElementById("deltaPodsumowanie").innerHTML =
+    `<div class="naz" style="font-size:16px;font-weight:700;margin-bottom:6px">Domknięto ${Math.max(0,brakiPrzed-brakiPo)} z ${brakiPrzed} braków</div>
+     <div class="pod" style="margin:0">${magazynowe ? magazynowe + " poz. bez towaru na magazynie — w raporcie jako do zamówienia. " : ""}${brakiPo>magazynowe ? (brakiPo-magazynowe)+" poz. nadal do wyjaśnienia." : "Reszta półki zgodna z planogramem."}</div>`;
+}
+
+/* wysylka raportu (offline: do kolejki) */
+async function wyslijWizyte(){
+  const raport = {
+    akcja:"zapisz_wizyte", kod: mag.get("pmt_kod",""), sklep: W.sklep,
+    planogram: W.planogram.nazwa,
+    dostepnosc_przed: procent(W.statusyPrzed), dostepnosc_po: procent(W.statusyPo),
+    braki_przed: Object.entries(W.statusyPrzed).filter(([,p])=>p.status!=="jest").map(([k,p])=>p.produkt||k),
+    braki_po: Object.entries(W.statusyPo).filter(([,p])=>p.status!=="jest").map(([k,p])=>p.produkt||k),
+    poprawki: W.poprawki, uwagi: ""
+  };
+  let wyslano = false;
+  try{ if(czyOnline()){ const o = await backend(raport); wyslano = o.status==="ok"; } }catch(e){}
+  if(!wyslano) doKolejki(raport);
+  document.getElementById("koniecOpis").textContent = wyslano
+    ? "Raport trafił do systemu. Dostępność: " + raport.dostepnosc_przed + "% → " + raport.dostepnosc_po + "%."
+    : "Brak zasięgu — raport czeka w kolejce i wyśle się sam przy pierwszym połączeniu.";
+  pokazEkran("e-koniec");
+}
+function resetWizyty(){ W=null; ["przedPole","poPole"].forEach(id=>{const e=document.getElementById(id); e.innerHTML = e.innerHTML;}); location.reload(); }
+
+/* start */
+pasekSieci(); startEkranu(); ruszKolejke();
+</script>
+</body>
+</html>

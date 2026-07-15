@@ -21,6 +21,11 @@
 # ============================================================
 name: Buduj wydanie
 
+# Prawo zapisu dla tokenu — konieczne, by dolaczyc pliki do wydania.
+# (Bez tego krok "Dolacz do wydania" konczy sie bledem uprawnien.)
+permissions:
+  contents: write
+
 on:
   push:
     tags: ["v*"]

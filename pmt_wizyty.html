@@ -88,7 +88,7 @@ select option{background:#0F172A;color:var(--atrament)}
 .poz .kod{font-size:12.5px;color:var(--wyblakly);font-variant-numeric:tabular-nums}
 .poz .niepewne{color:var(--magazyn);font-size:12px;font-weight:700}
 .stan{display:flex;gap:4px}
-.stan button{font-size:12.5px;font-weight:800;padding:9px 10px;border-radius:9px;
+.stan button{font-size:12px;font-weight:700;padding:9px 8px;border-radius:9px;
   border:1px solid var(--linia);background:transparent;color:var(--wyblakly);
   cursor:pointer;touch-action:manipulation}
 .stan button.b.on{background:var(--brak);border-color:var(--brak);color:#fff}
@@ -130,13 +130,18 @@ select option{background:#0F172A;color:var(--atrament)}
 <!-- EKRAN 0: logowanie -->
 <section class="ekran" id="e-login">
   <h2>Zaloguj się</h2>
-  <p class="pod">Podaj swój 5-cyfrowy kod użytkownika — otrzymasz go od administratora.</p>
+  <p class="pod">Login to Twój 5-cyfrowy kod, hasło — numer telefonu podany administratorowi.</p>
   <div class="karta">
-    <label for="kodWe">Kod użytkownika</label>
+    <label for="kodWe">Login (kod użytkownika)</label>
     <input type="tel" id="kodWe" maxlength="5" inputmode="numeric" placeholder="•••••"
            style="text-align:center;font-size:24px;font-weight:700;letter-spacing:10px">
+    <div style="height:12px"></div>
+    <label for="telWe">Hasło (numer telefonu)</label>
+    <input type="tel" id="telWe" maxlength="15" inputmode="numeric" placeholder="np. 570905491"
+           style="text-align:center;font-size:18px;font-weight:600;letter-spacing:3px">
+    <div id="loginBlad" style="display:none;color:#F87171;font-size:13px;font-weight:600;margin-top:10px"></div>
   </div>
-  <button class="btn" onclick="zaloguj()">Rozpocznij pracę</button>
+  <button class="btn" id="btnZaloguj" onclick="zaloguj()">Rozpocznij pracę</button>
 </section>
 
 <!-- EKRAN 1: nowa wizyta -->
@@ -191,7 +196,8 @@ select option{background:#0F172A;color:var(--atrament)}
   <span class="znaczek" id="zn-sklep2"></span>
   <h2 id="listaTytul">Wynik analizy</h2>
   <p class="pod">Sprawdź i popraw — Twoje oznaczenie ma ostatnie słowo nad AI.
-  <b>B</b> = brak w półce, <b>OK</b> = stoi, <b>MAG</b> = brak też na magazynie.</p>
+  „Magazyn" = brakuje w półce i nie ma czym dołożyć.</p>
+  <div class="info-pas" id="aiStan" style="display:none"></div>
   <div class="karta" id="listaPojemnik"></div>
   <button class="btn drugi maly" onclick="nowySkan()">&#8634; Powtórz skan półki</button>
   <div class="dol"><button class="btn" onclick="doDokladania()">Zatwierdź listę braków</button></div>
@@ -214,6 +220,7 @@ select option{background:#0F172A;color:var(--atrament)}
   <span class="znaczek" id="zn-sklep4"></span>
   <h2>Efekt wizyty</h2>
   <p class="pod">Dostępność przed i po uzupełnieniu półki.</p>
+  <div class="info-pas" id="aiStanPo" style="display:none"></div>
   <div class="karta">
     <div class="polka-opis"><span>Na wejściu</span><span class="procent" id="prcPrzed">–</span></div>
     <div class="polka" id="polkaPrzed"></div>
@@ -233,6 +240,10 @@ select option{background:#0F172A;color:var(--atrament)}
 </section>
 
 </main>
+<div id="fotoOverlay" onclick="this.style.display='none'"
+     style="display:none;position:fixed;inset:0;background:rgba(4,18,26,.96);z-index:50;align-items:center;justify-content:center">
+  <img id="fotoDuze" alt="półka" style="max-width:96vw;max-height:92vh;border-radius:12px">
+</div>
 <script>
 /* ========== KONFIGURACJA ========== */
 const URL_BACKENDU = "https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5nqSQgQYixkItuxvT3gu4HokQlaMz3yXbiL06S2jZgoYAw/exec";
@@ -271,7 +282,7 @@ function wstecz(){           // przycisk <- w naglowku
   _pokaz(stos.pop());
 }
 function nowySkan(){         // powtorka skanu "przed" z czysta karta
-  W.statusyPrzed = {}; W.poprawki = 0;
+  W.statusyPrzed = {}; W.poprawki = 0; W.dotknietePrzed = {}; ustawBaner("przed", "");
   const p = document.getElementById("przedPole");
   p.innerHTML = 'Stuknij, aby dodać zdjęcie półki<br><b>aparat lub galeria</b><input type="file" id="przedFoto" accept="image/*" hidden>';
   podepnijFoto("przedFoto","przed");
@@ -305,11 +316,15 @@ function wczytajICompresuj(plik){
   return new Promise((res, rej)=>{
     const img = new Image();
     img.onload = ()=>{
-      const maxW = 1400, skala = Math.min(1, maxW/img.width);
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.width*skala); c.height = Math.round(img.height*skala);
-      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-      res(c.toDataURL("image/jpeg",0.82).split(",")[1]);
+      const rob = (maxW, q) => {
+        const skala = Math.min(1, maxW/img.width);
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width*skala); c.height = Math.round(img.height*skala);
+        c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+        return c.toDataURL("image/jpeg", q);
+      };
+      // 2000 px do analizy (gesta polka = duzo detali), 420 px na miniature
+      res({ b64: rob(2000, 0.85).split(",")[1], mini: rob(420, 0.7), pelna: rob(2000, 0.85) });
     };
     img.onerror = rej;
     img.src = URL.createObjectURL(plik);
@@ -317,12 +332,22 @@ function wczytajICompresuj(plik){
 }
 
 /* ========== logowanie ========== */
-function zaloguj(){
+async function zaloguj(){
   const kod = document.getElementById("kodWe").value.trim();
-  if(!/^\d{5}$/.test(kod)){ alert("Kod to dokładnie 5 cyfr."); return; }
-  mag.set("pmt_kod", kod);
-  if("Notification" in window && Notification.permission==="default") Notification.requestPermission();
-  startEkranu();
+  const tel = document.getElementById("telWe").value.replace(/\D/g,"");
+  const blad = t => { const e=document.getElementById("loginBlad"); e.textContent=t; e.style.display="block"; };
+  if(!/^\d{5}$/.test(kod)){ blad("Login to dokładnie 5 cyfr."); return; }
+  if(tel.length < 9){ blad("Hasłem jest Twój 9-cyfrowy numer telefonu."); return; }
+  if(!czyOnline()){ blad("Pierwsze logowanie wymaga internetu — spróbuj przy zasięgu."); return; }
+  const b = document.getElementById("btnZaloguj"); b.disabled = true; b.textContent = "Sprawdzam…";
+  try{
+    const o = await backend({akcja:"logowanie", kod, telefon: tel});
+    if(o.status !== "ok") throw new Error(o.opis || "logowanie nie powiodło się");
+    mag.set("pmt_kod", kod); mag.set("pmt_imie", o.imie || "");
+    if("Notification" in window && Notification.permission==="default") Notification.requestPermission();
+    startEkranu();
+  }catch(e){ blad(e.message); }
+  b.disabled = false; b.textContent = "Rozpocznij pracę";
 }
 function wyloguj(){
   if(!confirm("Wylogować? Przy następnym uruchomieniu aplikacja poprosi o kod.")) return;
@@ -331,7 +356,8 @@ function wyloguj(){
 function startEkranu(){
   const kod = mag.get("pmt_kod", null);
   if(!kod){ _pokaz("e-login"); return; }
-  document.getElementById("powitanie").textContent = "Kod: " + kod + ". Wybierz sklep i planogram tej półki.";
+  const imie = mag.get("pmt_imie","");
+  document.getElementById("powitanie").textContent = (imie? "Cześć, "+imie.split(" ")[0]+"! " : "") + "Kod: " + kod + ". Wybierz sklep i planogram tej półki.";
   odswiezPlanogramy();
   odswiezSklepy();
   stos.length = 0; _pokaz("e-start");
@@ -366,7 +392,7 @@ document.getElementById("planFoto").addEventListener("change", async ev=>{
   pole.innerHTML = "Analizuję planogram… to potrwa do minuty";
   if(!czyOnline()){ pole.innerHTML = "Do odczytania planogramu potrzebny jest internet — spróbuj przy zasięgu (półki możesz skanować offline)."; return; }
   try{
-    const b64 = await wczytajICompresuj(plik);
+    const {b64} = await wczytajICompresuj(plik);
     const o = await backend({akcja:"analiza_polki", tryb:"planogram", obraz_b64:b64});
     if(o.status!=="ok") throw new Error(o.opis||"analiza nie powiodła się");
     W_plan_tmp = o.pozycje;
@@ -392,31 +418,55 @@ function startWizyty(){
   const idx = Number(document.getElementById("planSel").value);
   if(!sklep){ alert("Podaj nazwę sklepu."); return; }
   if(idx<0 || !planogramy[idx]){ alert("Najpierw dodaj planogram."); return; }
-  W = {sklep, planogram: planogramy[idx], statusyPrzed:{}, statusyPo:{}, poprawki:0};
+  W = {sklep, planogram: planogramy[idx], statusyPrzed:{}, statusyPo:{}, poprawki:0, dotknietePrzed:{}, dotknietePo:{}};
   document.querySelectorAll("#zn-sklep,#zn-sklep2,#zn-sklep3,#zn-sklep4").forEach(z=>z.textContent=sklep);
   idz("e-przed");
 }
 
 async function analizujPolke(plik, faza){
   const pole = document.getElementById(faza==="przed"?"przedPole":"poPole");
-  pole.innerHTML = "Analizuję zdjęcie…";
-  const b64 = await wczytajICompresuj(plik);
+  pole.innerHTML = "Zdjęcie przyjęte ✓";
+  const {b64, mini, pelna} = await wczytajICompresuj(plik);
+  if(faza==="przed"){ W.fotoMini = mini; W.fotoPelna = pelna; }
+  // NIE CZEKAMY na AI: od razu pelna lista (domyslnie "jest"), analiza doszlifuje w tle
+  const start = W.planogram.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", status:"jest", pewnosc:0}));
+  zastosujWynik(start, faza, true);
   const zad = {akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje: W.planogram.pozycje};
   if(!czyOnline()){
     doKolejki(Object.assign({_faza:faza,_sklep:W.sklep}, zad));
-    pole.innerHTML = "Brak zasięgu — zdjęcie czeka w kolejce. Dostaniesz powiadomienie, gdy wynik będzie gotowy. Możesz kontynuować wizytę ręcznie:";
-    zastosujWynik(W.planogram.pozycje.map(p=>({kod:p.kod,produkt:p.produkt,status:"jest",pewnosc:0})), faza, true);
+    ustawBaner(faza, "Brak zasięgu — analiza wykona się przy pierwszym połączeniu. Pracuj ręcznie.");
     return;
   }
+  ustawBaner(faza, "AI analizuje zdjęcie w tle — możesz już pracować z listą…");
   try{
     const o = await backend(zad);
     if(o.status!=="ok") throw new Error(o.opis||"błąd analizy");
-    zastosujWynik(o.pozycje, faza, false);
-    if("Notification" in window && Notification.permission==="granted"){
-      const braki = o.pozycje.filter(p=>p.status==="brak").length;
-      new Notification("PMT Wizyty — " + W.sklep, {body: faza==="przed" ? ("Brakuje " + braki + " produktów — lista gotowa") : "Skan po uzupełnieniu gotowy"});
-    }
-  }catch(e){ pole.innerHTML = "Analiza nie powiodła się: " + e.message + ". Stuknij, aby spróbować ponownie."; }
+    scalWynikAI(o.pozycje, faza);
+  }catch(e){ ustawBaner(faza, "Analiza nie powiodła się: " + e.message + " — dokończ ręcznie."); }
+}
+function ustawBaner(faza, tekst){
+  const el = document.getElementById(faza==="przed"?"aiStan":"aiStanPo");
+  if(!el) return;
+  el.style.display = tekst ? "block" : "none";
+  el.textContent = tekst || "";
+}
+function scalWynikAI(pozycje, faza){
+  const cel  = faza==="przed" ? W.statusyPrzed : W.statusyPo;
+  const dotk = faza==="przed" ? W.dotknietePrzed : W.dotknietePo;
+  let braki = 0;
+  pozycje.forEach(p=>{
+    const k = p.kod || p.produkt;
+    if(p.status==="brak") braki++;
+    if(dotk[k]) return;                        // poprawka czlowieka = ostatnie slowo
+    const stare = cel[k] || {};
+    cel[k] = Object.assign({}, stare, {produkt: p.produkt || stare.produkt,
+      status: p.status, pewnosc: p.pewnosc ?? 1, uwaga: p.uwaga || ""});
+  });
+  ustawBaner(faza, "Analiza gotowa: AI wskazało " + braki + " braków. Zweryfikuj i popraw, jeśli trzeba.");
+  if(faza==="przed" && document.getElementById("e-lista").classList.contains("on")) rysujListe(false);
+  if(faza==="po"    && document.getElementById("e-delta").classList.contains("on")) rysujDelte();
+  if("Notification" in window && Notification.permission==="granted")
+    new Notification("PMT Wizyty — " + W.sklep, {body: faza==="przed" ? ("AI: " + braki + " braków na półce") : "Analiza po uzupełnieniu gotowa"});
 }
 function podepnijFoto(id, faza){
   document.getElementById(id).addEventListener("change", ev=>{ if(ev.target.files[0]) analizujPolke(ev.target.files[0], faza); });
@@ -438,14 +488,15 @@ function rysujListe(reczny){
     const w = document.createElement("div"); w.className="poz";
     const niepewne = !reczny && p.pewnosc < 0.7 ? " <span class='niepewne'>sprawdź!</span>" : "";
     w.innerHTML = `<div class="info"><div class="naz">${p.produkt||klucz}</div>
-      <div class="kod">${klucz}${niepewne}</div></div>
+      <div class="kod">${klucz}${p.ean? " · EAN "+p.ean : ""}${p.uwaga && p.status==="brak"? " · "+p.uwaga : ""}${niepewne}</div></div>
       <div class="stan">
-        <button class="b${p.status==="brak"?" on":""}">B</button>
-        <button class="j${p.status==="jest"?" on":""}">OK</button>
-        <button class="m${p.status==="magazyn"?" on":""}">MAG</button>
+        <button class="j${p.status==="jest"?" on":""}">Jest</button>
+        <button class="b${p.status==="brak"?" on":""}">Brak</button>
+        <button class="m${p.status==="magazyn"?" on":""}">Magazyn</button>
       </div>`;
-    const [bB,bJ,bM] = w.querySelectorAll("button");
+    const [bJ,bB,bM] = w.querySelectorAll("button");
     const ustaw = s=>{ if(W.statusyPrzed[klucz].status!==s) W.poprawki++;
+      W.dotknietePrzed[klucz] = 1;
       W.statusyPrzed[klucz].status=s;
       bB.classList.toggle("on",s==="brak"); bJ.classList.toggle("on",s==="jest"); bM.classList.toggle("on",s==="magazyn"); };
     bB.onclick=()=>ustaw("brak"); bJ.onclick=()=>ustaw("jest"); bM.onclick=()=>ustaw("magazyn");
@@ -459,7 +510,10 @@ function doDokladania(){
   document.getElementById("poOpis").textContent = braki.length
     ? "Do dołożenia z zaplecza: " + braki.length + " prod." + (mag_.length? " Braki magazynowe ("+mag_.length+") pomiń — trafią do raportu jako do zamówienia." : "")
     : "Brak braków — zrób skan kontrolny i zamknij wizytę.";
-  document.getElementById("poBraki").innerHTML = braki.map(([k,p])=>`<div class="poz"><div class="info"><div class="naz">${p.produkt||k}</div><div class="kod">${k}</div></div></div>`).join("") || "<div class='pod' style='margin:0'>Pełna dostępność na wejściu 🎯</div>";
+  const mini = W.fotoMini ? `<img src="${W.fotoMini}" alt="półka przed" onclick="powiekszFoto()"
+    style="width:88px;border-radius:8px;float:right;margin:0 0 8px 10px;cursor:zoom-in;border:1px solid var(--linia)">` : "";
+  const lista = braki.map(([k,p])=>`<div class="poz"><div class="info"><div class="naz">${p.produkt||k}</div><div class="kod">kod ${k}${p.ean? " · EAN "+p.ean : ""}</div></div></div>`).join("");
+  document.getElementById("poBraki").innerHTML = mini + (lista || "<div class='pod' style='margin:0'>Pełna dostępność na wejściu 🎯</div>");
   idz("e-po");
 }
 
@@ -502,6 +556,10 @@ async function wyslijWizyte(){
     ? "Raport trafił do systemu. Dostępność: " + raport.dostepnosc_przed + "% → " + raport.dostepnosc_po + "%."
     : "Brak zasięgu — raport czeka w kolejce i wyśle się sam przy pierwszym połączeniu.";
   stos.length = 0; _pokaz("e-koniec");
+}
+function powiekszFoto(){
+  document.getElementById("fotoDuze").src = W.fotoPelna || W.fotoMini;
+  document.getElementById("fotoOverlay").style.display = "flex";
 }
 function resetWizyty(){ location.reload(); }
 

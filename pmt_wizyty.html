@@ -187,6 +187,9 @@ input:focus{outline:none;border-color:var(--akc2)}
     <span id="przedPoleTxt">Stuknij, aby dodać zdjęcie półki<br><b>aparat lub galeria</b></span>
     <input type="file" id="przedFoto" accept="image/*" hidden>
   </div>
+  <div style="height:12px"></div>
+  <div class="info-pas" id="aiStanPrzed" style="display:none"></div>
+  <div class="dol" id="dolPrzed" style="display:none"><button class="btn" onclick="idz('e-lista')">Przejdź do listy &#8594;</button></div>
 </section>
 
 <!-- KROK 3: LISTA -->
@@ -209,6 +212,9 @@ input:focus{outline:none;border-color:var(--akc2)}
     <span id="poPoleTxt">Po uzupełnieniu: stuknij i zrób zdjęcie kontrolne półki<br><b>aparat lub galeria</b></span>
     <input type="file" id="poFoto" accept="image/*" hidden>
   </div>
+  <div style="height:12px"></div>
+  <div class="info-pas" id="aiStanPo2" style="display:none"></div>
+  <div class="dol" id="dolPo" style="display:none"><button class="btn" onclick="rysujDelte();idz('e-delta')">Zobacz efekt wizyty &#8594;</button></div>
 </section>
 
 <!-- KROK 5: DELTA -->
@@ -236,10 +242,16 @@ input:focus{outline:none;border-color:var(--akc2)}
 </section>
 
 </main>
-<div id="fotoOverlay" onclick="this.style.display='none'">
-  <img id="fotoDuze" alt="produkt">
-  <div class="naz" id="fotoNaz"></div>
-  <div class="kod" id="fotoKod"></div>
+<div id="fotoOverlay">
+  <div onclick="event.stopPropagation()" style="display:flex;flex-direction:column;align-items:center;gap:10px;max-width:94vw">
+    <img id="fotoDuze" alt="produkt">
+    <div class="naz" id="fotoNaz"></div>
+    <div class="kod" id="fotoKod"></div>
+    <div id="uzupelnij" style="width:100%"></div>
+    <button class="btn drugi maly" onclick="document.getElementById('fotoOverlay').style.display='none'">Zamknij</button>
+  </div>
+  <input type="file" id="fotoEanWe" accept="image/*" hidden>
+  <input type="file" id="fotoFrontWe" accept="image/*" hidden>
 </div>
 <script>
 /* ========== KONFIGURACJA ========== */
@@ -344,7 +356,25 @@ function startEkranu(){
   document.getElementById("powitanie").textContent =
     (imie? "Cześć, "+imie.split(" ")[0]+"! " : "") + "Podaj sklep — planogram sfotografujesz w następnym kroku.";
   odswiezSklepy();
+  odswiezProdukty();
   stos.length=0; _pokaz("e-start");
+}
+function odswiezProdukty(){
+  if(czyOnline()) backend({akcja:"produkty"}).then(o=>{
+    if(o.status==="ok" && o.produkty) mag.set("pmt_produkty", o.produkty);
+  }).catch(()=>{});
+}
+function wzbogac(pozycje){        // dopina nazwe/EAN/foto z zakladki Produkty po kodzie
+  const baza = {};
+  mag.get("pmt_produkty", []).forEach(p=>{ baza[p.kod] = p; });
+  pozycje.forEach(p=>{
+    const b = baza[String(p.kod||"").trim()];
+    if(!b) return;
+    if(b.nazwa) p.produkt = b.nazwa;
+    if(b.ean)   p.ean = b.ean;
+    if(b.foto)  p.foto = b.foto;
+  });
+  return pozycje;
 }
 function odswiezSklepy(){
   const dl = document.getElementById("sklepyLista");
@@ -383,7 +413,7 @@ document.getElementById("planFoto").addEventListener("change", async ev=>{
     const o = await backend({akcja:"analiza_polki", tryb:"planogram", obraz_b64:b64});
     if(o.status!=="ok") throw new Error(o.opis||"analiza nie powiodła się");
     W.strony.push(pelna);
-    o.pozycje.forEach(p=>{ p.strona = nrStrony; W.pozycje.push(p); });
+    wzbogac(o.pozycje).forEach(p=>{ p.strona = nrStrony; W.pozycje.push(p); });
     const box = document.getElementById("planStrony");
     box.style.display="block";
     box.innerHTML += `<div class="s"><span>Strona ${nrStrony}</span><span>${o.pozycje.length} pozycji ✓</span></div>`;
@@ -409,11 +439,17 @@ async function analizujPolke(plik, faza){
   const txt = document.getElementById(faza==="przed"?"przedPoleTxt":"poPoleTxt");
   txt.innerHTML = "Zdjęcie przyjęte ✓";
   const {b64} = await wczytajICompresuj(plik);
-  // od razu idziemy dalej — AI doszlifuje w tle
-  const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"",
-                                   strona:p.strona, rzad:p.rzad, nr:p.nr, status:"jest", pewnosc:0}));
-  zastosujWynik(start, faza);
-  ustawBaner(faza, "Porównuję dane… W tym czasie możesz odszukać zapas u kierownika — zaraz podam, czego dokładnie potrzebujesz.");
+  // lista startowa w tle; uzytkownik zostaje na ekranie zdjecia i sam idzie dalej
+  const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
+                                   strona:p.strona, status:"jest", pewnosc:0}));
+  przygotujWynik(start, faza);
+  if(faza==="przed"){
+    ustawBaner("przed", "Porównuję dane… W tym czasie możesz odszukać zapas u kierownika — zaraz podam, czego dokładnie potrzebujesz.");
+    document.getElementById("dolPrzed").style.display="block";
+  } else {
+    ustawBaner("po", "Weryfikuję uzupełnienie półki ze zdjęciem…");
+    document.getElementById("dolPo").style.display="block";
+  }
   const zad = {akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje: W.pozycje};
   if(!czyOnline()){
     doKolejki(Object.assign({_faza:faza,_sklep:W.sklep}, zad));
@@ -430,8 +466,9 @@ async function analizujPolke(plik, faza){
   }catch(e){ ustawBaner(faza, "Analiza nie powiodła się: "+e.message+" — oznacz ręcznie."); }
 }
 function ustawBaner(faza, tekst){
-  const el = document.getElementById(faza==="przed"?"aiStan":"aiStanPo");
-  if(!el) return; el.style.display = tekst?"block":"none"; el.textContent = tekst||"";
+  const cele = faza==="przed" ? ["aiStanPrzed","aiStan"] : ["aiStanPo2","aiStanPo"];
+  cele.forEach(id=>{ const el=document.getElementById(id);
+    if(el){ el.style.display = tekst?"block":"none"; el.textContent = tekst||""; } });
 }
 function scalWynikAI(pozycje, faza){
   const cel  = faza==="przed" ? W.statusyPrzed : W.statusyPo;
@@ -445,16 +482,22 @@ function scalWynikAI(pozycje, faza){
     cel[k] = Object.assign({}, stare, {produkt: p.produkt||stare.produkt,
       status: p.status, pewnosc: p.pewnosc ?? 1, uwaga: p.uwaga||""});
   });
-  ustawBaner(faza, "Gotowe — AI wskazało "+braki+" braków. Zweryfikuj i popraw, jeśli trzeba.");
-  if(faza==="przed" && document.getElementById("e-lista").classList.contains("on")) rysujListe();
-  if(faza==="po"    && document.getElementById("e-delta").classList.contains("on")) rysujDelte();
+  if(faza==="przed"){
+    ustawBaner("przed", "Gotowe — AI wskazało "+braki+" braków. Zweryfikuj i popraw, jeśli trzeba.");
+    rysujListe();
+  } else {
+    W.weryfikacja = weryfikujDeklaracje();
+    ustawBaner("po", W.weryfikacja.length
+      ? "Uwaga — "+W.weryfikacja.length+" niezgodności między Twoimi oznaczeniami a zdjęciem. Szczegóły w efekcie wizyty."
+      : "Zweryfikowano ✓ — zdjęcie zgadza się z Twoimi oznaczeniami.");
+    if(document.getElementById("e-delta").classList.contains("on")) rysujDelte();
+  }
 }
-function zastosujWynik(pozycje, faza){
+function przygotujWynik(pozycje, faza){
   const cel = faza==="przed" ? W.statusyPrzed : W.statusyPo;
-  pozycje.forEach(p=>{ cel[p.kod||p.produkt] = {produkt:p.produkt, ean:p.ean||"",
-      strona:p.strona, rzad:p.rzad, nr:p.nr, status:p.status, pewnosc:p.pewnosc??1}; });
-  if(faza==="przed"){ rysujListe(); idz("e-lista"); }
-  else { rysujDelte(); idz("e-delta"); }
+  pozycje.forEach(p=>{ cel[p.kod||p.produkt] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
+      strona:p.strona, status:p.status, pewnosc:p.pewnosc??1}; });
+  if(faza==="przed") rysujListe();
 }
 function nowySkan(){
   W.statusyPrzed={}; W.dotknietePrzed={}; W.poprawki=0; ustawBaner("przed","");
@@ -488,32 +531,88 @@ function rysujListe(){
   });
 }
 
-/* ========== zdjecie produktu: wycinek z planogramu ========== */
+/* ========== zdjecie produktu: z zakladki Produkty (kolumna Foto URL) ========== */
 function pokazProdukt(klucz, p){
   const ov = document.getElementById("fotoOverlay");
   document.getElementById("fotoNaz").textContent = p.produkt || klucz;
-  document.getElementById("fotoKod").textContent = klucz + (p.ean? " · EAN "+p.ean : "");
+  document.getElementById("fotoKod").textContent =
+    "kod " + klucz + (p.ean? " · EAN "+p.ean : " · brak EAN w bazie");
   const img = document.getElementById("fotoDuze");
-  const zrodlo = W.strony[(p.strona||1)-1];
-  if(!zrodlo){ return; }
-  if(!p.rzad || !p.nr){ img.src = zrodlo; ov.style.display="flex"; return; }
-  // przyblizony wycinek: znamy rzad i nr pozycji na stronie
-  const wszystkieRzedy = W.pozycje.filter(x=>x.strona===p.strona).map(x=>x.rzad||1);
-  const nRzedow = Math.max(...wszystkieRzedy, 1);
-  const wRzedzie = W.pozycje.filter(x=>x.strona===p.strona && (x.rzad||1)===(p.rzad||1)).length || 1;
-  const zdj = new Image();
-  zdj.onload = ()=>{
-    const c = document.createElement("canvas");
-    const szer = zdj.width / wRzedzie, wys = zdj.height / nRzedow;
-    const pad = 0.35;   // margines wokol wycinka (planogram bywa pod katem)
-    const x = Math.max(0, (p.nr-1)*szer - szer*pad), y = Math.max(0, (p.rzad-1)*wys - wys*pad);
-    const w2 = Math.min(zdj.width - x, szer*(1+2*pad)), h2 = Math.min(zdj.height - y, wys*(1+2*pad));
-    c.width = 480; c.height = Math.round(480*h2/w2);
-    c.getContext("2d").drawImage(zdj, x, y, w2, h2, 0, 0, c.width, c.height);
-    img.src = c.toDataURL("image/jpeg", .85);
-    ov.style.display = "flex";
+  if(p.foto){ img.src = p.foto; img.style.display="block"; }
+  else { img.removeAttribute("src"); img.style.display="none"; }
+  const uz = document.getElementById("uzupelnij");
+  uz.innerHTML = "";
+  if(!p.ean || !p.foto){
+    uz.innerHTML = `<button class="btn maly" style="margin:0 auto" id="btnUzup">Uzupełnij dane produktu (raz, dla wszystkich)</button>`;
+    document.getElementById("btnUzup").onclick = ()=> uzupelnijProdukt(klucz, p);
+  }
+  ov.style.display = "flex";
+}
+
+/* --- jednorazowe uzupelnienie produktu z terenu: EAN + zdjecie frontu --- */
+function uzupelnijProdukt(klucz, p){
+  if(!czyOnline()){ alert("Uzupełnianie produktu wymaga internetu — spróbuj przy zasięgu."); return; }
+  const uz = document.getElementById("uzupelnij");
+  const stan = { ean: p.ean || "", foto_b64: null };
+  const krokEan = ()=>{
+    uz.innerHTML = `<div class="pod" style="margin:6px 0">1/2: sfotografuj <b>kod kreskowy</b> na opakowaniu.</div>
+      <button class="btn maly" style="margin:0 auto" id="uzFoto">Zrób zdjęcie kodu kreskowego</button>`;
+    document.getElementById("uzFoto").onclick = ()=> document.getElementById("fotoEanWe").click();
   };
-  zdj.src = zrodlo;
+  const krokPotwierdz = (ean, pewnosc)=>{
+    uz.innerHTML = `<div class="pod" style="margin:6px 0">Odczytany EAN${pewnosc<0.8?" (sprawdź uważnie!)":""} — popraw, jeśli trzeba:</div>
+      <input type="tel" id="uzEan" value="${ean}" maxlength="13" style="text-align:center;font-size:18px;letter-spacing:2px">
+      <button class="btn maly" style="margin:10px auto 0" id="uzDalej">Dalej — zdjęcie opakowania</button>`;
+    document.getElementById("uzDalej").onclick = ()=>{
+      const e = document.getElementById("uzEan").value.replace(/\D/g,"");
+      if(e.length!==13 && e.length!==8){ alert("EAN ma 13 lub 8 cyfr."); return; }
+      stan.ean = e; krokFront();
+    };
+  };
+  const krokFront = ()=>{
+    uz.innerHTML = `<div class="pod" style="margin:6px 0">2/2: sfotografuj <b>front opakowania</b> (prosto, z bliska).</div>
+      <button class="btn maly" style="margin:0 auto" id="uzFoto2">Zrób zdjęcie frontu</button>`;
+    document.getElementById("uzFoto2").onclick = ()=> document.getElementById("fotoFrontWe").click();
+  };
+  document.getElementById("fotoEanWe").onchange = async ev=>{
+    const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
+    uz.innerHTML = `<div class="pod" style="margin:6px 0">Odczytuję kod kreskowy…</div>`;
+    try{
+      const {b64} = await wczytajICompresuj(plik);
+      const o = await backend({akcja:"analiza_polki", tryb:"ean", obraz_b64:b64});
+      if(o.status!=="ok" || !o.ean) throw new Error(o.opis||"nie odczytano cyfr");
+      krokPotwierdz(o.ean, o.pewnosc ?? 1);
+    }catch(e){
+      uz.innerHTML = `<div class="pod" style="margin:6px 0">Nie udało się: ${e.message}. Wpisz EAN ręcznie:</div>`;
+      krokPotwierdz("", 0);
+    }
+  };
+  document.getElementById("fotoFrontWe").onchange = async ev=>{
+    const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
+    uz.innerHTML = `<div class="pod" style="margin:6px 0">Zapisuję produkt…</div>`;
+    try{
+      const img = new Image();
+      await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=URL.createObjectURL(plik); });
+      const c = document.createElement("canvas");
+      const s = Math.min(1, 700/img.width);
+      c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      stan.foto_b64 = c.toDataURL("image/jpeg",0.8).split(",")[1];
+      const o = await backend({akcja:"zapisz_produkt", kod:klucz, nazwa:p.produkt||"",
+        ean:stan.ean, foto_b64:stan.foto_b64, kod_uzytkownika: mag.get("pmt_kod","")});
+      if(o.status!=="ok") throw new Error(o.opis||"zapis nie powiódł się");
+      // aktualizacja pamieci lokalnej i biezacej wizyty
+      p.ean = stan.ean; if(o.foto) p.foto = o.foto;
+      const baza = mag.get("pmt_produkty", []);
+      const idx = baza.findIndex(x=>x.kod===klucz);
+      const wpis = {kod:klucz, nazwa:p.produkt||"", ean:stan.ean, foto:o.foto||""};
+      if(idx>=0) baza[idx]=wpis; else baza.push(wpis);
+      mag.set("pmt_produkty", baza);
+      uz.innerHTML = `<div class="pod" style="margin:6px 0;color:#00E4A1">Zapisano ✓ — od teraz każdy w zespole widzi ten produkt z EAN-em i zdjęciem.</div>`;
+      pokazProdukt(klucz, p);
+    }catch(e){ uz.innerHTML = `<div class="pod" style="margin:6px 0;color:#F87171">Błąd zapisu: ${e.message}</div>`; }
+  };
+  krokEan();
 }
 
 /* ========== dokladanie: ✓/✗ + drzewko przyczyn ========== */
@@ -571,6 +670,19 @@ function rysujPrzyczyny(el, k, p){
   });
 }
 
+/* ========== agent-weryfikator: klikniecia uzytkownika vs zdjecie "po" ========== */
+function weryfikujDeklaracje(){
+  const niezgodnosci = [];
+  Object.entries(W.wynikiBrakow).forEach(([k, w])=>{
+    const naZdjeciu = W.statusyPo[k] ? W.statusyPo[k].status : null;
+    if(w.wynik==="dolozone" && naZdjeciu==="brak")
+      niezgodnosci.push((w.produkt||k)+": oznaczono jako dołożone, a na zdjęciu nadal brak");
+    if(w.wynik!=="dolozone" && naZdjeciu==="jest")
+      niezgodnosci.push((w.produkt||k)+": oznaczono „nie dołożono ("+opisWyniku(k)+")”, a na zdjęciu produkt stoi");
+  });
+  return niezgodnosci;
+}
+
 /* ========== delta + raport ========== */
 function procent(statusy){
   const w = Object.values(statusy); if(!w.length) return 0;
@@ -598,9 +710,12 @@ function rysujDelte(){
   const brakiPo = Object.values(W.statusyPo).filter(p=>p.status!=="jest").length;
   const decyzje = Object.entries(W.wynikiBrakow)
     .map(([k,w])=>`${w.produkt||k}: ${opisWyniku(k)}`).join("<br>");
+  const wer = (W.weryfikacja||[]).length
+    ? `<div style="color:#FCD34D;font-size:13.5px;margin-top:8px"><b>Weryfikacja zdjęcia:</b><br>${W.weryfikacja.join("<br>")}</div>`
+    : "";
   document.getElementById("deltaPodsumowanie").innerHTML =
     `<div class="naz" style="font-size:16px;font-weight:700;margin-bottom:6px">Domknięto ${Math.max(0,brakiPrzed-brakiPo)} z ${brakiPrzed} braków</div>
-     <div class="pod" style="margin:0">${decyzje || "Brak dodatkowych decyzji."}</div>`;
+     <div class="pod" style="margin:0">${decyzje || "Brak dodatkowych decyzji."}</div>${wer}`;
 }
 async function wyslijWizyte(){
   const raport = {
@@ -611,7 +726,8 @@ async function wyslijWizyte(){
     braki_po: Object.entries(W.statusyPo).filter(([,p])=>p.status!=="jest")
       .map(([k,p])=>(p.produkt||k) + (opisWyniku(k)? " ["+opisWyniku(k)+"]" : "")),
     poprawki: W.poprawki,
-    uwagi: Object.entries(W.wynikiBrakow).map(([k,w])=>`${w.produkt||k}: ${opisWyniku(k)}`).join("; ")
+    uwagi: [Object.entries(W.wynikiBrakow).map(([k,w])=>`${w.produkt||k}: ${opisWyniku(k)}`).join("; "),
+            (W.weryfikacja||[]).length? "WERYFIKACJA: "+W.weryfikacja.join(" | ") : ""].filter(Boolean).join(" || ")
   };
   let wyslano = false;
   try{ if(czyOnline()){ const o = await backend(raport); wyslano = o.status==="ok"; } }catch(e){}
@@ -622,6 +738,23 @@ async function wyslijWizyte(){
   stos.length=0; _pokaz("e-koniec");
 }
 function resetWizyty(){ location.reload(); }
+
+/* klikalny pasek postepu: powrot do wczesniejszych krokow */
+(function(){
+  const mapa = [null,"e-start","e-planogram","e-przed","e-lista","e-po","e-delta"];
+  document.querySelectorAll("#krokPasek i").forEach((seg,i)=>{
+    seg.style.cursor="pointer";
+    seg.onclick = ()=>{
+      const celNr = i+1, cel = mapa[celNr];
+      const akt = document.querySelector(".ekran.on");
+      const nrAkt = {"e-start":1,"e-planogram":2,"e-przed":3,"e-lista":4,"e-po":5,"e-delta":6}[akt&&akt.id]||0;
+      if(!cel || celNr >= nrAkt) return;                 // tylko wstecz
+      if(celNr >= 2 && !W) return;                       // kroki wizyty wymagaja wizyty
+      if(!mag.get("pmt_kod",null)) return;
+      idz(cel);
+    };
+  });
+})();
 
 /* start */
 pasekSieci(); startEkranu(); ruszKolejke();

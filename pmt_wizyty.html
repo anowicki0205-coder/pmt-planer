@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0F172A">
-<title>PMT Wizyty V4 - Smart & Vision</title>
+<title>PMT Wizyty V5 - MAX Duel Engine</title>
 <style>
 :root{
   --tlo1:#0F172A; --tlo2:#04121A; --karta:rgba(255,255,255,.045);
   --linia:rgba(255,255,255,.13); --atrament:#F8FAFC; --wyblakly:#94A3B8;
   --akc1:#00F0FF; --akc2:#00E4A1; --ciemny:#050B14;
-  --brak:#EF4444; --jest:#10B981; --nieb:#3B82F6; --r:14px;
+  --brak:#EF4444; --jest:#10B981; --nieb:#3B82F6; --ostrz:#F59E0B; --r:14px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
@@ -70,7 +70,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 .poz .info.klik{cursor:pointer}
 .poz .naz{font-size:15px;font-weight:600;line-height:1.3}
 .poz .kod{font-size:12.5px;color:var(--wyblakly);font-variant-numeric:tabular-nums}
-.poz .niepewne{color:#FBBF24;font-size:12px;font-weight:700}
+.poz .konflikt-badg{display:inline-block; margin-left:6px; background:rgba(245,158,11,0.2); color:var(--ostrz); font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; border: 1px solid rgba(245,158,11,0.5);}
 .stan{display:flex;gap:6px}
 .stan button{width:38px;height:38px;border-radius:50%;font-size:15px;font-weight:800;
   border:1.5px solid var(--linia);background:transparent;color:var(--wyblakly);
@@ -91,10 +91,9 @@ input:focus{outline:none;border-color:var(--akc2)}
   margin-bottom:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .info-pas{font-size:13.5px;line-height:1.5;padding:12px 14px;border-radius:10px;
   background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.35);color:#FCD34D;margin-bottom:12px}
-/* NOWY STYL DLA TRENERA AI */
 .coach-pas{font-size:14px;line-height:1.5;padding:12px 14px;border-radius:10px;
   background:rgba(0, 240, 255, 0.1);border:1px solid rgba(0, 240, 255, 0.4);color:var(--akc1);margin-bottom:12px;display:none}
-/* STYL GRYWALIZACJI */
+.coach-pas.konflikt{background:rgba(245,158,11,0.1); border-color:var(--ostrz); color:var(--ostrz);}
 .dash-pas{display:flex; justify-content:space-between; align-items:center; font-size:14px; 
   background:rgba(255,255,255,0.05); padding:10px 14px; border-radius:10px; margin-bottom:16px; border:1px solid var(--linia);}
 .dash-pas b{color:var(--akc2); font-size:18px;}
@@ -113,7 +112,6 @@ input:focus{outline:none;border-color:var(--akc2)}
 #fotoOverlay img{max-width:94vw;max-height:80vh;border-radius:12px;background:#fff}
 #fotoOverlay .naz{font-size:15px;font-weight:700}
 #fotoOverlay .kod{font-size:13px;color:var(--wyblakly)}
-/* STYL DYKTAFONU */
 .mic-btn{background:#1E293B; border:1px solid var(--linia); color:white; border-radius:10px; padding:0 18px; font-size:22px; cursor:pointer; display:flex; align-items:center;}
 .mic-btn.active{background:var(--brak); border-color:var(--brak); animation: pulse 1.5s infinite;}
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
@@ -124,7 +122,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 <header>
   <div class="h-rzad">
     <button class="h-btn" id="btnWstecz" onclick="wstecz()" aria-label="Wstecz">&#8592;</button>
-    <h1>PMT <span>Wizyty</span></h1>
+    <h1>PMT <span>Wizyty MAX</span></h1>
     <button class="h-btn" id="btnWyloguj" onclick="wyloguj()" aria-label="Wyloguj" title="Wyloguj">&#10162;</button>
   </div>
   <div id="krokPasek"><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -137,12 +135,10 @@ input:focus{outline:none;border-color:var(--akc2)}
   <p class="pod">Login to Twój 5-cyfrowy kod, hasło — numer telefonu podany administratorowi.</p>
   <div class="karta">
     <label for="kodWe">Login (kod użytkownika)</label>
-    <input type="tel" id="kodWe" maxlength="5" inputmode="numeric" placeholder="•••••"
-           style="text-align:center;font-size:24px;font-weight:700;letter-spacing:10px">
+    <input type="tel" id="kodWe" maxlength="5" inputmode="numeric" placeholder="•••••" style="text-align:center;font-size:24px;font-weight:700;letter-spacing:10px">
     <div style="height:12px"></div>
     <label for="telWe">Hasło (numer telefonu)</label>
-    <input type="tel" id="telWe" maxlength="15" inputmode="numeric" placeholder="np. 570905491"
-           style="text-align:center;font-size:18px;font-weight:600;letter-spacing:3px">
+    <input type="tel" id="telWe" maxlength="15" inputmode="numeric" placeholder="np. 570905491" style="text-align:center;font-size:18px;font-weight:600;letter-spacing:3px">
     <div id="loginBlad" style="display:none;color:#F87171;font-size:13px;font-weight:600;margin-top:10px"></div>
   </div>
   <button class="btn" id="btnZaloguj" onclick="zaloguj()">Rozpocznij pracę</button>
@@ -260,6 +256,7 @@ input:focus{outline:none;border-color:var(--akc2)}
   <input type="file" id="fotoEanWe" accept="image/*" hidden>
   <input type="file" id="fotoFrontWe" accept="image/*" hidden>
 </div>
+
 <script>
 // !!! PAMIĘTAJ O PODMIANIE URL_BACKENDU NA SWÓJ WŁASNY LINK !!!
 const URL_BACKENDU = "https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5nqSQgQYixkItuxvT3gu4HokQlaMz3yXbiL06S2jZgoYAw/exec";
@@ -388,10 +385,12 @@ async function zaloguj(){
   }catch(e){ blad(e.message); }
   b.disabled=false; b.textContent="Rozpocznij pracę";
 }
+
 function wyloguj(){
   if(!confirm("Wylogować? Przy następnym uruchomieniu aplikacja poprosi o login i hasło.")) return;
   mag.set("pmt_kod", null); mag.set("pmt_imie", ""); stos.length=0; _pokaz("e-login");
 }
+
 function startEkranu(){
   const kod = mag.get("pmt_kod", null);
   if(!kod){ _pokaz("e-login"); return; }
@@ -414,6 +413,7 @@ function odswiezProdukty(){
     if(o.status==="ok" && o.produkty) mag.set("pmt_produkty", o.produkty);
   }).catch(()=>{});
 }
+
 function wzbogac(pozycje){
   const baza = {};
   mag.get("pmt_produkty", []).forEach(p=>{ baza[p.kod] = p; });
@@ -426,6 +426,7 @@ function wzbogac(pozycje){
   });
   return pozycje;
 }
+
 function odswiezSklepy(){
   const dl = document.getElementById("sklepyLista");
   const rysuj = lista => { dl.innerHTML=""; lista.forEach(s=>{ const o=document.createElement("option");
@@ -485,13 +486,13 @@ async function analizujPolke(plik, faza){
   const txt = document.getElementById(faza==="przed"?"przedPoleTxt":"poPoleTxt");
   txt.innerHTML = "Zdjęcie przyjęte ✓";
   const {b64} = await wczytajICompresuj(plik);
-  const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", strona:p.strona, status:"jest", pewnosc:0}));
+  const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", strona:p.strona, status:"jest", pewnosc:0, konflikt:false}));
   przygotujWynik(start, faza);
   if(faza==="przed"){
-    ustawBaner("przed", "Porównuję fizyczne braki z planogramem… W tym czasie możesz odszukać zapas u kierownika.");
+    ustawBaner("przed", "Analizuję fizyczne braki przez Multi-Agent Orkiestrator (Duel) …");
     document.getElementById("dolPrzed").style.display="block";
   } else {
-    ustawBaner("po", "Weryfikuję uzupełnienie półki ze zdjęciem…");
+    ustawBaner("po", "Weryfikuję uzupełnienie półki ze zdjęciem (Duel) …");
     document.getElementById("dolPo").style.display="block";
   }
   const zad = {akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, planogramy_b64: W.strony_b64, pozycje: W.pozycje};
@@ -504,11 +505,17 @@ async function analizujPolke(plik, faza){
     const o = await backend(zad);
     if(o.status!=="ok") throw new Error(o.opis||"błąd analizy");
     
-    if(o.rada) {
-      const bnrId = faza === "przed" ? "coachBanner1" : "coachBanner2";
-      const bnr = document.getElementById(bnrId);
-      bnr.style.display = "block";
-      bnr.innerHTML = `<b>💡 Trener AI podpowiada:</b> ${o.rada}`;
+    // Obsługa rad od trenerów (i ewentualnych konfliktów)
+    const bnrId = faza === "przed" ? "coachBanner1" : "coachBanner2";
+    const bnr = document.getElementById(bnrId);
+    bnr.style.display = "block";
+    bnr.innerHTML = `<b>💡 Duel AI:</b> ${o.rada || ""}`;
+    
+    // Jeśli są konflikty w radzie zmień wygląd banera
+    if (o.rada && o.rada.indexOf("⚠️ Wykryto") !== -1) {
+        bnr.classList.add("konflikt");
+    } else {
+        bnr.classList.remove("konflikt");
     }
 
     scalWynikAI(o.pozycje, faza);
@@ -516,11 +523,13 @@ async function analizujPolke(plik, faza){
     powiadom("PMT Wizyty — "+W.sklep, faza==="przed" ? ("AI: "+braki+" braków na półce") : "Analiza po uzupełnieniu gotowa");
   }catch(e){ ustawBaner(faza, "Analiza nie powiodła się: "+e.message+" — oznacz ręcznie."); }
 }
+
 function ustawBaner(faza, tekst){
   const cele = faza==="przed" ? ["aiStanPrzed","aiStan"] : ["aiStanPo2","aiStanPo"];
   cele.forEach(id=>{ const el=document.getElementById(id);
     if(el){ el.style.display = tekst?"block":"none"; el.textContent = tekst||""; } });
 }
+
 function scalWynikAI(pozycje, faza){
   const cel  = faza==="przed" ? W.statusyPrzed : W.statusyPo;
   const dotk = faza==="przed" ? W.dotknietePrzed : W.dotknietePo;
@@ -530,10 +539,10 @@ function scalWynikAI(pozycje, faza){
     if(p.status==="brak") braki++;
     if(dotk[k]) return;
     const stare = cel[k] || {};
-    cel[k] = Object.assign({}, stare, {produkt: p.produkt||stare.produkt, status: p.status, pewnosc: p.pewnosc ?? 1, uwaga: p.uwaga||""});
+    cel[k] = Object.assign({}, stare, {produkt: p.produkt||stare.produkt, status: p.status, pewnosc: p.pewnosc ?? 1, uwaga: p.uwaga||"", konflikt: p.konflikt||false});
   });
   if(faza==="przed"){
-    ustawBaner("przed", "Gotowe — AI wskazało "+braki+" braków. Zweryfikuj i popraw, jeśli trzeba.");
+    ustawBaner("przed", "Gotowe — AI wskazało "+braki+" braków. Zweryfikuj listę.");
     rysujListe();
   } else {
     W.weryfikacja = weryfikujDeklaracje();
@@ -541,11 +550,13 @@ function scalWynikAI(pozycje, faza){
     if(document.getElementById("e-delta").classList.contains("on")) rysujDelte();
   }
 }
+
 function przygotujWynik(pozycje, faza){
   const cel = faza==="przed" ? W.statusyPrzed : W.statusyPo;
-  pozycje.forEach(p=>{ cel[p.kod||p.produkt] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", strona:p.strona, status:p.status, pewnosc:p.pewnosc??1}; });
+  pozycje.forEach(p=>{ cel[p.kod||p.produkt] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", strona:p.strona, status:p.status, pewnosc:p.pewnosc??1, konflikt:false}; });
   if(faza==="przed") rysujListe();
 }
+
 function nowySkan(){
   W.statusyPrzed={}; W.dotknietePrzed={}; W.poprawki=0; ustawBaner("przed","");
   document.getElementById("coachBanner1").style.display="none";
@@ -559,9 +570,12 @@ function rysujListe(){
   box.innerHTML = "";
   Object.entries(W.statusyPrzed).forEach(([klucz,p])=>{
     const w = document.createElement("div"); w.className="poz";
-    const niepewne = p.pewnosc>0 && p.pewnosc<0.7 ? " <span class='niepewne'>sprawdź!</span>" : "";
+    
+    // WIZUALIZACJA KONFLIKTÓW AI
+    const konfliktBadg = p.konflikt ? "<span class='konflikt-badg'>⚔️ Konflikt AI</span>" : "";
+    
     w.innerHTML = `<div class="info klik"><div class="naz">${p.produkt||klucz}</div>
-      <div class="kod">${klucz}${p.ean? " · EAN "+p.ean:""}${p.uwaga && p.status==="brak"? " · "+p.uwaga:""}${niepewne}</div></div>
+      <div class="kod">${klucz}${p.ean? " · EAN "+p.ean:""}${p.uwaga && p.status==="brak"? " · "+p.uwaga:""}${konfliktBadg}</div></div>
       <div class="stan">
         <button class="j${p.status==="jest"?" on":""}" aria-label="jest">&#10003;</button>
         <button class="b${p.status==="brak"?" on":""}" aria-label="brak">&#10005;</button>
@@ -569,8 +583,11 @@ function rysujListe(){
     w.querySelector(".info").onclick = ()=> pokazProdukt(klucz, p);
     const [bJ,bB] = w.querySelectorAll(".stan button");
     const ustaw = s=>{ if(W.statusyPrzed[klucz].status!==s) W.poprawki++;
-      W.dotknietePrzed[klucz]=1; W.statusyPrzed[klucz].status=s;
-      bJ.classList.toggle("on",s==="jest"); bB.classList.toggle("on",s==="brak"); };
+      W.dotknietePrzed[klucz]=1; W.statusyPrzed[klucz].status=s; W.statusyPrzed[klucz].konflikt=false; // Zdejmij flagę po ręcznej akcji
+      bJ.classList.toggle("on",s==="jest"); bB.classList.toggle("on",s==="brak"); 
+      // Ukryj odznakę konfliktu gdy pracownik zweryfikuje
+      const badg = w.querySelector(".konflikt-badg"); if(badg) badg.style.display="none";
+    };
     bJ.onclick=()=>ustaw("jest"); bB.onclick=()=>ustaw("brak");
     box.appendChild(w);
   });
@@ -709,10 +726,12 @@ function procent(statusy){
   const w = Object.values(statusy); if(!w.length) return 0;
   return Math.round(100 * w.filter(p=>p.status==="jest").length / w.length);
 }
+
 function rysujPolke(el, statusy){
   el.innerHTML = "";
   Object.values(statusy).forEach(p=>{ const i=document.createElement("i"); i.className = p.status==="jest" ? "pelny" : "pusty"; el.appendChild(i); });
 }
+
 function opisWyniku(k){
   const w = W.wynikiBrakow[k]; if(!w) return "";
   const nazwy = {dolozone:"dołożono", brak_zamowione:"brak, zamówione", stan_wirtualny:"stan wirtualny", blokada_centralna:"blokada centralna"};
@@ -720,6 +739,7 @@ function opisWyniku(k){
   if(w.wynik==="stan_wirtualny" && "wyzerowano" in w) t += w.wyzerowano? " (wyzerowano)" : " (NIE wyzerowano)";
   return t;
 }
+
 function rysujDelte(){
   document.getElementById("prcPrzed").textContent = procent(W.statusyPrzed)+"%";
   document.getElementById("prcPo").textContent = procent(W.statusyPo)+"%";

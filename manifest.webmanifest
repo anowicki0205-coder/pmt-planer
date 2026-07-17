@@ -1,0 +1,17 @@
+{
+  "name": "PMT Wizyty",
+  "short_name": "PMT Wizyty",
+  "description": "Wizyty merchandisingowe z analiza polek AI",
+  "start_url": "./pmt_wizyty.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0F172A",
+  "background_color": "#04121A",
+  "lang": "pl",
+  "icons": [
+    { "src": "pwa_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "pwa_512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "pwa_512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0F172A">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="pwa_192.png">
 <title>PMT Wizyty</title>
 <!-- ====================================================================
   PMT WIZYTY v3
@@ -153,12 +155,22 @@ input:focus{outline:none;border-color:var(--akc2)}
     <input type="tel" id="kodWe" maxlength="5" inputmode="numeric" placeholder="•••••"
            style="text-align:center;font-size:24px;font-weight:700;letter-spacing:10px">
     <div style="height:12px"></div>
-    <label for="telWe">Hasło (numer telefonu)</label>
+    <label for="telWe">Hasło (lub numer telefonu, jeśli hasła nie ustawiono)</label>
     <input type="tel" id="telWe" maxlength="15" inputmode="numeric" placeholder="np. 570905491"
            style="text-align:center;font-size:18px;font-weight:600;letter-spacing:3px">
     <div id="loginBlad" style="display:none;color:#F87171;font-size:13px;font-weight:600;margin-top:10px"></div>
   </div>
   <button class="btn" id="btnZaloguj" onclick="zaloguj()">Rozpocznij pracę</button>
+  <button class="link" onclick="pokazZmianeHasla()" style="display:block;margin:10px auto 0">Ustaw / zmień hasło</button>
+  <div class="karta" id="zmianaHasla" style="display:none">
+    <label>Nowe hasło (min. 6 znaków)</label>
+    <input type="password" id="noweHaslo1" placeholder="nowe hasło">
+    <div style="height:8px"></div>
+    <input type="password" id="noweHaslo2" placeholder="powtórz nowe hasło">
+    <div style="height:10px"></div>
+    <button class="btn maly" style="margin:0 auto" onclick="zmienHaslo()">Zapisz nowe hasło</button>
+    <div class="pod" style="margin:8px 0 0;font-size:12.5px">Zaloguj się powyżej starym sposobem (telefon lub dotychczasowe hasło), a nowe hasło zacznie działać od razu.</div>
+  </div>
 </section>
 
 <!-- SKLEP -->
@@ -174,6 +186,7 @@ input:focus{outline:none;border-color:var(--akc2)}
     <div style="height:10px"></div>
     <button class="btn drugi maly" onclick="nawiguj()">&#129517; Nawiguj do sklepu</button>
   </div>
+  <div class="karta" id="planDnia" style="display:none"></div>
   <button class="btn drugi" onclick="otworzZgloszenie()">&#128161; Szybkie zgłoszenie (konkurencja / nowość / problem)</button>
   <div class="karta" id="zgloszeniePanel" style="display:none">
     <label>Zdjęcie + krótki opis — poleci do centrali od ręki</label>
@@ -195,6 +208,7 @@ input:focus{outline:none;border-color:var(--akc2)}
   <h2>Krok 1 — planogram półki</h2>
   <p class="pod">Sfotografuj <b>wszystkie strony</b> planogramu dla tej półki — jedno zdjęcie na stronę, na wprost, przy dobrym świetle.</p>
   <div class="info-pas" id="historiaPas" style="display:none;background:rgba(0,240,255,.08);border-color:rgba(0,240,255,.3);color:#7DD3FC"></div>
+  <div class="info-pas" id="planZapisanyPas" style="display:none;cursor:pointer"></div>
   <div class="foto-pole" onclick="document.getElementById('planFoto').click()">
     <span id="planPoleTxt">Stuknij, aby dodać zdjęcie strony planogramu<br><b>aparat lub galeria</b></span>
     <input type="file" id="planFoto" accept="image/*" hidden>
@@ -281,6 +295,7 @@ input:focus{outline:none;border-color:var(--akc2)}
   <p class="pod" id="koniecOpis"></p>
   <div class="karta" id="dziennik"></div>
   <button class="btn drugi" onclick="udostepnij()" style="margin-bottom:10px">&#128228; Udostępnij podsumowanie</button>
+  <button class="btn drugi" onclick="protokolPdf()" style="margin-bottom:10px">&#128196; Protokół PDF dla kierownika</button>
   <button class="btn" onclick="resetWizyty()">Następna wizyta</button>
 </section>
 
@@ -308,6 +323,26 @@ const mag = {
 
 let W = null;                 // stan biezacej wizyty
 let blokadaEkranu = null;
+/* IndexedDB: trwaly magazyn na zdjecia biezacej wizyty */
+const idb = {
+  _db: null,
+  otworz(){ return new Promise(res=>{
+    if(this._db) return res(this._db);
+    const req = indexedDB.open("pmt", 1);
+    req.onupgradeneeded = ()=> req.result.createObjectStore("foto");
+    req.onsuccess = ()=>{ this._db = req.result; res(this._db); };
+    req.onerror = ()=> res(null);
+  });},
+  async zapisz(klucz, wartosc){ const db = await this.otworz(); if(!db) return;
+    try{ db.transaction("foto","readwrite").objectStore("foto").put(wartosc, klucz); }catch(e){} },
+  async odczytaj(klucz){ const db = await this.otworz(); if(!db) return null;
+    return new Promise(res=>{ try{
+      const r = db.transaction("foto").objectStore("foto").get(klucz);
+      r.onsuccess = ()=> res(r.result || null); r.onerror = ()=> res(null);
+    }catch(e){ res(null); } }); },
+  async wyczysc(){ const db = await this.otworz(); if(!db) return;
+    try{ db.transaction("foto","readwrite").objectStore("foto").clear(); }catch(e){} }
+};
 async function trzymajEkran(){          // ekran nie wygasza sie w trakcie wizyty
   try{ if("wakeLock" in navigator) blokadaEkranu = await navigator.wakeLock.request("screen"); }
   catch(e){}
@@ -332,6 +367,10 @@ function wznowWizyte(){
     mag.set("pmt_wizyta", null); return false;
   }
   W = Object.assign({strony:[], stronyB64:[], fotoPolki:null}, z);
+  // zdjecia wracaja z trwalego magazynu (IndexedDB)
+  idb.odczytaj("strony").then(s=>{ if(s) W.strony = s; });
+  idb.odczytaj("stronyB64").then(s=>{ if(s) W.stronyB64 = s; });
+  idb.odczytaj("fotoPolki").then(s=>{ if(s){ W.fotoPolki = s; if(W.siatka) rysujStrefy(); } });
   document.querySelectorAll("#zn-sklep0,#zn-sklep,#zn-sklep2,#zn-sklep3,#zn-sklep4")
           .forEach(el=>el.textContent=W.sklep);
   const cel = {2:"e-planogram",3:"e-przed",4:"e-lista",5:"e-po",6:"e-delta"}[W.maxKrok||2] || "e-planogram";
@@ -346,8 +385,11 @@ const kroki = ["Logowanie","Wizyta","Planogram","Skan półki","Lista braków","
 function powiadom(tytul, tresc){
   try{
     if(!("Notification" in window) || Notification.permission!=="granted") return;
-    try{ new Notification(tytul, {body:tresc}); }
-    catch(e){ /* Android/PWA: konstruktor zabroniony — po cichu odpuszczamy */ }
+    if(navigator.serviceWorker && navigator.serviceWorker.controller){
+      navigator.serviceWorker.controller.postMessage({typ:"powiadom", tytul, tresc});
+      return;
+    }
+    try{ new Notification(tytul, {body:tresc}); }catch(e){}
   }catch(e){}
   try{ if(navigator.vibrate) navigator.vibrate(180); }catch(e){}
 }
@@ -416,20 +458,41 @@ function wczytajICompresuj(plik){
 /* ========== logowanie / wylogowanie ========== */
 async function zaloguj(){
   const kod = document.getElementById("kodWe").value.trim();
-  const tel = document.getElementById("telWe").value.replace(/\D/g,"");
+  const tel = document.getElementById("telWe").value.trim();
   const blad = t => { const e=document.getElementById("loginBlad"); e.textContent=t; e.style.display="block"; };
   if(!/^\d{5}$/.test(kod)){ blad("Login to dokładnie 5 cyfr."); return; }
-  if(tel.length < 9){ blad("Hasłem jest Twój 9-cyfrowy numer telefonu."); return; }
+  if(tel.length < 6){ blad("Podaj hasło (min. 6 znaków) lub numer telefonu."); return; }
   if(!czyOnline()){ blad("Pierwsze logowanie wymaga internetu — spróbuj przy zasięgu."); return; }
   const b = document.getElementById("btnZaloguj"); b.disabled=true; b.textContent="Sprawdzam…";
   try{
-    const o = await backend({akcja:"logowanie", kod, telefon: tel});
+    const o = await backend({akcja:"logowanie", kod, haslo: tel, telefon: tel});
     if(o.status!=="ok") throw new Error(o.opis||"logowanie nie powiodło się");
     mag.set("pmt_kod", kod); mag.set("pmt_imie", o.imie||"");
     if("Notification" in window && Notification.permission==="default"){ try{ Notification.requestPermission(); }catch(e){} }
     startEkranu();
   }catch(e){ blad(e.message); }
   b.disabled=false; b.textContent="Rozpocznij pracę";
+}
+function pokazZmianeHasla(){
+  const p = document.getElementById("zmianaHasla");
+  p.style.display = p.style.display==="none" ? "block" : "none";
+}
+async function zmienHaslo(){
+  const kod = document.getElementById("kodWe").value.trim();
+  const stare = document.getElementById("telWe").value.trim();
+  const n1 = document.getElementById("noweHaslo1").value;
+  const n2 = document.getElementById("noweHaslo2").value;
+  if(!/^\d{5}$/.test(kod) || !stare){ alert("Wypełnij login i dotychczasowe hasło (lub telefon) u góry."); return; }
+  if(n1.length < 6){ alert("Nowe hasło: minimum 6 znaków."); return; }
+  if(n1 !== n2){ alert("Nowe hasła się różnią."); return; }
+  if(!czyOnline()){ alert("Zmiana hasła wymaga internetu."); return; }
+  try{
+    const o = await backend({akcja:"zmien_haslo", kod, stare_haslo: stare, nowe_haslo: n1});
+    if(o.status!=="ok") throw new Error(o.opis||"nie udało się");
+    alert("Hasło zmienione ✓ — od teraz loguj się nowym hasłem.");
+    document.getElementById("zmianaHasla").style.display="none";
+    document.getElementById("telWe").value="";
+  }catch(e){ alert("Błąd: " + e.message); }
 }
 function wyloguj(){
   if(!confirm("Wylogować? Przy następnym uruchomieniu aplikacja poprosi o login i hasło.")) return;
@@ -471,8 +534,43 @@ function odswiezSklepy(){
       listaSklepow = o.sklepy.map(s=> s.siec+" "+s.miasto+", "+s.ulica);
       // odswiez podpowiedzi TYLKO gdy sa otwarte (zero migania)
       if(document.getElementById("sklepyPodp").style.display !== "none") pokazPodpowiedzi();
+      rysujPlanDnia();
     }
   }).catch(()=>{});
+}
+function odwiedzoneDzis(){
+  const dzis = new Date().toISOString().slice(0,10);
+  const d = mag.get("pmt_odwiedzone", null);
+  return (d && d.data===dzis) ? d.sklepy : [];
+}
+function rysujPlanDnia(){
+  const el = document.getElementById("planDnia");
+  const sklepy = mag.get("pmt_sklepy", []);
+  if(!sklepy.length){ el.style.display="none"; return; }
+  const odw = odwiedzoneDzis().map(_bezOgonkow);
+  const zadan = sklepy.reduce((s,x)=> s + (Number(x.zadan)||1), 0);
+  const zrobione = sklepy.filter(s=> odw.includes(_bezOgonkow(s.siec+" "+s.miasto+", "+s.ulica))).length;
+  const wg = [...sklepy].sort((a,b)=> (a.miasto+a.ulica).localeCompare(b.miasto+b.ulica, "pl"));
+  el.style.display = "block";
+  el.innerHTML = `<label>Plan dnia — Twój rejon</label>
+    <div class="naz" style="font-size:15px;margin-bottom:8px">${zrobione} / ${sklepy.length} sklepów dziś · ${zadan} zadań łącznie</div>` +
+    wg.map(s=>{
+      const pelna = s.siec+" "+s.miasto+", "+s.ulica;
+      const zrob = odw.includes(_bezOgonkow(pelna));
+      return `<div class="poz" style="padding:9px 2px">
+        <div class="info klik" data-sklep="${pelna.replace(/"/g,"&quot;")}">
+          <div class="naz" style="font-size:14px;${zrob?"text-decoration:line-through;color:var(--wyblakly)":""}">${zrob?"✓ ":""}${pelna}</div>
+          <div class="kod">${s.zadan||1} zad.</div></div>
+        <div class="stan"><button class="j" style="font-size:13px" data-nav="${pelna.replace(/"/g,"&quot;")}">&#129517;</button></div>
+      </div>`;
+    }).join("");
+  el.querySelectorAll(".info.klik").forEach(x=> x.onclick = ()=>{
+    document.getElementById("sklepWe").value = x.dataset.sklep;
+    document.getElementById("sklepyPodp").style.display = "none";
+    window.scrollTo(0,0);
+  });
+  el.querySelectorAll("button[data-nav]").forEach(b=> b.onclick = ()=>
+    open("https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=" + encodeURIComponent(b.dataset.nav), "_blank"));
 }
 function _bezOgonkow(t){ return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\u0142/g,"l"); }
 function pokazPodpowiedzi(){
@@ -546,6 +644,26 @@ function startWizyty(){
   pokazHistorie(sklep);
   zapiszW(); trzymajEkran();
   idz("e-planogram");
+  // planogram z poprzedniej wizyty w tym sklepie? zaproponuj (dziala offline)
+  const zapisany = mag.get("pmt_plan_" + _bezOgonkow(sklep), null);
+  const pas = document.getElementById("planZapisanyPas");
+  if(zapisany && zapisany.pozycje && zapisany.pozycje.length){
+    pas.style.display = "block";
+    pas.innerHTML = "&#128190; Mam planogram z poprzedniej wizyty (" + zapisany.kiedy + ", " +
+      zapisany.pozycje.length + " poz.). <u>Stuknij, aby go użyć</u> — bez internetu i bez zdjęć.";
+    pas.onclick = ()=>{
+      W.pozycje = wzbogac(zapisany.pozycje.map(p=>Object.assign({}, p)));
+      W.strony = []; W.stronyB64 = [];
+      const box = document.getElementById("planStrony");
+      box.style.display = "block";
+      box.innerHTML = `<div class="s"><span>Planogram z ${zapisany.kiedy}</span><span>${W.pozycje.length} pozycji ✓</span></div>`;
+      document.getElementById("btnDoSkanu").disabled = false;
+      pas.style.display = "none";
+      zapiszW(); odswiezNowosci();
+    };
+  } else {
+    pas.style.display = "none";
+  }
 }
 function pokazHistorie(sklep){
   const el = document.getElementById("historiaPas");
@@ -573,7 +691,11 @@ document.getElementById("planFoto").addEventListener("change", async ev=>{
     const o = await backend({akcja:"analiza_polki", tryb:"planogram", obraz_b64:b64});
     if(o.status!=="ok") throw new Error(o.opis||"analiza nie powiodła się");
     W.strony.push(pelna); W.stronyB64.push(b64);
+    idb.zapisz('strony', W.strony); idb.zapisz('stronyB64', W.stronyB64);
     wzbogac(o.pozycje).forEach(p=>{ p.strona = nrStrony; W.pozycje.push(p); }); zapiszW();
+    // zapamietaj planogram dla tego sklepu (offline nastepnym razem)
+    mag.set("pmt_plan_" + _bezOgonkow(W.sklep), {kiedy: new Date().toLocaleDateString("pl"),
+                                                 pozycje: W.pozycje});
     odswiezNowosci();
     const box = document.getElementById("planStrony");
     box.style.display="block";
@@ -641,7 +763,7 @@ async function analizujPolke(plik, faza){
   const txt = document.getElementById(faza==="przed"?"przedPoleTxt":"poPoleTxt");
   txt.innerHTML = "Zdjęcie przyjęte ✓";
   const {b64, pelna} = await wczytajICompresuj(plik);
-  if(faza==="przed"){ W.fotoPolki = pelna; W.siatka = null; }
+  if(faza==="przed"){ W.fotoPolki = pelna; W.siatka = null; idb.zapisz("fotoPolki", pelna); }
   // lista startowa w tle; uzytkownik zostaje na ekranie zdjecia i sam idzie dalej
   const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
                                    strona:p.strona, status:"jest", pewnosc:0}));
@@ -1074,17 +1196,22 @@ async function wyslijWizyte(){
   document.getElementById("koniecOpis").textContent = wyslano
     ? "Raport trafił do systemu. Dostępność: "+raport.dostepnosc_przed+"% → "+raport.dostepnosc_po+"%."
     : "Brak zasięgu — raport czeka w kolejce i wyśle się sam przy pierwszym połączeniu.";
-  // dzienny licznik (lokalnie na telefonie)
+  // dzienny licznik + odhaczenie sklepu w planie dnia
   const dzis = new Date().toISOString().slice(0,10);
   let d = mag.get("pmt_dzien", null);
   if(!d || d.data !== dzis) d = {data:dzis, wizyt:0, sumaPo:0};
   d.wizyt += 1; d.sumaPo += raport.dostepnosc_po;
   mag.set("pmt_dzien", d);
+  let odw = mag.get("pmt_odwiedzone", null);
+  if(!odw || odw.data !== dzis) odw = {data:dzis, sklepy:[]};
+  if(!odw.sklepy.includes(W.sklep)) odw.sklepy.push(W.sklep);
+  mag.set("pmt_odwiedzone", odw);
+  const wRejonie = (mag.get("pmt_sklepy", [])).length;
   document.getElementById("dziennik").innerHTML =
-    `<div class="naz" style="font-size:16px;font-weight:700;margin-bottom:4px">Dzisiejsze wizyty: ${d.wizyt}</div>
+    `<div class="naz" style="font-size:16px;font-weight:700;margin-bottom:4px">${wRejonie? "Sklep "+Math.min(odw.sklepy.length,wRejonie)+" z "+wRejonie+" w Twoim rejonie" : "Dzisiejsze wizyty: "+d.wizyt}</div>
      <div class="pod" style="margin:0">Średnia dostępność po Twoich wizytach: <b>${Math.round(d.sumaPo/d.wizyt)}%</b>${Math.round(d.sumaPo/d.wizyt)>=90?" — świetna robota! 🏆":""}</div>`;
   W._raport = raport;
-  mag.set("pmt_wizyta", null); puscEkran();
+  mag.set("pmt_wizyta", null); puscEkran(); idb.wyczysc();
   stos.length=0; _pokaz("e-koniec");
 }
 async function udostepnij(){
@@ -1097,6 +1224,28 @@ async function udostepnij(){
   if(navigator.share){ try{ await navigator.share({title:"Protokół wizyty PMT", text:tekst}); return; }catch(e){} }
   try{ await navigator.clipboard.writeText(tekst); alert("Protokół skopiowany do schowka — wklej w e-mail lub SMS."); }
   catch(e){ alert(tekst); }
+}
+function protokolPdf(){
+  const r = W && W._raport; if(!r) return;
+  const dec = Object.entries(W.wynikiBrakow)
+    .map(([k,w])=>`<tr><td>${w.produkt||k}</td><td>${opisWyniku(k)}</td></tr>`).join("");
+  const okno = open("", "_blank");
+  okno.document.write(`<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Protokół — ${r.sklep}</title>
+    <style>body{font-family:'Segoe UI',Arial,sans-serif;color:#111;margin:28px;font-size:14px}
+    h1{font-size:19px;margin:0 0 2px}.sub{color:#555;margin-bottom:18px}
+    .duze{font-size:30px;font-weight:800}.rzad{display:flex;gap:40px;margin:14px 0 20px}
+    table{border-collapse:collapse;width:100%;margin-top:8px}
+    td,th{border:1px solid #bbb;padding:7px 9px;text-align:left;font-size:13px}
+    th{background:#f0f2f5}.stopka{margin-top:26px;color:#777;font-size:11.5px}</style></head><body>
+    <h1>Protokół wizyty merchandisingowej — PMT</h1>
+    <div class="sub">${r.sklep} · ${new Date().toLocaleDateString("pl")} · wykonawca: kod ${mag.get("pmt_kod","")}</div>
+    <div class="rzad"><div>Dostępność na wejściu<div class="duze">${r.dostepnosc_przed}%</div></div>
+    <div>Dostępność po uzupełnieniu<div class="duze">${r.dostepnosc_po}%</div></div></div>
+    ${dec ? `<table><tr><th>Produkt</th><th>Status / decyzja</th></tr>${dec}</table>` : "<p>Półka w pełni zgodna z planogramem.</p>"}
+    ${r.uwagi ? `<p><b>Uwagi:</b> ${r.uwagi}</p>` : ""}
+    <div class="stopka">Wygenerowano w PMT Wizyty. Dokument do użytku wewnętrznego sklepu.</div>
+    <script>setTimeout(()=>print(), 300)<\/script></body></html>`);
+  okno.document.close();
 }
 function resetWizyty(){ location.reload(); }
 
@@ -1129,6 +1278,11 @@ document.getElementById("zglFoto").addEventListener("change", async ev=>{
   zglB64 = c.toDataURL("image/jpeg",0.75).split(",")[1];
   document.getElementById("zglPoleTxt").textContent = "Zdjęcie dodane ✓";
 });
+
+/* PWA: rejestracja service workera (cache offline + powiadomienia Android) */
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
 
 /* start */
 const _mik = document.getElementById("btnMikrofon"); if(_mik) _mik.onclick = przelaczMikrofon;

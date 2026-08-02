@@ -1,2 +1,2 @@
-3.13.0
-Nowosci: logowanie 5-cyfrowym kodem uzytkownika, sesje zarzadzane zdalnie przez administratora (przedluzanie bez dotykania komputera uzytkownika), statystyki pracy (uruchomienia, dokumenty, czas) wysylane do panelu administratora przy polaczeniu z internetem - offline wszystko czeka w kolejce i nic nie ginie. Wersje na Windows, macOS i Linux budowane automatycznie.
+3.13.2
+Nowosci: okno logowania w stylu programu, dni niezrealizowane w kalendarzu oznaczane krwista czerwienia, natychmiastowa synchronizacja statystyk po wygenerowaniu dokumentow, petla synchronizacji co 15 minut. Poprawka: aktualizator bezblednie rozpoznaje archiwum dla Windows nawet, gdy w wydaniu sa inne pliki .zip.

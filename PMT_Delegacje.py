@@ -177,7 +177,7 @@ URL_BACKENDU = "https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5
 
 PLIK_KOLEJKI = os.path.join(os.path.expanduser("~"), ".pmt_kolejka.json")
 PLIK_STATUSU = os.path.join(os.path.expanduser("~"), ".pmt_status.json")
-SYNC_CO_MINUT = 30
+SYNC_CO_MINUT = 15
 _blokada = threading.Lock()
 
 # --- pliki pomocnicze --------------------------------------------------------
@@ -300,6 +300,79 @@ def online_nieobecnosci():
     [{kod, od, do, typ, zastepuje}, ...] — do użycia w planerze tras."""
     return _wczytaj(PLIK_STATUSU, {}).get("nieobecnosci", [])
 
+
+def dialog_logowania():
+    """Okno logowania spójne z motywem programu (ciemny granat, akcent
+    cyjan->zieleń, zaokrąglone rogi). Zwraca kod (str) albo None."""
+    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                 QLineEdit, QPushButton)
+    from PyQt6.QtCore import Qt, QRegularExpression
+    from PyQt6.QtGui import QRegularExpressionValidator
+    d = QDialog()
+    d.setWindowTitle("PMT Planer — logowanie")
+    d.setModal(True)
+    d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    d.setFixedSize(400, 250)
+    d.setObjectName("PmtLogowanie")
+    d.setStyleSheet('''
+        #PmtLogowanie { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                          stop:0 #0F172A, stop:1 #04121A);
+                        border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
+        QLabel#tytul { color:#F8FAFC; font-family:'Segoe UI'; font-size:18px; font-weight:800;
+                       background: transparent; }
+        QLabel#pod   { color:#94A3B8; font-family:'Segoe UI'; font-size:12px;
+                       background: transparent; }
+        QLabel#blad  { color:#F87171; font-family:'Segoe UI'; font-size:11px; font-weight:600;
+                       background: transparent; }
+        QLineEdit { background:#0B1320; color:#F8FAFC; border:1px solid rgba(255,255,255,0.20);
+                    border-radius:8px; padding:9px; font-family:'Segoe UI';
+                    font-size:22px; font-weight:700; letter-spacing:8px; }
+        QLineEdit:focus { border:1px solid #00E4A1; }
+        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                           stop:0 #00F0FF, stop:1 #00E4A1);
+                         color:#050B14; font-family:'Segoe UI'; font-size:14px; font-weight:800;
+                         border:none; border-radius:8px; padding:10px 24px; }
+        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                                 stop:0 #33F5FF, stop:1 #33EAB7); }
+        QPushButton#ok:disabled { background: rgba(30,41,59,0.6); color:#475569; }
+        QPushButton#anuluj { background:transparent; color:#94A3B8; font-family:'Segoe UI';
+                             font-size:13px; font-weight:600;
+                             border:1px solid rgba(255,255,255,0.20);
+                             border-radius:8px; padding:10px 18px; }
+        QPushButton#anuluj:hover { color:#E2E8F0; border-color: rgba(255,255,255,0.40); }
+    ''')
+    ukl = QVBoxLayout(d); ukl.setContentsMargins(26, 24, 26, 20); ukl.setSpacing(8)
+    t = QLabel("Zaloguj się"); t.setObjectName("tytul"); ukl.addWidget(t)
+    pod = QLabel("Podaj swój 5-cyfrowy kod użytkownika —\notrzymasz go od administratora.")
+    pod.setObjectName("pod"); ukl.addWidget(pod)
+    ukl.addSpacing(4)
+    pole = QLineEdit(); pole.setMaxLength(5)
+    pole.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    pole.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,5}")))
+    pole.setPlaceholderText("\u2022\u2022\u2022\u2022\u2022")
+    ukl.addWidget(pole)
+    blad = QLabel(" "); blad.setObjectName("blad"); ukl.addWidget(blad)
+    rzad = QHBoxLayout(); rzad.addStretch(1)
+    b_anuluj = QPushButton("Zamknij"); b_anuluj.setObjectName("anuluj")
+    b_ok = QPushButton("Zaloguj"); b_ok.setObjectName("ok"); b_ok.setEnabled(False)
+    rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
+    ukl.addLayout(rzad)
+    wynik = {"kod": None}
+    def _zmiana(tekst): b_ok.setEnabled(len(tekst) == 5); blad.setText(" ")
+    def _zatwierdz():
+        if len(pole.text()) == 5:
+            wynik["kod"] = pole.text(); d.accept()
+        else:
+            blad.setText("Kod musi mieć dokładnie 5 cyfr.")
+    pole.textChanged.connect(_zmiana)
+    pole.returnPressed.connect(_zatwierdz)
+    b_ok.clicked.connect(_zatwierdz)
+    b_anuluj.clicked.connect(d.reject)
+    pole.setFocus()
+    d.exec()
+    return wynik["kod"]
+
 # ~~~~~~~~~~~~~~~~~~~~ KONIEC SEKCJI PMT-ONLINE ~~~~~~~~~~~~~~~~~~~~~~
 
 # =============================================================================
@@ -402,7 +475,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.13.0"
+WERSJA_PROGRAMU = "3.13.2"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -492,10 +565,16 @@ def znajdz_plik_wydania() -> tuple:
             return a.get("browser_download_url", "")
 
         if CZY_WINDOWS:
-            # .zip preferowany nad gołym .exe (powód wyżej); pomijamy archiwa
-            # oznaczone jako linux/mac — te są dla innych systemów
+            # 1) NAJPIERW archiwum wprost oznaczone jako windows — odporne na
+            #    obecność innych .zip w wydaniu (np. paczek źródeł czy kompletu).
+            #    Bez tego program mógł pobrać przypadkowy .zip bez pliku .exe.
             for a, n in nazwy:
-                if n.endswith(".zip") and "linux" not in n and "mac" not in n:
+                if n.endswith(".zip") and ("windows" in n or "win32" in n or "win64" in n):
+                    return _url(a), True
+            # 2) zapasowo: dowolny .zip poza linuksowym/macowym (stare wydania)
+            for a, n in nazwy:
+                if n.endswith(".zip") and "linux" not in n and "mac" not in n \
+                        and "zrodl" not in n and "komplet" not in n and "source" not in n:
                     return _url(a), True
             # zapasowo: starsze wydania mogły mieć dołączony goły .exe
             for a, n in nazwy:
@@ -507,7 +586,7 @@ def znajdz_plik_wydania() -> tuple:
                     return _url(a), True
         else:  # Linux
             for a, n in nazwy:
-                if n.endswith(".zip") and "linux" in n:
+                if n.endswith(".zip") and "linux" in n and "komplet" not in n:
                     return _url(a), True
             for a, n in nazwy:
                 if n.endswith(".appimage"):
@@ -3654,6 +3733,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     except OSError: raise ValueError(f"Plik podsumowania jest otwarty w innym programie!\nZamknij: rozliczenie_wydatków...pdf")
     try:
         online_zdarzenie(dokumenty=len(podsumowanie))
+        online_synchronizuj_w_tle()   # dane w arkuszu od razu, nie za 15 min
     except Exception:
         pass
     return podsumowanie
@@ -9789,6 +9869,7 @@ class SiatkaMiesiacaPlan(QWidget):
         akc = QColor("#00F0FF") if self.is_dark else QColor("#0D9488")
         zie = QColor("#00E4A1") if self.is_dark else QColor("#059669")
         zal = QColor("#FBBF24") if self.is_dark else QColor("#B45309")   # ten sam kolor co baner "zaległe"
+        krw = QColor("#DC2626") if self.is_dark else QColor("#B91C1C")   # krwista czerwień: dzień minął bez ani jednej wizyty
         wolny_kol = QColor("#EF4444") if self.is_dark else QColor("#DC2626")
         txt = QColor("#F8FAFC") if self.is_dark else QColor("#0F172A")
         mut = QColor("#94A3B8") if self.is_dark else QColor("#64748B")
@@ -9842,6 +9923,9 @@ class SiatkaMiesiacaPlan(QWidget):
                 # STATUS decyduje o kolorze — nie liczba wizyt (patrz docstring klasy)
                 if komplet:
                     baza = zie; intensywnosc = 0.28
+                elif data_kom < dzis and zrobione == 0:
+                    # DZIEŃ NIEZREALIZOWANY (minął, zero wizyt) — krwista czerwień
+                    baza = krw; intensywnosc = 0.38
                 elif data_kom < dzis:
                     baza = zal; intensywnosc = 0.30
                 elif jest_dzis:
@@ -9893,7 +9977,9 @@ class SiatkaMiesiacaPlan(QWidget):
                 zrobione = sum(1 for wz in dp.wizyty if czy_odwiedzona(data_kom, wz.adres or wz.nazwa))
                 komplet = zrobione >= n
                 etyk = "✓" if komplet else f"{zrobione}/{n}"
-                kol_etyk = zie if komplet else (zal if data_kom < dzis else akc)
+                kol_etyk = (zie if komplet
+                            else (krw if (data_kom < dzis and zrobione == 0)
+                                  else (zal if data_kom < dzis else akc)))
                 p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 p.setPen(kol_etyk)
                 p.drawText(QRectF(rect.x(), rect.bottom() - 18, rect.width() - 6, 16),
@@ -12479,17 +12565,10 @@ if __name__ == "__main__":
 
     # --- Logowanie 5-cyfrowym kodem uzytkownika (raz; potem pamietany) ---
     if online_kod_uzytkownika() is None:
-        from PyQt6.QtWidgets import QInputDialog, QLineEdit
-        while True:
-            _kod, _ok = QInputDialog.getText(None, "PMT Planer \u2014 logowanie",
-                "Podaj sw\u00f3j 5-cyfrowy kod u\u017cytkownika\n(otrzymasz go od administratora):",
-                QLineEdit.EchoMode.Normal, "")
-            if not _ok:
-                sys.exit(0)
-            _kod = _kod.strip()
-            if _kod.isdigit() and len(_kod) == 5:
-                online_zapisz_kod(_kod)
-                break
+        _kod = dialog_logowania()
+        if not _kod:
+            sys.exit(0)
+        online_zapisz_kod(_kod)
 
     online_zdarzenie(uruchomienia=1)
     _START_PROGRAMU = datetime.datetime.now()

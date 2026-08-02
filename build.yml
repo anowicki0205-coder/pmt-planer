@@ -2,56 +2,98 @@
 #  PMT Planer — automatyczne budowanie wydań (Windows / macOS / Linux)
 #
 #  JAK TO DZIAŁA:
-#  1. Wypychasz do repo tag zaczynający się od "v", np.:
-#        git tag v3.13.0
-#        git push origin v3.13.0
-#  2. GitHub sam buduje program na trzech systemach naraz
-#     i tworzy wydanie (Release) z trzema plikami:
-#        PMT_Planer_Windows.zip   <- bez "mac"/"linux" w nazwie
-#        PMT_Planer_macOS.zip     <- zawiera "mac"
-#        PMT_Planer_Linux.zip     <- zawiera "linux"
-#     Nazwy są DOPASOWANE do funkcji znajdz_plik_wydania() w programie —
-#     każdy system pobierze swój plik. Nie zmieniaj ich bez zmiany tamtej
-#     funkcji.
+#  1. Wypychasz tag zaczynający się od "v" (np. przez Releases → Draft
+#     a new release → tag v3.13.3 → Publish).
+#  2. GitHub buduje program na trzech systemach i dołącza do wydania:
+#        PMT_Planer.Windows.zip   <- ZAWSZE PIERWSZY na liście
+#        PMT_Planer_macOS.zip
+#        PMT_Planer_Linux.zip
 #
-#  GDZIE WGRAĆ TEN PLIK: .github/workflows/build.yml (dokładnie ta ścieżka)
+#  DLACZEGO WINDOWS MA KROPKĘ W NAZWIE (nie "_Windows"):
+#  Starsze wersje programu (3.12.x) pobierają PIERWSZE archiwum z wydania,
+#  bez sprawdzania systemu. Kropka sortuje się przed podkreśleniem, więc
+#  "PMT_Planer.Windows.zip" trafia na początek listy i stare instalacje
+#  pobierają właściwy plik. Dodatkowo job Windows kończy się jako pierwszy
+#  (pozostałe czekają przez "needs"), więc kolejność wysyłki też się zgadza.
+#  Nowsze wersje (3.13.2+) i tak szukają nazwy zawierającej "windows".
+#
+#  GDZIE WGRAĆ TEN PLIK: .github/workflows/build.yml
 #
 #  UWAGA: budujemy na Pythonie 3.13 (nie 3.14) — celowo, patrz problem
 #  z python314.dll na maszynach użytkowników.
 # ============================================================
 name: Buduj wydanie
 
-# Prawo zapisu dla tokenu — konieczne, by dolaczyc pliki do wydania.
-# (Bez tego krok "Dolacz do wydania" konczy sie bledem uprawnien.)
 permissions:
   contents: write
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:     # ręczne odpalenie z zakładki Actions (do testów)
+  workflow_dispatch:
 
 jobs:
-  build:
+  # ---------- 1) WINDOWS — buduje się i wysyła jako pierwszy ----------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj Pythona 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Zainstaluj zależności
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pyqt6 fpdf2
+
+      - name: Zbuduj program
+        shell: bash
+        run: |
+          pyinstaller --onefile --windowed \
+            --name PMT_Planer \
+            --icon pmt_logo.ico \
+            --add-data "pmt_logo.png;." \
+            --add-data "pmt_logo.ico;." \
+            PMT_Delegacje.py
+
+      - name: Sprawdź, czy .exe powstał
+        shell: bash
+        run: |
+          test -f dist/PMT_Planer.exe || { echo "BRAK dist/PMT_Planer.exe"; exit 1; }
+          ls -la dist/
+
+      - name: Spakuj do zip
+        shell: bash
+        run: |
+          cd dist
+          7z a ../PMT_Planer.Windows.zip PMT_Planer.exe
+          cd ..
+          7z l PMT_Planer.Windows.zip     # kontrola: co jest w archiwum
+
+      - name: Dołącz do wydania
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PMT_Planer.Windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------- 2) macOS i Linux — dopiero po Windows ----------
+  pozostale:
+    needs: windows            # gwarantuje, że Windows jest w wydaniu pierwszy
     strategy:
-      fail-fast: false   # awaria buildu na jednym systemie nie ubija pozostałych
+      fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            nazwa: Windows
-            ikona: pmt_logo.ico
-            sep: ";"           # separator w --add-data (Windows używa ';')
-            binarka: PMT_Planer.exe
-          - os: macos-latest   # Apple Silicon (M1/M2/M3...)
+          - os: macos-latest
             nazwa: macOS
             ikona: pmt_logo.icns
-            sep: ":"
-            binarka: PMT_Planer
-          - os: ubuntu-22.04   # starsze Ubuntu = binarka działa też na starszych dystrybucjach
+          - os: ubuntu-22.04
             nazwa: Linux
             ikona: pmt_logo.png
-            sep: ":"
-            binarka: PMT_Planer
 
     runs-on: ${{ matrix.os }}
 
@@ -69,7 +111,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller pyqt6 fpdf2
 
-      # Linux: biblioteki systemowe potrzebne Qt do zbudowania
       - name: Biblioteki systemowe (tylko Linux)
         if: matrix.nazwa == 'Linux'
         run: |
@@ -82,20 +123,15 @@ jobs:
           pyinstaller --onefile --windowed \
             --name PMT_Planer \
             --icon "${{ matrix.ikona }}" \
-            --add-data "pmt_logo.png${{ matrix.sep }}." \
-            --add-data "pmt_logo.ico${{ matrix.sep }}." \
+            --add-data "pmt_logo.png:." \
+            --add-data "pmt_logo.ico:." \
             PMT_Delegacje.py
 
       - name: Spakuj do zip
         shell: bash
         run: |
           cd dist
-          if [ "${{ matrix.nazwa }}" = "Windows" ]; then
-            7z a ../PMT_Planer_Windows.zip PMT_Planer.exe
-          else
-            # -j = bez ścieżek; zachowuje bit wykonywalności wewnątrz zipa
-            zip -j ../PMT_Planer_${{ matrix.nazwa }}.zip ${{ matrix.binarka }}
-          fi
+          zip -j ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
 
       - name: Dołącz do wydania
         uses: softprops/action-gh-release@v2

@@ -1,2 +1,2 @@
-3.13.2
-Nowosci: okno logowania w stylu programu, dni niezrealizowane w kalendarzu oznaczane krwista czerwienia, natychmiastowa synchronizacja statystyk po wygenerowaniu dokumentow, petla synchronizacji co 15 minut. Poprawka: aktualizator bezblednie rozpoznaje archiwum dla Windows nawet, gdy w wydaniu sa inne pliki .zip.
+3.13.4
+Nowosci: okno logowania w stylu programu, dni niezrealizowane w kalendarzu oznaczane krwista czerwienia, natychmiastowa synchronizacja statystyk po wygenerowaniu dokumentow, petla synchronizacji co 15 minut. Poprawki: aktualizator bezblednie rozpoznaje archiwum dla Windows, a wydania maja teraz gwarantowana kolejnosc plikow.

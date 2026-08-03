@@ -1,26 +1,5 @@
 # ============================================================
 #  PMT Planer — automatyczne budowanie wydań (Windows / macOS / Linux)
-#
-#  JAK TO DZIAŁA:
-#  1. Wypychasz tag zaczynający się od "v" (np. przez Releases → Draft
-#     a new release → tag v3.13.3 → Publish).
-#  2. GitHub buduje program na trzech systemach i dołącza do wydania:
-#        PMT_Planer.Windows.zip   <- ZAWSZE PIERWSZY na liście
-#        PMT_Planer_macOS.zip
-#        PMT_Planer_Linux.zip
-#
-#  DLACZEGO WINDOWS MA KROPKĘ W NAZWIE (nie "_Windows"):
-#  Starsze wersje programu (3.12.x) pobierają PIERWSZE archiwum z wydania,
-#  bez sprawdzania systemu. Kropka sortuje się przed podkreśleniem, więc
-#  "PMT_Planer.Windows.zip" trafia na początek listy i stare instalacje
-#  pobierają właściwy plik. Dodatkowo job Windows kończy się jako pierwszy
-#  (pozostałe czekają przez "needs"), więc kolejność wysyłki też się zgadza.
-#  Nowsze wersje (3.13.2+) i tak szukają nazwy zawierającej "windows".
-#
-#  GDZIE WGRAĆ TEN PLIK: .github/workflows/build.yml
-#
-#  UWAGA: budujemy na Pythonie 3.13 (nie 3.14) — celowo, patrz problem
-#  z python314.dll na maszynach użytkowników.
 # ============================================================
 name: Buduj wydanie
 
@@ -48,7 +27,7 @@ jobs:
       - name: Zainstaluj zależności
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pyqt6 fpdf2
+          pip install pyinstaller pyqt6 fpdf2 openpyxl
 
       - name: Zbuduj program
         shell: bash
@@ -58,6 +37,8 @@ jobs:
             --icon pmt_logo.ico \
             --add-data "pmt_logo.png;." \
             --add-data "pmt_logo.ico;." \
+            --add-data "ciemny.png;." \
+            --add-data "jasny.png;." \
             PMT_Delegacje.py
 
       - name: Sprawdź, czy .exe powstał
@@ -72,7 +53,7 @@ jobs:
           cd dist
           7z a ../PMT_Planer.Windows.zip PMT_Planer.exe
           cd ..
-          7z l PMT_Planer.Windows.zip     # kontrola: co jest w archiwum
+          7z l PMT_Planer.Windows.zip
 
       - name: Dołącz do wydania
         uses: softprops/action-gh-release@v2
@@ -83,7 +64,7 @@ jobs:
 
   # ---------- 2) macOS i Linux — dopiero po Windows ----------
   pozostale:
-    needs: windows            # gwarantuje, że Windows jest w wydaniu pierwszy
+    needs: windows
     strategy:
       fail-fast: false
       matrix:
@@ -109,7 +90,7 @@ jobs:
       - name: Zainstaluj zależności
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pyqt6 fpdf2
+          pip install pyinstaller pyqt6 fpdf2 openpyxl
 
       - name: Biblioteki systemowe (tylko Linux)
         if: matrix.nazwa == 'Linux'
@@ -125,6 +106,8 @@ jobs:
             --icon "${{ matrix.ikona }}" \
             --add-data "pmt_logo.png:." \
             --add-data "pmt_logo.ico:." \
+            --add-data "ciemny.png:." \
+            --add-data "jasny.png:." \
             PMT_Delegacje.py
 
       - name: Spakuj do zip

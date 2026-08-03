@@ -480,16 +480,11 @@ WERSJA_PROGRAMU = "3.13.5"
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
 SYGNATURA_SILNIKA = "S11-2026-adresy-wiejskie | PLAN-1-planer-wizyt"
+
 URL_WERSJI     = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt"
 URL_POBIERANIA = "https://github.com/anowicki0205-coder/pmt-planer/releases/latest"
 URL_API_RELEASE = "https://api.github.com/repos/anowicki0205-coder/pmt-planer/releases/latest"
-# Skrypt podmiany pobierany ŚWIEŻO z GitHuba przy każdej aktualizacji — NIE jest
-# zaszyty w .exe. Dzięki temu błąd w logice podmiany można naprawić edytując
-# ten plik na GitHubie, bez wydawania nowej wersji programu — poprawka działa
-# natychmiast u WSZYSTKICH użytkowników, niezależnie jaką wersję .exe mają.
 URL_UPDATERA = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.bat"
-# odpowiednik dla macOS i Linuksa — ta sama idea: poprawka na GitHubie
-# działa natychmiast u wszystkich, bez wydawania nowej wersji programu
 URL_UPDATERA_SH = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.sh"
 
 

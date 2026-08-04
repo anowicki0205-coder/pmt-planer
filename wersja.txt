@@ -1,2 +1,2 @@
-3.13.6
-Nowosci: okno logowania w stylu programu, dni niezrealizowane w kalendarzu oznaczane krwista czerwienia, natychmiastowa synchronizacja statystyk, petla co 15 minut. Poprawka: gdy w wydaniu brakuje plikow tla, program rysuje firmowy gradient zamiast czerni.
+3.13.8
+Nowosci: logowanie loginem i haslem przy KAZDYM uruchomieniu programu (kazde wejscie widoczne w arkuszu, dostep mozna odebrac zdalnie), przycisk Wyloguj w Ustawieniach, tla bez znaku wodnego. Bez internetu dziala logowanie na podstawie skrotu hasla z ostatniego udanego wejscia na tym komputerze.

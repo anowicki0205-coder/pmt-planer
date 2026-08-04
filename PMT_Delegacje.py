@@ -301,19 +301,91 @@ def online_nieobecnosci():
     return _wczytaj(PLIK_STATUSU, {}).get("nieobecnosci", [])
 
 
+def _hash_hasla(kod: str, haslo: str) -> str:
+    """Skrót SHA-256 z solą (kodem). Hasło NIGDY nie jest zapisywane jawnie —
+    ani na dysku, ani w arkuszu. Ten sam wzór stosuje backend, więc skróty
+    lokalne i te z arkusza są porównywalne."""
+    return hashlib.sha256(("PMT|" + str(kod) + "|" + str(haslo)).encode("utf-8")).hexdigest()
+
+
+def online_zaloguj(kod: str, haslo: str):
+    """Weryfikuje logowanie. Zwraca (czy_ok, imie, komunikat).
+
+    ONLINE  — pyta arkusz (akcja "logowanie"): sprawdzane jest hasło albo,
+              gdy użytkownik go jeszcze nie ustawił, numer telefonu.
+              Po udanym logowaniu zapisujemy lokalnie SKRÓT hasła, żeby
+              następnym razem dało się wejść bez zasięgu.
+    OFFLINE — porównuje podane hasło ze skrótem zapisanym przy poprzednim
+              udanym logowaniu na tym komputerze. Pierwsze logowanie na
+              danym sprzęcie zawsze wymaga internetu (świadoma decyzja:
+              inaczej blokada konta byłaby nie do wyegzekwowania).
+    """
+    kod = str(kod).strip()
+    haslo = str(haslo)
+    if not (kod.isdigit() and len(kod) == 5):
+        return False, "", "Login to dokładnie 5 cyfr."
+    if len(haslo) < 4:
+        return False, "", "Podaj hasło (lub numer telefonu)."
+    try:
+        cialo = json.dumps({"akcja": "logowanie", "kod": kod,
+                            "haslo": haslo, "telefon": haslo,
+                            "zrodlo": "program"}).encode("utf-8")
+        req = urllib.request.Request(
+            URL_BACKENDU, data=cialo,
+            headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except Exception:
+        st = _wczytaj(PLIK_STATUSU, {})
+        if st.get("kod") == kod and st.get("skrot") == _hash_hasla(kod, haslo):
+            return True, str(st.get("imie", "")), "offline"
+        return False, "", ("Brak połączenia z serwerem. Pierwsze logowanie na tym "
+                           "komputerze wymaga internetu.")
+    if odp.get("status") != "ok":
+        return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
+    st = _wczytaj(PLIK_STATUSU, {})
+    st["kod"] = kod
+    st["skrot"] = _hash_hasla(kod, haslo)
+    st["imie"] = str(odp.get("imie", ""))
+    _zapisz(PLIK_STATUSU, st)
+    return True, st["imie"], ""
+
+
+def online_wyloguj():
+    """Usuwa zapamiętany kod użytkownika (plik statusu zostaje — bez pola 'kod')."""
+    try:
+        dane = {}
+        if os.path.exists(PLIK_STATUSU):
+            with open(PLIK_STATUSU, "r", encoding="utf-8") as f:
+                dane = json.load(f)
+        dane.pop("kod", None)
+        dane.pop("skrot", None)
+        dane.pop("wazne_do", None)
+        dane.pop("imie", None)
+        with open(PLIK_STATUSU, "w", encoding="utf-8") as f:
+            json.dump(dane, f, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
 def dialog_logowania():
-    """Okno logowania spójne z motywem programu (ciemny granat, akcent
-    cyjan->zieleń, zaokrąglone rogi). Zwraca kod (str) albo None."""
+    """Okno logowania w stylu programu: LOGIN (5-cyfrowy kod) + HASŁO.
+    Zwraca (kod, imie) albo (None, "") gdy użytkownik zrezygnował.
+
+    Logowanie odbywa się przy KAŻDYM uruchomieniu programu — dzięki temu
+    administrator widzi w arkuszu każde wejście do systemu, a dostęp można
+    odebrać zdalnie (zmiana hasła albo daty w kolumnie "Wazne do")."""
     from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                  QLineEdit, QPushButton)
-    from PyQt6.QtCore import Qt, QRegularExpression
+    from PyQt6.QtCore import Qt, QRegularExpression, QTimer
     from PyQt6.QtGui import QRegularExpressionValidator
     d = QDialog()
-    d.setWindowTitle("PMT Planer — logowanie")
+    d.setWindowTitle("PMT Planer \u2014 logowanie")
     d.setModal(True)
     d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-    d.setFixedSize(400, 250)
+    d.setFixedSize(410, 330)
     d.setObjectName("PmtLogowanie")
     d.setStyleSheet('''
         #PmtLogowanie { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
@@ -321,13 +393,15 @@ def dialog_logowania():
                         border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
         QLabel#tytul { color:#F8FAFC; font-family:'Segoe UI'; font-size:18px; font-weight:800;
                        background: transparent; }
-        QLabel#pod   { color:#94A3B8; font-family:'Segoe UI'; font-size:12px;
-                       background: transparent; }
+        QLabel#pod   { color:#94A3B8; font-family:'Segoe UI'; font-size:12px; background: transparent; }
+        QLabel#etyk  { color:#94A3B8; font-family:'Segoe UI'; font-size:10px; font-weight:700;
+                       letter-spacing:1px; background: transparent; }
         QLabel#blad  { color:#F87171; font-family:'Segoe UI'; font-size:11px; font-weight:600;
                        background: transparent; }
         QLineEdit { background:#0B1320; color:#F8FAFC; border:1px solid rgba(255,255,255,0.20);
-                    border-radius:8px; padding:9px; font-family:'Segoe UI';
-                    font-size:22px; font-weight:700; letter-spacing:8px; }
+                    border-radius:8px; padding:9px; font-family:'Segoe UI'; }
+        QLineEdit#kod { font-size:20px; font-weight:700; letter-spacing:8px; }
+        QLineEdit#haslo { font-size:15px; letter-spacing:2px; }
         QLineEdit:focus { border:1px solid #00E4A1; }
         QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
                            stop:0 #00F0FF, stop:1 #00E4A1);
@@ -342,36 +416,75 @@ def dialog_logowania():
                              border-radius:8px; padding:10px 18px; }
         QPushButton#anuluj:hover { color:#E2E8F0; border-color: rgba(255,255,255,0.40); }
     ''')
-    ukl = QVBoxLayout(d); ukl.setContentsMargins(26, 24, 26, 20); ukl.setSpacing(8)
-    t = QLabel("Zaloguj się"); t.setObjectName("tytul"); ukl.addWidget(t)
-    pod = QLabel("Podaj swój 5-cyfrowy kod użytkownika —\notrzymasz go od administratora.")
-    pod.setObjectName("pod"); ukl.addWidget(pod)
-    ukl.addSpacing(4)
-    pole = QLineEdit(); pole.setMaxLength(5)
-    pole.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    pole.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,5}")))
-    pole.setPlaceholderText("\u2022\u2022\u2022\u2022\u2022")
-    ukl.addWidget(pole)
-    blad = QLabel(" "); blad.setObjectName("blad"); ukl.addWidget(blad)
+    ukl = QVBoxLayout(d); ukl.setContentsMargins(26, 24, 26, 20); ukl.setSpacing(6)
+    t = QLabel("Zaloguj si\u0119"); t.setObjectName("tytul"); ukl.addWidget(t)
+    pod = QLabel("Login to Tw\u00f3j 5-cyfrowy kod, has\u0142o otrzymasz od administratora.")
+    pod.setObjectName("pod"); pod.setWordWrap(True); ukl.addWidget(pod)
+    ukl.addSpacing(8)
+
+    e1 = QLabel("LOGIN"); e1.setObjectName("etyk"); ukl.addWidget(e1)
+    pole_kod = QLineEdit(); pole_kod.setObjectName("kod"); pole_kod.setMaxLength(5)
+    pole_kod.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    pole_kod.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,5}")))
+    pole_kod.setPlaceholderText("\u2022\u2022\u2022\u2022\u2022")
+    ukl.addWidget(pole_kod)
+
+    ukl.addSpacing(6)
+    e2 = QLabel("HAS\u0141O"); e2.setObjectName("etyk"); ukl.addWidget(e2)
+    pole_haslo = QLineEdit(); pole_haslo.setObjectName("haslo")
+    pole_haslo.setEchoMode(QLineEdit.EchoMode.Password)
+    pole_haslo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    pole_haslo.setPlaceholderText("has\u0142o lub numer telefonu")
+    ukl.addWidget(pole_haslo)
+
+    blad = QLabel(" "); blad.setObjectName("blad"); blad.setWordWrap(True)
+    blad.setMinimumHeight(30); ukl.addWidget(blad)
+
     rzad = QHBoxLayout(); rzad.addStretch(1)
     b_anuluj = QPushButton("Zamknij"); b_anuluj.setObjectName("anuluj")
     b_ok = QPushButton("Zaloguj"); b_ok.setObjectName("ok"); b_ok.setEnabled(False)
     rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
     ukl.addLayout(rzad)
-    wynik = {"kod": None}
-    def _zmiana(tekst): b_ok.setEnabled(len(tekst) == 5); blad.setText(" ")
+
+    wynik = {"kod": None, "imie": ""}
+
+    def _sprawdz_pola():
+        b_ok.setEnabled(len(pole_kod.text()) == 5 and len(pole_haslo.text()) >= 4)
+
     def _zatwierdz():
-        if len(pole.text()) == 5:
-            wynik["kod"] = pole.text(); d.accept()
+        if not b_ok.isEnabled():
+            return
+        b_ok.setEnabled(False); b_ok.setText("Sprawdzam\u2026")
+        blad.setText(" ")
+        QApplication.processEvents()
+        ok, imie, komunikat = online_zaloguj(pole_kod.text(), pole_haslo.text())
+        b_ok.setText("Zaloguj"); _sprawdz_pola()
+        if ok:
+            wynik["kod"] = pole_kod.text().strip()
+            wynik["imie"] = imie
+            d.accept()
         else:
-            blad.setText("Kod musi mieć dokładnie 5 cyfr.")
-    pole.textChanged.connect(_zmiana)
-    pole.returnPressed.connect(_zatwierdz)
+            blad.setText(komunikat)
+            pole_haslo.selectAll(); pole_haslo.setFocus()
+
+    pole_kod.textChanged.connect(lambda _: _sprawdz_pola())
+    pole_haslo.textChanged.connect(lambda _: _sprawdz_pola())
+    pole_kod.returnPressed.connect(lambda: pole_haslo.setFocus())
+    pole_haslo.returnPressed.connect(_zatwierdz)
     b_ok.clicked.connect(_zatwierdz)
     b_anuluj.clicked.connect(d.reject)
-    pole.setFocus()
+
+    # wygodne wznowienie pracy: login podpowiadamy, hasło zawsze od nowa
+    ostatni = str(_wczytaj(PLIK_STATUSU, {}).get("kod", "")).strip()
+    if ostatni.isdigit() and len(ostatni) == 5:
+        pole_kod.setText(ostatni)
+        QTimer.singleShot(0, pole_haslo.setFocus)
+    else:
+        QTimer.singleShot(0, pole_kod.setFocus)
+    _sprawdz_pola()
     d.exec()
-    return wynik["kod"]
+    return wynik["kod"], wynik["imie"]
+
 
 # ~~~~~~~~~~~~~~~~~~~~ KONIEC SEKCJI PMT-ONLINE ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -475,7 +588,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.13.6"
+WERSJA_PROGRAMU = "3.13.8"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -8578,6 +8691,18 @@ class PanelAdminaOverlay(QFrame):
         self.l_pod.setStyleSheet("color:#94A3B8; font-family:'Segoe UI'; font-size:12px; background:transparent;")
         naglowek.addWidget(self.l_tyt); naglowek.addWidget(self.l_pod)
         gora.addLayout(naglowek); gora.addStretch()
+        # Wylogowanie — kasuje zapamiętany kod użytkownika, żeby przy następnym
+        # uruchomieniu program znów zapytał o kod (np. gdy komputer zmienia właściciela).
+        self.btn_wyloguj = QPushButton("Wyloguj")
+        self.btn_wyloguj.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_wyloguj.setStyleSheet(
+            "QPushButton { color:#F8FAFC; background:rgba(255,255,255,0.06);"
+            " border:1px solid rgba(255,255,255,0.15); border-radius:10px;"
+            " font-family:'Segoe UI'; font-size:13px; font-weight:700; padding:9px 16px; }"
+            "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }")
+        self.btn_wyloguj.clicked.connect(self._wyloguj)
+        gora.addWidget(self.btn_wyloguj)
+        gora.addSpacing(8)
         self.btn_x = QPushButton("✕"); self.btn_x.setFixedSize(38, 38)
         self.btn_x.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_x.setStyleSheet(
@@ -8634,6 +8759,30 @@ class PanelAdminaOverlay(QFrame):
         self.lbl_kod_status = QLabel("")
         akt.addWidget(self.lbl_kod_status)
         lay.addLayout(akt)
+
+    def _wyloguj(self):
+        """Kasuje zapamiętany kod użytkownika i zamyka program.
+        Przy kolejnym uruchomieniu pojawi się okno logowania."""
+        from PyQt6.QtWidgets import QMessageBox
+        kod = online_kod_uzytkownika() or "—"
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Wylogowanie")
+        mb.setText(f"Wylogować użytkownika {kod}?")
+        mb.setInformativeText("Program zamknie się, a przy następnym uruchomieniu "
+                              "poprosi o 5-cyfrowy kod. Zapisane plany i dokumenty zostają nienaruszone.")
+        mb.setIcon(QMessageBox.Icon.Question)
+        mb.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        mb.setDefaultButton(QMessageBox.StandardButton.No)
+        mb.button(QMessageBox.StandardButton.Yes).setText("Wyloguj i zamknij")
+        mb.button(QMessageBox.StandardButton.No).setText("Anuluj")
+        if mb.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            online_synchronizuj()          # oddaj liczniki, zanim zapomnimy kod
+        except Exception:
+            pass
+        online_wyloguj()
+        QApplication.quit()
 
     def _zatwierdz_kod_dostepu(self):
         wpisany = self.pole_kod_dostepu.text().strip()
@@ -12584,12 +12733,15 @@ if __name__ == "__main__":
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
 
-    # --- Logowanie 5-cyfrowym kodem uzytkownika (raz; potem pamietany) ---
-    if online_kod_uzytkownika() is None:
-        _kod = dialog_logowania()
-        if not _kod:
-            sys.exit(0)
-        online_zapisz_kod(_kod)
+    # --- Logowanie przy KAZDYM uruchomieniu (login + haslo) ---------------
+    # Swiadoma zmiana wzgledem wczesniejszych wersji: kod nie jest juz
+    # "zapamietywany na zawsze". Kazde wejscie do systemu jest odnotowane
+    # w arkuszu (zakladka Log), a dostep mozna odebrac zdalnie - zmiana
+    # hasla albo daty w kolumnie "Wazne do" dziala od nastepnego startu.
+    _kod, _imie_zal = dialog_logowania()
+    if not _kod:
+        sys.exit(0)
+    online_zapisz_kod(_kod)
 
     online_zdarzenie(uruchomienia=1)
     _START_PROGRAMU = datetime.datetime.now()

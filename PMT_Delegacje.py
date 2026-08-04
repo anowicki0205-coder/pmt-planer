@@ -475,16 +475,21 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.13.5"
+WERSJA_PROGRAMU = "3.13.6"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
 SYGNATURA_SILNIKA = "S11-2026-adresy-wiejskie | PLAN-1-planer-wizyt"
-
 URL_WERSJI     = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt"
 URL_POBIERANIA = "https://github.com/anowicki0205-coder/pmt-planer/releases/latest"
 URL_API_RELEASE = "https://api.github.com/repos/anowicki0205-coder/pmt-planer/releases/latest"
+# Skrypt podmiany pobierany ŚWIEŻO z GitHuba przy każdej aktualizacji — NIE jest
+# zaszyty w .exe. Dzięki temu błąd w logice podmiany można naprawić edytując
+# ten plik na GitHubie, bez wydawania nowej wersji programu — poprawka działa
+# natychmiast u WSZYSTKICH użytkowników, niezależnie jaką wersję .exe mają.
 URL_UPDATERA = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.bat"
+# odpowiednik dla macOS i Linuksa — ta sama idea: poprawka na GitHubie
+# działa natychmiast u wszystkich, bez wydawania nowej wersji programu
 URL_UPDATERA_SH = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.sh"
 
 
@@ -4077,10 +4082,31 @@ class ImageBackgroundWidget(QWidget):
         if os.path.exists(p_dark): self._orig_dark = QPixmap(p_dark)
         if os.path.exists(p_light): self._orig_light = QPixmap(p_light)
     def set_theme(self, is_dark): self.is_dark = is_dark; self.update()
+    def _tlo_zastepcze(self, painter):
+        """Gradient w barwach PMT — używany, gdy w wydaniu zabrakło plików
+        ciemny.png / jasny.png. Zamiast płaskiej czerni: granat -> turkus."""
+        from PyQt6.QtGui import QLinearGradient
+        g = QLinearGradient(0, 0, self.width(), self.height())
+        if self.is_dark:
+            g.setColorAt(0.0, QColor("#0F172A")); g.setColorAt(0.55, QColor("#0B1320"))
+            g.setColorAt(1.0, QColor("#04121A"))
+        else:
+            g.setColorAt(0.0, QColor("#F8FAFC")); g.setColorAt(1.0, QColor("#E2E8F0"))
+        painter.fillRect(self.rect(), g)
+        if self.is_dark:                      # subtelna poświata w rogu
+            from PyQt6.QtGui import QRadialGradient
+            r = QRadialGradient(self.width() * 0.82, self.height() * 0.18,
+                                max(self.width(), self.height()) * 0.55)
+            r.setColorAt(0.0, QColor(0, 240, 255, 34)); r.setColorAt(1.0, QColor(0, 240, 255, 0))
+            painter.fillRect(self.rect(), r)
+
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.fillRect(self.rect(), QColor("#0B1320") if self.is_dark else QColor("#F1F5F9"))
         orig = self._orig_dark if self.is_dark else self._orig_light
+        if orig and not orig.isNull():
+            painter.fillRect(self.rect(), QColor("#0B1320") if self.is_dark else QColor("#F1F5F9"))
+        else:
+            self._tlo_zastepcze(painter)
         if orig and not orig.isNull():
             scaled = orig.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
             crop_x = (scaled.width() - self.width()) // 2; crop_y = (scaled.height() - self.height()) // 2

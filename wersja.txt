@@ -1,2 +1,2 @@
 3.13.6
-Nowosci: okno logowania w stylu programu, dni niezrealizowane w kalendarzu oznaczane krwista czerwienia, natychmiastowa synchronizacja statystyk po wygenerowaniu dokumentow, petla synchronizacji co 15 minut, odporny aktualizator.
+Nowosci: okno logowania w stylu programu, dni niezrealizowane w kalendarzu oznaczane krwista czerwienia, natychmiastowa synchronizacja statystyk, petla co 15 minut. Poprawka: gdy w wydaniu brakuje plikow tla, program rysuje firmowy gradient zamiast czerni.

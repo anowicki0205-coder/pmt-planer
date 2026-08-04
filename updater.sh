@@ -59,17 +59,38 @@ rm -f "$NOWY" 2>/dev/null
 
 # 4) usun stary znacznik "program zyje" i uruchom nowa wersje
 rm -f "$FLAGA" 2>/dev/null
-sleep 2
+sleep 5
+
+# 4a) TEST DOSTEPNOSCI PLIKU - ta sama poprawka co w wersji Windows.
+#     Swiezo skopiowany plik potrafi byc jeszcze "trzymany" przez system
+#     (indeksowanie, ochrona antywirusowa, wolny dysk sieciowy), a proba
+#     uruchomienia w tym momencie konczy sie bledem wczytywania bibliotek.
+PROBNY="${TMPDIR:-/tmp}/pmt_test_dostepu.tmp"
+i=1
+while [ "$i" -le 10 ]; do
+    if cp "$CEL" "$PROBNY" 2>/dev/null; then
+        rm -f "$PROBNY" 2>/dev/null
+        echo "[4] Plik gotowy do uruchomienia (proba $i)." >> "$LOG"
+        break
+    fi
+    echo "[4] Plik jeszcze zajety - czekam (proba $i)..." >> "$LOG"
+    sleep 3
+    i=$((i+1))
+done
+
+# 4b) sprzatanie porzuconych katalogow _MEI po poprzednich uruchomieniach
+rm -rf "${TMPDIR:-/tmp}"/_MEI* 2>/dev/null
+
 echo "[4] Uruchamiam nowa wersje..." >> "$LOG"
 nohup "$CEL" >/dev/null 2>&1 &
 
 # 5) weryfikacja przez znacznik - jak w wersji Windows
 WYSTARTOWALA=0
 PROBA2=0
-for i in $(seq 1 8); do
-    sleep 2
+for i in $(seq 1 20); do
+    sleep 3
     if [ -f "$FLAGA" ]; then WYSTARTOWALA=1; break; fi
-    if [ "$PROBA2" = "0" ] && [ "$i" -ge 3 ]; then
+    if [ "$PROBA2" = "0" ] && [ "$i" -ge 6 ]; then
         echo "[4] Znacznik sie nie pojawil - drugie podejscie..." >> "$LOG"
         nohup "$CEL" >/dev/null 2>&1 &
         PROBA2=1

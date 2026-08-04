@@ -118,8 +118,30 @@ rem === pokazal, ze odpalenie NATYCHMIAST po kopiowaniu czasem konczylo    ===
 rem === sie bledem brakujacej biblioteki (antywirus/system jeszcze         ===
 rem === "trzymal" swiezo skopiowany plik) - mimo ze plik byl w 100% OK:    ===
 rem === reczne uruchomienie chwile pozniej dzialalo bez zarzutu.           ===
-echo [4] Czekam chwile przed uruchomieniem (antywirus bywa jeszcze zajety plikiem)... >> "%LOG%"
-ping -n 3 127.0.0.1 >nul
+echo [4] Czekam przed uruchomieniem (antywirus bywa jeszcze zajety plikiem)... >> "%LOG%"
+ping -n 6 127.0.0.1 >nul
+
+rem === 5a) TEST DOSTEPNOSCI PLIKU - probujemy go skopiowac do %TEMP%.      ===
+rem === Jesli antywirus lub system wciaz trzymaja plik na wylacznosc, kopia ===
+rem === sie nie uda. Czekamy do 30 s, zamiast strzelac na oslep - to wlasnie ===
+rem === powodowalo blad "Failed to load Python DLL ... python313.dll".      ===
+set "PROBNY=%TEMP%\pmt_test_dostepu.tmp"
+for /l %%t in (1,1,10) do (
+    copy /y "%CEL%" "%PROBNY%" >nul 2>&1
+    if not errorlevel 1 (
+        del /q "%PROBNY%" >nul 2>&1
+        echo [4] Plik gotowy do uruchomienia (proba %%t). >> "%LOG%"
+        goto plik_gotowy
+    )
+    echo [4] Plik jeszcze zajety - czekam (proba %%t)... >> "%LOG%"
+    ping -n 4 127.0.0.1 >nul
+)
+:plik_gotowy
+
+rem === 5b) Sprzatanie porzuconych katalogow _MEI po poprzednich uruchomieniach. ===
+rem === Te w uzyciu sa zablokowane i po prostu zostana pominiete.               ===
+for /d %%d in ("%TEMP%\_MEI*") do rd /s /q "%%d" >nul 2>&1
+
 echo [4] Uruchamiam nowa wersje... >> "%LOG%"
 start "" "%CEL%"
 
@@ -132,13 +154,16 @@ rem === zaraz po starcie. Brak znacznika = program sie nie uruchomil,     ===
 rem === niezaleznie od tego, co widac w tasklist.                        ===
 set "WYSTARTOWALA=0"
 set "PROBA_2=0"
-for /l %%i in (1,1,8) do (
-    ping -n 2 127.0.0.1 >nul
+rem UWAGA: rozpakowanie ~48 MB przy aktywnym antywirusie potrafi trwac
+rem kilkanascie sekund - dlatego czekamy do ~45 s, a druga probe podejmujemy
+rem dopiero po ~12 s (wczesniej bylo 6 s, co bywalo przedwczesne).
+for /l %%i in (1,1,20) do (
+    ping -n 3 127.0.0.1 >nul
     if exist "%FLAGA%" (
         set "WYSTARTOWALA=1"
         goto po_weryfikacji
     )
-    if "!PROBA_2!"=="0" if %%i GEQ 3 (
+    if "!PROBA_2!"=="0" if %%i GEQ 6 (
         echo [4] Znacznik sie nie pojawil - probuje uruchomic ponownie (drugie podejscie)... >> "%LOG%"
         start "" "%CEL%"
         set "PROBA_2=1"

@@ -385,12 +385,12 @@ def dialog_logowania():
     d.setModal(True)
     d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-    d.setFixedSize(410, 330)
+    d.setFixedSize(430, 360)
     d.setObjectName("PmtLogowanie")
     d.setStyleSheet('''
-        #PmtLogowanie { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
-                          stop:0 #0F172A, stop:1 #04121A);
-                        border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
+        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                      stop:0 #0F172A, stop:1 #04121A);
+                    border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
         QLabel#tytul { color:#F8FAFC; font-family:'Segoe UI'; font-size:18px; font-weight:800;
                        background: transparent; }
         QLabel#pod   { color:#94A3B8; font-family:'Segoe UI'; font-size:12px; background: transparent; }
@@ -416,7 +416,14 @@ def dialog_logowania():
                              border-radius:8px; padding:10px 18px; }
         QPushButton#anuluj:hover { color:#E2E8F0; border-color: rgba(255,255,255,0.40); }
     ''')
-    ukl = QVBoxLayout(d); ukl.setContentsMargins(26, 24, 26, 20); ukl.setSpacing(6)
+    from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect
+    zewn = QVBoxLayout(d); zewn.setContentsMargins(10, 10, 10, 10)
+    karta = QFrame(); karta.setObjectName("PmtKarta")
+    cien = QGraphicsDropShadowEffect(karta)
+    cien.setBlurRadius(28); cien.setOffset(0, 6); cien.setColor(QColor(0, 0, 0, 180))
+    karta.setGraphicsEffect(cien)
+    zewn.addWidget(karta)
+    ukl = QVBoxLayout(karta); ukl.setContentsMargins(26, 22, 26, 18); ukl.setSpacing(6)
     t = QLabel("Zaloguj si\u0119"); t.setObjectName("tytul"); ukl.addWidget(t)
     pod = QLabel("Login to Tw\u00f3j 5-cyfrowy kod, has\u0142o otrzymasz od administratora.")
     pod.setObjectName("pod"); pod.setWordWrap(True); ukl.addWidget(pod)
@@ -588,7 +595,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.13.8"
+WERSJA_PROGRAMU = "3.13.9"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -8693,13 +8700,7 @@ class PanelAdminaOverlay(QFrame):
         gora.addLayout(naglowek); gora.addStretch()
         # Wylogowanie — kasuje zapamiętany kod użytkownika, żeby przy następnym
         # uruchomieniu program znów zapytał o kod (np. gdy komputer zmienia właściciela).
-        self.btn_wyloguj = QPushButton("Wyloguj")
-        self.btn_wyloguj.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_wyloguj.setStyleSheet(
-            "QPushButton { color:#F8FAFC; background:rgba(255,255,255,0.06);"
-            " border:1px solid rgba(255,255,255,0.15); border-radius:10px;"
-            " font-family:'Segoe UI'; font-size:13px; font-weight:700; padding:9px 16px; }"
-            "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }")
+        self.btn_wyloguj = OutlineButton("⎋ Wyloguj", True, self)
         self.btn_wyloguj.clicked.connect(self._wyloguj)
         gora.addWidget(self.btn_wyloguj)
         gora.addSpacing(8)
@@ -11384,6 +11385,12 @@ class App(QMainWindow):
         self.btn_bug = OutlineButton("⚠ Zgłoś błąd", self.is_dark, self.topbar)
         self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:anowicki@pmt.com.pl"))
         tb.addWidget(self.btn_bug)
+
+        # Wylogowanie zawsze pod ręką — ten sam styl co pozostałe przyciski paska.
+        self.btn_wyloguj = OutlineButton("⎋ Wyloguj", self.is_dark, self.topbar)
+        self.btn_wyloguj.setToolTip("Zamknij program i wyloguj użytkownika")
+        self.btn_wyloguj.clicked.connect(self._wyloguj_uzytkownika)
+        tb.addWidget(self.btn_wyloguj)
         right_content_layout.addWidget(self.topbar)
         
         body = QWidget(); body.setStyleSheet("background-color: transparent;")
@@ -12281,6 +12288,29 @@ class App(QMainWindow):
             f"Dodano {len(dodane)} nowych punktów, usunięto {len(do_usuniecia)} brakujących. "
             f"Cykle pozostałych punktów zostały bez zmian.",
             success=True)
+
+    def _wyloguj_uzytkownika(self):
+        """Wylogowanie: kasuje zapamiętany kod i skrót hasła, zamyka program.
+        Przy kolejnym uruchomieniu trzeba podać login i hasło."""
+        kod = online_kod_uzytkownika() or "—"
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Wylogowanie")
+        mb.setText(f"Wylogować użytkownika {kod}?")
+        mb.setInformativeText("Program zamknie się, a przy następnym uruchomieniu poprosi "
+                              "o login i hasło. Plany i dokumenty zostają nienaruszone.")
+        mb.setIcon(QMessageBox.Icon.Question)
+        mb.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        mb.setDefaultButton(QMessageBox.StandardButton.No)
+        mb.button(QMessageBox.StandardButton.Yes).setText("Wyloguj i zamknij")
+        mb.button(QMessageBox.StandardButton.No).setText("Anuluj")
+        if mb.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            online_synchronizuj()
+        except Exception:
+            pass
+        online_wyloguj()
+        QApplication.quit()
 
     def _pokaz_panel_admina(self):
         """Panel administratora — statystyki wszystkich użytkowników programu

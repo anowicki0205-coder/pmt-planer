@@ -1,2 +1,2 @@
-3.13.8
-Nowosci: logowanie loginem i haslem przy KAZDYM uruchomieniu programu (kazde wejscie widoczne w arkuszu, dostep mozna odebrac zdalnie), przycisk Wyloguj w Ustawieniach, tla bez znaku wodnego. Bez internetu dziala logowanie na podstawie skrotu hasla z ostatniego udanego wejscia na tym komputerze.
+3.13.9
+Nowosci: przycisk Wyloguj w gornym pasku obok Zglos blad, poprawiony wyglad okna logowania (panel malowany na wewnetrznej ramce - wczesniej bywal przezroczysty) oraz przycisku wylogowania w Ustawieniach. Logowanie loginem i haslem przy kazdym uruchomieniu.

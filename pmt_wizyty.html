@@ -44,7 +44,7 @@ header h1 span{background:linear-gradient(90deg,var(--akc1),var(--akc2));
 #krokPasek i{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.10)}
 #krokPasek i.on{background:linear-gradient(90deg,var(--akc1),var(--akc2))}
 #krokNazwa{font-size:12px;color:var(--wyblakly);margin-top:6px}
-main{padding:18px;max-width:560px;margin:0 auto}
+main{padding:18px 18px 96px;max-width:560px;margin:0 auto}
 .ekran{display:none}.ekran.on{display:block;animation:wej .18s ease-out}
 @keyframes wej{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.ekran.on{animation:none}}
@@ -205,9 +205,8 @@ input:focus{outline:none;border-color:var(--akc2)}
 <!-- KROK 1: PLANOGRAM (wiele zdjec) -->
 <section class="ekran" id="e-planogram">
   <span class="znaczek" id="zn-sklep0"></span>
-  <h2>Krok 1 — planogram półki</h2>
-  <p class="pod">Sfotografuj <b>wszystkie strony</b> planogramu dla tej półki — jedno zdjęcie na stronę, na wprost, przy dobrym świetle.</p>
-  <div class="info-pas" id="historiaPas" style="display:none;background:rgba(0,240,255,.08);border-color:rgba(0,240,255,.3);color:#7DD3FC"></div>
+  <h2>Planogram ręcznie</h2>
+  <p class="pod">Ścieżka zapasowa — gdy automat nie rozpozna układu. Sfotografuj <b>każdą stronę</b> planogramu osobno.</p>
   <div class="info-pas" id="planZapisanyPas" style="display:none;cursor:pointer"></div>
   <div class="foto-pole" onclick="document.getElementById('planFoto').click()">
     <span id="planPoleTxt">Stuknij, aby dodać zdjęcie strony planogramu<br><b>aparat lub galeria</b></span>
@@ -216,21 +215,23 @@ input:focus{outline:none;border-color:var(--akc2)}
   <div class="strony karta" id="planStrony" style="display:none"></div>
   <div class="info-pas" id="nowosciPas" style="display:none;cursor:pointer"></div>
   <div class="karta" id="nowosciLista" style="display:none"></div>
-  <button class="btn drugi" onclick="autoPlanogram()">&#10024; Pomiń — rozpoznaj układ ze zdjęcia półki</button>
+  <div style="height:80px"></div>
   <div class="dol"><button class="btn" id="btnDoSkanu" disabled onclick="idz('e-przed')">Dalej — skan półki</button></div>
 </section>
 
 <!-- KROK 2: SKAN PRZED -->
 <section class="ekran" id="e-przed">
   <span class="znaczek" id="zn-sklep"></span>
-  <h2>Krok 2 — skan półki</h2>
-  <p class="pod">Cała półka w kadrze, prosto, bez ludzi w tle.</p>
+  <h2>Skan półki</h2>
+  <p class="pod">Cała półka w kadrze, prosto, bez ludzi w tle. Układ rozpoznam sam.</p>
+  <div class="info-pas" id="historiaPas" style="display:none;background:rgba(0,240,255,.08);border-color:rgba(0,240,255,.3);color:#7DD3FC;font-size:12.5px;padding:9px 12px"></div>
   <div class="foto-pole" onclick="document.getElementById('przedFoto').click()">
     <span id="przedPoleTxt">Stuknij, aby dodać zdjęcie półki<br><b>aparat lub galeria</b></span>
     <input type="file" id="przedFoto" accept="image/*" hidden>
   </div>
-  <div style="height:12px"></div>
+  <div style="height:10px"></div>
   <div class="info-pas" id="aiStanPrzed" style="display:none"></div>
+  <button class="link" onclick="idz('e-planogram')" style="display:block;margin:2px auto 0">Nie rozpoznano? Dodaj zdjęcia planogramu ręcznie</button>
   <div class="dol" id="dolPrzed" style="display:none"><button class="btn" onclick="idz('e-lista')">Przejdź do listy &#8594;</button></div>
 </section>
 
@@ -380,7 +381,7 @@ function wznowWizyte(){
   return true;
 }
 const stos = [];
-const kroki = ["Logowanie","Wizyta","Planogram","Skan półki","Lista braków","Uzupełnienie","Efekt"];
+const kroki = ["Logowanie","Wizyta","Planogram (ręcznie)","Skan półki","Lista braków","Uzupełnienie","Efekt"];
 
 /* ========== POWIADOMIENIA: bezpieczne, nigdy nie psuja przeplywu ========== */
 function powiadom(tytul, tresc){
@@ -643,11 +644,13 @@ function startWizyty(){
   document.getElementById("planStrony").innerHTML="";
   document.getElementById("btnDoSkanu").disabled=true;
   pokazHistorie(sklep);
+  W.autoPlanogram = true;          // układ ustali się ze zdjęcia półki
   zapiszW(); trzymajEkran();
-  idz("e-planogram");
+  idz("e-przed");
   // planogram z poprzedniej wizyty w tym sklepie? zaproponuj (dziala offline)
   const zapisany = mag.get("pmt_plan_" + _bezOgonkow(sklep), null);
   const pas = document.getElementById("planZapisanyPas");
+  if(!pas) return;
   if(zapisany && zapisany.pozycje && zapisany.pozycje.length){
     pas.style.display = "block";
     pas.innerHTML = "&#128190; Mam planogram z poprzedniej wizyty (" + zapisany.kiedy + ", " +
@@ -693,7 +696,8 @@ document.getElementById("planFoto").addEventListener("change", async ev=>{
     if(o.status!=="ok") throw new Error(o.opis||"analiza nie powiodła się");
     W.strony.push(pelna); W.stronyB64.push(b64);
     idb.zapisz('strony', W.strony); idb.zapisz('stronyB64', W.stronyB64);
-    wzbogac(o.pozycje).forEach(p=>{ p.strona = nrStrony; W.pozycje.push(p); }); zapiszW();
+    wzbogac(o.pozycje).forEach(p=>{ p.strona = nrStrony; W.pozycje.push(p); });
+    W.autoPlanogram = false; zapiszW();
     // zapamietaj planogram dla tego sklepu (offline nastepnym razem)
     mag.set("pmt_plan_" + _bezOgonkow(W.sklep), {kiedy: new Date().toLocaleDateString("pl"),
                                                  pozycje: W.pozycje});

@@ -216,6 +216,7 @@ input:focus{outline:none;border-color:var(--akc2)}
   <div class="strony karta" id="planStrony" style="display:none"></div>
   <div class="info-pas" id="nowosciPas" style="display:none;cursor:pointer"></div>
   <div class="karta" id="nowosciLista" style="display:none"></div>
+  <button class="btn drugi" onclick="autoPlanogram()">&#10024; Pomiń — rozpoznaj układ ze zdjęcia półki</button>
   <div class="dol"><button class="btn" id="btnDoSkanu" disabled onclick="idz('e-przed')">Dalej — skan półki</button></div>
 </section>
 
@@ -633,7 +634,7 @@ async function wyslijZgloszenie(){
 function startWizyty(){
   const sklep = document.getElementById("sklepWe").value.trim();
   if(!sklep){ alert("Podaj nazwę sklepu."); return; }
-  W = { sklep, pozycje: [], strony: [], stronyB64: [], maxKrok: 2,
+  W = { sklep, pozycje: [], strony: [], stronyB64: [], maxKrok: 2, autoPlanogram: false, planogramNazwa: "",
         statusyPrzed:{}, statusyPo:{}, dotknietePrzed:{}, dotknietePo:{},
         poprawki:0, wynikiBrakow:{} };
   document.querySelectorAll("#zn-sklep0,#zn-sklep,#zn-sklep2,#zn-sklep3,#zn-sklep4")
@@ -764,6 +765,32 @@ async function analizujPolke(plik, faza){
   txt.innerHTML = "Zdjęcie przyjęte ✓";
   const {b64, pelna} = await wczytajICompresuj(plik);
   if(faza==="przed"){ W.fotoPolki = pelna; W.siatka = null; idb.zapisz("fotoPolki", pelna); }
+
+  // Automatyczne rozpoznanie układu półki — gdy handlowiec nie fotografował
+  // planogramu. Model porównuje zdjęcie z wariantami (Szafa C1/C2/D1/D2,
+  // podajniki) i zwraca gotową listę pozycji z nazwami, EAN-ami i zdjęciami.
+  if(faza==="przed" && (W.autoPlanogram || !W.pozycje.length)){
+    if(!czyOnline()){
+      ustawBaner("przed", "Rozpoznanie układu wymaga internetu — sfotografuj planogram albo spróbuj przy zasięgu.");
+      return;
+    }
+    ustawBaner("przed", "Rozpoznaję układ półki…");
+    try{
+      const r = await backend({akcja:"rozpoznaj_planogram", obraz_b64:b64, kod: mag.get("pmt_kod","")});
+      if(r.status!=="ok") throw new Error(r.opis||"nie rozpoznano");
+      W.pozycje = wzbogac(r.pozycje);
+      W.planogramNazwa = r.planogram;
+      W.planogramPewnosc = r.pewnosc ?? 1;
+      zapiszW();
+      const slabo = (r.pewnosc ?? 1) < 0.7;
+      ustawBaner("przed", "Rozpoznano układ: " + r.planogram + " (" + W.pozycje.length + " pozycji)" +
+        (slabo ? " — pewność niska, sprawdź listę uważnie." : "") +
+        (r.uzasadnienie ? " · " + r.uzasadnienie : ""));
+    }catch(e){
+      ustawBaner("przed", "Nie rozpoznałem układu: " + e.message + ". Wróć i sfotografuj planogram.");
+      return;
+    }
+  }
   // lista startowa w tle; uzytkownik zostaje na ekranie zdjecia i sam idzie dalej
   const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
                                    strona:p.strona, status:"jest", pewnosc:0}));
@@ -1180,7 +1207,7 @@ async function wyslijWizyte(){
   if(brakujaceDecyzje().length){ doDelty(); return; }
   const raport = {
     akcja:"zapisz_wizyte", kod: mag.get("pmt_kod",""), sklep: W.sklep,
-    planogram: W.sklep+" ("+W.strony.length+" str.)",
+    planogram: W.planogramNazwa || (W.sklep+" ("+W.strony.length+" str.)"),
     dostepnosc_przed: procent(W.statusyPrzed), dostepnosc_po: procent(W.statusyPo),
     braki_przed: Object.entries(W.statusyPrzed).filter(([,p])=>p.status!=="jest").map(([k,p])=>p.produkt||k),
     braki_po: Object.entries(W.statusyPo).filter(([,p])=>p.status!=="jest")

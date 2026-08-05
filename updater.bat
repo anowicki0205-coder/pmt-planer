@@ -158,10 +158,19 @@ for /l %%t in (1,1,10) do (
 rem === 5b) Sprzatanie porzuconych katalogow _MEI (tylko gdy nikt ich nie uzywa). ===
 for /d %%d in ("%TEMP%\_MEI*") do rd /s /q "%%d" >nul 2>&1
 
+rem === 5c) ZDEJMUJEMY BLOKADE "PLIK Z INTERNETU" ======================
+rem === Plik pobrany z sieci dostaje ukryty znacznik strefy. Windows     ===
+rem === potrafi wtedy CICHO zablokowac uruchomienie z poziomu skryptu -  ===
+rem === bez zadnego komunikatu. To najczestsza przyczyna "nie wystartowal". ===
+del "%CEL%:Zone.Identifier" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath '%CEL%'" >nul 2>&1
+echo [4] Zdjeto blokade pliku z internetu (jesli byla). >> "%LOG%"
+
 echo [4] Uruchamiam nowa wersje: "%CEL%" >> "%LOG%"
 for %%f in ("%CEL%") do set "KATALOG=%%~dpf"
-start "" /D "%KATALOG%" "%CEL%"
-if errorlevel 1 echo [4] BLAD startu, kod %errorlevel% >> "%LOG%"
+cd /d "%KATALOG%" 2>nul
+start "" "%CEL%"
+if errorlevel 1 echo [4] BLAD startu (sposob 1), kod %errorlevel% >> "%LOG%"
 
 rem === 6) WERYFIKACJA PRZEZ ZNACZNIK - nie samo istnienie procesu!        ===
 rem === Bootloader PyInstallera, ktoremu nie udalo sie wczytac biblioteki  ===
@@ -172,6 +181,7 @@ rem === zaraz po starcie. Brak znacznika = program sie nie uruchomil,     ===
 rem === niezaleznie od tego, co widac w tasklist.                        ===
 set "WYSTARTOWALA=0"
 set "PROBA_2=0"
+set "PROBA_3=0"
 rem UWAGA: rozpakowanie ~48 MB przy aktywnym antywirusie potrafi trwac
 rem kilkanascie sekund - dlatego czekamy do ~45 s, a druga probe podejmujemy
 rem dopiero po ~12 s (wczesniej bylo 6 s, co bywalo przedwczesne).
@@ -180,6 +190,11 @@ for /l %%i in (1,1,20) do (
     if exist "%FLAGA%" (
         set "WYSTARTOWALA=1"
         goto po_weryfikacji
+    )
+    if "!PROBA_2!"=="1" if %%i GEQ 12 if "!PROBA_3!"=="0" (
+        echo [4] Sposob 3: uruchomienie przez powloke systemu... >> "%LOG%"
+        explorer.exe "%CEL%"
+        set "PROBA_3=1"
     )
     if "!PROBA_2!"=="0" if %%i GEQ 6 (
         echo [4] Znacznik sie nie pojawil - probuje uruchomic ponownie (drugie podejscie)... >> "%LOG%"

@@ -80,6 +80,8 @@ input:focus{outline:none;border-color:var(--akc2)}
 .poz{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid rgba(255,255,255,.09)}
 .poz:last-child{border-bottom:none}
 .poz .info{flex:1;min-width:0}
+.poz .mini{width:42px;height:56px;flex:none;border-radius:6px;object-fit:contain;
+  background:rgba(255,255,255,.06);border:1px solid var(--linia)}
 .poz .info.klik{cursor:pointer}
 .poz .naz{font-size:15px;font-weight:600;line-height:1.3}
 .poz .kod{font-size:12.5px;color:var(--wyblakly);font-variant-numeric:tabular-nums}
@@ -434,6 +436,10 @@ function powiadom(tytul, tresc){
 
 /* ========== nawigacja ========== */
 function _pokaz(id){
+  // zabezpieczenie: ekran "wizyta zakończona" dostępny dopiero po obu punktach
+  if(id === "e-koniec" && W && (W.punkty||[]).length < PUNKTY.length){
+    id = "e-punkt";
+  }
   document.querySelectorAll(".ekran").forEach(e=>e.classList.remove("on"));
   document.getElementById(id).classList.add("on");
   const nr = {"e-login":0,"e-start":1,"e-planogram":2,"e-przed":3,"e-lista":4,"e-po":5,"e-delta":6,"e-koniec":6}[id]||0;
@@ -919,9 +925,10 @@ function scalDowody(pozycjeAI, faza, waga){
   (pozycjeAI || []).forEach(p=>{
     const k = p.kod || p.produkt; if(!k) return;
     const d = dow[k] || (dow[k] = {jest:0, brak:0, uwaga:"", rzad_foto:null, poz_foto:null});
-    const pew = (p.pewnosc == null ? 1 : p.pewnosc);
-    if(p.status === "jest") d.jest += waga * pew;
-    else if(p.status === "brak"){ d.brak += waga * pew; if(p.uwaga) d.uwaga = p.uwaga;
+    // liczy się WAGA ZDJĘCIA (zbliżenie > całość), nie deklarowana pewność
+    // modelu — inaczej pewny siebie odczyt z daleka wygrywał ze zbliżeniem
+    if(p.status === "jest") d.jest += waga;
+    else if(p.status === "brak"){ d.brak += waga; if(p.uwaga) d.uwaga = p.uwaga;
       if(p.rzad_foto){ d.rzad_foto = p.rzad_foto; d.poz_foto = p.poz_foto; } }
   });
   przelicz(faza);
@@ -959,7 +966,7 @@ function przelicz(faza){
 function stanAnalizy(faza){
   const w = W.wTrakcie || 0;
   const cel = faza === "przed" ? W.statusyPrzed : W.statusyPo;
-  const braki = Object.values(cel).filter(p=>p.status === "brak").length;
+  const braki = liczBraki(cel);
   if(w > 0){
     ustawBaner(faza, faza === "przed"
       ? "Porównuję dane… (" + w + (w === 1 ? " zdjęcie" : " zdjęcia") +
@@ -1007,7 +1014,7 @@ function analizujZdjecie(plik, faza, opis, waga){
         if(u){ u.textContent = (W.uklad ? W.uklad + " · " : "") + o.rada; u.style.display = "block"; } }
       const widoczne = (o.pozycje || []).length;
       const braki = (o.pozycje || []).filter(p=>p.status === "brak").length;
-      wpis.stan = "✓ widziano " + widoczne + " · braki " + braki;
+      wpis.stan = "✓ z tego zdjęcia: " + widoczne + " poz., " + braki + " brak(ów)";
     }catch(e){
       wpis.stan = "✗ " + String(e.message).slice(0, 32) + " — dodaj ponownie";
     }finally{
@@ -1132,7 +1139,8 @@ function rysujListe(){
         <div class="kod">${klucz} · rząd ${p.rzad||"?"} — niewidoczny (${opisUszkodzen()||"utrudnienie"})</div></div>`;
       box.appendChild(w); return;
     }
-    w.innerHTML = `<div class="info klik"><div class="naz">${p.produkt||klucz}</div>
+    w.innerHTML = (p.foto ? `<img class="mini" src="${p.foto}" alt="" loading="lazy">` : "") +
+      `<div class="info klik"><div class="naz">${p.produkt||klucz}</div>
       <div class="kod">${klucz}${p.ean? " · EAN "+p.ean:""}${p.uwaga && p.status==="brak"? " · "+p.uwaga:""}${niepewne}</div></div>
       <div class="stan">
         <button class="j${p.status==="jest"?" on":""}" aria-label="jest">&#10003;</button>
@@ -1284,8 +1292,9 @@ function rysujPo(){
   box.innerHTML = "";
   braki.forEach(([k,p])=>{
     const w = document.createElement("div"); w.className="poz"; w.style.flexWrap="wrap";
-    w.innerHTML = `<div class="info klik"><div class="naz">${p.produkt||k}</div>
-      <div class="kod">${k}${p.ean? " · EAN "+p.ean:""}</div></div>
+    w.innerHTML = (p.foto ? `<img class="mini" src="${p.foto}" alt="" loading="lazy">` : "") +
+      `<div class="info klik"><div class="naz">${p.produkt||k}</div>
+      <div class="kod">${k}${p.ean? " · EAN "+p.ean:""}${p.uwaga? " · "+p.uwaga:""}</div></div>
       <div class="stan">
         <button class="j" aria-label="dolozone">&#10003;</button>
         <button class="b" aria-label="nie dolozono">&#10005;</button>
@@ -1383,6 +1392,9 @@ function przelaczMikrofon(){
 }
 
 /* ========== delta + raport ========== */
+function liczBraki(statusy){
+  return Object.values(statusy).filter(p=>p.status === "brak").length;
+}
 function procent(statusy){
   // pozycje zgłoszone jako niewidoczne (roleta, zastawione półki) nie wchodzą
   // do wyliczenia — inaczej awaria sprzętu psułaby wynik pracy człowieka
@@ -1408,8 +1420,9 @@ function rysujDelte(){
   document.getElementById("prcPo").textContent = procent(W.statusyPo)+"%";
   rysujPolke(document.getElementById("polkaPrzed"), W.statusyPrzed);
   rysujPolke(document.getElementById("polkaPo"), W.statusyPo);
-  const brakiPrzed = Object.values(W.statusyPrzed).filter(p=>p.status!=="jest").length;
-  const brakiPo = Object.values(W.statusyPo).filter(p=>p.status!=="jest").length;
+  // liczymy TYLKO realne braki — pozycje niewidoczne (uszkodzenia) nie są brakiem
+  const brakiPrzed = liczBraki(W.statusyPrzed);
+  const brakiPo = liczBraki(W.statusyPo);
   const decyzje = Object.entries(W.wynikiBrakow)
     .map(([k,w])=>`${w.produkt||k}: ${opisWyniku(k)}`).join("<br>");
   const wer = (W.weryfikacja||[]).length
@@ -1441,8 +1454,8 @@ async function wyslijWizyte(){
     akcja:"zapisz_wizyte", kod: mag.get("pmt_kod",""), sklep: W.sklep,
     planogram: (W.punktNazwa ? W.punktNazwa + " — " : "") + (W.planogramNazwa || "planogram ze zdjęć"),
     dostepnosc_przed: procent(W.statusyPrzed), dostepnosc_po: procent(W.statusyPo),
-    braki_przed: Object.entries(W.statusyPrzed).filter(([,p])=>p.status!=="jest").map(([k,p])=>p.produkt||k),
-    braki_po: Object.entries(W.statusyPo).filter(([,p])=>p.status!=="jest")
+    braki_przed: Object.entries(W.statusyPrzed).filter(([,p])=>p.status==="brak").map(([k,p])=>p.produkt||k),
+    braki_po: Object.entries(W.statusyPo).filter(([,p])=>p.status==="brak")
       .map(([k,p])=>(p.produkt||k) + (opisWyniku(k)? " ["+opisWyniku(k)+"]" : "")),
     poprawki: W.poprawki,
     uwagi: [opisUszkodzen() ? "UTRUDNIENIA: " + opisUszkodzen() : "",
@@ -1461,12 +1474,20 @@ async function wyslijWizyte(){
   zapiszW();
   const zostalo = PUNKTY.filter(p=>!W.punkty.find(x=>x.id===p.id));
   if(zostalo.length){
+    // pełny reset danych poprzedniego punktu — inaczej pasek postępu
+    // pozwalał wrócić na stare ekrany i "zakończyć" wizytę przedwcześnie
+    W.pozycje = []; W.statusyPrzed = {}; W.statusyPo = {};
+    W.dotknietePrzed = {}; W.dotknietePo = {}; W.wynikiBrakow = {};
+    W.dowodyPrzed = {}; W.dowodyPo = {}; W.zdjecia = []; W.zdjeciaPo = [];
+    W.czekajace = []; W.wTrakcie = 0; W.fotoPolki = null; W.planogramNazwa = "";
+    W.uklad = ""; W.autoPlanogram = true; W.maxKrok = 2; W._raport = null;
     // płynne przejście do drugiego punktu — bez systemowych okienek
     W.uszkodzenia = [];
     W.punktId = zostalo[0].id; W.punktNazwa = zostalo[0].nazwa;
     document.getElementById("punktTytul").textContent = zostalo[0].nazwa;
     const pas = document.getElementById("punktInfo");
-    pas.innerHTML = "✓ Zapisano: <b>" + raport.planogram.split(" — ")[0] + "</b> · " +
+    pas.innerHTML = (wyslano ? "✓ Raport wysłany: <b>" : "✓ Raport w kolejce (brak sieci): <b>") +
+      raport.planogram.split(" — ")[0] + "</b> · " +
       raport.dostepnosc_przed + "% → " + raport.dostepnosc_po +
       "%.<br>Teraz druga część wizyty: <b>" + zostalo[0].nazwa + "</b>.";
     pas.style.display = "block";

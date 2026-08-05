@@ -119,7 +119,24 @@ rem === sie bledem brakujacej biblioteki (antywirus/system jeszcze         ===
 rem === "trzymal" swiezo skopiowany plik) - mimo ze plik byl w 100% OK:    ===
 rem === reczne uruchomienie chwile pozniej dzialalo bez zarzutu.           ===
 echo [4] Czekam przed uruchomieniem (antywirus bywa jeszcze zajety plikiem)... >> "%LOG%"
-ping -n 6 127.0.0.1 >nul
+ping -n 4 127.0.0.1 >nul
+
+rem === 4a) CZEKAMY, AZ STARY PROCES NAPRAWDE ZNIKNIE ===================
+rem === Dopoki poprzednia wersja siedzi w pamieci, nowa potrafi wystartowac ===
+rem === i natychmiast zgasnac (wspolny katalog tymczasowy _MEI).            ===
+set "NAZWA_EXE=%~nx1"
+if "%NAZWA_EXE%"=="" set "NAZWA_EXE=PMT_Planer.exe"
+for /l %%p in (1,1,15) do (
+    tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
+    if errorlevel 1 (
+        echo [4] Stary proces zamkniety (proba %%p). >> "%LOG%"
+        goto proces_zamkniety
+    )
+    echo [4] Stary proces jeszcze dziala - czekam (proba %%p)... >> "%LOG%"
+    ping -n 3 127.0.0.1 >nul
+)
+echo [4] UWAGA: stary proces nadal widoczny - probuje mimo to. >> "%LOG%"
+:proces_zamkniety
 
 rem === 5a) TEST DOSTEPNOSCI PLIKU - probujemy go skopiowac do %TEMP%.      ===
 rem === Jesli antywirus lub system wciaz trzymaja plik na wylacznosc, kopia ===
@@ -138,12 +155,13 @@ for /l %%t in (1,1,10) do (
 )
 :plik_gotowy
 
-rem === 5b) Sprzatanie porzuconych katalogow _MEI po poprzednich uruchomieniach. ===
-rem === Te w uzyciu sa zablokowane i po prostu zostana pominiete.               ===
+rem === 5b) Sprzatanie porzuconych katalogow _MEI (tylko gdy nikt ich nie uzywa). ===
 for /d %%d in ("%TEMP%\_MEI*") do rd /s /q "%%d" >nul 2>&1
 
-echo [4] Uruchamiam nowa wersje... >> "%LOG%"
-start "" "%CEL%"
+echo [4] Uruchamiam nowa wersje: "%CEL%" >> "%LOG%"
+for %%f in ("%CEL%") do set "KATALOG=%%~dpf"
+start "" /D "%KATALOG%" "%CEL%"
+if errorlevel 1 echo [4] BLAD startu, kod %errorlevel% >> "%LOG%"
 
 rem === 6) WERYFIKACJA PRZEZ ZNACZNIK - nie samo istnienie procesu!        ===
 rem === Bootloader PyInstallera, ktoremu nie udalo sie wczytac biblioteki  ===

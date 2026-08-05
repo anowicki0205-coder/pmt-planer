@@ -207,6 +207,7 @@ input:focus{outline:none;border-color:var(--akc2)}
   <span class="znaczek" id="zn-sklep5"></span>
   <h2 id="punktTytul">Który punkt sprawdzasz?</h2>
   <p class="pod" id="punktPostep">Wizyta obejmuje oba punkty — zrobione 0 z 2.</p>
+  <div class="info-pas" id="punktInfo" style="display:none;background:rgba(0,228,161,.10);border-color:rgba(0,228,161,.35);color:#6EE7B7"></div>
   <div class="karta" id="punktLista"></div>
 
   <label>Stan urządzenia — zaznacz, jeśli coś przeszkadza</label>
@@ -323,7 +324,7 @@ input:focus{outline:none;border-color:var(--akc2)}
       <button class="h-btn widac" id="btnMikrofon" title="Dyktuj" style="font-size:19px">&#127908;</button>
     </div>
   </div>
-  <div class="dol"><button class="btn" onclick="wyslijWizyte()">Wyślij raport punktu</button></div>
+  <div class="dol"><button class="btn" id="btnWyslij" onclick="wyslijWizyte()">Zapisz punkt i przejdź dalej</button></div>
 </section>
 
 <!-- KONIEC -->
@@ -462,9 +463,38 @@ function czyOnline(){ return navigator.onLine; }
 function pasekSieci(){ document.getElementById("pasekOffline").classList.toggle("widac", !czyOnline()); }
 addEventListener("online", ()=>{ pasekSieci(); ruszKolejke(); });
 addEventListener("offline", pasekSieci);
-async function backend(cialo){
-  const odp = await fetch(URL_BACKENDU, { method:"POST", body: JSON.stringify(cialo) });
-  return await odp.json();
+async function backend(cialo, proby){
+  // Apps Script bywa powolny, a telefon w sklepie gubi sieć — dlatego
+  // każde zapytanie ma trzy podejścia z rosnącą przerwą.
+  proby = proby || 3;
+  let ostatni;
+  for(let i = 1; i <= proby; i++){
+    try{
+      const odp = await fetch(URL_BACKENDU, { method:"POST", body: JSON.stringify(cialo) });
+      return await odp.json();
+    }catch(e){
+      ostatni = e;
+      if(i < proby) await new Promise(r=>setTimeout(r, i * 2500));
+    }
+  }
+  throw new Error("brak połączenia (" + (ostatni && ostatni.message || "?") + ")");
+}
+
+/* Zdjęcia idą do serwera POJEDYNCZO — równoległe wysyłki dużych obrazów
+   z telefonu kończyły się błędem sieci. Robienie kolejnych zdjęć jest
+   cały czas możliwe: czekają w kolejce i lecą jedno po drugim.        */
+const kolejkaAnaliz = { zadania: [], pracuje: false };
+function dodajDoAnalizy(zadanie){
+  kolejkaAnaliz.zadania.push(zadanie);
+  if(!kolejkaAnaliz.pracuje) obsluzKolejke();
+}
+async function obsluzKolejke(){
+  kolejkaAnaliz.pracuje = true;
+  while(kolejkaAnaliz.zadania.length){
+    const z = kolejkaAnaliz.zadania.shift();
+    try{ await z(); }catch(e){}
+  }
+  kolejkaAnaliz.pracuje = false;
 }
 function doKolejki(wpis){ const q=mag.get("pmt_kolejka_www",[]); q.push(wpis); mag.set("pmt_kolejka_www",q); }
 async function ruszKolejke(){
@@ -880,13 +910,18 @@ function _dowody(faza){
   return W[pole];
 }
 
-function scalDowody(pozycjeAI, faza){
+function scalDowody(pozycjeAI, faza, waga){
+  // waga: zdjęcie całości = 1 (z daleka, mniej detali), zbliżenie = 3.
+  // Sprzeczne wskazania rozstrzygamy sumą wag, a nie zwykłą przewagą liczby
+  // zdjęć — inaczej jedno ogólne zdjęcie kasowało braki widoczne z bliska.
+  waga = waga || 1;
   const dow = _dowody(faza);
   (pozycjeAI || []).forEach(p=>{
     const k = p.kod || p.produkt; if(!k) return;
     const d = dow[k] || (dow[k] = {jest:0, brak:0, uwaga:"", rzad_foto:null, poz_foto:null});
-    if(p.status === "jest") d.jest++;
-    else if(p.status === "brak"){ d.brak++; if(p.uwaga) d.uwaga = p.uwaga;
+    const pew = (p.pewnosc == null ? 1 : p.pewnosc);
+    if(p.status === "jest") d.jest += waga * pew;
+    else if(p.status === "brak"){ d.brak += waga * pew; if(p.uwaga) d.uwaga = p.uwaga;
       if(p.rzad_foto){ d.rzad_foto = p.rzad_foto; d.poz_foto = p.poz_foto; } }
   });
   przelicz(faza);
@@ -904,9 +939,18 @@ function przelicz(faza){
     }
     if(dotk[k]) return;                       // decyzja człowieka jest nadrzędna
     const d = dow[k];
-    const stan = !d ? "jest" : (d.jest > 0 ? "jest" : (d.brak > 0 ? "brak" : "jest"));
+    let stan = "jest", pew = 0, sporne = false;
+    if(d){
+      // remis traktujemy jako BRAK — lepiej, żeby człowiek sprawdził półkę,
+      // niż żeby raport zgubił realny brak
+      stan = (d.brak >= d.jest && d.brak > 0) ? "brak" : "jest";
+      sporne = d.jest > 0 && d.brak > 0;
+      const suma = d.jest + d.brak;
+      pew = suma ? Math.max(d.jest, d.brak) / suma : 1;
+      if(sporne) pew = Math.min(pew, 0.6);        // zapali się "sprawdź!"
+    }
     cel[k] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", rzad:p.rzad,
-              status: stan, pewnosc: d ? 1 : 0,
+              status: stan, pewnosc: pew, sporne: sporne,
               uwaga: (stan === "brak" && d) ? d.uwaga : "",
               rzad_foto: d ? d.rzad_foto : null, poz_foto: d ? d.poz_foto : null};
   });
@@ -917,11 +961,14 @@ function stanAnalizy(faza){
   const cel = faza === "przed" ? W.statusyPrzed : W.statusyPo;
   const braki = Object.values(cel).filter(p=>p.status === "brak").length;
   if(w > 0){
-    ustawBaner(faza, "Porównuję dane… (" + w + (w === 1 ? " zdjęcie" : " zdjęcia") +
-      " w analizie). W tym czasie możesz odszukać zapas u kierownika.");
+    ustawBaner(faza, faza === "przed"
+      ? "Porównuję dane… (" + w + (w === 1 ? " zdjęcie" : " zdjęcia") +
+        " w analizie). W tym czasie możesz odszukać zapas u kierownika."
+      : "Sprawdzam, co udało się uzupełnić… (" + w + (w === 1 ? " zdjęcie" : " zdjęcia") + " w analizie).");
   } else if(Object.keys(cel).length){
-    ustawBaner(faza, "Gotowe — na liście " + braki + " " +
-      (braki === 1 ? "brak" : "braków") + ". Zweryfikuj i popraw, jeśli trzeba.");
+    ustawBaner(faza, faza === "przed"
+      ? "Gotowe — na liście " + braki + " " + (braki === 1 ? "brak" : "braków") + ". Zweryfikuj i popraw, jeśli trzeba."
+      : "Gotowe — po uzupełnieniu zostało " + braki + " " + (braki === 1 ? "brak" : "braków") + ".");
     if(faza === "przed"){ rysujListe(); rysujStrefy(); }
     else if(document.getElementById("e-delta").classList.contains("on")) rysujDelte();
   }
@@ -929,44 +976,47 @@ function stanAnalizy(faza){
   const zdj = (faza === "przed" ? W.zdjecia : W.zdjeciaPo) || [];
   if(lista && zdj.length){
     lista.style.display = "block";
-    lista.innerHTML = zdj.map(z=>`<div class="s"><span>${z.opis}</span><span>${z.stan}</span></div>`).join("");
+    lista.innerHTML = zdj.map(z=>`<div class="s"><span>${z.opis}</span><span style="color:var(--wyblakly)">${z.stan}</span></div>`).join("");
   }
 }
 
-async function analizujZdjecie(plik, faza, opis){
+function analizujZdjecie(plik, faza, opis, waga){
   const pole = faza === "przed" ? "zdjecia" : "zdjeciaPo";
   if(!W[pole]) W[pole] = [];
-  const wpis = {opis: opis, stan: "w analizie…"};
+  const wpis = {opis: opis, stan: "w kolejce…"};
   W[pole].push(wpis);
   W.wTrakcie = (W.wTrakcie || 0) + 1;
   stanAnalizy(faza);
-  try{
-    const {b64, pelna} = await wczytajICompresuj(plik);
-    if(faza === "przed" && !W.fotoPolki){ W.fotoPolki = pelna; idb.zapisz("fotoPolki", pelna); }
-    if(!czyOnline()){
-      doKolejki({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje:W.pozycje, _faza:faza, _sklep:W.sklep});
-      wpis.stan = "czeka na sieć";
-      return;
+  dodajDoAnalizy(async ()=>{
+    wpis.stan = "analizuję…"; stanAnalizy(faza);
+    try{
+      const {b64, pelna} = await wczytajICompresuj(plik);
+      if(faza === "przed" && !W.fotoPolki){ W.fotoPolki = pelna; idb.zapisz("fotoPolki", pelna); }
+      if(!czyOnline()){
+        doKolejki({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje:W.pozycje, _faza:faza, _sklep:W.sklep});
+        wpis.stan = "czeka na sieć"; return;
+      }
+      const o = await backend({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64,
+        pozycje: W.pozycje, strony_b64: [],
+        kontekst: (faza === "po" ? "To zdjecie po uzupelnieniu polki. " : "") +
+                  "Zdjecie moze obejmowac tylko fragment polki." +
+                  (opisUszkodzen() ? " Zgloszone utrudnienia: " + opisUszkodzen() + "." : "")});
+      if(o.status !== "ok") throw new Error(o.opis || "błąd analizy");
+      scalDowody(o.pozycje, faza, waga || 1);
+      if(o.rada && faza === "przed"){ const u = document.getElementById("ukladPas");
+        if(u){ u.textContent = (W.uklad ? W.uklad + " · " : "") + o.rada; u.style.display = "block"; } }
+      const widoczne = (o.pozycje || []).length;
+      const braki = (o.pozycje || []).filter(p=>p.status === "brak").length;
+      wpis.stan = "✓ widziano " + widoczne + " · braki " + braki;
+    }catch(e){
+      wpis.stan = "✗ " + String(e.message).slice(0, 32) + " — dodaj ponownie";
+    }finally{
+      W.wTrakcie = Math.max(0, (W.wTrakcie || 1) - 1);
+      zapiszW(); stanAnalizy(faza);
+      if(faza === "przed" && W.pozycje.length){ const d=document.getElementById("dolPrzed"); if(d) d.style.display="block"; }
+      if(faza === "po"){ const d=document.getElementById("dolPo"); if(d) d.style.display="block"; }
     }
-    const o = await backend({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64,
-      pozycje: W.pozycje, strony_b64: [],
-      kontekst: "Zdjecie moze obejmowac tylko fragment polki." +
-                (opisUszkodzen() ? " Zgloszone utrudnienia: " + opisUszkodzen() + "." : "")});
-    if(o.status !== "ok") throw new Error(o.opis || "błąd analizy");
-    scalDowody(o.pozycje, faza);
-    if(o.rada){ const u = document.getElementById("ukladPas");
-      if(u){ u.textContent = (W.uklad ? W.uklad + " · " : "") + o.rada; u.style.display = "block"; } }
-    const braki = (o.pozycje || []).filter(p=>p.status === "brak").length;
-    wpis.stan = "✓ widoczne: " + (o.pozycje || []).length + " · braki: " + braki;
-  }catch(e){
-    wpis.stan = "błąd: " + String(e.message).slice(0, 40);
-  }finally{
-    W.wTrakcie = Math.max(0, (W.wTrakcie || 1) - 1);
-    zapiszW();
-    stanAnalizy(faza);
-    if(faza === "przed" && W.pozycje.length) document.getElementById("dolPrzed").style.display = "block";
-    if(faza === "po") document.getElementById("dolPo").style.display = "block";
-  }
+  });
 }
 
 /* --- ZDJĘCIE CAŁOŚCI: rozpoznanie układu, potem zwykła analiza --- */
@@ -991,9 +1041,9 @@ document.getElementById("fotoOgolne").addEventListener("change", async ev=>{
       u.textContent = "Ułożenie: " + W.uklad; u.style.display = "block"; }
     document.getElementById("dolPrzed").style.display = "block";
     // to samo zdjęcie służy też jako pierwszy dowód stanu półki
-    analizujZdjecie(plik, "przed", "całość");
+    analizujZdjecie(plik, "przed", "całość", 1);
     // zbliżenia zrobione zanim układ był znany — analizuj teraz
-    (W.czekajace || []).forEach(z => analizujZdjecie(z.plik, "przed", z.opis));
+    (W.czekajace || []).forEach(z => analizujZdjecie(z.plik, "przed", z.opis, 3));
     W.czekajace = [];
   }catch(e){ txt.innerHTML = "<b>Zdjęcie całości</b><br>nie rozpoznano: " + e.message + " — stuknij ponownie"; }
 });
@@ -1010,7 +1060,7 @@ document.getElementById("fotoZblizenie").addEventListener("change", ev=>{
       "<b>+ Dodaj zbliżenie</b><br>zapisane (" + W.czekajace.length + ") — przeanalizuję po zdjęciu całości";
     return;
   }
-  analizujZdjecie(plik, "przed", opis);
+  analizujZdjecie(plik, "przed", opis, 3);
   document.getElementById("txtZblizenie").innerHTML = "<b>+ Dodaj zbliżenie</b><br>możesz dodać kolejne, analiza leci w tle";
 });
 
@@ -1018,7 +1068,8 @@ document.getElementById("fotoZblizenie").addEventListener("change", ev=>{
 document.getElementById("poFoto").addEventListener("change", ev=>{
   const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
   const nr = ((W.zdjeciaPo || []).length) + 1;
-  analizujZdjecie(plik, "po", nr === 1 ? "kontrolne" : "kontrolne " + nr);
+  analizujZdjecie(plik, "po", nr === 1 ? "kontrolne" : "kontrolne " + nr, 2);
+  document.getElementById("poPoleTxt").innerHTML = "<b>+ Kolejne zdjęcie kontrolne</b><br>analiza leci w tle, możesz dodać następne";
 });
 
 function ustawBaner(faza, tekst){
@@ -1410,12 +1461,17 @@ async function wyslijWizyte(){
   zapiszW();
   const zostalo = PUNKTY.filter(p=>!W.punkty.find(x=>x.id===p.id));
   if(zostalo.length){
-    alert("Punkt zapisany: " + W.punktNazwa + " (" + raport.dostepnosc_przed + "% → " +
-          raport.dostepnosc_po + "%).\n\nZostał jeszcze: " + zostalo.map(p=>p.nazwa).join(", "));
+    // płynne przejście do drugiego punktu — bez systemowych okienek
     W.uszkodzenia = [];
-    W.punktId = zostalo[0].id; W.punktNazwa = zostalo[0].nazwa;   // od razu drugi punkt
+    W.punktId = zostalo[0].id; W.punktNazwa = zostalo[0].nazwa;
     document.getElementById("punktTytul").textContent = zostalo[0].nazwa;
+    const pas = document.getElementById("punktInfo");
+    pas.innerHTML = "✓ Zapisano: <b>" + raport.planogram.split(" — ")[0] + "</b> · " +
+      raport.dostepnosc_przed + "% → " + raport.dostepnosc_po +
+      "%.<br>Teraz druga część wizyty: <b>" + zostalo[0].nazwa + "</b>.";
+    pas.style.display = "block";
     rysujPunkty(); stos.length = 0; _pokaz("e-punkt");
+    document.querySelectorAll("#uszkodzenia button[data-u]").forEach(b=>b.classList.remove("on"));
     return;
   }
   document.getElementById("koniecOpis").textContent = wyslano

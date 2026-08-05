@@ -124,7 +124,10 @@ ping -n 4 127.0.0.1 >nul
 rem === 4a) CZEKAMY, AZ STARY PROCES NAPRAWDE ZNIKNIE ===================
 rem === Dopoki poprzednia wersja siedzi w pamieci, nowa potrafi wystartowac ===
 rem === i natychmiast zgasnac (wspolny katalog tymczasowy _MEI).            ===
-set "NAZWA_EXE=%~nx1"
+rem NAZWA_EXE jest ustawiona na gorze skryptu z %CEL% (plik docelowy).
+rem Wczesniej brana byla z %1 — a to plik TYMCZASOWY, ktorego w pamieci
+rem nigdy nie ma. Efekt: skrypt "widzial" zamkniety program natychmiast
+rem i startowal nowa wersje, gdy stara wciaz zylа. Stad brak restartu.
 if "%NAZWA_EXE%"=="" set "NAZWA_EXE=PMT_Planer.exe"
 for /l %%p in (1,1,15) do (
     tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
@@ -168,7 +171,9 @@ echo [4] Zdjeto blokade pliku z internetu (jesli byla). >> "%LOG%"
 
 echo [4] Uruchamiam nowa wersje: "%CEL%" >> "%LOG%"
 for %%f in ("%CEL%") do set "KATALOG=%%~dpf"
+if "%KATALOG:~-1%"=="\" set "KATALOG=%KATALOG:~0,-1%"
 cd /d "%KATALOG%" 2>nul
+echo [4] Katalog roboczy: %KATALOG% >> "%LOG%"
 start "" "%CEL%"
 if errorlevel 1 echo [4] BLAD startu (sposob 1), kod %errorlevel% >> "%LOG%"
 
@@ -205,6 +210,18 @@ for /l %%i in (1,1,20) do (
 :po_weryfikacji
 
 if "%WYSTARTOWALA%"=="1" goto sukces
+
+rem === 6b) OSTATNIA PROBA: pelne odczekanie i jeszcze jeden start ========
+echo [4] Sposob 4: dluga przerwa i ponowny start... >> "%LOG%"
+ping -n 8 127.0.0.1 >nul
+start "" "%CEL%"
+for /l %%z in (1,1,8) do (
+    ping -n 3 127.0.0.1 >nul
+    if exist "%FLAGA%" (
+        echo [OK] Wystartowala za czwartym podejsciem. >> "%LOG%"
+        goto sukces
+    )
+)
 goto porazka
 
 :sukces

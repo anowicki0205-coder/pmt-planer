@@ -301,6 +301,32 @@ def online_nieobecnosci():
     return _wczytaj(PLIK_STATUSU, {}).get("nieobecnosci", [])
 
 
+PLIK_LOGOWAN = os.path.join(os.path.expanduser("~"), ".pmt_logowania.json")
+
+
+def historia_logowan(limit: int = 3):
+    """Ostatnie konta używane na TYM komputerze — do podpowiedzi w oknie
+    logowania. Lista słowników: kod, imie, ostatnio (ISO). Bez haseł."""
+    dane = _wczytaj(PLIK_LOGOWAN, {})
+    wpisy = []
+    for kod, w in dane.items():
+        if not (str(kod).isdigit() and len(str(kod)) == 5):
+            continue
+        wpisy.append({"kod": str(kod), "imie": str(w.get("imie", "")),
+                      "ostatnio": str(w.get("ostatnio", ""))})
+    wpisy.sort(key=lambda w: w["ostatnio"], reverse=True)
+    return wpisy[:limit]
+
+
+def _zapisz_logowanie(kod: str, imie: str, skrot: str):
+    """Dopisuje konto do historii urządzenia. Skrót hasła pozwala zalogować
+    się później BEZ internetu — samo hasło nigdy nie jest zapisywane."""
+    dane = _wczytaj(PLIK_LOGOWAN, {})
+    dane[str(kod)] = {"imie": str(imie or ""), "skrot": str(skrot),
+                      "ostatnio": datetime.datetime.now().isoformat(timespec="seconds")}
+    _zapisz(PLIK_LOGOWAN, dane)
+
+
 def _hash_hasla(kod: str, haslo: str) -> str:
     """Skrót SHA-256 z solą (kodem). Hasło NIGDY nie jest zapisywane jawnie —
     ani na dysku, ani w arkuszu. Ten sam wzór stosuje backend, więc skróty
@@ -336,11 +362,17 @@ def online_zaloguj(kod: str, haslo: str):
         with urllib.request.urlopen(req, timeout=15) as resp:
             odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
     except Exception:
+        # BEZ SIECI: porównujemy skrót hasła z zapisanym przy poprzednim udanym
+        # logowaniu — osobno dla każdego konta używanego na tym komputerze.
+        znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
         st = _wczytaj(PLIK_STATUSU, {})
-        if st.get("kod") == kod and st.get("skrot") == _hash_hasla(kod, haslo):
+        skrot = _hash_hasla(kod, haslo)
+        if znane.get("skrot") == skrot:
+            return True, str(znane.get("imie", "")), "offline"
+        if st.get("kod") == kod and st.get("skrot") == skrot:
             return True, str(st.get("imie", "")), "offline"
-        return False, "", ("Brak połączenia z serwerem. Pierwsze logowanie na tym "
-                           "komputerze wymaga internetu.")
+        return False, "", ("Brak połączenia z serwerem. Zaloguj się przy internecie "
+                           "— na tym komputerze nie ma zapisanego tego konta.")
     if odp.get("status") != "ok":
         return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
     st = _wczytaj(PLIK_STATUSU, {})
@@ -348,6 +380,7 @@ def online_zaloguj(kod: str, haslo: str):
     st["skrot"] = _hash_hasla(kod, haslo)
     st["imie"] = str(odp.get("imie", ""))
     _zapisz(PLIK_STATUSU, st)
+    _zapisz_logowanie(kod, st["imie"], st["skrot"])
     return True, st["imie"], ""
 
 
@@ -385,7 +418,7 @@ def dialog_logowania():
     d.setModal(True)
     d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-    d.setFixedSize(430, 360)
+    d.setFixedSize(470, 410)
     d.setObjectName("PmtLogowanie")
     d.setStyleSheet('''
         #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
@@ -415,6 +448,10 @@ def dialog_logowania():
                              border:1px solid rgba(255,255,255,0.20);
                              border-radius:8px; padding:10px 18px; }
         QPushButton#anuluj:hover { color:#E2E8F0; border-color: rgba(255,255,255,0.40); }
+        QPushButton#chip { color:#94A3B8; background:rgba(255,255,255,0.05);
+                           border:1px solid rgba(255,255,255,0.18); border-radius:12px;
+                           font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
+        QPushButton#chip:hover { color:#00E4A1; border-color:#00E4A1; }
     ''')
     from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect
     zewn = QVBoxLayout(d); zewn.setContentsMargins(10, 10, 10, 10)
@@ -428,6 +465,29 @@ def dialog_logowania():
     pod = QLabel("Login to Tw\u00f3j 5-cyfrowy kod, has\u0142o otrzymasz od administratora.")
     pod.setObjectName("pod"); pod.setWordWrap(True); ukl.addWidget(pod)
     ukl.addSpacing(8)
+
+    # Podpowiedzi: konta używane wcześniej na tym komputerze — jedno kliknięcie
+    # wstawia login i przeskakuje do hasła.
+    ostatni_uzytkownicy = historia_logowan(3)
+    if ostatni_uzytkownicy:
+        e0 = QLabel("OSTATNIO NA TYM KOMPUTERZE"); e0.setObjectName("etyk")
+        ukl.addWidget(e0)
+        rzad_hist = QHBoxLayout(); rzad_hist.setSpacing(6)
+        for w in ostatni_uzytkownicy:
+            _imie = w["imie"].split()[0] if w["imie"] else ""
+            if len(_imie) > 8:
+                _imie = _imie[:7] + "."
+            etykieta = w["kod"] + ((" · " + _imie) if _imie else "")
+            chip = QPushButton(etykieta); chip.setObjectName("chip")
+            chip.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            chip.setToolTip("Zaloguj jako " + (w["imie"] or w["kod"]))
+            # bez tego Qt ściska przyciski i ucina tekst bez wielokropka
+            chip.setMinimumWidth(chip.fontMetrics().horizontalAdvance(etykieta) + 30)
+            rzad_hist.addWidget(chip)
+            chip._kod = w["kod"]
+        rzad_hist.addStretch(1)
+        ukl.addLayout(rzad_hist)
+        ukl.addSpacing(4)
 
     e1 = QLabel("LOGIN"); e1.setObjectName("etyk"); ukl.addWidget(e1)
     pole_kod = QLineEdit(); pole_kod.setObjectName("kod"); pole_kod.setMaxLength(5)
@@ -473,6 +533,12 @@ def dialog_logowania():
         else:
             blad.setText(komunikat)
             pole_haslo.selectAll(); pole_haslo.setFocus()
+
+    for _chip in d.findChildren(QPushButton):
+        if _chip.objectName() == "chip":
+            def _uzyj(_=False, kod=_chip._kod):
+                pole_kod.setText(kod); pole_haslo.clear(); pole_haslo.setFocus()
+            _chip.clicked.connect(_uzyj)
 
     pole_kod.textChanged.connect(lambda _: _sprawdz_pola())
     pole_haslo.textChanged.connect(lambda _: _sprawdz_pola())
@@ -595,7 +661,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.13.9"
+WERSJA_PROGRAMU = "3.13.11"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -4367,6 +4433,37 @@ class StyledInput(QFrame):
             # NIE kasujemy koloru walidacji — przywracamy zapamiętany status
             self._przywroc_wyglad()
         return super().eventFilter(obj, event)
+
+def styl_zglos_blad(btn):
+    """Zgłoszenie błędu ma być rozpoznawalne kolorem alarmu — czerwony obrys,
+    a po najechaniu pełne wypełnienie. Celowo słabszy akcent niż Wyloguj,
+    żeby dwa kolorowe przyciski obok siebie nie krzyczały jednakowo."""
+    btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    btn.setMinimumHeight(34)
+    btn.setStyleSheet(
+        "QPushButton { color:#F87171; background:rgba(239,68,68,0.10);"
+        " border:1.5px solid #EF4444; border-radius:17px; padding:7px 18px;"
+        " font-family:'Segoe UI'; font-size:12.5px; font-weight:800; }"
+        "QPushButton:hover { background:#EF4444; color:#FFFFFF; }"
+        "QPushButton:pressed { background:#B91C1C; color:#FFE4E6; }")
+
+
+def styl_wyloguj(btn, is_dark=True):
+    """Wylogowanie ma być widoczne — bursztynowy pigułkowy przycisk, wyraźnie
+    większy od sąsiadów w pasku. Kolor celowo inny niż akcent systemu (cyjan),
+    żeby nie mylił się z akcjami „twórczymi”."""
+    btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    btn.setMinimumHeight(38)
+    btn.setStyleSheet(
+        "QPushButton { color:#1A1206;"
+        " background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+        "   stop:0 #FBBF24, stop:1 #F97316);"
+        " border:none; border-radius:19px; padding:9px 22px;"
+        " font-family:'Segoe UI'; font-size:13px; font-weight:800; }"
+        "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+        "   stop:0 #FCD34D, stop:1 #FB923C); }"
+        "QPushButton:pressed { background:#EA580C; color:#FFF7ED; }")
+
 
 class OutlineButton(QPushButton):
     def __init__(self, text, is_dark=True, parent=None):
@@ -8700,7 +8797,8 @@ class PanelAdminaOverlay(QFrame):
         gora.addLayout(naglowek); gora.addStretch()
         # Wylogowanie — kasuje zapamiętany kod użytkownika, żeby przy następnym
         # uruchomieniu program znów zapytał o kod (np. gdy komputer zmienia właściciela).
-        self.btn_wyloguj = OutlineButton("⎋ Wyloguj", True, self)
+        self.btn_wyloguj = QPushButton("⎋  Wyloguj")
+        styl_wyloguj(self.btn_wyloguj, True)
         self.btn_wyloguj.clicked.connect(self._wyloguj)
         gora.addWidget(self.btn_wyloguj)
         gora.addSpacing(8)
@@ -8764,22 +8862,13 @@ class PanelAdminaOverlay(QFrame):
     def _wyloguj(self):
         """Kasuje zapamiętany kod użytkownika i zamyka program.
         Przy kolejnym uruchomieniu pojawi się okno logowania."""
-        from PyQt6.QtWidgets import QMessageBox
-        kod = online_kod_uzytkownika() or "—"
-        mb = QMessageBox(self)
-        mb.setWindowTitle("Wylogowanie")
-        mb.setText(f"Wylogować użytkownika {kod}?")
-        mb.setInformativeText("Program zamknie się, a przy następnym uruchomieniu "
-                              "poprosi o 5-cyfrowy kod. Zapisane plany i dokumenty zostają nienaruszone.")
-        mb.setIcon(QMessageBox.Icon.Question)
-        mb.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        mb.setDefaultButton(QMessageBox.StandardButton.No)
-        mb.button(QMessageBox.StandardButton.Yes).setText("Wyloguj i zamknij")
-        mb.button(QMessageBox.StandardButton.No).setText("Anuluj")
-        if mb.exec() != QMessageBox.StandardButton.Yes:
+        self.hide()                    # schowaj panel Ustawień
+        okno = self.window()
+        if hasattr(okno, "_wyloguj_uzytkownika"):
+            okno._wyloguj_uzytkownika()    # jedna wspólna ścieżka wylogowania
             return
         try:
-            online_synchronizuj()          # oddaj liczniki, zanim zapomnimy kod
+            online_synchronizuj()
         except Exception:
             pass
         online_wyloguj()
@@ -11382,13 +11471,15 @@ class App(QMainWindow):
         self.btn_dzwonek.clicked.connect(self._toggle_panel_powiadomien)
         tb.addWidget(self.btn_dzwonek)
 
-        self.btn_bug = OutlineButton("⚠ Zgłoś błąd", self.is_dark, self.topbar)
+        self.btn_bug = QPushButton("⚠  Zgłoś błąd", self.topbar)
+        styl_zglos_blad(self.btn_bug)
         self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:anowicki@pmt.com.pl"))
         tb.addWidget(self.btn_bug)
 
         # Wylogowanie zawsze pod ręką — ten sam styl co pozostałe przyciski paska.
-        self.btn_wyloguj = OutlineButton("⎋ Wyloguj", self.is_dark, self.topbar)
-        self.btn_wyloguj.setToolTip("Zamknij program i wyloguj użytkownika")
+        self.btn_wyloguj = QPushButton("⎋  Wyloguj", self.topbar)
+        styl_wyloguj(self.btn_wyloguj, self.is_dark)
+        self.btn_wyloguj.setToolTip("Wyloguj — program poprosi o login i hasło")
         self.btn_wyloguj.clicked.connect(self._wyloguj_uzytkownika)
         tb.addWidget(self.btn_wyloguj)
         right_content_layout.addWidget(self.topbar)
@@ -12296,21 +12387,36 @@ class App(QMainWindow):
         mb = QMessageBox(self)
         mb.setWindowTitle("Wylogowanie")
         mb.setText(f"Wylogować użytkownika {kod}?")
-        mb.setInformativeText("Program zamknie się, a przy następnym uruchomieniu poprosi "
-                              "o login i hasło. Plany i dokumenty zostają nienaruszone.")
+        mb.setInformativeText("Pojawi się ekran logowania — możesz od razu zalogować się "
+                              "na inne konto. Plany i dokumenty zostają nienaruszone.")
         mb.setIcon(QMessageBox.Icon.Question)
         mb.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         mb.setDefaultButton(QMessageBox.StandardButton.No)
-        mb.button(QMessageBox.StandardButton.Yes).setText("Wyloguj i zamknij")
+        mb.button(QMessageBox.StandardButton.Yes).setText("Wyloguj")
         mb.button(QMessageBox.StandardButton.No).setText("Anuluj")
         if mb.exec() != QMessageBox.StandardButton.Yes:
             return
         try:
-            online_synchronizuj()
+            online_synchronizuj()      # oddaj liczniki poprzedniego użytkownika
         except Exception:
             pass
         online_wyloguj()
-        QApplication.quit()
+        self.hide()
+        kod, imie = dialog_logowania()          # od razu ekran logowania
+        if not kod:
+            QApplication.quit()
+            return
+        online_zapisz_kod(kod)
+        online_zdarzenie(uruchomienia=1)
+        online_synchronizuj_w_tle()
+        self.show()
+        self.raise_(); self.activateWindow()
+        try:
+            self.toast.show_toast("Zalogowano",
+                                  ("Witaj, " + imie.split()[0] + "!") if imie else ("Kod " + kod),
+                                  success=True)
+        except Exception:
+            pass
 
     def _pokaz_panel_admina(self):
         """Panel administratora — statystyki wszystkich użytkowników programu

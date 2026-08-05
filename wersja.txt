@@ -1,2 +1,2 @@
-3.13.9
-Nowosci: przycisk Wyloguj w gornym pasku obok Zglos blad, poprawiony wyglad okna logowania (panel malowany na wewnetrznej ramce - wczesniej bywal przezroczysty) oraz przycisku wylogowania w Ustawieniach. Logowanie loginem i haslem przy kazdym uruchomieniu.
+3.13.11
+Nowosci: przycisk Zglos blad w kolorze alarmowym (czerwony), bursztynowy Wyloguj z ekranem ponownego logowania i podpowiedziami kont z tego komputera.

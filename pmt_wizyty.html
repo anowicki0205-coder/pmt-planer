@@ -206,7 +206,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 <section class="ekran" id="e-punkt">
   <span class="znaczek" id="zn-sklep5"></span>
   <h2 id="punktTytul">Który punkt sprawdzasz?</h2>
-  <p class="pod">Każdy punkt raportujemy osobno — dostępność liczy się dla niego niezależnie.</p>
+  <p class="pod" id="punktPostep">Wizyta obejmuje oba punkty — zrobione 0 z 2.</p>
   <div class="karta" id="punktLista"></div>
 
   <label>Stan urządzenia — zaznacz, jeśli coś przeszkadza</label>
@@ -248,28 +248,24 @@ input:focus{outline:none;border-color:var(--akc2)}
 <section class="ekran" id="e-przed">
   <span class="znaczek" id="zn-sklep"></span>
   <h2 id="skanTytul">Skan półki</h2>
-  <p class="pod">Trzy zdjęcia: całość do rozpoznania układu, potem góra i dół z bliska — to daje AI szczegóły.</p>
+  <p class="pod">Zacznij od zdjęcia całości — z niego rozpoznam układ. Zbliżenia są nieobowiązkowe, ale im więcej detali, tym pewniejsza analiza. Zdjęcia mogą na siebie zachodzić.</p>
   <div class="info-pas" id="historiaPas" style="display:none;background:rgba(0,240,255,.08);border-color:rgba(0,240,255,.3);color:#7DD3FC;font-size:12.5px;padding:9px 12px"></div>
 
   <div class="foto-pole" id="kaflOgolne" onclick="document.getElementById('fotoOgolne').click()">
-    <span id="txtOgolne"><b>1 / 3 · Całość</b><br>cała szafa w kadrze, na wprost</span>
+    <span id="txtOgolne"><b>Zdjęcie całości</b><br>cała szafa w kadrze, na wprost</span>
     <input type="file" id="fotoOgolne" accept="image/*" hidden>
   </div>
   <div style="height:8px"></div>
-  <div class="foto-pole" id="kaflGora" onclick="document.getElementById('fotoGora').click()">
-    <span id="txtGora"><b>2 / 3 · Górne półki</b><br>zbliżenie na trzy górne rzędy</span>
-    <input type="file" id="fotoGora" accept="image/*" hidden>
+  <div class="foto-pole" id="kaflZblizenie" onclick="document.getElementById('fotoZblizenie').click()">
+    <span id="txtZblizenie"><b>+ Dodaj zbliżenie</b><br>fragment półki z bliska — możesz dodać kilka</span>
+    <input type="file" id="fotoZblizenie" accept="image/*" hidden>
   </div>
-  <div style="height:8px"></div>
-  <div class="foto-pole" id="kaflDol" onclick="document.getElementById('fotoDol').click()">
-    <span id="txtDol"><b>3 / 3 · Dolne półki</b><br>zbliżenie na trzy dolne rzędy (na zakładkę z górnym)</span>
-    <input type="file" id="fotoDol" accept="image/*" hidden>
-  </div>
+  <div class="karta" id="listaZdjec" style="display:none;padding:10px 14px"></div>
 
   <div style="height:10px"></div>
   <div class="info-pas" id="aiStanPrzed" style="display:none"></div>
   <div class="info-pas" id="ukladPas" style="display:none;background:rgba(0,228,161,.09);border-color:rgba(0,228,161,.35);color:#6EE7B7"></div>
-  <button class="link" onclick="idz('e-planogram')" style="display:block;margin:2px auto 0">Nie rozpoznano? Dodaj zdjęcia planogramu ręcznie</button>
+  <button class="btn drugi maly" style="margin:10px auto 0" onclick="idz('e-planogram')">&#128247; Planogram ręcznie (gdy układ się nie zgadza)</button>
   <div class="dol" id="dolPrzed" style="display:none"><button class="btn" onclick="idz('e-lista')">Przejdź do listy &#8594;</button></div>
 </section>
 
@@ -295,9 +291,10 @@ input:focus{outline:none;border-color:var(--akc2)}
   <p class="pod" id="poOpis"></p>
   <div class="karta" id="poBraki"></div>
   <div class="foto-pole" onclick="document.getElementById('poFoto').click()">
-    <span id="poPoleTxt">Po uzupełnieniu: stuknij i zrób zdjęcie kontrolne półki<br><b>aparat lub galeria</b></span>
+    <span id="poPoleTxt"><b>Zdjęcie kontrolne po uzupełnieniu</b><br>całość lub zbliżenie — możesz dodać kilka</span>
     <input type="file" id="poFoto" accept="image/*" hidden>
   </div>
+  <div class="karta" id="listaZdjecPo" style="display:none;padding:10px 14px"></div>
   <div style="height:12px"></div>
   <div class="info-pas" id="aiStanPo2" style="display:none"></div>
   <div class="dol" id="dolPo" style="display:none"><button class="btn" onclick="doDelty()">Zobacz efekt wizyty &#8594;</button></div>
@@ -331,7 +328,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 
 <!-- KONIEC -->
 <section class="ekran" id="e-koniec">
-  <h2>Raport zapisany</h2>
+  <h2>Wizyta zakończona</h2>
   <p class="pod" id="koniecOpis"></p>
   <div class="karta" id="dziennik"></div>
   <button class="btn drugi" onclick="udostepnij()" style="margin-bottom:10px">&#128228; Udostępnij podsumowanie</button>
@@ -681,6 +678,9 @@ const PUNKTY = [
 function rysujPunkty(){
   const box = document.getElementById("punktLista");
   box.innerHTML = "";
+  const zrobione = (W.punkty || []).length;
+  document.getElementById("punktPostep").textContent =
+    "Wizyta obejmuje oba punkty — zrobione " + zrobione + " z " + PUNKTY.length + ".";
   PUNKTY.forEach(p=>{
     const gotowy = (W.punkty||[]).find(x=>x.id===p.id);
     const el = document.createElement("div"); el.className = "poz";
@@ -711,15 +711,13 @@ function zacznijPunkt(){
   if(!W.punktId){ alert("Wskaż, który punkt sprawdzasz."); return; }
   W.pozycje = []; W.statusyPrzed = {}; W.statusyPo = {};
   W.dotknietePrzed = {}; W.dotknietePo = {}; W.wynikiBrakow = {};
-  W.fotoOgolne = null; W.zrobione = {ogolne:false, gora:false, dol:false};
+  W.dowodyPrzed = {}; W.dowodyPo = {}; W.zdjecia = []; W.zdjeciaPo = [];
+  W.czekajace = []; W.wTrakcie = 0; W.fotoPolki = null;
   W.autoPlanogram = true; W.planogramNazwa = ""; W.uklad = "";
   document.getElementById("skanTytul").textContent = W.punktNazwa;
-  ["txtOgolne","txtGora","txtDol"].forEach((id,i)=>{
-    const t = ["<b>1 / 3 · Całość</b><br>cała szafa w kadrze, na wprost",
-               "<b>2 / 3 · Górne półki</b><br>zbliżenie na trzy górne rzędy",
-               "<b>3 / 3 · Dolne półki</b><br>zbliżenie na trzy dolne rzędy (na zakładkę z górnym)"][i];
-    document.getElementById(id).innerHTML = t;
-  });
+  document.getElementById("txtOgolne").innerHTML = "<b>Zdjęcie całości</b><br>cała szafa w kadrze, na wprost";
+  document.getElementById("txtZblizenie").innerHTML = "<b>+ Dodaj zbliżenie</b><br>fragment półki z bliska — możesz dodać kilka";
+  ["listaZdjec","listaZdjecPo"].forEach(id=>{ const e=document.getElementById(id); if(e){ e.style.display="none"; e.innerHTML=""; } });
   document.getElementById("dolPrzed").style.display = "none";
   ustawBaner("przed", ""); document.getElementById("ukladPas").style.display = "none";
   zapiszW(); idz("e-przed");
@@ -866,202 +864,175 @@ function odswiezNowosci(){
     });
   };
 }
-function podepnijFoto(id, faza){
-  document.getElementById(id).addEventListener("change", ev=>{
-    const plik = ev.target.files[0]; ev.target.value="";
-    if(plik) analizujPolke(plik, faza);
+/* ==================== WSPÓLNY SILNIK ANALIZY ZDJĘĆ ====================
+   Jedna droga dla skanu wejściowego i kontrolnego — te same pozycje, ten
+   sam kontekst, ten sam sposób scalania. Dzięki temu to samo zdjęcie daje
+   ten sam wynik "przed" i "po".
+
+   Zdjęcia mogą się nakładać: model zwraca tylko to, co REALNIE widzi, a my
+   zbieramy DOWODY. Zasada: jeśli którekolwiek zdjęcie pokazało produkt na
+   półce — produkt jest. "Brak" liczy się tylko wtedy, gdy żadne zdjęcie go
+   nie pokazało, a co najmniej jedno wskazało puste miejsce.            */
+
+function _dowody(faza){
+  const pole = faza === "przed" ? "dowodyPrzed" : "dowodyPo";
+  if(!W[pole]) W[pole] = {};
+  return W[pole];
+}
+
+function scalDowody(pozycjeAI, faza){
+  const dow = _dowody(faza);
+  (pozycjeAI || []).forEach(p=>{
+    const k = p.kod || p.produkt; if(!k) return;
+    const d = dow[k] || (dow[k] = {jest:0, brak:0, uwaga:"", rzad_foto:null, poz_foto:null});
+    if(p.status === "jest") d.jest++;
+    else if(p.status === "brak"){ d.brak++; if(p.uwaga) d.uwaga = p.uwaga;
+      if(p.rzad_foto){ d.rzad_foto = p.rzad_foto; d.poz_foto = p.poz_foto; } }
+  });
+  przelicz(faza);
+}
+
+function przelicz(faza){
+  const cel  = faza === "przed" ? W.statusyPrzed : W.statusyPo;
+  const dotk = faza === "przed" ? W.dotknietePrzed : W.dotknietePo;
+  const dow  = _dowody(faza);
+  (W.pozycje || []).forEach(p=>{
+    const k = p.kod;
+    if(p.niewidoczny){
+      cel[k] = {produkt:p.produkt, ean:p.ean||"", rzad:p.rzad, status:"niewidoczny", pewnosc:1};
+      return;
+    }
+    if(dotk[k]) return;                       // decyzja człowieka jest nadrzędna
+    const d = dow[k];
+    const stan = !d ? "jest" : (d.jest > 0 ? "jest" : (d.brak > 0 ? "brak" : "jest"));
+    cel[k] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", rzad:p.rzad,
+              status: stan, pewnosc: d ? 1 : 0,
+              uwaga: (stan === "brak" && d) ? d.uwaga : "",
+              rzad_foto: d ? d.rzad_foto : null, poz_foto: d ? d.poz_foto : null};
   });
 }
-podepnijFoto("poFoto","po");
 
-/* --- 1/3: całość — rozpoznanie układu + ocena ułożenia --- */
+function stanAnalizy(faza){
+  const w = W.wTrakcie || 0;
+  const cel = faza === "przed" ? W.statusyPrzed : W.statusyPo;
+  const braki = Object.values(cel).filter(p=>p.status === "brak").length;
+  if(w > 0){
+    ustawBaner(faza, "Porównuję dane… (" + w + (w === 1 ? " zdjęcie" : " zdjęcia") +
+      " w analizie). W tym czasie możesz odszukać zapas u kierownika.");
+  } else if(Object.keys(cel).length){
+    ustawBaner(faza, "Gotowe — na liście " + braki + " " +
+      (braki === 1 ? "brak" : "braków") + ". Zweryfikuj i popraw, jeśli trzeba.");
+    if(faza === "przed"){ rysujListe(); rysujStrefy(); }
+    else if(document.getElementById("e-delta").classList.contains("on")) rysujDelte();
+  }
+  const lista = document.getElementById(faza === "przed" ? "listaZdjec" : "listaZdjecPo");
+  const zdj = (faza === "przed" ? W.zdjecia : W.zdjeciaPo) || [];
+  if(lista && zdj.length){
+    lista.style.display = "block";
+    lista.innerHTML = zdj.map(z=>`<div class="s"><span>${z.opis}</span><span>${z.stan}</span></div>`).join("");
+  }
+}
+
+async function analizujZdjecie(plik, faza, opis){
+  const pole = faza === "przed" ? "zdjecia" : "zdjeciaPo";
+  if(!W[pole]) W[pole] = [];
+  const wpis = {opis: opis, stan: "w analizie…"};
+  W[pole].push(wpis);
+  W.wTrakcie = (W.wTrakcie || 0) + 1;
+  stanAnalizy(faza);
+  try{
+    const {b64, pelna} = await wczytajICompresuj(plik);
+    if(faza === "przed" && !W.fotoPolki){ W.fotoPolki = pelna; idb.zapisz("fotoPolki", pelna); }
+    if(!czyOnline()){
+      doKolejki({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje:W.pozycje, _faza:faza, _sklep:W.sklep});
+      wpis.stan = "czeka na sieć";
+      return;
+    }
+    const o = await backend({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64,
+      pozycje: W.pozycje, strony_b64: [],
+      kontekst: "Zdjecie moze obejmowac tylko fragment polki." +
+                (opisUszkodzen() ? " Zgloszone utrudnienia: " + opisUszkodzen() + "." : "")});
+    if(o.status !== "ok") throw new Error(o.opis || "błąd analizy");
+    scalDowody(o.pozycje, faza);
+    if(o.rada){ const u = document.getElementById("ukladPas");
+      if(u){ u.textContent = (W.uklad ? W.uklad + " · " : "") + o.rada; u.style.display = "block"; } }
+    const braki = (o.pozycje || []).filter(p=>p.status === "brak").length;
+    wpis.stan = "✓ widoczne: " + (o.pozycje || []).length + " · braki: " + braki;
+  }catch(e){
+    wpis.stan = "błąd: " + String(e.message).slice(0, 40);
+  }finally{
+    W.wTrakcie = Math.max(0, (W.wTrakcie || 1) - 1);
+    zapiszW();
+    stanAnalizy(faza);
+    if(faza === "przed" && W.pozycje.length) document.getElementById("dolPrzed").style.display = "block";
+    if(faza === "po") document.getElementById("dolPo").style.display = "block";
+  }
+}
+
+/* --- ZDJĘCIE CAŁOŚCI: rozpoznanie układu, potem zwykła analiza --- */
 document.getElementById("fotoOgolne").addEventListener("change", async ev=>{
   const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
   const txt = document.getElementById("txtOgolne");
-  if(!czyOnline()){ txt.innerHTML = "Rozpoznanie układu wymaga internetu — użyj ścieżki ręcznej."; return; }
-  txt.innerHTML = "<b>1 / 3 · Całość</b><br>rozpoznaję układ…";
+  if(!czyOnline()){ txt.innerHTML = "Rozpoznanie układu wymaga internetu — użyj planogramu ręcznie."; return; }
+  txt.innerHTML = "<b>Zdjęcie całości</b><br>rozpoznaję układ…";
   try{
     const {b64, pelna} = await wczytajICompresuj(plik);
     W.fotoPolki = pelna; idb.zapisz("fotoPolki", pelna);
     const r = await backend({akcja:"rozpoznaj_planogram", obraz_b64:b64, kod: mag.get("pmt_kod","")});
-    if(r.status!=="ok") throw new Error(r.opis||"nie rozpoznano");
+    if(r.status !== "ok") throw new Error(r.opis || "nie rozpoznano");
     W.pozycje = wzbogac(r.pozycje);
     W.planogramNazwa = r.planogram; W.planogramPewnosc = r.pewnosc ?? 1; W.uklad = r.uklad || "";
-    // pozycje w rzędach niewidocznych oznaczamy z góry
     const ukryte = rzedyNiewidoczne();
     W.pozycje.forEach(p=>{ if(ukryte.includes(p.rzad)) p.niewidoczny = true; });
-    W.zrobione.ogolne = true; zapiszW();
-    txt.innerHTML = "<b>1 / 3 · Całość</b> ✓<br>" + r.planogram + " · " + W.pozycje.length + " pozycji" +
+    przelicz("przed"); zapiszW();
+    txt.innerHTML = "<b>Zdjęcie całości</b> ✓<br>" + r.planogram + " · " + W.pozycje.length + " pozycji" +
                     ((r.pewnosc ?? 1) < 0.7 ? " (pewność niska!)" : "");
-    if(W.uklad){
-      const u = document.getElementById("ukladPas");
-      u.textContent = "Ułożenie: " + W.uklad; u.style.display = "block";
-    }
-    if(ukryte.length) ustawBaner("przed", "Pominę rzędy " + ukryte.join(", ") +
-      " — zgłosiłeś: " + opisUszkodzen() + ".");
-  }catch(e){ txt.innerHTML = "<b>1 / 3 · Całość</b><br>nie rozpoznano: " + e.message + " — stuknij ponownie"; }
+    if(W.uklad){ const u = document.getElementById("ukladPas");
+      u.textContent = "Ułożenie: " + W.uklad; u.style.display = "block"; }
+    document.getElementById("dolPrzed").style.display = "block";
+    // to samo zdjęcie służy też jako pierwszy dowód stanu półki
+    analizujZdjecie(plik, "przed", "całość");
+    // zbliżenia zrobione zanim układ był znany — analizuj teraz
+    (W.czekajace || []).forEach(z => analizujZdjecie(z.plik, "przed", z.opis));
+    W.czekajace = [];
+  }catch(e){ txt.innerHTML = "<b>Zdjęcie całości</b><br>nie rozpoznano: " + e.message + " — stuknij ponownie"; }
 });
 
-/* --- 2/3 i 3/3: zbliżenia — analiza braków w swojej połowie półki --- */
-function podepnijZblizenie(idWe, idTxt, ktora){
-  document.getElementById(idWe).addEventListener("change", async ev=>{
-    const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
-    const txt = document.getElementById(idTxt);
-    if(!W.pozycje.length){ txt.innerHTML = "Najpierw zdjęcie całości (1/3) — z niego biorę układ."; return; }
-    const maxRzad = Math.max(...W.pozycje.map(p=>p.rzad||1));
-    const polowa = Math.ceil(maxRzad/2);
-    const ukryte = rzedyNiewidoczne();
-    const rzedy = (ktora==="gora" ? [...Array(polowa).keys()].map(i=>i+1)
-                                  : [...Array(maxRzad-polowa+1).keys()].map(i=>i+polowa))
-                  .filter(r=>!ukryte.includes(r));
-    if(!rzedy.length){ txt.innerHTML = "Te rzędy zgłoszone jako niewidoczne — pomijam."; 
-      W.zrobione[ktora]=true; sprawdzKomplet(); return; }
-    const podzbior = W.pozycje.filter(p=>rzedy.includes(p.rzad));
-    txt.innerHTML = "Analizuję rzędy " + rzedy.join(", ") + "…";
-    try{
-      const {b64} = await wczytajICompresuj(plik);
-      // lista startowa dla tych rzędów: domyślnie "jest"
-      podzbior.forEach(p=>{ if(!W.statusyPrzed[p.kod])
-        W.statusyPrzed[p.kod] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
-                                 rzad:p.rzad, status:"jest", pewnosc:0}; });
-      rysujListe(); zapiszW();
-      ustawBaner("przed", "Porównuję dane… W tym czasie możesz odszukać zapas u kierownika — zaraz podam, czego dokładnie potrzebujesz.");
-      const o = await backend({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64,
-        pozycje: podzbior, strony_b64: [],
-        kontekst: "Zdjecie obejmuje TYLKO rzedy " + rzedy.join(", ") + " tej polki" +
-                  (opisUszkodzen() ? ". Zgloszone utrudnienia: " + opisUszkodzen() : "")});
-      if(o.status!=="ok") throw new Error(o.opis||"błąd analizy");
-      scalWynikAI(o.pozycje, "przed");
-      if(o.rada){ const u=document.getElementById("ukladPas");
-        u.textContent = (W.uklad? W.uklad+" · " : "") + o.rada; u.style.display="block"; }
-      txt.innerHTML = "<b>" + (ktora==="gora"?"2 / 3 · Górne":"3 / 3 · Dolne") + "</b> ✓<br>rzędy " +
-                      rzedy.join(", ") + " · braki: " + o.pozycje.filter(p=>p.status==="brak").length;
-      W.zrobione[ktora] = true; zapiszW(); sprawdzKomplet();
-    }catch(e){ txt.innerHTML = "Nie udało się: " + e.message + " — stuknij ponownie"; }
-  });
-}
-podepnijZblizenie("fotoGora","txtGora","gora");
-podepnijZblizenie("fotoDol","txtDol","dol");
-
-function sprawdzKomplet(){
-  const z = W.zrobione || {};
-  if(z.ogolne && (z.gora || z.dol)){
-    document.getElementById("dolPrzed").style.display = "block";
-    // pozycje z rzędów niewidocznych nie liczą się do dostępności
-    W.pozycje.filter(p=>p.niewidoczny).forEach(p=>{
-      W.statusyPrzed[p.kod] = {produkt:p.produkt, ean:p.ean||"", rzad:p.rzad,
-                               status:"niewidoczny", pewnosc:1};
-    });
-    rysujListe(); zapiszW();
-  }
-}
-
-async function analizujPolke(plik, faza){
-  const txt = document.getElementById("poPoleTxt") || {innerHTML: ""};
-  txt.innerHTML = "Zdjęcie przyjęte ✓";
-  const {b64, pelna} = await wczytajICompresuj(plik);
-  if(faza==="przed"){ W.fotoPolki = pelna; W.siatka = null; idb.zapisz("fotoPolki", pelna); }
-
-  // Automatyczne rozpoznanie układu półki — gdy handlowiec nie fotografował
-  // planogramu. Model porównuje zdjęcie z wariantami (Szafa C1/C2/D1/D2,
-  // podajniki) i zwraca gotową listę pozycji z nazwami, EAN-ami i zdjęciami.
-  if(faza==="przed" && (W.autoPlanogram || !W.pozycje.length)){
-    if(!czyOnline()){
-      ustawBaner("przed", "Rozpoznanie układu wymaga internetu — sfotografuj planogram albo spróbuj przy zasięgu.");
-      return;
-    }
-    ustawBaner("przed", "Rozpoznaję układ półki…");
-    try{
-      const r = await backend({akcja:"rozpoznaj_planogram", obraz_b64:b64, kod: mag.get("pmt_kod","")});
-      if(r.status!=="ok") throw new Error(r.opis||"nie rozpoznano");
-      W.pozycje = wzbogac(r.pozycje);
-      W.planogramNazwa = r.planogram;
-      W.planogramPewnosc = r.pewnosc ?? 1;
-      zapiszW();
-      const slabo = (r.pewnosc ?? 1) < 0.7;
-      ustawBaner("przed", "Rozpoznano układ: " + r.planogram + " (" + W.pozycje.length + " pozycji)" +
-        (slabo ? " — pewność niska, sprawdź listę uważnie." : "") +
-        (r.uzasadnienie ? " · " + r.uzasadnienie : ""));
-    }catch(e){
-      ustawBaner("przed", "Nie rozpoznałem układu: " + e.message + ". Wróć i sfotografuj planogram.");
-      return;
-    }
-  }
-  // lista startowa w tle; uzytkownik zostaje na ekranie zdjecia i sam idzie dalej
-  const start = W.pozycje.map(p=>({kod:p.kod, produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
-                                   strona:p.strona, status:"jest", pewnosc:0}));
-  przygotujWynik(start, faza);
-  if(faza==="przed"){
-    ustawBaner("przed", "Porównuję dane… W tym czasie możesz odszukać zapas u kierownika — zaraz podam, czego dokładnie potrzebujesz.");
-    document.getElementById("dolPrzed").style.display="block";
-  } else {
-    ustawBaner("po", "Weryfikuję uzupełnienie półki ze zdjęciem…");
-    document.getElementById("dolPo").style.display="block";
-  }
-  const zad = {akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje: W.pozycje,
-               strony_b64: (W.stronyB64||[]).slice(0,2)};   // AI dostaje tez wzorzec wizualny
-  if(!czyOnline()){
-    doKolejki(Object.assign({_faza:faza,_sklep:W.sklep}, zad));
-    ustawBaner(faza, "Brak zasięgu — analiza wykona się przy pierwszym połączeniu. Możesz oznaczać ręcznie.");
+/* --- ZBLIŻENIA: dowolna liczba, analiza w tle, można dodawać od razu --- */
+document.getElementById("fotoZblizenie").addEventListener("change", ev=>{
+  const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
+  const nr = ((W.zdjecia || []).length) + ((W.czekajace || []).length);
+  const opis = "zbliżenie " + nr;
+  if(!W.pozycje.length){                       // układ jeszcze nieznany — do kolejki
+    W.czekajace = W.czekajace || [];
+    W.czekajace.push({plik, opis});
+    document.getElementById("txtZblizenie").innerHTML =
+      "<b>+ Dodaj zbliżenie</b><br>zapisane (" + W.czekajace.length + ") — przeanalizuję po zdjęciu całości";
     return;
   }
-  try{
-    const o = await backend(zad);
-    if(o.status!=="ok") throw new Error(o.opis||"błąd analizy");
-    if(faza==="przed"){ W.siatka = o.siatka || null; W.rada = o.rada || ""; }
-    scalWynikAI(o.pozycje, faza);          // NAJPIERW wynik na liste…
-    const braki = o.pozycje.filter(p=>p.status==="brak").length;
-    powiadom("PMT Wizyty — "+W.sklep,      // …powiadomienie na koncu, bezpiecznie
-      faza==="przed" ? ("AI: "+braki+" braków na półce") : "Analiza po uzupełnieniu gotowa");
-  }catch(e){ ustawBaner(faza, "Analiza nie powiodła się: "+e.message+" — oznacz ręcznie."); }
-}
+  analizujZdjecie(plik, "przed", opis);
+  document.getElementById("txtZblizenie").innerHTML = "<b>+ Dodaj zbliżenie</b><br>możesz dodać kolejne, analiza leci w tle";
+});
+
+/* --- SKAN KONTROLNY: ten sam silnik --- */
+document.getElementById("poFoto").addEventListener("change", ev=>{
+  const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
+  const nr = ((W.zdjeciaPo || []).length) + 1;
+  analizujZdjecie(plik, "po", nr === 1 ? "kontrolne" : "kontrolne " + nr);
+});
+
 function ustawBaner(faza, tekst){
   const cele = faza==="przed" ? ["aiStanPrzed","aiStan"] : ["aiStanPo2","aiStanPo"];
   cele.forEach(id=>{ const el=document.getElementById(id);
     if(el){ el.style.display = tekst?"block":"none"; el.textContent = tekst||""; } });
 }
-function scalWynikAI(pozycje, faza){
-  const cel  = faza==="przed" ? W.statusyPrzed : W.statusyPo;
-  const dotk = faza==="przed" ? W.dotknietePrzed : W.dotknietePo;
-  let braki = 0;
-  pozycje.forEach(p=>{
-    const k = p.kod || p.produkt;
-    if(p.status==="brak") braki++;
-    if(dotk[k]) return;                                  // czlowiek ma ostatnie slowo
-    const stare = cel[k] || {};
-    cel[k] = Object.assign({}, stare, {produkt: p.produkt||stare.produkt,
-      status: p.status, pewnosc: p.pewnosc ?? 1, uwaga: p.uwaga||""});
-  });
-  zapiszW();
-  if(faza==="przed"){
-    ustawBaner("przed", "Gotowe — AI wskazało "+braki+" braków. Zweryfikuj i popraw, jeśli trzeba.");
-    rysujListe();
-    rysujStrefy();
-    const radaEl = document.getElementById("aiRada");
-    if(W.rada){ radaEl.textContent = "Trener: " + W.rada; radaEl.style.display = "block"; }
-  } else {
-    W.weryfikacja = weryfikujDeklaracje();
-    ustawBaner("po", W.weryfikacja.length
-      ? "Uwaga — "+W.weryfikacja.length+" niezgodności między Twoimi oznaczeniami a zdjęciem. Szczegóły w efekcie wizyty."
-      : "Zweryfikowano ✓ — zdjęcie zgadza się z Twoimi oznaczeniami.");
-    if(document.getElementById("e-delta").classList.contains("on")) rysujDelte();
-  }
-}
-function przygotujWynik(pozycje, faza){
-  const cel = faza==="przed" ? W.statusyPrzed : W.statusyPo;
-  pozycje.forEach(p=>{ cel[p.kod||p.produkt] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
-      strona:p.strona, status:p.status, pewnosc:p.pewnosc??1}; });
-  if(faza==="przed") rysujListe();
-  zapiszW();
-}
 function nowySkan(){
-  // powrót do trzech zdjęć tego samego punktu — układ i planogram zostają
-  W.statusyPrzed={}; W.dotknietePrzed={}; W.poprawki=0;
-  W.zrobione = {ogolne: !!W.planogramNazwa, gora:false, dol:false};
-  ustawBaner("przed", W.planogramNazwa ? "Układ znany: " + W.planogramNazwa + " — zrób zbliżenia od nowa." : "");
-  document.getElementById("txtGora").innerHTML = "<b>2 / 3 · Górne półki</b><br>zbliżenie na trzy górne rzędy";
-  document.getElementById("txtDol").innerHTML = "<b>3 / 3 · Dolne półki</b><br>zbliżenie na trzy dolne rzędy";
-  document.getElementById("dolPrzed").style.display = "none";
+  // czyścimy dowody i zdjęcia, ale ROZPOZNANY UKŁAD zostaje
+  W.statusyPrzed={}; W.dotknietePrzed={}; W.dowodyPrzed={}; W.zdjecia=[]; W.poprawki=0;
+  przelicz("przed");
+  document.getElementById("txtZblizenie").innerHTML = "<b>+ Dodaj zbliżenie</b><br>fragment półki z bliska — możesz dodać kilka";
+  const l = document.getElementById("listaZdjec"); if(l){ l.style.display="none"; l.innerHTML=""; }
+  ustawBaner("przed", W.planogramNazwa ? "Układ znany: " + W.planogramNazwa + " — zrób zdjęcia od nowa." : "");
   _pokaz("e-przed");
 }
 
@@ -1441,7 +1412,9 @@ async function wyslijWizyte(){
   if(zostalo.length){
     alert("Punkt zapisany: " + W.punktNazwa + " (" + raport.dostepnosc_przed + "% → " +
           raport.dostepnosc_po + "%).\n\nZostał jeszcze: " + zostalo.map(p=>p.nazwa).join(", "));
-    W.uszkodzenia = []; W.punktId = null;
+    W.uszkodzenia = [];
+    W.punktId = zostalo[0].id; W.punktNazwa = zostalo[0].nazwa;   // od razu drugi punkt
+    document.getElementById("punktTytul").textContent = zostalo[0].nazwa;
     rysujPunkty(); stos.length = 0; _pokaz("e-punkt");
     return;
   }

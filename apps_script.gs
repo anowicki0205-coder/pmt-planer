@@ -309,13 +309,16 @@ function analizaPolki(dane) {
       "ZASADY: 'brak' dostaja WYLACZNIE pozycje dopasowane do pustych miejsc z kroku A. " +
       "Gdy dopasowanie kodu niepewne — wybierz najbardziej prawdopodobny, obniz pewnosc, " +
       "a w 'uwaga' podaj lokalizacje (np. 'rzad 2, poz 5, obok Camel'). " +
-      "Pozycji obecnych ('jest') NIE wypisuj — beda domyslne. " +
+      "WAZNE — ZDJECIE MOZE POKAZYWAC TYLKO FRAGMENT POLKI: zwroc pozycje, ktore " +
+      "REALNIE WIDAC w kadrze — zarowno obecne (status 'jest'), jak i brakujace " +
+      "(status 'brak'). Pozycji spoza kadru albo zaslonietych NIE wypisuj wcale " +
+      "(nie zgaduj) — inne zdjecie je pokaze. " +
       "DODATKOWO: (a) opisz siatke ZDJECIA polki: ile rzedow widac i ile pozycji w kazdym rzedzie; " +
       "(b) dla kazdego braku podaj rzad_foto (od gory, na ZDJECIU) i poz_foto (od lewej); " +
       "(c) jako 'rada' napisz JEDNO zdanie trenera merchandisingu po polsku o stanie tej polki " +
       "(np. obrocone etykiety, krzywe facingi, dobra robota gdy porzadek). " +
       "Odpowiedz WYLACZNIE poprawnym JSON: " +
-      '{"pozycje":[{"kod":"...","status":"brak","pewnosc":0.0-1.0,"uwaga":"max 8 slow","rzad_foto":1,"poz_foto":1}],' +
+      '{"pozycje":[{"kod":"...","status":"jest"|"brak","pewnosc":0.0-1.0,"uwaga":"max 8 slow","rzad_foto":1,"poz_foto":1}],' +
       '"siatka":{"rzedy":1,"pozycje_w_rzedach":[1]},"rada":"..."}';
   }
 

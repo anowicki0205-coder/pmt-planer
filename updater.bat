@@ -45,7 +45,7 @@ if not exist "%NOWY%" (
 )
 
 rem === 1) Czekaj, az stary program naprawde sie zamknie (do ~2 min) ===
-echo [1] Czekam na zamkniecie programu (PID %PID%)... >> "%LOG%"
+echo [1] Czekam na zamkniecie programu - PID %PID%... >> "%LOG%"
 for /l %%i in (1,1,60) do (
     tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
     if errorlevel 1 goto zamkniety
@@ -63,7 +63,7 @@ if exist "%CEL%" (
 )
 
 rem === 3) Zwykla kopia, z ponawianiem (plik bywa jeszcze chwile zablokowany) ===
-echo [3] Kopiuje plik (zwykle uprawnienia)... >> "%LOG%"
+echo [3] Kopiuje plik - zwykle uprawnienia... >> "%LOG%"
 for /l %%i in (1,1,15) do (
     copy /y "%NOWY%" "%CEL%" >nul 2>>"%LOG%"
     if not errorlevel 1 goto podmieniono
@@ -76,12 +76,12 @@ rem === instalacji w C:\Program Files, gdzie zwykly zapis jest zablokowany.   ==
 rem === Sciezki wstawiamy do OSOBNEGO pliku .ps1 (juz podstawione, jako      ===
 rem === zwykly tekst) - bez tego trzeba by przenosic cudzyslowy przez trzy   ===
 rem === warstwy (cmd -> powershell -> cmd), co jest bardzo podatne na blad.  ===
-echo [3b] Probuje z uprawnieniami administratora (moze pojawic sie okno UAC)... >> "%LOG%"
+echo [3b] Probuje z uprawnieniami administratora - moze pojawic sie okno UAC... >> "%LOG%"
 > "%PS1%" echo Copy-Item -LiteralPath '%NOWY%' -Destination '%CEL%' -Force
 powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','%PS1%') -Verb RunAs -Wait -PassThru | ForEach-Object { exit $_.ExitCode }" >> "%LOG%" 2>&1
 del /q "%PS1%" >nul 2>&1
 if not errorlevel 1 goto podmieniono
-echo [3b] Podniesione uprawnienia rowniez nie pomogly (albo uzytkownik odmowil UAC). >> "%LOG%"
+echo [3b] Podniesione uprawnienia rowniez nie pomogly - albo uzytkownik odmowil UAC. >> "%LOG%"
 
 echo.
 echo   ================================================================
@@ -89,8 +89,8 @@ echo    Nie udalo sie automatycznie podmienic pliku programu.
 echo    Stara wersja pozostala nienaruszona - nic nie zostalo uszkodzone.
 echo.
 echo    Najczestsza przyczyna: program lezy w folderze wymagajacym
-echo    uprawnien administratora (np. C:\Program Files). Warto trzymac
-echo    PMT Planer w folderze uzytkownika (Pulpit, Dokumenty) - wtedy
+echo    uprawnien administratora - np. C:\Program Files. Warto trzymac
+echo    PMT Planer w folderze uzytkownika - Pulpit, Dokumenty - wtedy
 echo    kolejne aktualizacje beda przebiegac bez pytania o uprawnienia.
 echo.
 echo    Nowa wersja czeka gotowa tutaj:
@@ -118,7 +118,7 @@ rem === pokazal, ze odpalenie NATYCHMIAST po kopiowaniu czasem konczylo    ===
 rem === sie bledem brakujacej biblioteki (antywirus/system jeszcze         ===
 rem === "trzymal" swiezo skopiowany plik) - mimo ze plik byl w 100% OK:    ===
 rem === reczne uruchomienie chwile pozniej dzialalo bez zarzutu.           ===
-echo [4] Czekam przed uruchomieniem (antywirus bywa jeszcze zajety plikiem)... >> "%LOG%"
+echo [4] Czekam przed uruchomieniem - antywirus bywa jeszcze zajety plikiem... >> "%LOG%"
 ping -n 4 127.0.0.1 >nul
 
 rem === 4a) CZEKAMY, AZ STARY PROCES NAPRAWDE ZNIKNIE ===================
@@ -132,10 +132,10 @@ if "%NAZWA_EXE%"=="" set "NAZWA_EXE=PMT_Planer.exe"
 for /l %%p in (1,1,15) do (
     tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
     if errorlevel 1 (
-        echo [4] Stary proces zamkniety (proba %%p). >> "%LOG%"
+        echo [4] Stary proces zamkniety - proba %%p. >> "%LOG%"
         goto proces_zamkniety
     )
-    echo [4] Stary proces jeszcze dziala - czekam (proba %%p)... >> "%LOG%"
+    echo [4] Stary proces jeszcze dziala - czekam - proba %%p... >> "%LOG%"
     ping -n 3 127.0.0.1 >nul
 )
 echo [4] UWAGA: stary proces nadal widoczny - probuje mimo to. >> "%LOG%"
@@ -150,10 +150,10 @@ for /l %%t in (1,1,10) do (
     copy /y "%CEL%" "%PROBNY%" >nul 2>&1
     if not errorlevel 1 (
         del /q "%PROBNY%" >nul 2>&1
-        echo [4] Plik gotowy do uruchomienia (proba %%t). >> "%LOG%"
+        echo [4] Plik gotowy do uruchomienia - proba %%t. >> "%LOG%"
         goto plik_gotowy
     )
-    echo [4] Plik jeszcze zajety - czekam (proba %%t)... >> "%LOG%"
+    echo [4] Plik jeszcze zajety - czekam - proba %%t... >> "%LOG%"
     ping -n 4 127.0.0.1 >nul
 )
 :plik_gotowy
@@ -167,7 +167,7 @@ rem === potrafi wtedy CICHO zablokowac uruchomienie z poziomu skryptu -  ===
 rem === bez zadnego komunikatu. To najczestsza przyczyna "nie wystartowal". ===
 del "%CEL%:Zone.Identifier" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath '%CEL%'" >nul 2>&1
-echo [4] Zdjeto blokade pliku z internetu (jesli byla). >> "%LOG%"
+echo [4] Zdjeto blokade pliku z internetu - jesli byla. >> "%LOG%"
 
 echo [4] Uruchamiam nowa wersje: "%CEL%" >> "%LOG%"
 for %%f in ("%CEL%") do set "KATALOG=%%~dpf"
@@ -202,7 +202,7 @@ for /l %%i in (1,1,20) do (
         set "PROBA_3=1"
     )
     if "!PROBA_2!"=="0" if %%i GEQ 6 (
-        echo [4] Znacznik sie nie pojawil - probuje uruchomic ponownie (drugie podejscie)... >> "%LOG%"
+        echo [4] Znacznik sie nie pojawil - probuje uruchomic ponownie - drugie podejscie... >> "%LOG%"
         start "" "%CEL%"
         set "PROBA_2=1"
     )

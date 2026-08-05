@@ -198,6 +198,9 @@ var ZAKLADKA_WIZYTY     = "Wizyty";
 var ZAKLADKA_REJONIZACJA = "Rejonizacja";
 var ZAKLADKA_PRODUKTY = "Produkty";
 var ZAKLADKA_ZGLOSZENIA = "Zgloszenia";
+/* Definicje układów półek (kod, rząd, pozycja) — plik generowany z PDF-ów
+   producenta i trzymany w repozytorium obok aplikacji. */
+var URL_PLANOGRAMY = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/planogramy.json";
 
 function inicjalizuj_v2() {
   // kolumna N (Haslo hash) w Uzytkownicy — dopisz naglowek, jesli go nie ma
@@ -238,6 +241,7 @@ function doPost(e) {
       case "ostatnia_wizyta":     return _json(ostatniaWizyta(dane));
       case "zgloszenie":          return _json(zgloszenie(dane));
       case "zmien_haslo":         return _json(zmienHaslo(dane));
+      case "rozpoznaj_planogram":  return _json(rozpoznajPlanogram(dane));
       default: return _json({ status: "blad", opis: "Nieznana akcja" });
     }
   } catch (err) {
@@ -294,6 +298,7 @@ function analizaPolki(dane) {
       '{"pozycje":[{"rzad":1,"nr":1,"produkt":"nazwa i wariant","kod":"kod indeksu jesli widoczny","ean":"kod EAN jesli widoczny, inaczej pusty","pewnosc":0.0-1.0}]}';
   } else {
     polecenie = "OBRAZ 1 to zdjecie realnej polki sklepowej." +
+      (dane.kontekst ? " WAZNY KONTEKST OD PRACOWNIKA: " + String(dane.kontekst) + "." : "") +
       ((dane.strony_b64 || []).length ? " KOLEJNE OBRAZY to strony planogramu (wzorzec ulozenia) — uzyj ich do dopasowania." : "") +
       " Planogram jako lista (pola rzad = rzad od gory, nr = pozycja od lewej): " +
       JSON.stringify(dane.pozycje || []) + ". " +
@@ -421,7 +426,9 @@ function logowanie(dane) {
       if (telBaza.slice(-9) !== tel.slice(-9))
         return { status: "blad", opis: "Nieprawidlowy numer telefonu" };
     }
-    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_www", "OK");
+    var zrodlo = String(dane.zrodlo || "www");
+    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_" + zrodlo,
+         "OK" + (hashBaza ? " (haslo)" : " (telefon)"));
     return { status: "ok", imie: String(w[i][1] || "") };
   }
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
@@ -612,4 +619,135 @@ function odswiezPulpit() {
   else p.getRange(w0 + 1, 1).setValue("Brak alertow — wszystkie sklepy powyzej progu.");
   p.autoResizeColumns(1, 5);
   p.setFrozenRows(3);
+}
+
+
+/* ============ AUTOMATYCZNE ROZPOZNANIE UKŁADU PÓŁKI ==================== */
+/*  Zamiast pytać handlowca "który to planogram?", pokazujemy modelowi     */
+/*  zdjęcie półki i produkty charakterystyczne dla każdego wariantu.       */
+/*  Zwracamy rozpoznany układ WRAZ z pełną listą pozycji (kod, rząd,       */
+/*  pozycja, nazwa, EAN, zdjęcie) — gotową do analizy braków.              */
+
+function _pobierzPlanogramy() {
+  var pam = CacheService.getScriptCache();
+  var zapisane = pam.get("planogramy");
+  if (zapisane) return JSON.parse(zapisane);
+  var odp = UrlFetchApp.fetch(URL_PLANOGRAMY, { muteHttpExceptions: true });
+  if (odp.getResponseCode() !== 200) return null;
+  var dane = JSON.parse(odp.getContentText());
+  pam.put("planogramy", JSON.stringify(dane), 21600);   // 6 godzin
+  return dane;
+}
+
+function _kartotekaProduktow() {
+  var mapa = {};
+  var lista = produkty().produkty || [];
+  for (var i = 0; i < lista.length; i++) mapa[lista[i].kod] = lista[i];
+  return mapa;
+}
+
+function rozpoznajPlanogram(dane) {
+  var baza = _pobierzPlanogramy();
+  if (!baza || !baza.planogramy) return { status: "blad", opis: "Brak definicji planogramow" };
+  var nazwy = Object.keys(baza.planogramy);
+  var kart = _kartotekaProduktow();
+
+  // 1) CECHY ROZRÓŻNIAJĄCE. Żaden produkt nie występuje tylko w jednym
+  //    wariancie (VEEV jest w C2 i D2, Blends w D1 i D2), więc opisujemy
+  //    każdy układ przez to, co ZAWIERA i czego NIE MA względem pozostałych.
+  var zbiory = {};
+  nazwy.forEach(function (n) {
+    zbiory[n] = {};
+    baza.planogramy[n].forEach(function (p) { zbiory[n][p.kod] = true; });
+  });
+  var wszystkie = {};
+  nazwy.forEach(function (n) { Object.keys(zbiory[n]).forEach(function (k) { wszystkie[k] = true; }); });
+  var grupy = {};                       // wzorzec występowania -> kody
+  Object.keys(wszystkie).forEach(function (kod) {
+    var gdzie = nazwy.filter(function (n) { return zbiory[n][kod]; });
+    if (gdzie.length === nazwy.length) return;     // obecne wszędzie — nie różnicuje
+    var klucz = gdzie.sort().join("|");
+    (grupy[klucz] = grupy[klucz] || []).push(kod);
+  });
+  function _nazwij(kody) {
+    return kody.slice(0, 3).map(function (kod) {
+      return (kart[kod] && kart[kod].nazwa) ? kart[kod].nazwa : kod;
+    }).join(", ");
+  }
+  var opisy = nazwy.map(function (n) {
+    var ma = [], niema = [];
+    Object.keys(grupy).forEach(function (klucz) {
+      if (klucz.split("|").indexOf(n) >= 0) ma = ma.concat(grupy[klucz]);
+      else niema = niema.concat(grupy[klucz]);
+    });
+    return n + " — rzedow: " + Math.max.apply(null, baza.planogramy[n].map(function (p) { return p.rzad; })) +
+           ", pozycji: " + baza.planogramy[n].length +
+           (ma.length ? "; ZAWIERA: " + _nazwij(ma) : "") +
+           (niema.length ? "; NIE MA: " + _nazwij(niema) : "");
+  });
+
+  var polecenie =
+    "Na zdjeciu jest szafa lub podajnik tytoniowy w sklepie. Rozpoznaj, KTORY wariant " +
+    "planogramu przedstawia. Warianty:\n" + opisy.join("\n") + "\n" +
+    "Kieruj sie obecnoscia produktow wyroznajacych (np. saszetki VEEV, wkłady Blends, " +
+    "urzadzenia) oraz liczba i ukladem rzedow. Jesli nie masz pewnosci, wybierz " +
+    "najbardziej prawdopodobny i obniz pewnosc. " +
+    "DODATKOWO ocen ULOZENIE towaru na zdjeciu wzgledem tego wariantu: czy marki " +
+    "sa w wlasciwych blokach, czy cos stoi nie na swoim miejscu, czy paczki sa " +
+    "przekrzywione lub odwrocone tylem, czy bloki sa wyrownane do frontu. " +
+    "W polu 'uklad' napisz po polsku maks. 2 zdania z konkretnym zaleceniem " +
+    "(np. 'Zamien miejscami blok L&M i Chesterfield w rzedzie 4; wyrownaj fronty Marlboro'). " +
+    "Jesli ulozenie jest poprawne, napisz 'Ulozenie zgodne z planogramem'. " +
+    "Odpowiedz WYLACZNIE poprawnym JSON: " +
+    '{"planogram":"dokladna nazwa z listy","pewnosc":0.0-1.0,"uzasadnienie":"max 12 slow",' +
+    '"uklad":"maks 2 zdania"}';
+
+  var zapytanie = {
+    model: "claude-sonnet-4-6",
+    max_tokens: 1500,
+    messages: [{ role: "user", content: [
+      { type: "image", source: { type: "base64",
+          media_type: dane.typ_obrazu || "image/jpeg", data: dane.obraz_b64 } },
+      { type: "text", text: polecenie }
+    ]}]
+  };
+  var klucz = PropertiesService.getScriptProperties().getProperty("ANTHROPIC_KLUCZ");
+  if (!klucz) return { status: "blad", opis: "Brak klucza ANTHROPIC_KLUCZ" };
+  var odp = UrlFetchApp.fetch("https://api.anthropic.com/v1/messages", {
+    method: "post", contentType: "application/json",
+    headers: { "x-api-key": klucz, "anthropic-version": "2023-06-01" },
+    payload: JSON.stringify(zapytanie), muteHttpExceptions: true
+  });
+  var tresc = JSON.parse(odp.getContentText());
+  if (!tresc.content) return { status: "blad", opis: "Model nie odpowiedzial" };
+  var tekst = "";
+  for (var i = 0; i < tresc.content.length; i++)
+    if (tresc.content[i].type === "text") tekst += tresc.content[i].text;
+  var wynik = _sparsujJson(tekst.replace(/```json|```/g, "").trim());
+  if (!wynik || !wynik.planogram) return { status: "blad", opis: "Nie rozpoznano ukladu" };
+
+  // 2) dopasowanie nazwy (model bywa nieprecyzyjny) + wzbogacenie pozycji
+  var wybrany = null;
+  for (var j = 0; j < nazwy.length; j++) {
+    if (nazwy[j] === wynik.planogram) { wybrany = nazwy[j]; break; }
+  }
+  if (!wybrany) {
+    var szukane = String(wynik.planogram).toLowerCase();
+    for (var k = 0; k < nazwy.length; k++) {
+      if (szukane.indexOf(nazwy[k].toLowerCase()) >= 0 ||
+          nazwy[k].toLowerCase().indexOf(szukane) >= 0) { wybrany = nazwy[k]; break; }
+    }
+  }
+  if (!wybrany) return { status: "blad", opis: "Nieznany uklad: " + wynik.planogram };
+
+  var pozycje = baza.planogramy[wybrany].map(function (p) {
+    var k = kart[p.kod] || {};
+    return { kod: p.kod, rzad: p.rzad, nr: p.poz,
+             produkt: k.nazwa || p.kod, ean: k.ean || "", foto: k.foto || "" };
+  });
+  _log(SpreadsheetApp.getActiveSpreadsheet(), dane.kod || "?", "rozpoznanie_planogramu",
+       wybrany + " (pewnosc " + (wynik.pewnosc || "?") + ")");
+  return { status: "ok", planogram: wybrany, pewnosc: wynik.pewnosc,
+           uzasadnienie: wynik.uzasadnienie || "", uklad: wynik.uklad || "",
+           pozycje: pozycje };
 }

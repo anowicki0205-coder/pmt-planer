@@ -202,6 +202,31 @@ input:focus{outline:none;border-color:var(--akc2)}
   <div class="dol"><button class="btn" onclick="startWizyty()">Zacznij wizytę</button></div>
 </section>
 
+<!-- WYBOR PUNKTU + STAN URZADZENIA -->
+<section class="ekran" id="e-punkt">
+  <span class="znaczek" id="zn-sklep5"></span>
+  <h2 id="punktTytul">Który punkt sprawdzasz?</h2>
+  <p class="pod">Każdy punkt raportujemy osobno — dostępność liczy się dla niego niezależnie.</p>
+  <div class="karta" id="punktLista"></div>
+
+  <label>Stan urządzenia — zaznacz, jeśli coś przeszkadza</label>
+  <div class="karta" id="uszkodzenia">
+    <div class="poz"><div class="info"><div class="naz">Roleta nie otwiera się w pełni</div>
+      <div class="kod">nie będzie widać najwyższego rzędu</div></div>
+      <div class="stan"><button class="b" data-u="roleta" data-rzedy="1">✗</button></div></div>
+    <div class="poz"><div class="info"><div class="naz">Dolne półki zastawione / niedostępne</div>
+      <div class="kod">nie będzie widać dwóch dolnych rzędów</div></div>
+      <div class="stan"><button class="b" data-u="dol" data-rzedy="ostatnie2">✗</button></div></div>
+    <div class="poz"><div class="info"><div class="naz">Uszkodzona szyba lub prowadnice</div>
+      <div class="kod">trafi do raportu jako zgłoszenie techniczne</div></div>
+      <div class="stan"><button class="b" data-u="uszkodzenie" data-rzedy="">✗</button></div></div>
+    <div class="poz"><div class="info"><div class="naz">Brak oświetlenia / bardzo ciemno</div>
+      <div class="kod">analiza może być mniej pewna</div></div>
+      <div class="stan"><button class="b" data-u="ciemno" data-rzedy="">✗</button></div></div>
+  </div>
+  <div class="dol"><button class="btn" onclick="zacznijPunkt()">Zacznij skan tego punktu</button></div>
+</section>
+
 <!-- KROK 1: PLANOGRAM (wiele zdjec) -->
 <section class="ekran" id="e-planogram">
   <span class="znaczek" id="zn-sklep0"></span>
@@ -222,15 +247,28 @@ input:focus{outline:none;border-color:var(--akc2)}
 <!-- KROK 2: SKAN PRZED -->
 <section class="ekran" id="e-przed">
   <span class="znaczek" id="zn-sklep"></span>
-  <h2>Skan półki</h2>
-  <p class="pod">Cała półka w kadrze, prosto, bez ludzi w tle. Układ rozpoznam sam.</p>
+  <h2 id="skanTytul">Skan półki</h2>
+  <p class="pod">Trzy zdjęcia: całość do rozpoznania układu, potem góra i dół z bliska — to daje AI szczegóły.</p>
   <div class="info-pas" id="historiaPas" style="display:none;background:rgba(0,240,255,.08);border-color:rgba(0,240,255,.3);color:#7DD3FC;font-size:12.5px;padding:9px 12px"></div>
-  <div class="foto-pole" onclick="document.getElementById('przedFoto').click()">
-    <span id="przedPoleTxt">Stuknij, aby dodać zdjęcie półki<br><b>aparat lub galeria</b></span>
-    <input type="file" id="przedFoto" accept="image/*" hidden>
+
+  <div class="foto-pole" id="kaflOgolne" onclick="document.getElementById('fotoOgolne').click()">
+    <span id="txtOgolne"><b>1 / 3 · Całość</b><br>cała szafa w kadrze, na wprost</span>
+    <input type="file" id="fotoOgolne" accept="image/*" hidden>
   </div>
+  <div style="height:8px"></div>
+  <div class="foto-pole" id="kaflGora" onclick="document.getElementById('fotoGora').click()">
+    <span id="txtGora"><b>2 / 3 · Górne półki</b><br>zbliżenie na trzy górne rzędy</span>
+    <input type="file" id="fotoGora" accept="image/*" hidden>
+  </div>
+  <div style="height:8px"></div>
+  <div class="foto-pole" id="kaflDol" onclick="document.getElementById('fotoDol').click()">
+    <span id="txtDol"><b>3 / 3 · Dolne półki</b><br>zbliżenie na trzy dolne rzędy (na zakładkę z górnym)</span>
+    <input type="file" id="fotoDol" accept="image/*" hidden>
+  </div>
+
   <div style="height:10px"></div>
   <div class="info-pas" id="aiStanPrzed" style="display:none"></div>
+  <div class="info-pas" id="ukladPas" style="display:none;background:rgba(0,228,161,.09);border-color:rgba(0,228,161,.35);color:#6EE7B7"></div>
   <button class="link" onclick="idz('e-planogram')" style="display:block;margin:2px auto 0">Nie rozpoznano? Dodaj zdjęcia planogramu ręcznie</button>
   <div class="dol" id="dolPrzed" style="display:none"><button class="btn" onclick="idz('e-lista')">Przejdź do listy &#8594;</button></div>
 </section>
@@ -288,7 +326,7 @@ input:focus{outline:none;border-color:var(--akc2)}
       <button class="h-btn widac" id="btnMikrofon" title="Dyktuj" style="font-size:19px">&#127908;</button>
     </div>
   </div>
-  <div class="dol"><button class="btn" onclick="wyslijWizyte()">Wyślij raport wizyty</button></div>
+  <div class="dol"><button class="btn" onclick="wyslijWizyte()">Wyślij raport punktu</button></div>
 </section>
 
 <!-- KONIEC -->
@@ -632,10 +670,81 @@ async function wyslijZgloszenie(){
   document.getElementById("zgloszeniePanel").style.display = "none";
   alert(ok ? "Zgłoszenie wysłane ✓" : "Brak zasięgu — zgłoszenie w kolejce, wyśle się samo.");
 }
+/* ===================== PUNKTY POMIAROWE W SKLEPIE =====================
+   Wizyta obejmuje dwa miejsca. Każde ma własny planogram, własne zdjęcia
+   i własną dostępność — raport powstaje osobno dla każdego z nich.      */
+const PUNKTY = [
+  {id:"szafa",      nazwa:"Szafa przy samoobsłudze"},
+  {id:"ekspozytor", nazwa:"Ekspozytor nad kasą przy samoobsłudze"}
+];
+
+function rysujPunkty(){
+  const box = document.getElementById("punktLista");
+  box.innerHTML = "";
+  PUNKTY.forEach(p=>{
+    const gotowy = (W.punkty||[]).find(x=>x.id===p.id);
+    const el = document.createElement("div"); el.className = "poz";
+    el.innerHTML = `<div class="info klik"><div class="naz">${gotowy?"✓ ":""}${p.nazwa}</div>
+      <div class="kod">${gotowy ? "zrobione · dostępność "+gotowy.przed+"% → "+gotowy.po+"%" : "do zrobienia"}</div></div>
+      <div class="stan"><button class="${gotowy?"j on":"j"}">${gotowy?"✓":"→"}</button></div>`;
+    const wybierz = ()=>{ W.punktId = p.id; W.punktNazwa = p.nazwa;
+      document.getElementById("punktTytul").textContent = p.nazwa;
+      box.querySelectorAll(".poz").forEach(x=>x.style.opacity=".45");
+      el.style.opacity = "1"; zapiszW(); };
+    el.querySelector(".info").onclick = wybierz;
+    el.querySelector("button").onclick = wybierz;
+    box.appendChild(el);
+  });
+  // zaznaczenia uszkodzeń przełączają się kliknięciem
+  document.querySelectorAll('#uszkodzenia button[data-u]').forEach(b=>{
+    b.classList.toggle("on", (W.uszkodzenia||[]).includes(b.dataset.u));
+    b.onclick = ()=>{
+      W.uszkodzenia = W.uszkodzenia || [];
+      const i = W.uszkodzenia.indexOf(b.dataset.u);
+      if(i>=0) W.uszkodzenia.splice(i,1); else W.uszkodzenia.push(b.dataset.u);
+      b.classList.toggle("on"); zapiszW();
+    };
+  });
+}
+
+function zacznijPunkt(){
+  if(!W.punktId){ alert("Wskaż, który punkt sprawdzasz."); return; }
+  W.pozycje = []; W.statusyPrzed = {}; W.statusyPo = {};
+  W.dotknietePrzed = {}; W.dotknietePo = {}; W.wynikiBrakow = {};
+  W.fotoOgolne = null; W.zrobione = {ogolne:false, gora:false, dol:false};
+  W.autoPlanogram = true; W.planogramNazwa = ""; W.uklad = "";
+  document.getElementById("skanTytul").textContent = W.punktNazwa;
+  ["txtOgolne","txtGora","txtDol"].forEach((id,i)=>{
+    const t = ["<b>1 / 3 · Całość</b><br>cała szafa w kadrze, na wprost",
+               "<b>2 / 3 · Górne półki</b><br>zbliżenie na trzy górne rzędy",
+               "<b>3 / 3 · Dolne półki</b><br>zbliżenie na trzy dolne rzędy (na zakładkę z górnym)"][i];
+    document.getElementById(id).innerHTML = t;
+  });
+  document.getElementById("dolPrzed").style.display = "none";
+  ustawBaner("przed", ""); document.getElementById("ukladPas").style.display = "none";
+  zapiszW(); idz("e-przed");
+}
+
+/* rzędy niewidoczne z powodu zgłoszonych uszkodzeń */
+function rzedyNiewidoczne(){
+  const u = W.uszkodzenia || [];
+  const maxRzad = Math.max(1, ...(W.pozycje||[]).map(p=>p.rzad||1));
+  const ukryte = [];
+  if(u.includes("roleta")) ukryte.push(1);
+  if(u.includes("dol")) { ukryte.push(maxRzad); ukryte.push(maxRzad-1); }
+  return ukryte;
+}
+function opisUszkodzen(){
+  const nazwy = {roleta:"roleta nie otwiera się w pełni", dol:"dolne półki niedostępne",
+                 uszkodzenie:"uszkodzona szyba/prowadnice", ciemno:"brak oświetlenia"};
+  return (W.uszkodzenia||[]).map(u=>nazwy[u]||u).join("; ");
+}
+
 function startWizyty(){
   const sklep = document.getElementById("sklepWe").value.trim();
   if(!sklep){ alert("Podaj nazwę sklepu."); return; }
   W = { sklep, pozycje: [], strony: [], stronyB64: [], maxKrok: 2, autoPlanogram: false, planogramNazwa: "",
+        punkty: [], punktId: null, punktNazwa: "", uszkodzenia: [], zrobione: {},
         statusyPrzed:{}, statusyPo:{}, dotknietePrzed:{}, dotknietePo:{},
         poprawki:0, wynikiBrakow:{} };
   document.querySelectorAll("#zn-sklep0,#zn-sklep,#zn-sklep2,#zn-sklep3,#zn-sklep4")
@@ -644,9 +753,10 @@ function startWizyty(){
   document.getElementById("planStrony").innerHTML="";
   document.getElementById("btnDoSkanu").disabled=true;
   pokazHistorie(sklep);
-  W.autoPlanogram = true;          // układ ustali się ze zdjęcia półki
+  W.punkty = []; W.uszkodzenia = []; W.punktId = null;
   zapiszW(); trzymajEkran();
-  idz("e-przed");
+  rysujPunkty();
+  idz("e-punkt");
   // planogram z poprzedniej wizyty w tym sklepie? zaproponuj (dziala offline)
   const zapisany = mag.get("pmt_plan_" + _bezOgonkow(sklep), null);
   const pas = document.getElementById("planZapisanyPas");
@@ -762,10 +872,92 @@ function podepnijFoto(id, faza){
     if(plik) analizujPolke(plik, faza);
   });
 }
-podepnijFoto("przedFoto","przed"); podepnijFoto("poFoto","po");
+podepnijFoto("poFoto","po");
+
+/* --- 1/3: całość — rozpoznanie układu + ocena ułożenia --- */
+document.getElementById("fotoOgolne").addEventListener("change", async ev=>{
+  const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
+  const txt = document.getElementById("txtOgolne");
+  if(!czyOnline()){ txt.innerHTML = "Rozpoznanie układu wymaga internetu — użyj ścieżki ręcznej."; return; }
+  txt.innerHTML = "<b>1 / 3 · Całość</b><br>rozpoznaję układ…";
+  try{
+    const {b64, pelna} = await wczytajICompresuj(plik);
+    W.fotoPolki = pelna; idb.zapisz("fotoPolki", pelna);
+    const r = await backend({akcja:"rozpoznaj_planogram", obraz_b64:b64, kod: mag.get("pmt_kod","")});
+    if(r.status!=="ok") throw new Error(r.opis||"nie rozpoznano");
+    W.pozycje = wzbogac(r.pozycje);
+    W.planogramNazwa = r.planogram; W.planogramPewnosc = r.pewnosc ?? 1; W.uklad = r.uklad || "";
+    // pozycje w rzędach niewidocznych oznaczamy z góry
+    const ukryte = rzedyNiewidoczne();
+    W.pozycje.forEach(p=>{ if(ukryte.includes(p.rzad)) p.niewidoczny = true; });
+    W.zrobione.ogolne = true; zapiszW();
+    txt.innerHTML = "<b>1 / 3 · Całość</b> ✓<br>" + r.planogram + " · " + W.pozycje.length + " pozycji" +
+                    ((r.pewnosc ?? 1) < 0.7 ? " (pewność niska!)" : "");
+    if(W.uklad){
+      const u = document.getElementById("ukladPas");
+      u.textContent = "Ułożenie: " + W.uklad; u.style.display = "block";
+    }
+    if(ukryte.length) ustawBaner("przed", "Pominę rzędy " + ukryte.join(", ") +
+      " — zgłosiłeś: " + opisUszkodzen() + ".");
+  }catch(e){ txt.innerHTML = "<b>1 / 3 · Całość</b><br>nie rozpoznano: " + e.message + " — stuknij ponownie"; }
+});
+
+/* --- 2/3 i 3/3: zbliżenia — analiza braków w swojej połowie półki --- */
+function podepnijZblizenie(idWe, idTxt, ktora){
+  document.getElementById(idWe).addEventListener("change", async ev=>{
+    const plik = ev.target.files[0]; ev.target.value=""; if(!plik) return;
+    const txt = document.getElementById(idTxt);
+    if(!W.pozycje.length){ txt.innerHTML = "Najpierw zdjęcie całości (1/3) — z niego biorę układ."; return; }
+    const maxRzad = Math.max(...W.pozycje.map(p=>p.rzad||1));
+    const polowa = Math.ceil(maxRzad/2);
+    const ukryte = rzedyNiewidoczne();
+    const rzedy = (ktora==="gora" ? [...Array(polowa).keys()].map(i=>i+1)
+                                  : [...Array(maxRzad-polowa+1).keys()].map(i=>i+polowa))
+                  .filter(r=>!ukryte.includes(r));
+    if(!rzedy.length){ txt.innerHTML = "Te rzędy zgłoszone jako niewidoczne — pomijam."; 
+      W.zrobione[ktora]=true; sprawdzKomplet(); return; }
+    const podzbior = W.pozycje.filter(p=>rzedy.includes(p.rzad));
+    txt.innerHTML = "Analizuję rzędy " + rzedy.join(", ") + "…";
+    try{
+      const {b64} = await wczytajICompresuj(plik);
+      // lista startowa dla tych rzędów: domyślnie "jest"
+      podzbior.forEach(p=>{ if(!W.statusyPrzed[p.kod])
+        W.statusyPrzed[p.kod] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"",
+                                 rzad:p.rzad, status:"jest", pewnosc:0}; });
+      rysujListe(); zapiszW();
+      ustawBaner("przed", "Porównuję dane… W tym czasie możesz odszukać zapas u kierownika — zaraz podam, czego dokładnie potrzebujesz.");
+      const o = await backend({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64,
+        pozycje: podzbior, strony_b64: [],
+        kontekst: "Zdjecie obejmuje TYLKO rzedy " + rzedy.join(", ") + " tej polki" +
+                  (opisUszkodzen() ? ". Zgloszone utrudnienia: " + opisUszkodzen() : "")});
+      if(o.status!=="ok") throw new Error(o.opis||"błąd analizy");
+      scalWynikAI(o.pozycje, "przed");
+      if(o.rada){ const u=document.getElementById("ukladPas");
+        u.textContent = (W.uklad? W.uklad+" · " : "") + o.rada; u.style.display="block"; }
+      txt.innerHTML = "<b>" + (ktora==="gora"?"2 / 3 · Górne":"3 / 3 · Dolne") + "</b> ✓<br>rzędy " +
+                      rzedy.join(", ") + " · braki: " + o.pozycje.filter(p=>p.status==="brak").length;
+      W.zrobione[ktora] = true; zapiszW(); sprawdzKomplet();
+    }catch(e){ txt.innerHTML = "Nie udało się: " + e.message + " — stuknij ponownie"; }
+  });
+}
+podepnijZblizenie("fotoGora","txtGora","gora");
+podepnijZblizenie("fotoDol","txtDol","dol");
+
+function sprawdzKomplet(){
+  const z = W.zrobione || {};
+  if(z.ogolne && (z.gora || z.dol)){
+    document.getElementById("dolPrzed").style.display = "block";
+    // pozycje z rzędów niewidocznych nie liczą się do dostępności
+    W.pozycje.filter(p=>p.niewidoczny).forEach(p=>{
+      W.statusyPrzed[p.kod] = {produkt:p.produkt, ean:p.ean||"", rzad:p.rzad,
+                               status:"niewidoczny", pewnosc:1};
+    });
+    rysujListe(); zapiszW();
+  }
+}
 
 async function analizujPolke(plik, faza){
-  const txt = document.getElementById(faza==="przed"?"przedPoleTxt":"poPoleTxt");
+  const txt = document.getElementById("poPoleTxt") || {innerHTML: ""};
   txt.innerHTML = "Zdjęcie przyjęte ✓";
   const {b64, pelna} = await wczytajICompresuj(plik);
   if(faza==="przed"){ W.fotoPolki = pelna; W.siatka = null; idb.zapisz("fotoPolki", pelna); }
@@ -863,9 +1055,13 @@ function przygotujWynik(pozycje, faza){
   zapiszW();
 }
 function nowySkan(){
-  W.statusyPrzed={}; W.dotknietePrzed={}; W.poprawki=0; ustawBaner("przed","");
-  document.getElementById("przedPoleTxt").innerHTML =
-    'Stuknij, aby dodać zdjęcie półki<br><b>aparat lub galeria</b>';
+  // powrót do trzech zdjęć tego samego punktu — układ i planogram zostają
+  W.statusyPrzed={}; W.dotknietePrzed={}; W.poprawki=0;
+  W.zrobione = {ogolne: !!W.planogramNazwa, gora:false, dol:false};
+  ustawBaner("przed", W.planogramNazwa ? "Układ znany: " + W.planogramNazwa + " — zrób zbliżenia od nowa." : "");
+  document.getElementById("txtGora").innerHTML = "<b>2 / 3 · Górne półki</b><br>zbliżenie na trzy górne rzędy";
+  document.getElementById("txtDol").innerHTML = "<b>3 / 3 · Dolne półki</b><br>zbliżenie na trzy dolne rzędy";
+  document.getElementById("dolPrzed").style.display = "none";
   _pokaz("e-przed");
 }
 
@@ -906,7 +1102,14 @@ function rysujListe(){
   box.innerHTML = "";
   Object.entries(W.statusyPrzed).forEach(([klucz,p])=>{
     const w = document.createElement("div"); w.className="poz";
+    // (pozycje niewidoczne obsłużone niżej — bez przycisków)
     const niepewne = p.pewnosc>0 && p.pewnosc<0.7 ? " <span class='niepewne'>sprawdź!</span>" : "";
+    if(p.status === "niewidoczny"){
+      w.style.opacity = ".45";
+      w.innerHTML = `<div class="info"><div class="naz">${p.produkt||klucz}</div>
+        <div class="kod">${klucz} · rząd ${p.rzad||"?"} — niewidoczny (${opisUszkodzen()||"utrudnienie"})</div></div>`;
+      box.appendChild(w); return;
+    }
     w.innerHTML = `<div class="info klik"><div class="naz">${p.produkt||klucz}</div>
       <div class="kod">${klucz}${p.ean? " · EAN "+p.ean:""}${p.uwaga && p.status==="brak"? " · "+p.uwaga:""}${niepewne}</div></div>
       <div class="stan">
@@ -1159,7 +1362,10 @@ function przelaczMikrofon(){
 
 /* ========== delta + raport ========== */
 function procent(statusy){
-  const w = Object.values(statusy); if(!w.length) return 0;
+  // pozycje zgłoszone jako niewidoczne (roleta, zastawione półki) nie wchodzą
+  // do wyliczenia — inaczej awaria sprzętu psułaby wynik pracy człowieka
+  const w = Object.values(statusy).filter(p=>p.status !== "niewidoczny");
+  if(!w.length) return 0;
   return Math.round(100 * w.filter(p=>p.status==="jest").length / w.length);
 }
 function rysujPolke(el, statusy){
@@ -1211,19 +1417,34 @@ async function wyslijWizyte(){
   if(brakujaceDecyzje().length){ doDelty(); return; }
   const raport = {
     akcja:"zapisz_wizyte", kod: mag.get("pmt_kod",""), sklep: W.sklep,
-    planogram: W.planogramNazwa || (W.sklep+" ("+W.strony.length+" str.)"),
+    planogram: (W.punktNazwa ? W.punktNazwa + " — " : "") + (W.planogramNazwa || "planogram ze zdjęć"),
     dostepnosc_przed: procent(W.statusyPrzed), dostepnosc_po: procent(W.statusyPo),
     braki_przed: Object.entries(W.statusyPrzed).filter(([,p])=>p.status!=="jest").map(([k,p])=>p.produkt||k),
     braki_po: Object.entries(W.statusyPo).filter(([,p])=>p.status!=="jest")
       .map(([k,p])=>(p.produkt||k) + (opisWyniku(k)? " ["+opisWyniku(k)+"]" : "")),
     poprawki: W.poprawki,
-    uwagi: [document.getElementById("uwagiWe").value.trim(),
+    uwagi: [opisUszkodzen() ? "UTRUDNIENIA: " + opisUszkodzen() : "",
+            W.uklad ? "UŁOŻENIE: " + W.uklad : "",
+            document.getElementById("uwagiWe").value.trim(),
             Object.entries(W.wynikiBrakow).map(([k,w])=>`${w.produkt||k}: ${opisWyniku(k)}`).join("; "),
             (W.weryfikacja||[]).length? "WERYFIKACJA: "+W.weryfikacja.join(" | ") : ""].filter(Boolean).join(" || ")
   };
   let wyslano = false;
   try{ if(czyOnline()){ const o = await backend(raport); wyslano = o.status==="ok"; } }catch(e){}
   if(!wyslano) doKolejki(raport);
+  // zapamiętaj wynik punktu i sprawdź, czy został drugi
+  W.punkty = (W.punkty||[]).filter(p=>p.id !== W.punktId);
+  W.punkty.push({id:W.punktId, nazwa:W.punktNazwa, przed:raport.dostepnosc_przed,
+                 po:raport.dostepnosc_po, planogram:W.planogramNazwa||""});
+  zapiszW();
+  const zostalo = PUNKTY.filter(p=>!W.punkty.find(x=>x.id===p.id));
+  if(zostalo.length){
+    alert("Punkt zapisany: " + W.punktNazwa + " (" + raport.dostepnosc_przed + "% → " +
+          raport.dostepnosc_po + "%).\n\nZostał jeszcze: " + zostalo.map(p=>p.nazwa).join(", "));
+    W.uszkodzenia = []; W.punktId = null;
+    rysujPunkty(); stos.length = 0; _pokaz("e-punkt");
+    return;
+  }
   document.getElementById("koniecOpis").textContent = wyslano
     ? "Raport trafił do systemu. Dostępność: "+raport.dostepnosc_przed+"% → "+raport.dostepnosc_po+"%."
     : "Brak zasięgu — raport czeka w kolejce i wyśle się sam przy pierwszym połączeniu.";
@@ -1238,9 +1459,10 @@ async function wyslijWizyte(){
   if(!odw.sklepy.includes(W.sklep)) odw.sklepy.push(W.sklep);
   mag.set("pmt_odwiedzone", odw);
   const wRejonie = (mag.get("pmt_sklepy", [])).length;
+  const opisPunktow = (W.punkty||[]).map(p=>`${p.nazwa}: ${p.przed}% → ${p.po}%`).join(" · ");
   document.getElementById("dziennik").innerHTML =
     `<div class="naz" style="font-size:16px;font-weight:700;margin-bottom:4px">${wRejonie? "Sklep "+Math.min(odw.sklepy.length,wRejonie)+" z "+wRejonie+" w Twoim rejonie" : "Dzisiejsze wizyty: "+d.wizyt}</div>
-     <div class="pod" style="margin:0">Średnia dostępność po Twoich wizytach: <b>${Math.round(d.sumaPo/d.wizyt)}%</b>${Math.round(d.sumaPo/d.wizyt)>=90?" — świetna robota! 🏆":""}</div>`;
+     <div class="pod" style="margin:0">${opisPunktow ? opisPunktow + "<br>" : ""}Średnia dostępność po Twoich wizytach: <b>${Math.round(d.sumaPo/d.wizyt)}%</b>${Math.round(d.sumaPo/d.wizyt)>=90?" — świetna robota! 🏆":""}</div>`;
   W._raport = raport;
   mag.set("pmt_wizyta", null); puscEkran(); idb.wyczysc();
   stos.length=0; _pokaz("e-koniec");

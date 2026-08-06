@@ -343,8 +343,16 @@ function analizaPolki(dane) {
     muteHttpExceptions: true
   });
   if (odp.getResponseCode() !== 200) {
-    return { status: "blad", opis: "API " + odp.getResponseCode() + ": " +
-             odp.getContentText().slice(0, 300) };
+    // Wyciagamy CZYTELNY powod z odpowiedzi API zamiast surowego JSON —
+    // inaczej w telefonie widac tylko '{"type":"error","error"...'.
+    var powod = "";
+    try {
+      var blad = JSON.parse(odp.getContentText());
+      powod = (blad.error && (blad.error.message || blad.error.type)) || "";
+    } catch (e) { powod = odp.getContentText().slice(0, 200); }
+    var kb = Math.round(String(dane.obraz_b64 || "").length / 1024);
+    return { status: "blad", kod_http: odp.getResponseCode(),
+             opis: "API " + odp.getResponseCode() + ": " + powod + " (obraz " + kb + " kB)" };
   }
   var tresc = JSON.parse(odp.getContentText());
   var tekst = "";

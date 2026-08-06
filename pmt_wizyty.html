@@ -473,7 +473,10 @@ function wejdz(id){                       // wejscie na ekran = odswiezenie jego
   _pokaz(id);
 }
 function idz(id){ const a=document.querySelector(".ekran.on"); if(a) stos.push(a.id); wejdz(id); }
-function wstecz(){ if(stos.length) wejdz(stos.pop()); }
+function wstecz(){
+  if((W && W.wTrakcie) > 0){ alert("Poczekaj — trwa analiza zdjęć."); return; }
+  if(stos.length) wejdz(stos.pop());
+}
 
 /* ========== siec / kolejka ========== */
 function czyOnline(){ return navigator.onLine; }
@@ -532,7 +535,11 @@ function wczytajICompresuj(plik){
         c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
         c.getContext("2d").drawImage(img,0,0,c.width,c.height);
         return c.toDataURL("image/jpeg",q); };
-      res({ b64: rob(2000,0.85).split(",")[1], pelna: rob(2000,0.85) });
+      // 1600 px zamiast 2000 — zdjecia z telefonow bywaja tak duze, ze API
+      // odrzucalo je z bledem 400. Detale przy zblizeniach nadal wystarczaja.
+      res({ b64: rob(1600, 0.8).split(",")[1],
+            maly: rob(1100, 0.7).split(",")[1],     // wariant awaryjny
+            pelna: rob(1600, 0.8) });
     };
     img.onerror = rej;
     img.src = URL.createObjectURL(plik);
@@ -1008,6 +1015,15 @@ function stanAnalizy(faza){
     if(faza === "przed"){ rysujListe(); rysujStrefy(); }
     else if(document.getElementById("e-delta").classList.contains("on")) rysujDelte();
   }
+  // Dopoki cokolwiek sie analizuje, przycisk "dalej" jest ukryty —
+  // przejscie w trakcie analizy pokazywalo niepelne dane.
+  const dol = document.getElementById(faza === "przed" ? "dolPrzed" : "dolPo");
+  if(dol) dol.style.display = (w === 0 && Object.keys(cel).length) ? "block" : "none";
+  const pasekKrokow = document.getElementById("krokPasek");
+  if(pasekKrokow) pasekKrokow.style.pointerEvents = w > 0 ? "none" : "auto";
+  const btnWstecz = document.getElementById("btnWstecz");
+  if(btnWstecz) btnWstecz.style.opacity = w > 0 ? ".35" : "1";
+
   const lista = document.getElementById(faza === "przed" ? "listaZdjec" : "listaZdjecPo");
   const zdj = (faza === "przed" ? W.zdjecia : W.zdjeciaPo) || [];
   if(lista && zdj.length){
@@ -1026,17 +1042,23 @@ function analizujZdjecie(plik, faza, opis, waga){
   dodajDoAnalizy(async ()=>{
     wpis.stan = "analizuję…"; stanAnalizy(faza);
     try{
-      const {b64, pelna} = await wczytajICompresuj(plik);
+      const {b64, maly, pelna} = await wczytajICompresuj(plik);
       if(faza === "przed" && !W.fotoPolki){ W.fotoPolki = pelna; idb.zapisz("fotoPolki", pelna); }
       if(!czyOnline()){
         doKolejki({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64, pozycje:W.pozycje, _faza:faza, _sklep:W.sklep});
         wpis.stan = "czeka na sieć"; return;
       }
-      const o = await backend({akcja:"analiza_polki", tryb:"polka", obraz_b64:b64,
+      const zapytanie = obraz => ({akcja:"analiza_polki", tryb:"polka", obraz_b64: obraz,
         pozycje: W.pozycje, strony_b64: [],
         kontekst: (faza === "po" ? "To zdjecie po uzupelnieniu polki. " : "") +
                   "Zdjecie moze obejmowac tylko fragment polki." +
                   (opisUszkodzen() ? " Zgloszone utrudnienia: " + opisUszkodzen() + "." : "")});
+      let o = await backend(zapytanie(b64));
+      if(o.status !== "ok" && String(o.opis||"").indexOf("400") >= 0){
+        // API odrzuciło zdjęcie — druga próba mocniej pomniejszonym kadrem
+        wpis.stan = "zdjęcie za duże — próbuję mniejsze…"; stanAnalizy(faza);
+        o = await backend(zapytanie(maly));
+      }
       if(o.status !== "ok") throw new Error(o.opis || "błąd analizy");
       scalDowody(o.pozycje, faza, waga || 1);
       if(o.rada && faza === "przed"){ const u = document.getElementById("ukladPas");
@@ -1045,12 +1067,11 @@ function analizujZdjecie(plik, faza, opis, waga){
       const braki = (o.pozycje || []).filter(p=>p.status === "brak").length;
       wpis.stan = "✓ z tego zdjęcia: " + widoczne + " poz., " + braki + " brak(ów)";
     }catch(e){
-      wpis.stan = "✗ " + String(e.message).slice(0, 32) + " — dodaj ponownie";
+      wpis.stan = "✗ " + String(e.message).slice(0, 90);
     }finally{
       W.wTrakcie = Math.max(0, (W.wTrakcie || 1) - 1);
       zapiszW(); stanAnalizy(faza);
-      if(faza === "przed" && W.pozycje.length){ const d=document.getElementById("dolPrzed"); if(d) d.style.display="block"; }
-      if(faza === "po"){ const d=document.getElementById("dolPo"); if(d) d.style.display="block"; }
+      // widocznoscia przyciskow steruje stanAnalizy() — po zakonczeniu kolejki
     }
   });
 }
@@ -1075,7 +1096,6 @@ document.getElementById("fotoOgolne").addEventListener("change", async ev=>{
                     ((r.pewnosc ?? 1) < 0.7 ? " (pewność niska!)" : "");
     if(W.uklad){ const u = document.getElementById("ukladPas");
       u.textContent = "Ułożenie: " + W.uklad; u.style.display = "block"; }
-    document.getElementById("dolPrzed").style.display = "block";
     // to samo zdjęcie służy też jako pierwszy dowód stanu półki
     analizujZdjecie(plik, "przed", "całość", 1);
     // zbliżenia zrobione zanim układ był znany — analizuj teraz

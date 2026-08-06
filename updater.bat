@@ -159,7 +159,11 @@ for /l %%t in (1,1,10) do (
 :plik_gotowy
 
 rem === 5b) Sprzatanie porzuconych katalogow _MEI (tylko gdy nikt ich nie uzywa). ===
-for /d %%d in ("%TEMP%\_MEI*") do rd /s /q "%%d" >nul 2>&1
+rem UWAGA: NIE KASUJEMY katalogow %TEMP%\_MEI*.
+rem Program jednoplikowy rozpakowuje sie wlasnie do takiego katalogu przy
+rem KAZDYM starcie. Kasowanie ich w tym momencie usuwalo biblioteki spod
+rem stop wlasnie uruchamianej wersji - stad bledy "Failed to load Python DLL".
+rem Windows sam sprzata te katalogi po zamknieciu programu.
 
 rem === 5c) ZDEJMUJEMY BLOKADE "PLIK Z INTERNETU" ======================
 rem === Plik pobrany z sieci dostaje ukryty znacznik strefy. Windows     ===
@@ -187,38 +191,50 @@ rem === niezaleznie od tego, co widac w tasklist.                        ===
 set "WYSTARTOWALA=0"
 set "PROBA_2=0"
 set "PROBA_3=0"
-rem UWAGA: rozpakowanie ~48 MB przy aktywnym antywirusie potrafi trwac
-rem kilkanascie sekund - dlatego czekamy do ~45 s, a druga probe podejmujemy
-rem dopiero po ~12 s (wczesniej bylo 6 s, co bywalo przedwczesne).
+rem === WERYFIKACJA. Zasada: NIGDY nie uruchamiamy drugiej instancji, gdy   ===
+rem === pierwsza jeszcze zyje - dwie kopie programu jednoplikowego wchodza  ===
+rem === sobie w drogę. Kolejna proba dopiero, gdy proces zniknal z pamieci. ===
 for /l %%i in (1,1,20) do (
-    ping -n 3 127.0.0.1 >nul
+    ping -n 4 127.0.0.1 >nul
     if exist "%FLAGA%" (
         set "WYSTARTOWALA=1"
         goto po_weryfikacji
     )
-    if "!PROBA_2!"=="1" if %%i GEQ 12 if "!PROBA_3!"=="0" (
-        echo [4] Sposob 3: uruchomienie przez powloke systemu... >> "%LOG%"
-        explorer.exe "%CEL%"
-        set "PROBA_3=1"
-    )
-    if "!PROBA_2!"=="0" if %%i GEQ 6 (
-        echo [4] Znacznik sie nie pojawil - probuje uruchomic ponownie - drugie podejscie... >> "%LOG%"
-        start "" "%CEL%"
-        set "PROBA_2=1"
+    tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
+    if errorlevel 1 (
+        rem procesu nie ma - mozna sprobowac innej metody startu
+        if "!PROBA_2!"=="0" (
+            echo [4] Sposob 2: uruchomienie przez PowerShell... >> "%LOG%"
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CEL%' -WorkingDirectory '%KATALOG%'" >nul 2>&1
+            set "PROBA_2=1"
+        ) else (
+            if "!PROBA_3!"=="0" (
+                echo [4] Sposob 3: uruchomienie przez powloke systemu... >> "%LOG%"
+                explorer.exe "%CEL%"
+                set "PROBA_3=1"
+            )
+        )
+    ) else (
+        echo [4] Proces zyje - czekam na znacznik - proba %%i... >> "%LOG%"
     )
 )
 :po_weryfikacji
 
 if "%WYSTARTOWALA%"=="1" goto sukces
 
-rem === 6b) OSTATNIA PROBA: pelne odczekanie i jeszcze jeden start ========
-echo [4] Sposob 4: dluga przerwa i ponowny start... >> "%LOG%"
+rem === 6b OSTATNIA PROBA: tylko gdy w pamieci NIE MA juz programu ========
+tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
+if not errorlevel 1 (
+    echo [4] Program dziala, ale nie zapisal znacznika - uznaje za sukces. >> "%LOG%"
+    goto sukces
+)
+echo [4] Sposob 4: dluga przerwa i ostatni start... >> "%LOG%"
 ping -n 8 127.0.0.1 >nul
 start "" "%CEL%"
-for /l %%z in (1,1,8) do (
+for /l %%z in (1,1,10) do (
     ping -n 3 127.0.0.1 >nul
     if exist "%FLAGA%" (
-        echo [OK] Wystartowala za czwartym podejsciem. >> "%LOG%"
+        echo [OK] Wystartowala za ostatnim podejsciem. >> "%LOG%"
         goto sukces
     )
 )
@@ -243,6 +259,10 @@ echo   ================================================================
 echo    Nowa wersja programu nie uruchomila sie poprawnie.
 echo    Automatycznie przywrocono poprzednia, dzialajaca wersje -
 echo    powinna wlasnie sie otworzyc.
+echo.
+echo    Jesli w oknie pojawil sie blad o "Failed to load Python DLL",
+echo    zamknij wszystkie okna programu, odczekaj chwile i uruchom go
+echo    recznie - druga proba zwykle konczy sie powodzeniem.
 echo.
 echo    Sprobuj zaktualizowac ponownie pozniej. Jesli problem
 echo    sie powtorzy, skontaktuj sie z autorem programu.

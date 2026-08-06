@@ -119,7 +119,9 @@ rem === sie bledem brakujacej biblioteki (antywirus/system jeszcze         ===
 rem === "trzymal" swiezo skopiowany plik) - mimo ze plik byl w 100% OK:    ===
 rem === reczne uruchomienie chwile pozniej dzialalo bez zarzutu.           ===
 echo [4] Czekam przed uruchomieniem - antywirus bywa jeszcze zajety plikiem... >> "%LOG%"
-ping -n 4 127.0.0.1 >nul
+rem Dluzsza przerwa: skan 48-megabajtowego pliku potrafi blokowac odczyt,
+rem przez co rozpakowanie bibliotek konczy sie bledem "Failed to load Python DLL".
+ping -n 12 127.0.0.1 >nul
 
 rem === 4a) CZEKAMY, AZ STARY PROCES NAPRAWDE ZNIKNIE ===================
 rem === Dopoki poprzednia wersja siedzi w pamieci, nowa potrafi wystartowac ===

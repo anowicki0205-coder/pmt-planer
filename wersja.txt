@@ -1,2 +1,2 @@
-3.13.11
-Nowosci: przycisk Zglos blad w kolorze alarmowym (czerwony), bursztynowy Wyloguj z ekranem ponownego logowania i podpowiedziami kont z tego komputera.
+3.13.12
+Nowosci: program rozpakowuje sie do stalego katalogu lokalnego zamiast losowego folderu tymczasowego - to usuwa blad 'Failed to load Python DLL' przy aktualizacji, takze gdy plik lezy w folderze synchronizowanym z chmura. Wczesniej: czerwony przycisk Zglos blad, bursztynowy Wyloguj z ponownym logowaniem i podpowiedziami kont.

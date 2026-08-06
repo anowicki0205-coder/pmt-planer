@@ -136,6 +136,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 .podp div:last-child{border-bottom:none}
 .podp div:active{background:rgba(0,228,161,.14)}
 .podp b{color:var(--akc2)}
+.podp div.wybrana{background:rgba(0,228,161,.16);color:var(--akc2);font-weight:700}
 .siec{position:fixed;top:0;left:0;right:0;z-index:30;background:#B45309;color:#fff;
   font-size:13px;font-weight:700;text-align:center;padding:6px;display:none}
 .siec.widac{display:block}
@@ -196,6 +197,9 @@ input:focus{outline:none;border-color:var(--akc2)}
       <input type="text" id="sklepWe" placeholder="zacznij pisać — podpowiemy Twoje sklepy" autocomplete="off">
       <div id="sklepyPodp" class="podp" style="display:none"></div>
     </div>
+    <div id="sklepWybrany" style="display:none;margin-top:10px;padding:11px 13px;border-radius:10px;
+         background:rgba(0,228,161,.12);border:1px solid rgba(0,228,161,.45);
+         color:var(--akc2);font-size:14px;font-weight:700"></div>
     <div style="height:10px"></div>
     <button class="btn drugi maly" onclick="nawiguj()">&#129517; Nawiguj do sklepu</button>
   </div>
@@ -658,12 +662,26 @@ function rysujPlanDnia(){
   el.querySelectorAll(".info.klik").forEach(x=> x.onclick = ()=>{
     document.getElementById("sklepWe").value = x.dataset.sklep;
     document.getElementById("sklepyPodp").style.display = "none";
+    el.querySelectorAll(".poz").forEach(p=>p.classList.remove("wybrany"));
+    x.closest(".poz").classList.add("wybrany");
+    oznaczWybranySklep(x.dataset.sklep);
     window.scrollTo(0,0);
   });
   el.querySelectorAll("button[data-nav]").forEach(b=> b.onclick = ()=>
     open("https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=" + encodeURIComponent(b.dataset.nav), "_blank"));
 }
 function _bezOgonkow(t){ return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\u0142/g,"l"); }
+function oznaczWybranySklep(nazwa){
+  const karta = document.getElementById("sklepWybrany");
+  if(!karta) return;
+  if(!nazwa || !nazwa.trim()){ karta.style.display = "none"; return; }
+  const znane = listaSklepow.some(s => _bezOgonkow(s) === _bezOgonkow(nazwa));
+  karta.innerHTML = (znane ? "✓ Wybrano: " : "✓ Sklep spoza Twojego rejonu: ") + nazwa;
+  karta.style.borderColor = znane ? "rgba(0,228,161,.45)" : "rgba(251,191,36,.45)";
+  karta.style.background = znane ? "rgba(0,228,161,.12)" : "rgba(251,191,36,.10)";
+  karta.style.color = znane ? "var(--akc2)" : "#FCD34D";
+  karta.style.display = "block";
+}
 function pokazPodpowiedzi(){
   const we = document.getElementById("sklepWe");
   const box = document.getElementById("sklepyPodp");
@@ -682,7 +700,10 @@ function pokazPodpowiedzi(){
     el.addEventListener("pointerdown", ev=>{
       ev.preventDefault();
       we.value = s;
+      box.querySelectorAll("div").forEach(x=>x.classList.remove("wybrana"));
+      el.classList.add("wybrana");
       box.style.display = "none";
+      oznaczWybranySklep(s);
     });
     box.appendChild(el);
   });
@@ -691,7 +712,7 @@ function pokazPodpowiedzi(){
 (function(){
   const we = document.getElementById("sklepWe");
   const box = document.getElementById("sklepyPodp");
-  we.addEventListener("input", pokazPodpowiedzi);
+  we.addEventListener("input", ()=>{ pokazPodpowiedzi(); oznaczWybranySklep(we.value); });
   we.addEventListener("focus", pokazPodpowiedzi);
   we.addEventListener("blur", ()=> setTimeout(()=>{ box.style.display="none"; }, 150));
 })();

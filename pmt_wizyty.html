@@ -152,7 +152,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 <header>
   <div class="h-rzad">
     <button class="h-btn" id="btnWstecz" onclick="wstecz()" aria-label="Wstecz">&#8592;</button>
-    <h1>PMT <span>Wizyty</span></h1>
+    <h1>PMT <span>Wizyty</span> <small id="wersjaApp" style="font-size:10px;font-weight:600;letter-spacing:0;color:var(--wyblakly);text-transform:none"></small></h1>
     <button class="h-btn" id="btnWyloguj" onclick="wyloguj()" aria-label="Wyloguj" title="Wyloguj">&#10162;</button>
   </div>
   <div id="krokPasek"><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -368,6 +368,7 @@ input:focus{outline:none;border-color:var(--akc2)}
 </div>
 <script>
 /* ========== KONFIGURACJA ========== */
+const WERSJA_APLIKACJI = "3.4";
 const URL_BACKENDU = "https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5nqSQgQYixkItuxvT3gu4HokQlaMz3yXbiL06S2jZgoYAw/exec";
 
 const mag = {
@@ -1658,13 +1659,26 @@ document.getElementById("zglFoto").addEventListener("change", async ev=>{
 
 /* PWA: rejestracja service workera (cache offline + powiadomienia Android) */
 if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("sw.js").catch(()=>{});
+  navigator.serviceWorker.register("sw.js").then(reg=>{
+    // sprawdzamy aktualizację przy każdym otwarciu i po jej pobraniu
+    // odświeżamy stronę — inaczej telefon trzymał starą wersję z cache
+    reg.update().catch(()=>{});
+    reg.addEventListener("updatefound", ()=>{
+      const nowy = reg.installing || reg.waiting;
+      if(!nowy) return;
+      nowy.addEventListener("statechange", ()=>{
+        if(nowy.state === "activated" && !W) location.reload();
+      });
+    });
+  }).catch(()=>{});
 }
 
 /* start */
 const _mik = document.getElementById("btnMikrofon"); if(_mik) _mik.onclick = przelaczMikrofon;
 const _uw = document.getElementById("uwagiWe");
 if(_uw) _uw.addEventListener("input", ()=>{ if(W){ W.uwagi = _uw.value; zapiszW(); } });
+const _w = document.getElementById("wersjaApp");
+if(_w) _w.textContent = "v" + WERSJA_APLIKACJI;
 pasekSieci(); startEkranu(); ruszKolejke();
 </script>
 </body>

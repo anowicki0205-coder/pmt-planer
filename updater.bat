@@ -173,6 +173,21 @@ del "%CEL%:Zone.Identifier" >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath '%CEL%'" >nul 2>&1
 echo [4] Zdjeto blokade pliku z internetu - jesli byla. >> "%LOG%"
 
+rem === 5d OneDrive/chmura: swiezo zapisany plik bywa przez chwile zajety   ===
+rem === przez synchronizacje. Sprawdzamy, czy rozmiar przestal sie zmieniac. ===
+echo %CEL% | find /i "OneDrive" >nul
+if not errorlevel 1 (
+    echo [4] Plik lezy w folderze OneDrive - czekam na zakonczenie synchronizacji. >> "%LOG%"
+    for /l %%s in (1,1,10) do (
+        for %%a in ("%CEL%") do set "ROZ1=%%~za"
+        ping -n 4 127.0.0.1 >nul
+        for %%a in ("%CEL%") do set "ROZ2=%%~za"
+        if "!ROZ1!"=="!ROZ2!" goto plik_stabilny
+    )
+    :plik_stabilny
+    echo [4] Rozmiar pliku ustabilizowany. >> "%LOG%"
+)
+
 echo [4] Uruchamiam nowa wersje: "%CEL%" >> "%LOG%"
 for %%f in ("%CEL%") do set "KATALOG=%%~dpf"
 if "%KATALOG:~-1%"=="\" set "KATALOG=%KATALOG:~0,-1%"
@@ -191,6 +206,7 @@ rem === niezaleznie od tego, co widac w tasklist.                        ===
 set "WYSTARTOWALA=0"
 set "PROBA_2=0"
 set "PROBA_3=0"
+set "UBITO=0"
 rem === WERYFIKACJA. Zasada: NIGDY nie uruchamiamy drugiej instancji, gdy   ===
 rem === pierwsza jeszcze zyje - dwie kopie programu jednoplikowego wchodza  ===
 rem === sobie w drogę. Kolejna proba dopiero, gdy proces zniknal z pamieci. ===
@@ -216,6 +232,16 @@ for /l %%i in (1,1,20) do (
         )
     ) else (
         echo [4] Proces zyje - czekam na znacznik - proba %%i... >> "%LOG%"
+        rem Proces widoczny, ale bez znacznika przez dluzszy czas oznacza zwykle
+        rem okno bledu ladowania bibliotek - taki proces nigdy nie ruszy dalej.
+        rem Zamykamy go i probujemy jeszcze raz, po dluzszej przerwie.
+        if %%i GEQ 8 if "!UBITO!"=="0" (
+            echo [4] Zawieszony start - zamykam proces i probuje ponownie... >> "%LOG%"
+            taskkill /f /im "%NAZWA_EXE%" >nul 2>&1
+            set "UBITO=1"
+            ping -n 9 127.0.0.1 >nul
+            start "" "%CEL%"
+        )
     )
 )
 :po_weryfikacji

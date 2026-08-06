@@ -80,6 +80,17 @@ input:focus{outline:none;border-color:var(--akc2)}
 .poz{display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid rgba(255,255,255,.09)}
 .poz:last-child{border-bottom:none}
 .poz .info{flex:1;min-width:0}
+.poz.wybrany{background:rgba(0,228,161,.12);border-left:4px solid var(--akc2);
+  border-radius:10px;padding-left:10px}
+.poz.wybrany .naz{color:var(--akc2)}
+/* pozycja wymagająca uwagi — realny brak na półce */
+.poz.uwaga{background:rgba(239,68,68,.10);border-left:4px solid var(--brak);
+  border-radius:10px;padding:14px 10px}
+.poz.uwaga .naz{font-size:17px;font-weight:800;color:#FCA5A5}
+.poz.uwaga .kod{color:#FCA5A5;opacity:.85}
+.znacznik-brak{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.06em;
+  background:var(--brak);color:#fff;border-radius:4px;padding:2px 6px;margin-right:6px;
+  vertical-align:middle}
 .poz .mini{width:42px;height:56px;flex:none;border-radius:6px;object-fit:contain;
   background:rgba(255,255,255,.06);border:1px solid var(--linia)}
 .poz .info.klik{cursor:pointer}
@@ -725,11 +736,12 @@ function rysujPunkty(){
       <div class="stan"><button class="${gotowy?"j on":"j"}">${gotowy?"✓":"→"}</button></div>`;
     const wybierz = ()=>{ W.punktId = p.id; W.punktNazwa = p.nazwa;
       document.getElementById("punktTytul").textContent = p.nazwa;
-      box.querySelectorAll(".poz").forEach(x=>x.style.opacity=".45");
-      el.style.opacity = "1"; zapiszW(); };
+      box.querySelectorAll(".poz").forEach(x=>{ x.classList.remove("wybrany"); x.style.opacity=".55"; });
+      el.classList.add("wybrany"); el.style.opacity = "1"; zapiszW(); };
     el.querySelector(".info").onclick = wybierz;
     el.querySelector("button").onclick = wybierz;
     box.appendChild(el);
+    if(W.punktId === p.id) wybierz();
   });
   // zaznaczenia uszkodzeń przełączają się kliknięciem
   document.querySelectorAll('#uszkodzenia button[data-u]').forEach(b=>{
@@ -946,6 +958,23 @@ function przelicz(faza){
     }
     if(dotk[k]) return;                       // decyzja człowieka jest nadrzędna
     const d = dow[k];
+
+    // FAZA "PO" bez własnego dowodu na zdjęciu: NIE zakładamy, że produkt
+    // się pojawił. Punktem wyjścia jest stan sprzed wizyty, a rozstrzyga
+    // decyzja człowieka przy dokładaniu. Wcześniej brak dowodu oznaczał
+    // domyślne "jest" — stąd 100% dostępności po wizycie i rozjazd liczb.
+    if(faza === "po" && !d){
+      const przed = W.statusyPrzed[k];
+      const decyzja = (W.wynikiBrakow || {})[k];
+      let stanPo = przed ? przed.status : "jest";
+      if(decyzja) stanPo = (decyzja.wynik === "dolozone") ? "jest" : "brak";
+      cel[k] = {produkt:p.produkt, ean:p.ean||"", foto:p.foto||"", rzad:p.rzad,
+                status: stanPo, pewnosc: decyzja ? 1 : (przed ? przed.pewnosc : 0),
+                zrodlo: decyzja ? "deklaracja" : "stan sprzed wizyty",
+                uwaga: przed ? przed.uwaga : ""};
+      return;
+    }
+
     let stan = "jest", pew = 0, sporne = false;
     if(d){
       // remis traktujemy jako BRAK — lepiej, żeby człowiek sprawdził półkę,
@@ -1126,12 +1155,16 @@ function rysujStrefy(){
 
 /* ========== lista: ikony ✓ / ✗ ========== */
 function rysujListe(){
-  document.getElementById("listaTytul").textContent = "Lista pozycji";
+  const ile = liczBraki(W.statusyPrzed);
+  document.getElementById("listaTytul").innerHTML = ile
+    ? `Do uzupełnienia: <span style="color:var(--brak)">${ile}</span>`
+    : "Lista pozycji — komplet 🎯";
   const box = document.getElementById("listaPojemnik");
   box.innerHTML = "";
   Object.entries(W.statusyPrzed).forEach(([klucz,p])=>{
-    const w = document.createElement("div"); w.className="poz";
-    // (pozycje niewidoczne obsłużone niżej — bez przycisków)
+    const w = document.createElement("div");
+    // brak = pozycja wymagająca działania: czerwony pasek, większa czcionka
+    w.className = "poz" + (p.status === "brak" ? " uwaga" : "");
     const niepewne = p.pewnosc>0 && p.pewnosc<0.7 ? " <span class='niepewne'>sprawdź!</span>" : "";
     if(p.status === "niewidoczny"){
       w.style.opacity = ".45";
@@ -1291,7 +1324,7 @@ function rysujPo(){
   const box = document.getElementById("poBraki");
   box.innerHTML = "";
   braki.forEach(([k,p])=>{
-    const w = document.createElement("div"); w.className="poz"; w.style.flexWrap="wrap";
+    const w = document.createElement("div"); w.className="poz uwaga"; w.style.flexWrap="wrap";
     w.innerHTML = (p.foto ? `<img class="mini" src="${p.foto}" alt="" loading="lazy">` : "") +
       `<div class="info klik"><div class="naz">${p.produkt||k}</div>
       <div class="kod">${k}${p.ean? " · EAN "+p.ean:""}${p.uwaga? " · "+p.uwaga:""}</div></div>
@@ -1303,7 +1336,7 @@ function rysujPo(){
     w.querySelector(".info").onclick = ()=> pokazProdukt(k, p);
     const [bJ,bB] = w.querySelectorAll(".stan button");
     const drzewo = w.querySelector(".przyczyny");
-    bJ.onclick = ()=>{ W.wynikiBrakow[k] = {produkt:p.produkt, wynik:"dolozone"}; zapiszW();
+    bJ.onclick = ()=>{ W.wynikiBrakow[k] = {produkt:p.produkt, wynik:"dolozone"}; przelicz("po"); zapiszW();
       bJ.classList.add("on"); bB.classList.remove("on"); drzewo.style.display="none"; };
     bB.onclick = ()=>{ bB.classList.add("on"); bJ.classList.remove("on");
       drzewo.style.display="flex"; rysujPrzyczyny(drzewo, k, p); };
@@ -1348,7 +1381,7 @@ function rysujPrzyczyny(el, k, p){
         if("wyzerowano" in stary) W.wynikiBrakow[k].wyzerowano = stary.wyzerowano;
         rysujDopyt();
       }
-      zapiszW();
+      przelicz("po"); zapiszW();
     };
   });
   const zapis = W.wynikiBrakow[k];

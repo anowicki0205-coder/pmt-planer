@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.14.3"
+WERSJA_PROGRAMU = "3.14.5"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -2638,14 +2638,96 @@ MIASTA_ROZSZERZENIE = {
 }
 
 
-# Scalamy rozszerzenie z bazą główną. Kolejność ma znaczenie: pierwszy wpis
-# o danej nazwie wygrywa, więc dane oryginalne nie są nadpisywane.
-for _w_roz, _lista_roz in MIASTA_ROZSZERZENIE.items():
-    _istniejace = {str(_m.get("n", "")).lower() for _m in MIASTA_RAW.get(_w_roz, [])}
-    for _m_roz in _lista_roz:
-        if str(_m_roz.get("n", "")).lower() not in _istniejace:
-            MIASTA_RAW.setdefault(_w_roz, []).append(_m_roz)
-            _istniejace.add(str(_m_roz.get("n", "")).lower())
+# --- SCALANIE Z DEDUPLIKACJĄ -------------------------------------------------
+# Ta sama miejscowość bywa zapisana pełną nazwą i skrótem ("Maków Mazowiecki"
+# vs "Maków Maz."). Zwykłe porównanie napisów tego nie wyłapie, więc:
+#   1) rozwijamy skróty przed porównaniem,
+#   2) dodatkowo odrzucamy wpisy leżące bliżej niż 2 km od już istniejącego
+#      (to na pewno ten sam punkt na mapie).
+_SKROTY_NAZW = {
+    "maz.": "mazowiecki", "maz": "mazowiecki", "mazowiecka": "mazowiecki",
+    "mazowieckie": "mazowiecki", "wlkp.": "wielkopolski", "wlkp": "wielkopolski",
+    "wielkopolska": "wielkopolski", "śl.": "śląski", "sl.": "śląski",
+    "śląska": "śląski", "gd.": "gdański", "kuj.": "kujawski",
+    "pom.": "pomorski", "pomorska": "pomorski", "lub.": "lubelski",
+    "podl.": "podlaski", "podlaska": "podlaski", "warm.": "warmiński",
+    "krak.": "krakowski", "ł.": "łódzki", "l.": "łódzki", "łódzka": "łódzki",
+    "wlk.": "wielki", "wielka": "wielki", "wlk": "wielki",
+    "dln.": "dolny", "dolna": "dolny", "górna": "górny", "gorna": "górny",
+    "g.": "górny", "st.": "stary", "stara": "stary", "n.": "nowy", "nowa": "nowy",
+}
+
+
+def _normalizuj_nazwe(nazwa: str) -> str:
+    """Ujednolica nazwę do porównań: małe litery, rozwinięte skróty.
+    'Maków Maz.' i 'Maków Mazowiecki' dają ten sam wynik."""
+    czesci = str(nazwa).strip().lower().replace("-", " ").split()
+    return " ".join(_SKROTY_NAZW.get(c, c) for c in czesci)
+
+
+def _blisko_km(lat1, lng1, lat2, lng2) -> float:
+    """Odległość w linii prostej — do wykrywania tego samego punktu."""
+    import math as _m
+    dlat = _m.radians(lat2 - lat1); dlng = _m.radians(lng2 - lng1)
+    a = (_m.sin(dlat / 2) ** 2 + _m.cos(_m.radians(lat1)) *
+         _m.cos(_m.radians(lat2)) * _m.sin(dlng / 2) ** 2)
+    return 6371.0 * 2 * _m.asin(_m.sqrt(a))
+
+
+def _scal_baze_miast():
+    """Dokłada rozszerzenie do bazy głównej, pomijając duplikaty. Dodatkowo
+    czyści duplikaty już obecne w danych źródłowych — dzięki temu w jednej
+    trasie nie pojawi się dwa razy to samo miasto pod dwiema nazwami."""
+    for _woj in list(MIASTA_RAW.keys()) + [w for w in MIASTA_ROZSZERZENIE if w not in MIASTA_RAW]:
+        istniejace = MIASTA_RAW.get(_woj, [])
+        wynik, klucze = [], []
+        for _m in list(istniejace) + list(MIASTA_ROZSZERZENIE.get(_woj, [])):
+            klucz = _normalizuj_nazwe(_m.get("n", ""))
+            lat, lng = float(_m.get("lat", 0)), float(_m.get("lng", 0))
+            duplikat = False
+            for k2, la2, ln2 in klucze:
+                if klucz == k2 or _blisko_km(lat, lng, la2, ln2) < 2.0:
+                    duplikat = True
+                    break
+            if duplikat:
+                continue
+            klucze.append((klucz, lat, lng))
+            wynik.append(_m)
+        MIASTA_RAW[_woj] = wynik
+
+
+def _rozwin_skroty_w_bazie():
+    """Na dokumencie i w trasach mają być pełne nazwy: 'Maków Mazowiecki',
+    nie 'Maków Maz.'. Zamiana obejmuje wyłącznie widoczną nazwę."""
+    _pelne = {"maz.": "Mazowiecki", "wlkp.": "Wielkopolski", "śl.": "Śląski",
+              "gd.": "Gdański", "kuj.": "Kujawski", "pom.": "Pomorski",
+              "lub.": "Lubelski", "podl.": "Podlaski", "warm.": "Warmiński",
+              "krak.": "Krakowski", "ł.": "Łódzki", "wlk.": "Wielki",
+              "g.": "Górny", "dln.": "Dolny", "st.": "Stary", "n.": "Nowy"}
+    # formy żeńskie tam, gdzie nazwa miasta jest rodzaju żeńskiego
+    _zenskie = {"Mazowiecki": "Mazowiecka", "Wielkopolski": "Wielkopolska",
+                "Śląski": "Śląska", "Pomorski": "Pomorska", "Wielki": "Wielka"}
+    _konczy_a = lambda n: n.strip().endswith("a")
+    for _woj, _lista in MIASTA_RAW.items():
+        for _m in _lista:
+            czesci = str(_m.get("n", "")).split()
+            if not czesci:
+                continue
+            zmiana = False
+            for i, c in enumerate(czesci):
+                pelna = _pelne.get(c.lower())
+                if not pelna:
+                    continue
+                if i > 0 and _konczy_a(czesci[i - 1]):
+                    pelna = _zenskie.get(pelna, pelna)
+                czesci[i] = pelna
+                zmiana = True
+            if zmiana:
+                _m["n"] = " ".join(czesci)
+
+
+_scal_baze_miast()
+_rozwin_skroty_w_bazie()
 
 # --- Offline baza współrzędnych miast (z MIASTA_RAW) ---------------------
 # UWAGA: MIASTA_RAW zawiera głównie mniejsze gminy — brakuje w niej WIĘKSZOŚCI
@@ -3242,6 +3324,25 @@ def waliduj_pesel(pesel: str) -> bool:
     if not re.match(r"^\d{11}$", pesel): return False
     return (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 == int(pesel[10])
 
+def _czy_znana_miejscowosc(nazwa: str) -> bool:
+    """Czy nazwa występuje w naszej bazie miejscowości? Jeśli tak, adres bez
+    przedrostka jest adresem wiejskim i nie trzeba o nic pytać."""
+    try:
+        cel = str(nazwa).strip().lower()
+        if not cel:
+            return False
+        for _lista in MIASTA_RAW.values():
+            for _m in _lista:
+                if str(_m.get("n", "")).strip().lower() == cel:
+                    return True
+        for _n in MIASTA_DUZE:
+            if str(_n).strip().lower() == cel:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _klasyfikuj_adres(nazwa: str) -> str:
     """Zwraca typ członu po 'ul.':
       'ulica'          — pewna ulica (nie pytamy użytkownika),
@@ -3253,6 +3354,9 @@ def _klasyfikuj_adres(nazwa: str) -> str:
     n = nazwa.strip()
     if not n:
         return 'ulica'
+    # Nazwa jest w bazie miejscowości → adres wiejski, bez pytania użytkownika.
+    if _czy_znana_miejscowosc(n):
+        return 'wies'
     slowa = n.split()
     low = [s.lower().strip(".") for s in slowa]
 
@@ -3300,13 +3404,34 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     """wymus_typ: None (auto), 'ulica' lub 'wies' — decyzja użytkownika dla
     adresów niejednoznacznych. Gdy typ jest niejednoznaczny i nie podano
     wymus_typ, zwracamy flagę 'niejednoznaczne'=True, żeby formularz zapytał."""
-    m = re.match(r"^(ul\.|al\.|pl\.)\s+(.+?)\s+(\d+\s*[a-zA-Z]?.*?)[,\s]+\s*(\d{2}-\d{3})\s+(.+)$", adres.strip(), re.IGNORECASE)
-    if not m: raise ValueError("Błędny format adresu!\nWpisz wg wzoru:\nul. Kowalczyka 12, 03-193 Warszawa")
-    prefiks = m.group(1).lower()
+    # PRZEDROSTEK JEST OPCJONALNY. Adresy wiejskie zapisuje się bez "ul." —
+    # np. "Sarnowa Góra 42, 06-430 Sońsk". Wcześniej taki adres był odrzucany,
+    # a użytkownik był zmuszany dopisywać "ul." przed nazwą wsi.
+    m = re.match(
+        r"^(?:(ul\.|al\.|pl\.|ulica|aleja|plac|os\.|osiedle)\s+)?"   # opcjonalny przedrostek
+        r"(.+?)\s+"                                                   # nazwa (ulicy albo wsi)
+        r"(\d+[a-zA-Z]?(?:\s*[/\\]\s*\d+[a-zA-Z]?)?)"                 # numer, także 12/3 lub 12A
+        r"[,\s]+\s*(\d{2}-\d{3})\s+(.+)$",                           # kod pocztowy + poczta
+        adres.strip(), re.IGNORECASE)
+    if not m:
+        raise ValueError(
+            "Błędny format adresu!\n\nPodaj adres wg jednego ze wzorów:\n"
+            "  Kowalczyka 12, 03-193 Warszawa\n"
+            "  ul. Kowalczyka 12, 03-193 Warszawa\n"
+            "  Sarnowa Góra 42, 06-430 Sońsk        (adres wiejski)\n\n"
+            "Wymagany jest numer domu, kod pocztowy i miejscowość.")
+    prefiks_raw = (m.group(1) or "").lower()
+    # ujednolicamy zapis przedrostka; brak przedrostka = pusty napis
+    prefiks = {"ulica": "ul.", "aleja": "al.", "plac": "pl.",
+               "osiedle": "os.", "os.": "os.", "ul.": "ul.",
+               "al.": "al.", "pl.": "pl."}.get(prefiks_raw, prefiks_raw)
     nazwa = ' '.join(w.capitalize() for w in m.group(2).split())   # "Sarnowa Góra" lub "Kowalskiego"
     numer = m.group(3).strip()
     kod = m.group(4).strip()
     poczta = ' '.join(w.capitalize() for w in m.group(5).split())  # "Sońsk" / "Warszawa"
+    # Jawny przedrostek to rozstrzygnięcie użytkownika — nie pytamy o typ.
+    if prefiks and not wymus_typ:
+        wymus_typ = 'ulica'
 
     typ = _klasyfikuj_adres(nazwa)
     niejednoznaczne = False
@@ -3327,8 +3452,9 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     else:
         # Klasyczny adres miejski z ulicą — start/meta to MIEJSCOWOŚĆ (poczta).
         baza_miasto = poczta
-        adres_pdf = f"{prefiks} {nazwa} {numer}, {kod} {poczta}"
-        adres_geo = f"{prefiks} {nazwa} {numer}, {kod} {poczta}"
+        _pre = (prefiks + " ") if prefiks else ""
+        adres_pdf = f"{_pre}{nazwa} {numer}, {kod} {poczta}"
+        adres_geo = f"{_pre}{nazwa} {numer}, {kod} {poczta}"
 
     return {
         'adres_caly': adres_pdf,        # to trafia do PDF (start/meta, nagłówek)
@@ -4552,7 +4678,7 @@ class GrubyKursorEdit(QLineEdit):
 class StyledInput(QFrame):
     def __init__(self, icon_name, widget, is_dark=True, parent=None):
         super().__init__(parent); self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True); self.setObjectName("StyledInputField")
-        self.is_dark = is_dark; self.setFixedHeight(38)
+        self.is_dark = is_dark; self.setFixedHeight(32)   # niżej: karty nie zachodzą na siebie
         self._stan_walidacji = None    # None / "ok" / "err" — pamięć podświetlenia Asystenta
         layout = QHBoxLayout(self); layout.setContentsMargins(12, 0, 12, 0); layout.setSpacing(10)
         self.icon_w = SvgIconLabel(icon_name, self, size=20); layout.addWidget(self.icon_w)
@@ -11732,7 +11858,7 @@ class App(QMainWindow):
         row1_t.addWidget(w_imie); row1_t.addWidget(w_pesel); cl.addLayout(row1_t)
         
         row2_t = QHBoxLayout(); row2_t.setSpacing(16)
-        self.e_adres = GrubyKursorEdit(); self.e_adres.setPlaceholderText("ul. Ulica Nr, 00-000 Miasto")
+        self.e_adres = GrubyKursorEdit(); self.e_adres.setPlaceholderText("Ulica lub wieś, nr, 00-000 Miejscowość")
         self.si_adres = StyledInput("home", self.e_adres, self.is_dark, self.card_top_frame)
         w_adres, self.l_adres = field("Adres zamieszkania", self.si_adres)
         
@@ -11790,7 +11916,7 @@ class App(QMainWindow):
         self.btn_tryb_wieczory = QPushButton("Wieczory i weekendy")
         for _b in (self.btn_tryb_tydzien, self.btn_tryb_wieczory):
             _b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            _b.setMinimumHeight(38)
+            _b.setMinimumHeight(32)
             _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(8)
         rzad_tryb.addWidget(self.btn_tryb_tydzien); rzad_tryb.addWidget(self.btn_tryb_wieczory)
@@ -11819,7 +11945,17 @@ class App(QMainWindow):
         self._odswiez_przyciski_trybu()
         _tryb_zmieniony(0)
 
-        row2_b.addWidget(w_tryb, 1); row2_b.addWidget(self.lbl_tryb_opis, 2)
+        # Wyłączanie dni: urlop, choroba, szkolenie — te dni nie trafią do planu.
+        self.dni_wylaczone = set()
+        self.btn_wylacz_dni = QPushButton("Wyłącz dni")
+        self.btn_wylacz_dni.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_wylacz_dni.setMinimumHeight(32)
+        self.btn_wylacz_dni.clicked.connect(self._otworz_wylaczanie_dni)
+        self._odswiez_przycisk_dni()
+        w_dni, self.l_dni = field("Dni bez pracy", self.btn_wylacz_dni)
+
+        row2_b.addWidget(w_tryb, 2); row2_b.addWidget(w_dni, 1)
+        row2_b.addWidget(self.lbl_tryb_opis, 2)
         cr.addLayout(row2_b)
 
         cards_layout.addWidget(self.card_bot_frame)
@@ -12681,6 +12817,109 @@ class App(QMainWindow):
             return
         self.proces()
 
+    def _odswiez_przycisk_dni(self):
+        ile = len(getattr(self, "dni_wylaczone", ()))
+        self.btn_wylacz_dni.setText(f"Wyłączone: {ile}" if ile else "Wyłącz dni")
+        akcent = "#FBBF24" if ile else ("#94A3B8" if self.is_dark else "#475569")
+        self.btn_wylacz_dni.setStyleSheet(
+            "QPushButton { background: rgba(255,255,255,0.05); color:%s;"
+            " border:1px solid %s; border-radius:8px; font-family:'Segoe UI';"
+            " font-size:13px; font-weight:%s; padding:6px 12px; }"
+            "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }"
+            % (akcent, ("rgba(251,191,36,0.55)" if ile else "rgba(255,255,255,0.28)"),
+               ("800" if ile else "600")))
+
+    def _otworz_wylaczanie_dni(self):
+        """Kalendarz miesiąca rozliczenia: zaznacz dni, w których nie pracujesz.
+        Wyłączone dni nie dostaną tras, a kwota rozłoży się na pozostałe."""
+        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                     QPushButton, QGridLayout, QFrame)
+        from PyQt6.QtCore import Qt as _Qt
+        import calendar as _cal
+        tekst = self.e_mies.text().strip()
+        if not re.fullmatch(r"\d{2}\.\d{4}", tekst):
+            self.si_mies.ustaw_walidacje("err")
+            return
+        mies, rok = int(tekst[:2]), int(tekst[3:])
+        ustaw_tryb_pracy("wieczory" if self.tryb_wybrany == 1 else "tydzien")
+        dostepne = set(pobierz_dni_robocze(rok, mies))
+
+        d = QDialog(self); d.setWindowTitle("Wyłącz dni")
+        d.setModal(True); d.setObjectName("PmtKalendarz")
+        d.setStyleSheet("""
+            #PmtKalendarz { background:#0F172A; }
+            QLabel { color:#F8FAFC; font-family:'Segoe UI'; }
+            QLabel#naglowek { font-size:15px; font-weight:800; }
+            QLabel#pod { color:#94A3B8; font-size:11.5px; }
+            QLabel#dow { color:#94A3B8; font-size:10.5px; font-weight:700; }
+            QPushButton#dzien { border-radius:6px; font-family:'Segoe UI';
+                font-size:12.5px; font-weight:700; min-width:38px; min-height:32px; }
+            QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                stop:0 #00F0FF, stop:1 #00E4A1); color:#050B14; border:none;
+                border-radius:8px; font-weight:800; padding:8px 20px; }
+            QPushButton#anuluj { background:transparent; color:#94A3B8;
+                border:1px solid rgba(255,255,255,0.22); border-radius:8px; padding:8px 16px; }
+        """)
+        ukl = QVBoxLayout(d); ukl.setContentsMargins(20, 16, 20, 14); ukl.setSpacing(6)
+        nag = QLabel(f"{_cal.month_name[mies].capitalize()} {rok}"); nag.setObjectName("naglowek")
+        ukl.addWidget(nag)
+        pod = QLabel("Stuknij dni, w których NIE pracujesz (urlop, choroba, szkolenie).\n"
+                     "Szare dni są niedostępne w tym trybie pracy.")
+        pod.setObjectName("pod"); ukl.addWidget(pod)
+        siatka = QGridLayout(); siatka.setSpacing(4)
+        for i, nazwa in enumerate(["Pn","Wt","Śr","Cz","Pt","So","Nd"]):
+            et = QLabel(nazwa); et.setObjectName("dow")
+            et.setAlignment(_Qt.AlignmentFlag.AlignCenter); siatka.addWidget(et, 0, i)
+        wybrane = set(self.dni_wylaczone)
+        def _styl(btn, data):
+            if data not in dostepne:
+                btn.setStyleSheet("QPushButton#dzien { background:transparent;"
+                                  " color:#334155; border:1px solid rgba(255,255,255,0.08); }")
+            elif data in wybrane:
+                btn.setStyleSheet("QPushButton#dzien { background:#DC2626; color:#fff;"
+                                  " border:1px solid #DC2626; }")
+            else:
+                btn.setStyleSheet("QPushButton#dzien { background:rgba(0,228,161,0.14);"
+                                  " color:#6EE7B7; border:1px solid rgba(0,228,161,0.45); }")
+        for tydzien_nr, tydzien in enumerate(_cal.Calendar().monthdatescalendar(rok, mies), start=1):
+            for kol, data in enumerate(tydzien):
+                if data.month != mies:
+                    continue
+                b = QPushButton(str(data.day)); b.setObjectName("dzien")
+                if data in dostepne:
+                    b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+                    def _klik(_=False, dd=data, bb=b):
+                        if dd in wybrane: wybrane.discard(dd)
+                        else: wybrane.add(dd)
+                        _styl(bb, dd)
+                    b.clicked.connect(_klik)
+                else:
+                    b.setEnabled(False)
+                _styl(b, data)
+                siatka.addWidget(b, tydzien_nr, kol)
+        ukl.addLayout(siatka)
+        info = QLabel(""); info.setObjectName("pod"); ukl.addWidget(info)
+        rzad = QHBoxLayout()
+        b_czysc = QPushButton("Wyczyść"); b_czysc.setObjectName("anuluj")
+        rzad.addWidget(b_czysc); rzad.addStretch(1)
+        b_anuluj = QPushButton("Anuluj"); b_anuluj.setObjectName("anuluj")
+        b_ok = QPushButton("Zapisz"); b_ok.setObjectName("ok")
+        rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
+        ukl.addLayout(rzad)
+        def _czysc():
+            wybrane.clear()
+            for i in range(siatka.count()):
+                w = siatka.itemAt(i).widget()
+                if isinstance(w, QPushButton):
+                    try: _styl(w, [dd for dd in dostepne if dd.day == int(w.text())][0])
+                    except Exception: pass
+        b_czysc.clicked.connect(_czysc)
+        b_anuluj.clicked.connect(d.reject)
+        b_ok.clicked.connect(d.accept)
+        if d.exec():
+            self.dni_wylaczone = set(wybrane)
+            self._odswiez_przycisk_dni()
+
     def _odswiez_przyciski_trybu(self):
         """Wybrany tryb świeci gradientem systemu, drugi jest wygaszony."""
         akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
@@ -13024,6 +13263,14 @@ class App(QMainWindow):
             # oraz jak długi jest dzień pracy.
             ustaw_tryb_pracy("wieczory" if self.tryb_wybrany == 1 else "tydzien")
             dni = pobierz_dni_robocze(rok, mies)
+            # Dni oznaczone jako wolne wypadają z planu — kwota rozłoży się
+            # na pozostałe dni miesiąca.
+            _wyl = getattr(self, "dni_wylaczone", set())
+            if _wyl:
+                dni = [d for d in dni if d not in _wyl]
+                if not dni:
+                    raise ValueError("Wyłączyłeś wszystkie dni w tym miesiącu.\n"
+                                     "Odznacz przynajmniej jeden dzień.")
             # Każdy dzień pracy = maksymalnie jeden limit delegacji (~587 zł).
             # Górna granica kwoty to liczba dni roboczych × limit delegacji.
             _max_kwota = len(dni) * MAX_KWOTA_DELEGACJI

@@ -1,2 +1,2 @@
-3.14.3
-Nowosci: tryb pracy jako dwa przyciski podswietlane na zielono, sprawdzanie pol przy kliknieciu Generuj z czerwonym podswietleniem brakow, miesiac rozliczenia podstawiany zawsze jako poprzedni. Wczesniej: rozszerzona baza miejscowosci (270 nowych gmin w szesciu wojewodztwach) i diagnostyka polaczenia w oknie logowania.
+3.14.5
+Poprawka: koniec z ta sama miejscowoscia dwa razy w jednej trasie (np. Makow Mazowiecki i Makow Maz.) - baza jest deduplikowana po nazwie i po wspolrzednych, a skroty rozwijane do pelnych nazw. Wczesniej: adresy bez 'ul.', wylaczanie dni w kalendarzu, nizsze pola formularza.

@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.14.2"
+WERSJA_PROGRAMU = "3.14.3"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -11763,9 +11763,12 @@ class App(QMainWindow):
         w_kwota, self.l_kwota = field("Kwota docelowa (PLN)", self.si_kwota)
 
         self.e_mies = GrubyKursorEdit(); self.e_mies.setPlaceholderText("np. 06.2026")
-        # Bieżący miesiąc podstawiony automatycznie (użytkownik może zmienić)
+        # Rozliczamy miesiąc WSTECZ — delegacje wystawia się po jego zakończeniu.
+        # Użytkownik może wpisać inny, ale domyślnie nie musi nic zmieniać.
         _teraz = datetime.datetime.now()
-        self.e_mies.setText(f"{_teraz.month:02d}.{_teraz.year}")
+        _pierwszy = _teraz.replace(day=1)
+        _poprzedni = _pierwszy - datetime.timedelta(days=1)
+        self.e_mies.setText(f"{_poprzedni.month:02d}.{_poprzedni.year}")
         self.si_mies = StyledInput("calendar", self.e_mies, self.is_dark, self.card_bot_frame)
         w_mies, self.l_mies = field("Miesiąc rozliczenia", self.si_mies)
 
@@ -11780,11 +11783,19 @@ class App(QMainWindow):
 
         # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
         row2_b = QHBoxLayout(); row2_b.setSpacing(16)
-        self.c_tryb = QComboBox()
-        self.c_tryb.addItems(["cykl tygodniowy", "wieczory i weekendy"])
-        self.c_tryb.setCurrentIndex(0)
-        self.si_tryb = StyledInput("clock", self.c_tryb, self.is_dark, self.card_bot_frame)
-        w_tryb, self.l_tryb = field("Tryb pracy", self.si_tryb)
+
+        # Tryb pracy: dwa przyciski zamiast listy — wybrany świeci naszą zielenią.
+        self.tryb_wybrany = 0
+        self.btn_tryb_tydzien  = QPushButton("Cykl tygodniowy")
+        self.btn_tryb_wieczory = QPushButton("Wieczory i weekendy")
+        for _b in (self.btn_tryb_tydzien, self.btn_tryb_wieczory):
+            _b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            _b.setMinimumHeight(38)
+            _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(8)
+        rzad_tryb.addWidget(self.btn_tryb_tydzien); rzad_tryb.addWidget(self.btn_tryb_wieczory)
+        kont_tryb = QWidget(); kont_tryb.setLayout(rzad_tryb)
+        w_tryb, self.l_tryb = field("Tryb pracy", kont_tryb)
 
         # Podpowiedź obok wyboru: co dokładnie oznacza każdy tryb. Sam wybór
         # jest jednoznaczny — bez godzin i dni do klikania przez użytkownika.
@@ -11799,7 +11810,13 @@ class App(QMainWindow):
             else:
                 self.lbl_tryb_opis.setText(
                     "Trasy w dni robocze, od poniedziałku do piątku, bez świąt.")
-        self.c_tryb.currentIndexChanged.connect(_tryb_zmieniony)
+        def _wybierz_tryb(idx):
+            self.tryb_wybrany = idx
+            self._odswiez_przyciski_trybu()
+            _tryb_zmieniony(idx)
+        self.btn_tryb_tydzien.clicked.connect(lambda: _wybierz_tryb(0))
+        self.btn_tryb_wieczory.clicked.connect(lambda: _wybierz_tryb(1))
+        self._odswiez_przyciski_trybu()
         _tryb_zmieniony(0)
 
         row2_b.addWidget(w_tryb, 1); row2_b.addWidget(self.lbl_tryb_opis, 2)
@@ -11823,7 +11840,7 @@ class App(QMainWindow):
         bot.addWidget(self.timeline, 1)
 
         self.btn = SpinnerButton("Generuj PDF", "download", self.is_dark, self.bot_card); self.btn.setFixedSize(210, 46)
-        self.btn.clicked.connect(self.proces); bot.addWidget(self.btn)
+        self.btn.clicked.connect(self._klik_generuj); bot.addWidget(self.btn)
 
         # status/pct — chowane pod overlayem, ale zostawiamy do metody status()
         self.lbl_status = QLabel("Wprowadź dane aby rozpocząć...")
@@ -12613,6 +12630,72 @@ class App(QMainWindow):
             f"Cykle pozostałych punktów zostały bez zmian.",
             success=True)
 
+    def _klik_generuj(self):
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtCore import QTimer
+        """Sprawdza komplet danych PRZED uruchomieniem generowania. Puste lub
+        błędne pola zapalają się na czerwono, a program mówi wprost, czego brakuje —
+        zamiast wyrzucać komunikat dopiero w połowie pracy."""
+        braki = []
+
+        do_podswietlenia = []
+
+        def _sprawdz(pole_si, wartosc, nazwa, warunek=None):
+            zle = (not str(wartosc).strip()) or (warunek is not None and not warunek)
+            stan = "err" if zle else "ok"
+            pole_si.ustaw_walidacje(stan)
+            do_podswietlenia.append((pole_si, stan))
+            if zle:
+                braki.append(nazwa)
+            return not zle
+
+        _sprawdz(self.si_imie, self.e_imie.text(), "imię i nazwisko")
+        _pesel = self.e_pesel.text().strip()
+        _sprawdz(self.si_pesel, _pesel, "PESEL", warunek=(len(_pesel) == 11 and _pesel.isdigit()))
+        _sprawdz(self.si_adres, self.e_adres.text(), "adres zamieszkania")
+        _kw = self.e_kwota.text().replace(",", ".").replace(" ", "")
+        try:
+            _kw_ok = float(_kw) > 0
+        except Exception:
+            _kw_ok = False
+        _sprawdz(self.si_kwota, self.e_kwota.text(), "kwota docelowa", warunek=_kw_ok)
+        _mies = self.e_mies.text().strip()
+        _mies_ok = bool(re.fullmatch(r"\d{2}\.\d{4}", _mies)) and 1 <= int(_mies[:2]) <= 12
+        _sprawdz(self.si_mies, _mies, "miesiąc rozliczenia (format MM.RRRR)", warunek=_mies_ok)
+
+        # Asystent podpowiedzi odświeża pola z opóźnieniem i potrafi zgasić nasze
+        # czerwone ramki — dlatego nakładamy je ponownie chwilę później.
+        def _przypomnij():
+            for _pole, _stan in do_podswietlenia:
+                _pole.ustaw_walidacje(_stan)
+        QTimer.singleShot(600, _przypomnij)
+        QTimer.singleShot(1400, _przypomnij)
+
+        if braki:
+            mb = QMessageBox(self)
+            mb.setWindowTitle("Uzupełnij dane")
+            mb.setText("Nie mogę wygenerować dokumentu.")
+            mb.setInformativeText("Popraw zaznaczone na czerwono pola:\n• " + "\n• ".join(braki))
+            mb.setIcon(QMessageBox.Icon.Warning)
+            mb.exec()
+            return
+        self.proces()
+
+    def _odswiez_przyciski_trybu(self):
+        """Wybrany tryb świeci gradientem systemu, drugi jest wygaszony."""
+        akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+               " stop:0 #00F0FF, stop:1 #00E4A1); color:#050B14; border:none;"
+               " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
+               " font-weight:800; padding:8px 14px; }")
+        nieakt = ("QPushButton { background: rgba(255,255,255,0.05); color:%s;"
+                  " border:1px solid rgba(255,255,255,0.28); border-radius:8px;"
+                  " font-family:'Segoe UI'; font-size:13px; font-weight:600;"
+                  " padding:8px 14px; }"
+                  "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }"
+                  % ("#94A3B8" if self.is_dark else "#475569"))
+        self.btn_tryb_tydzien.setStyleSheet(akt if self.tryb_wybrany == 0 else nieakt)
+        self.btn_tryb_wieczory.setStyleSheet(akt if self.tryb_wybrany == 1 else nieakt)
+
     def _wyloguj_uzytkownika(self):
         """Wylogowanie: kasuje zapamiętany kod i skrót hasła, zamyka program.
         Przy kolejnym uruchomieniu trzeba podać login i hasło."""
@@ -12939,7 +13022,7 @@ class App(QMainWindow):
             # Tryb pracy MUSI być ustawiony przed pobraniem dni — od niego
             # zależy, czy w planie znajdą się soboty i niedziele handlowe,
             # oraz jak długi jest dzień pracy.
-            ustaw_tryb_pracy("wieczory" if self.c_tryb.currentIndex() == 1 else "tydzien")
+            ustaw_tryb_pracy("wieczory" if self.tryb_wybrany == 1 else "tydzien")
             dni = pobierz_dni_robocze(rok, mies)
             # Każdy dzień pracy = maksymalnie jeden limit delegacji (~587 zł).
             # Górna granica kwoty to liczba dni roboczych × limit delegacji.

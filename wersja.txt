@@ -1,2 +1,2 @@
-3.14.2
-Nowosci: baza miejscowosci rozszerzona o 270 gmin i miast powiatowych w szesciu wojewodztwach (mazowieckie, lodzkie, kujawsko-pomorskie, lubelskie, podlaskie, warminsko-mazurskie) - wieksza roznorodnosc tras i mniej powtorzen. Wczesniej: wybor trybu pracy, imie z konta, przycisk 'Sprawdz polaczenie' i konkretne komunikaty bledow sieci.
+3.14.3
+Nowosci: tryb pracy jako dwa przyciski podswietlane na zielono, sprawdzanie pol przy kliknieciu Generuj z czerwonym podswietleniem brakow, miesiac rozliczenia podstawiany zawsze jako poprzedni. Wczesniej: rozszerzona baza miejscowosci (270 nowych gmin w szesciu wojewodztwach) i diagnostyka polaczenia w oknie logowania.

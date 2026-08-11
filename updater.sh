@@ -59,7 +59,9 @@ rm -f "$NOWY" 2>/dev/null
 
 # 4) usun stary znacznik "program zyje" i uruchom nowa wersje
 rm -f "$FLAGA" 2>/dev/null
-sleep 5
+# 25 sekund: tyle zwykle trwa sprawdzanie swiezo zapisanego pliku przez system
+# (Gatekeeper na macOS, skanery na Linuksie). Start wczesniej konczyl sie bledem.
+sleep 25
 
 # 4a) TEST DOSTEPNOSCI PLIKU - ta sama poprawka co w wersji Windows.
 #     Swiezo skopiowany plik potrafi byc jeszcze "trzymany" przez system
@@ -81,6 +83,23 @@ done
 # 4b) sprzatanie porzuconych katalogow _MEI po poprzednich uruchomieniach
 rm -rf "${TMPDIR:-/tmp}"/_MEI* 2>/dev/null
 
+# macOS: plik pobrany z sieci ma znacznik kwarantanny i system odmawia
+# uruchomienia go ze skryptu, czesto BEZ zadnego komunikatu.
+if command -v xattr >/dev/null 2>&1; then
+    xattr -d com.apple.quarantine "$CEL" 2>/dev/null && \
+        echo "[4] Zdjeto kwarantanne macOS." >> "$LOG"
+fi
+# czekamy tez, az stary proces naprawde zniknie z pamieci
+NAZWA=$(basename "$CEL")
+for i in $(seq 1 15); do
+    if ! pgrep -f "$NAZWA" >/dev/null 2>&1; then
+        echo "[4] Stary proces zamkniety - proba $i." >> "$LOG"
+        break
+    fi
+    echo "[4] Stary proces jeszcze dziala - czekam - proba $i..." >> "$LOG"
+    sleep 3
+done
+
 echo "[4] Uruchamiam nowa wersje..." >> "$LOG"
 nohup "$CEL" >/dev/null 2>&1 &
 
@@ -90,7 +109,7 @@ PROBA2=0
 for i in $(seq 1 20); do
     sleep 3
     if [ -f "$FLAGA" ]; then WYSTARTOWALA=1; break; fi
-    if [ "$PROBA2" = "0" ] && [ "$i" -ge 6 ]; then
+    if [ "$PROBA2" = "0" ] && [ "$i" -ge 10 ]; then
         echo "[4] Znacznik sie nie pojawil - drugie podejscie..." >> "$LOG"
         nohup "$CEL" >/dev/null 2>&1 &
         PROBA2=1

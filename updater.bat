@@ -121,7 +121,9 @@ rem === reczne uruchomienie chwile pozniej dzialalo bez zarzutu.           ===
 echo [4] Czekam przed uruchomieniem - antywirus bywa jeszcze zajety plikiem... >> "%LOG%"
 rem Dluzsza przerwa: skan 48-megabajtowego pliku potrafi blokowac odczyt,
 rem przez co rozpakowanie bibliotek konczy sie bledem "Failed to load Python DLL".
-ping -n 12 127.0.0.1 >nul
+rem 25 sekund: tyle zwykle trwa skan pliku 48 MB przez ochrone Windows.
+rem Start wczesniej konczyl sie bledem ladowania bibliotek.
+ping -n 26 127.0.0.1 >nul
 
 rem === 4a) CZEKAMY, AZ STARY PROCES NAPRAWDE ZNIKNIE ===================
 rem === Dopoki poprzednia wersja siedzi w pamieci, nowa potrafi wystartowac ===
@@ -151,6 +153,9 @@ set "PROBNY=%TEMP%\pmt_test_dostepu.tmp"
 for /l %%t in (1,1,10) do (
     copy /y "%CEL%" "%PROBNY%" >nul 2>&1
     if not errorlevel 1 (
+        rem drugi pelny odczyt: pierwszy moze jeszcze trafic na skan w toku
+        ping -n 4 127.0.0.1 >nul
+        copy /y "%CEL%" "%PROBNY%" >nul 2>&1
         del /q "%PROBNY%" >nul 2>&1
         echo [4] Plik gotowy do uruchomienia - proba %%t. >> "%LOG%"
         goto plik_gotowy
@@ -220,13 +225,15 @@ for /l %%i in (1,1,20) do (
     )
     tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
     if errorlevel 1 (
-        rem procesu nie ma - mozna sprobowac innej metody startu
-        if "!PROBA_2!"=="0" (
-            echo [4] Sposob 2: uruchomienie przez PowerShell... >> "%LOG%"
+        rem Procesu nie ma. Kolejna proba dopiero po 30 sekundach od poprzedniej —
+        rem wczesniej dwie proby wchodzily sobie w droge i konczyly sie dwoma
+        rem oknami bledu ladowania bibliotek.
+        if "!PROBA_2!"=="0" if %%i GEQ 8 (
+            echo [4] Sposob 2: uruchomienie przez PowerShell po odczekaniu... >> "%LOG%"
             powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CEL%' -WorkingDirectory '%KATALOG%'" >nul 2>&1
             set "PROBA_2=1"
         ) else (
-            if "!PROBA_3!"=="0" (
+            if "!PROBA_3!"=="0" if %%i GEQ 16 (
                 echo [4] Sposob 3: uruchomienie przez powloke systemu... >> "%LOG%"
                 explorer.exe "%CEL%"
                 set "PROBA_3=1"

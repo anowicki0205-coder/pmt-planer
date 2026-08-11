@@ -1,2 +1,2 @@
-3.14.5
-Poprawka: koniec z ta sama miejscowoscia dwa razy w jednej trasie (np. Makow Mazowiecki i Makow Maz.) - baza jest deduplikowana po nazwie i po wspolrzednych, a skroty rozwijane do pelnych nazw. Wczesniej: adresy bez 'ul.', wylaczanie dni w kalendarzu, nizsze pola formularza.
+3.14.6
+Poprawki trybu wieczorno-weekendowego: trasy startuja po 16:15 i koncza sie przed 22:00 (wczesniej zawsze rano), soboty i niedziele handlowe naprawde wchodza do planu, kalendarz wylaczania dni pokazuje dni wlasciwe dla wybranego trybu. Uklad: tryb pracy, wylaczanie dni i opis w jednym wierszu, bez zbednych ramek.

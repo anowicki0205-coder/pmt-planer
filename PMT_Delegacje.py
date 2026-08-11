@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.14.5"
+WERSJA_PROGRAMU = "3.14.6"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -4017,7 +4017,14 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             reszta = round(reszta - krok, 2); idx += 1
 
     for dzien in finalne_dni:
-        czas_akt = rng.randint(7*60, 8*60)      # wyjazd między 7:00 a 8:00
+        # Godzina wyjazdu zależy od TRYBU PRACY:
+        #  tygodniowy — rano, między 7:00 a 8:00 (jak dotąd),
+        #  wieczorny  — po pracy, między 16:15 a 16:45, tak aby ostatnia
+        #               placówka zamknęła się przed 22:00 (patrz limit dnia).
+        if TRYB_PRACY == "wieczory":
+            czas_akt = rng.randint(16 * 60 + 15, 16 * 60 + 45)
+        else:
+            czas_akt = rng.randint(7 * 60, 8 * 60)
         ile_etapow = len(dzien.etapy_surowe)
         polowa = ile_etapow // 2
         for idx, e in enumerate(dzien.etapy_surowe):
@@ -11908,7 +11915,7 @@ class App(QMainWindow):
         cr.addLayout(row1_b)
 
         # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
-        row2_b = QHBoxLayout(); row2_b.setSpacing(16)
+        row2_b = QHBoxLayout(); row2_b.setSpacing(12)
 
         # Tryb pracy: dwa przyciski zamiast listy — wybrany świeci naszą zielenią.
         self.tryb_wybrany = 0
@@ -11918,24 +11925,43 @@ class App(QMainWindow):
             _b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             _b.setMinimumHeight(32)
             _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(8)
+        def _kolumna(etykieta_txt, widget_lub_layout):
+            """Etykieta + zawartość, BEZ dodatkowej ramki (ramkę ma tylko pole
+            tekstowe). Wcześniej przyciski dostawały niepotrzebny obrys."""
+            kol = QVBoxLayout(); kol.setSpacing(4); kol.setContentsMargins(0, 0, 0, 0)
+            lab = QLabel(etykieta_txt)
+            lab.setStyleSheet("QLabel { color:%s; font-family:'Segoe UI'; font-size:10.5px;"
+                              " font-weight:700; letter-spacing:0.5px; background:transparent;"
+                              " border:none; }" % ("#94A3B8" if self.is_dark else "#475569"))
+            kol.addWidget(lab)
+            if isinstance(widget_lub_layout, QHBoxLayout):
+                kol.addLayout(widget_lub_layout)
+            else:
+                kol.addWidget(widget_lub_layout)
+            kont = QWidget(); kont.setLayout(kol)
+            return kont, lab
+
+        rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(8); rzad_tryb.setContentsMargins(0,0,0,0)
         rzad_tryb.addWidget(self.btn_tryb_tydzien); rzad_tryb.addWidget(self.btn_tryb_wieczory)
-        kont_tryb = QWidget(); kont_tryb.setLayout(rzad_tryb)
-        w_tryb, self.l_tryb = field("Tryb pracy", kont_tryb)
+        w_tryb, self.l_tryb = _kolumna("TRYB PRACY", rzad_tryb)
 
         # Podpowiedź obok wyboru: co dokładnie oznacza każdy tryb. Sam wybór
         # jest jednoznaczny — bez godzin i dni do klikania przez użytkownika.
         self.lbl_tryb_opis = QLabel("")
         self.lbl_tryb_opis.setWordWrap(True)
+        self.lbl_tryb_opis.setMinimumHeight(46)
+        self.lbl_tryb_opis.setStyleSheet(
+            "QLabel { color:%s; font-family:'Segoe UI'; font-size:11px;"
+            " background:transparent; border:none; }"
+            % ("#94A3B8" if self.is_dark else "#475569"))
         def _tryb_zmieniony(idx):
             if idx == 1:
                 self.lbl_tryb_opis.setText(
-                    "Trasy po godzinach: start ok. 16:30, ostatnia placówka do 22:00 "
-                    "i powrót do bazy. Soboty liczą się jak zwykłe dni, niedziele tylko "
-                    "handlowe — program sam sprawdza, czy w danym miesiącu takie są.")
+                    "Start ok. 16:30, koniec do 22:00 plus powrót.\n"
+                    "Soboty jak zwykłe dni, niedziele tylko handlowe.")
             else:
                 self.lbl_tryb_opis.setText(
-                    "Trasy w dni robocze, od poniedziałku do piątku, bez świąt.")
+                    "Dni robocze, poniedziałek-piątek, bez świąt.")
         def _wybierz_tryb(idx):
             self.tryb_wybrany = idx
             self._odswiez_przyciski_trybu()
@@ -11952,10 +11978,11 @@ class App(QMainWindow):
         self.btn_wylacz_dni.setMinimumHeight(32)
         self.btn_wylacz_dni.clicked.connect(self._otworz_wylaczanie_dni)
         self._odswiez_przycisk_dni()
-        w_dni, self.l_dni = field("Dni bez pracy", self.btn_wylacz_dni)
+        w_dni, self.l_dni = _kolumna("DNI BEZ PRACY", self.btn_wylacz_dni)
 
-        row2_b.addWidget(w_tryb, 2); row2_b.addWidget(w_dni, 1)
-        row2_b.addWidget(self.lbl_tryb_opis, 2)
+        w_opis, self.l_opis = _kolumna("", self.lbl_tryb_opis)
+        row2_b.addWidget(w_tryb, 3); row2_b.addWidget(w_dni, 2); row2_b.addWidget(w_opis, 4)
+        cr.addSpacing(6)
         cr.addLayout(row2_b)
 
         cards_layout.addWidget(self.card_bot_frame)

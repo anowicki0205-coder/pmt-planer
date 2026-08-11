@@ -80,7 +80,7 @@ class ThickCaretStyle(QProxyStyle):
 
 STAWKA_ZA_KM        = 0.60 
 SREDNIA_PREDKOSC    = 65.0 
-LIMIT_CZASU_MINUTY  = 8 * 60   
+LIMIT_CZASU_MINUTY  = 8 * 60   # sufit dnia; ustaw_tryb_pracy() zmienia go w trybie wieczornym
 MAX_KWOTA_DELEGACJI = 587.19 
 MIN_KWOTA           = 50.0 
 
@@ -92,6 +92,38 @@ MIN_SIECI             = 1
 MIN_DYSTANS_LINIA     = 10.0    
 
 COOLDOWN_DNI = 35   
+
+# --- TRYB PRACY (ustawiany z interfejsu przed generowaniem) -------------------
+#  "tydzien"  — cykl tygodniowy: pon-pt, dzień pracy o ustawionej długości.
+#  "wieczory" — wieczory i weekendy: start ok. 16:30, ostatnia placówka do
+#               22:00 plus powrót do bazy, czyli 5,5 h na trasę. Sobota liczy
+#               się jak zwykły dzień, niedziela tylko przy niedzielach handlowych.
+TRYB_PRACY          = "tydzien"
+NIEDZIELE_HANDLOWE  = False
+GODZINA_STARTU_WIECZOR = "16:30"
+GODZINA_KONCA_WIECZOR  = "22:00"
+
+def ustaw_tryb_pracy(tryb: str = "tydzien", dlugosc_dnia_h: float = None,
+                     niedziele_handlowe: bool = None):
+    """Przestawia silnik na wybrany tryb. Wywoływane PRZED generowaniem tras.
+
+    dlugosc_dnia_h dotyczy trybu tygodniowego (domyślnie 3 h — tyle ustaliliśmy
+    jako realny czas trasy). W trybie wieczornym długość wynika z okna
+    16:30-22:00 i nie jest konfigurowalna.
+    """
+    global TRYB_PRACY, NIEDZIELE_HANDLOWE, LIMIT_CZASU_MINUTY, PRZERWA_JEDZENIE_MIN
+    TRYB_PRACY = "wieczory" if str(tryb).startswith("wiecz") else "tydzien"
+    if TRYB_PRACY == "wieczory":
+        # Okno 16:30-22:00 to sufit dnia; wewnątrz niego silnik dalej miksuje
+        # dni typu gniazdo / po drodze / daleki — tak jak w cyklu tygodniowym.
+        LIMIT_CZASU_MINUTY = 5 * 60 + 30
+        PRZERWA_JEDZENIE_MIN = 0              # krótkie okno, bez przerwy obiadowej
+        NIEDZIELE_HANDLOWE = True             # jeśli w miesiącu są — silnik je wykorzysta
+    else:
+        LIMIT_CZASU_MINUTY = 8 * 60           # sufit dnia; realna długość wynika z typu dnia
+        PRZERWA_JEDZENIE_MIN = 30
+        NIEDZIELE_HANDLOWE = False
+    return TRYB_PRACY, LIMIT_CZASU_MINUTY
 TEST_MNOZNIK_TRASY = 1.28 
 
 # --- Realia dnia pracy merchandisera (trasa "po drodze", nie nabijanie km) ---
@@ -361,7 +393,7 @@ def online_zaloguj(kod: str, haslo: str):
             headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
-    except Exception:
+    except Exception as _blad:
         # BEZ SIECI: porównujemy skrót hasła z zapisanym przy poprzednim udanym
         # logowaniu — osobno dla każdego konta używanego na tym komputerze.
         znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
@@ -371,8 +403,18 @@ def online_zaloguj(kod: str, haslo: str):
             return True, str(znane.get("imie", "")), "offline"
         if st.get("kod") == kod and st.get("skrot") == skrot:
             return True, str(st.get("imie", "")), "offline"
-        return False, "", ("Brak połączenia z serwerem. Zaloguj się przy internecie "
-                           "— na tym komputerze nie ma zapisanego tego konta.")
+        # Nie zgadujemy przyczyny: pokazujemy, co DOKŁADNIE zawiodło. Wcześniej
+        # każdy błąd wyglądał jak brak internetu — a bywa nim blokada firmowa,
+        # certyfikat proxy albo przeciążony serwer.
+        _powod = _opisz_blad_sieci(_blad)
+        try:
+            with open(os.path.join(os.path.expanduser("~"), ".pmt_logowanie_bledy.txt"),
+                      "a", encoding="utf-8") as _f:
+                _f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} "
+                         f"kod={kod} {type(_blad).__name__}: {_blad}\n")
+        except Exception:
+            pass
+        return False, "", _powod
     if odp.get("status") != "ok":
         return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
     st = _wczytaj(PLIK_STATUSU, {})
@@ -382,6 +424,61 @@ def online_zaloguj(kod: str, haslo: str):
     _zapisz(PLIK_STATUSU, st)
     _zapisz_logowanie(kod, st["imie"], st["skrot"])
     return True, st["imie"], ""
+
+
+def _opisz_blad_sieci(blad) -> str:
+    """Zamienia wyjątek sieciowy na wskazówkę, co realnie zrobić."""
+    tekst = f"{type(blad).__name__}: {blad}".lower()
+    if "certificate" in tekst or "ssl" in tekst:
+        return ("Połączenie zablokowane przez zabezpieczenia sieci (certyfikat). "
+                "Zwykle to firmowy filtr lub VPN — spróbuj na innej sieci "
+                "(np. hotspot z telefonu) albo poproś IT o odblokowanie "
+                "adresu script.google.com.")
+    if "timed out" in tekst or "timeout" in tekst:
+        return ("Serwer nie odpowiedział w wyznaczonym czasie. Sprawdź połączenie "
+                "i spróbuj ponownie — przy słabym zasięgu wystarczy druga próba.")
+    if "name or service not known" in tekst or "getaddrinfo" in tekst or "dns" in tekst:
+        return ("Komputer nie potrafi znaleźć adresu serwera (DNS). Sprawdź, czy "
+                "internet działa w przeglądarce, i spróbuj ponownie.")
+    if "forbidden" in tekst or "403" in tekst:
+        return ("Serwer odrzucił połączenie (403). Najczęściej blokuje je sieć "
+                "firmowa lub VPN — spróbuj na innej sieci.")
+    if "proxy" in tekst:
+        return ("Połączenie idzie przez serwer proxy, który je blokuje. Poproś IT "
+                "o dostęp do script.google.com.")
+    return (f"Nie udało się połączyć z serwerem ({type(blad).__name__}). "
+            "Sprawdź internet i spróbuj ponownie; jeśli błąd wraca, prześlij "
+            "administratorowi plik .pmt_logowanie_bledy.txt z katalogu domowego.")
+
+
+def test_polaczenia() -> str:
+    """Sprawdza po kolei: internet, dostęp do serwera i odpowiedź backendu.
+    Zwraca gotowy tekst do pokazania użytkownikowi."""
+    wyniki = []
+    for opis, url in (("internet", "https://www.google.com/generate_204"),
+                      ("serwer Google Apps Script", "https://script.google.com")):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PMT-Planer"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                wyniki.append(f"✔ {opis}: odpowiada ({resp.status})")
+        except Exception as e:
+            wyniki.append(f"✘ {opis}: {_opisz_blad_sieci(e).split('.')[0]}")
+    try:
+        cialo = json.dumps({"akcja": "puls", "kod": "00000"}).encode("utf-8")
+        req = urllib.request.Request(URL_BACKENDU, data=cialo,
+              headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            resp.read()
+            wyniki.append("✔ nasz serwer PMT: odpowiada")
+    except Exception as e:
+        wyniki.append(f"✘ nasz serwer PMT: {_opisz_blad_sieci(e).split('.')[0]}")
+    return "\n".join(wyniki)
+
+
+def online_imie_uzytkownika():
+    """Imię i nazwisko przypisane do zalogowanego kodu (z arkusza, zapisane
+    lokalnie przy logowaniu). Pusty napis, gdy nieznane."""
+    return str(_wczytaj(PLIK_STATUSU, {}).get("imie", "")).strip()
 
 
 def online_wyloguj():
@@ -507,7 +604,11 @@ def dialog_logowania():
     blad = QLabel(" "); blad.setObjectName("blad"); blad.setWordWrap(True)
     blad.setMinimumHeight(30); ukl.addWidget(blad)
 
-    rzad = QHBoxLayout(); rzad.addStretch(1)
+    rzad = QHBoxLayout()
+    b_test = QPushButton("Sprawdź połączenie"); b_test.setObjectName("anuluj")
+    b_test.setToolTip("Sprawdza internet i dostęp do serwera — przydatne, gdy logowanie nie przechodzi")
+    rzad.addWidget(b_test)
+    rzad.addStretch(1)
     b_anuluj = QPushButton("Zamknij"); b_anuluj.setObjectName("anuluj")
     b_ok = QPushButton("Zaloguj"); b_ok.setObjectName("ok"); b_ok.setEnabled(False)
     rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
@@ -544,6 +645,21 @@ def dialog_logowania():
     pole_haslo.textChanged.connect(lambda _: _sprawdz_pola())
     pole_kod.returnPressed.connect(lambda: pole_haslo.setFocus())
     pole_haslo.returnPressed.connect(_zatwierdz)
+    def _test():
+        b_test.setEnabled(False); b_test.setText("Sprawdzam…")
+        blad.setText("Sprawdzam połączenie…")
+        QApplication.processEvents()
+        wynik = test_polaczenia()
+        b_test.setEnabled(True); b_test.setText("Sprawdź połączenie")
+        from PyQt6.QtWidgets import QMessageBox
+        mb = QMessageBox(d)
+        mb.setWindowTitle("Test połączenia")
+        mb.setText("Wynik sprawdzenia:")
+        mb.setInformativeText(wynik + "\n\nJeśli nasz serwer nie odpowiada, a internet "
+                              "działa, blokuje go najprawdopodobniej sieć firmowa lub VPN.")
+        mb.exec()
+        blad.setText(" ")
+    b_test.clicked.connect(_test)
     b_ok.clicked.connect(_zatwierdz)
     b_anuluj.clicked.connect(d.reject)
 
@@ -661,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.13.12"
+WERSJA_PROGRAMU = "3.14.2"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -2348,6 +2464,16 @@ def zaladuj_baze(baza_lat, baza_lng) -> Dict[str, List[Miasto]]:
                         obecne.add(m.n)
     return _baza_miast
 
+def _wielkanoc(rok: int) -> datetime.date:
+    """Data Wielkanocy (algorytm gaussowski) — potrzebna też do ustalenia
+    niedzieli handlowej poprzedzającej święta."""
+    a = rok % 19; b = rok // 100; c = rok % 100; d = b // 4; e = b % 4; f = (b + 8) // 25
+    g = (b - f + 1) // 3; h = (19 * a + b - d - g + 15) % 30; i = c // 4; k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7; m = (a + 11 * h + 22 * l) // 451
+    miesiac = (h + l - 7 * m + 114) // 31; dzien = ((h + l - 7 * m + 114) % 31) + 1
+    return datetime.date(rok, miesiac, dzien)
+
+
 def swieta_w_roku(rok: int) -> Set[datetime.date]:
     a = rok % 19; b = rok // 100; c = rok % 100; d = b // 4; e = b % 4; f = (b + 8) // 25
     g = (b - f + 1) // 3; h = (19 * a + b - d - g + 15) % 30; i = c // 4; k = c % 4
@@ -2364,9 +2490,54 @@ def swieta_w_roku(rok: int) -> Set[datetime.date]:
     return set(stale)
 
 def pobierz_dni_robocze(rok: int, miesiac: int) -> List[datetime.date]:
+    """Dni, w które można rozpisać pracę.
+
+    Tryb tygodniowy: poniedziałek-piątek, bez świąt (jak dotychczas).
+    Tryb wieczorny: dodatkowo SOBOTY. Niedziele wchodzą wyłącznie wtedy, gdy
+    włączono niedziele handlowe — i tylko te, które nimi są.
+    """
     swieta = swieta_w_roku(rok)
     _, n = calendar.monthrange(rok, miesiac)
-    return [datetime.date(rok, miesiac, d) for d in range(1, n+1) if datetime.date(rok, miesiac, d).weekday() < 5 and datetime.date(rok, miesiac, d) not in swieta]
+    dni = []
+    for d in range(1, n + 1):
+        data = datetime.date(rok, miesiac, d)
+        if data in swieta:
+            continue
+        dow = data.weekday()                     # 0=pon ... 5=sob, 6=nie
+        if dow < 5:
+            dni.append(data)
+        elif dow == 5 and TRYB_PRACY == "wieczory":
+            dni.append(data)                     # sobota jak zwykły dzień
+        elif dow == 6 and TRYB_PRACY == "wieczory" and NIEDZIELE_HANDLOWE \
+                and czy_niedziela_handlowa(data):
+            dni.append(data)
+    return dni
+
+
+def czy_niedziela_handlowa(data: datetime.date) -> bool:
+    """Niedziele handlowe: ostatnia niedziela stycznia, kwietnia, czerwca
+    i sierpnia, dwie niedziele przed Bożym Narodzeniem oraz niedziela przed
+    Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
+    gdyby przepisy się zmieniły, wystarczy poprawić tę jedną funkcję."""
+    if data.weekday() != 6:
+        return False
+    _, dni_mies = calendar.monthrange(data.year, data.month)
+    ostatnia_niedziela = max(d for d in range(1, dni_mies + 1)
+                             if datetime.date(data.year, data.month, d).weekday() == 6)
+    if data.month in (1, 4, 6, 8) and data.day == ostatnia_niedziela:
+        return True
+    if data.month == 12:                          # dwie niedziele przed 24.12
+        przed = [d for d in range(1, 25)
+                 if datetime.date(data.year, 12, d).weekday() == 6]
+        if data.day in przed[-2:]:
+            return True
+    try:
+        wielkanoc = _wielkanoc(data.year)          # niedziela przed Wielkanocą
+        if data == wielkanoc - datetime.timedelta(days=7):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 # ==========================================================================
@@ -2450,6 +2621,31 @@ def _dyst_prosty(a: PunktWizyty, b: PunktWizyty) -> float:
         return 0.0
     return oblicz_dystans(a.lat, a.lng, b.lat, b.lng) * TEST_MNOZNIK_TRASY
 
+
+# --- ROZSZERZENIE BAZY MIEJSCOWOSCI (2026-08) --------------------------------
+# Doliczone gminy i miasta powiatowe dla szesciu wojewodztw: mazowieckie,
+# lodzkie, kujawsko-pomorskie, lubelskie, podlaskie, warminsko-mazurskie.
+# Wspolrzedne sprawdzone wzgledem granic wojewodztw (dokladnosc ~1 km — do
+# planowania tras wystarcza, bo realne odleglosci liczy OSRM po drogach).
+# Wpisy o nazwach juz obecnych w MIASTA_RAW zostaly pominiete przy tworzeniu.
+MIASTA_ROZSZERZENIE = {
+  "mazowieckie": [{"n":"Ciechanów","lat":52.88,"lng":20.62,"typ":"gmina","sieci":3},{"n":"Sochaczew","lat":52.23,"lng":20.24,"typ":"gmina","sieci":3},{"n":"Żyrardów","lat":52.05,"lng":20.45,"typ":"gmina","sieci":3},{"n":"Grodzisk Mazowiecki","lat":52.11,"lng":20.63,"typ":"gmina","sieci":4},{"n":"Pruszków","lat":52.17,"lng":20.81,"typ":"gmina","sieci":4},{"n":"Mińsk Mazowiecki","lat":52.18,"lng":21.57,"typ":"gmina","sieci":3},{"n":"Legionowo","lat":52.40,"lng":20.93,"typ":"gmina","sieci":4},{"n":"Nowy Dwór Mazowiecki","lat":52.43,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Ostrów Mazowiecka","lat":52.80,"lng":21.90,"typ":"gmina","sieci":3},{"n":"Ostrołęka","lat":53.09,"lng":21.57,"typ":"gmina","sieci":3},{"n":"Maków Mazowiecki","lat":52.86,"lng":21.10,"typ":"gmina","sieci":2},{"n":"Płock","lat":52.55,"lng":19.71,"typ":"gmina","sieci":4},{"n":"Radom","lat":51.40,"lng":21.15,"typ":"gmina","sieci":4},{"n":"Konstancin-Jeziorna","lat":52.09,"lng":21.11,"typ":"gmina","sieci":3},{"n":"Garwolin","lat":51.90,"lng":21.61,"typ":"gmina","sieci":2},{"n":"Łaskarzew","lat":51.79,"lng":21.60,"typ":"gmina","sieci":2},{"n":"Pilawa","lat":51.87,"lng":21.55,"typ":"gmina","sieci":2},{"n":"Siedlce","lat":52.17,"lng":22.29,"typ":"gmina","sieci":4},{"n":"Sokołów Podlaski","lat":52.41,"lng":22.25,"typ":"gmina","sieci":3},{"n":"Węgrów","lat":52.40,"lng":22.02,"typ":"gmina","sieci":2},{"n":"Łochów","lat":52.53,"lng":21.68,"typ":"gmina","sieci":2},{"n":"Kosów Lacki","lat":52.60,"lng":22.15,"typ":"gmina","sieci":2},{"n":"Mordy","lat":52.21,"lng":22.52,"typ":"gmina","sieci":2},{"n":"Łosice","lat":52.21,"lng":22.72,"typ":"gmina","sieci":2},{"n":"Żelechów","lat":51.81,"lng":21.90,"typ":"gmina","sieci":2},{"n":"Raszyn","lat":52.14,"lng":20.93,"typ":"gmina","sieci":3},{"n":"Brwinów","lat":52.14,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Milanówek","lat":52.12,"lng":20.67,"typ":"gmina","sieci":3},{"n":"Podkowa Leśna","lat":52.12,"lng":20.69,"typ":"gmina","sieci":2},{"n":"Ożarów Mazowiecki","lat":52.21,"lng":20.81,"typ":"gmina","sieci":3},{"n":"Łomianki","lat":52.34,"lng":20.88,"typ":"gmina","sieci":3},{"n":"Józefów (otwocki)","lat":52.14,"lng":21.23,"typ":"gmina","sieci":3},{"n":"Stoczek Łukowski","lat":51.96,"lng":21.97,"typ":"gmina","sieci":2},{"n":"Wierzbica (radomska)","lat":51.22,"lng":21.09,"typ":"gmina","sieci":2},{"n":"Jedlnia-Letnisko","lat":51.42,"lng":21.30,"typ":"gmina","sieci":2},{"n":"Zakrzew (radomski)","lat":51.42,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Kozłów","lat":51.58,"lng":21.28,"typ":"gmina","sieci":2},{"n":"Sienno","lat":51.24,"lng":21.70,"typ":"gmina","sieci":2},{"n":"Solec nad Wisłą","lat":51.14,"lng":21.77,"typ":"gmina","sieci":2},{"n":"Chotcza","lat":51.28,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Sarnaki","lat":52.32,"lng":22.90,"typ":"gmina","sieci":2},{"n":"Platerów","lat":52.25,"lng":22.83,"typ":"gmina","sieci":2},{"n":"Huszlew","lat":52.15,"lng":22.80,"typ":"gmina","sieci":2},{"n":"Bielany","lat":52.10,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Olszanka","lat":52.19,"lng":22.70,"typ":"gmina","sieci":2},{"n":"Suchożebry","lat":52.24,"lng":22.31,"typ":"gmina","sieci":2},{"n":"Zbuczyn","lat":52.05,"lng":22.45,"typ":"gmina","sieci":2},{"n":"Domanice","lat":52.02,"lng":22.10,"typ":"gmina","sieci":2}],
+  "łódzkie": [{"n":"Piotrków Trybunalski","lat":51.40,"lng":19.70,"typ":"gmina","sieci":4},{"n":"Radomsko","lat":51.07,"lng":19.44,"typ":"gmina","sieci":3},{"n":"Bełchatów","lat":51.37,"lng":19.36,"typ":"gmina","sieci":3},{"n":"Tomaszów Mazowiecki","lat":51.53,"lng":20.01,"typ":"gmina","sieci":3},{"n":"Opoczno","lat":51.38,"lng":20.28,"typ":"gmina","sieci":2},{"n":"Rawa Mazowiecka","lat":51.77,"lng":20.25,"typ":"gmina","sieci":2},{"n":"Skierniewice","lat":51.96,"lng":20.15,"typ":"gmina","sieci":3},{"n":"Łowicz","lat":52.11,"lng":19.95,"typ":"gmina","sieci":3},{"n":"Kutno","lat":52.23,"lng":19.36,"typ":"gmina","sieci":3},{"n":"Aleksandrów Łódzki","lat":51.82,"lng":19.30,"typ":"gmina","sieci":3},{"n":"Konstantynów Łódzki","lat":51.75,"lng":19.32,"typ":"gmina","sieci":3},{"n":"Sieradz","lat":51.60,"lng":18.73,"typ":"gmina","sieci":3},{"n":"Sulejów","lat":51.36,"lng":19.88,"typ":"gmina","sieci":2},{"n":"Wolbórz","lat":51.51,"lng":19.83,"typ":"gmina","sieci":2},{"n":"Moszczenica","lat":51.44,"lng":19.71,"typ":"gmina","sieci":2},{"n":"Gorzkowice","lat":51.19,"lng":19.60,"typ":"gmina","sieci":2},{"n":"Kamieńsk","lat":51.20,"lng":19.42,"typ":"gmina","sieci":2},{"n":"Przedbórz","lat":51.09,"lng":19.87,"typ":"gmina","sieci":2},{"n":"Żarnów","lat":51.25,"lng":20.17,"typ":"gmina","sieci":2},{"n":"Drzewica","lat":51.45,"lng":20.45,"typ":"gmina","sieci":2},{"n":"Białaczów","lat":51.30,"lng":20.27,"typ":"gmina","sieci":2},{"n":"Sławno","lat":51.44,"lng":20.13,"typ":"gmina","sieci":2},{"n":"Inowłódz","lat":51.53,"lng":20.24,"typ":"gmina","sieci":2},{"n":"Lubochnia","lat":51.56,"lng":20.10,"typ":"gmina","sieci":2},{"n":"Czerniewice","lat":51.68,"lng":20.14,"typ":"gmina","sieci":2},{"n":"Żelechlinek","lat":51.75,"lng":20.05,"typ":"gmina","sieci":2},{"n":"Mszczonów-Puszcza","lat":51.86,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Nowy Kawęczyn","lat":51.87,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Bolimów","lat":52.06,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Kiernozia","lat":52.25,"lng":19.90,"typ":"gmina","sieci":2},{"n":"Bielawy","lat":52.05,"lng":19.75,"typ":"gmina","sieci":2},{"n":"Domaniewice","lat":51.98,"lng":19.86,"typ":"gmina","sieci":2},{"n":"Zduny","lat":52.10,"lng":19.92,"typ":"gmina","sieci":2},{"n":"Chąśno","lat":52.13,"lng":19.86,"typ":"gmina","sieci":2},{"n":"Krośniewice","lat":52.25,"lng":19.17,"typ":"gmina","sieci":2},{"n":"Żychlin","lat":52.24,"lng":19.62,"typ":"gmina","sieci":2},{"n":"Bedlno","lat":52.20,"lng":19.55,"typ":"gmina","sieci":2},{"n":"Krzyżanów","lat":52.20,"lng":19.35,"typ":"gmina","sieci":2},{"n":"Strzelce","lat":52.16,"lng":19.42,"typ":"gmina","sieci":2},{"n":"Oporów","lat":52.15,"lng":19.55,"typ":"gmina","sieci":2},{"n":"Świnice Warckie","lat":51.94,"lng":18.92,"typ":"gmina","sieci":2},{"n":"Uniejów","lat":51.97,"lng":18.79,"typ":"gmina","sieci":2},{"n":"Dąbie","lat":52.10,"lng":18.83,"typ":"gmina","sieci":2},{"n":"Wartkowice","lat":51.94,"lng":19.06,"typ":"gmina","sieci":2},{"n":"Zadzim","lat":51.75,"lng":18.86,"typ":"gmina","sieci":2}],
+  "kujawsko-pomorskie": [{"n":"Bydgoszcz","lat":53.12,"lng":18.01,"typ":"gmina","sieci":4},{"n":"Toruń","lat":53.01,"lng":18.60,"typ":"gmina","sieci":4},{"n":"Włocławek","lat":52.65,"lng":19.07,"typ":"gmina","sieci":4},{"n":"Inowrocław","lat":52.79,"lng":18.26,"typ":"gmina","sieci":3},{"n":"Brodnica","lat":53.25,"lng":19.40,"typ":"gmina","sieci":3},{"n":"Chełmno","lat":53.35,"lng":18.42,"typ":"gmina","sieci":2},{"n":"Nakło nad Notecią","lat":53.14,"lng":17.60,"typ":"gmina","sieci":2},{"n":"Sępólno Krajeńskie","lat":53.45,"lng":17.53,"typ":"gmina","sieci":2},{"n":"Janowiec Wielkopolski","lat":52.75,"lng":17.49,"typ":"gmina","sieci":2},{"n":"Piotrków Kujawski","lat":52.53,"lng":18.54,"typ":"gmina","sieci":2},{"n":"Aleksandrów Kujawski","lat":52.87,"lng":18.70,"typ":"gmina","sieci":2},{"n":"Nieszawa","lat":52.85,"lng":18.75,"typ":"gmina","sieci":2},{"n":"Kowalewo Pomorskie","lat":53.17,"lng":18.87,"typ":"gmina","sieci":2},{"n":"Golub-Dobrzyń","lat":53.11,"lng":19.05,"typ":"gmina","sieci":2},{"n":"Wąbrzeźno","lat":53.28,"lng":18.94,"typ":"gmina","sieci":2},{"n":"Rypin","lat":53.07,"lng":19.41,"typ":"gmina","sieci":2},{"n":"Lipno","lat":52.85,"lng":19.18,"typ":"gmina","sieci":2},{"n":"Dobrzyń nad Wisłą","lat":52.64,"lng":19.34,"typ":"gmina","sieci":2},{"n":"Kikoł","lat":52.79,"lng":19.20,"typ":"gmina","sieci":2},{"n":"Chrostkowo","lat":52.94,"lng":19.31,"typ":"gmina","sieci":2},{"n":"Brześć Kujawski","lat":52.61,"lng":18.90,"typ":"gmina","sieci":2},{"n":"Kowal","lat":52.53,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Lubraniec","lat":52.53,"lng":18.85,"typ":"gmina","sieci":2},{"n":"Izbica Kujawska","lat":52.42,"lng":18.76,"typ":"gmina","sieci":2},{"n":"Chodecz","lat":52.40,"lng":19.03,"typ":"gmina","sieci":2},{"n":"Lubień Kujawski","lat":52.39,"lng":19.16,"typ":"gmina","sieci":2},{"n":"Baruchowo","lat":52.53,"lng":19.28,"typ":"gmina","sieci":2},{"n":"Fabianki","lat":52.72,"lng":19.10,"typ":"gmina","sieci":2},{"n":"Bobrowniki","lat":52.75,"lng":19.05,"typ":"gmina","sieci":2},{"n":"Jabłonowo Pomorskie","lat":53.39,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Bartniczka","lat":53.28,"lng":19.53,"typ":"gmina","sieci":2},{"n":"Zbiczno","lat":53.31,"lng":19.35,"typ":"gmina","sieci":2},{"n":"Bobrowo","lat":53.31,"lng":19.28,"typ":"gmina","sieci":2},{"n":"Dragacz","lat":53.47,"lng":18.74,"typ":"gmina","sieci":2},{"n":"Radzyń Chełmiński","lat":53.38,"lng":18.93,"typ":"gmina","sieci":2},{"n":"Lisewo","lat":53.28,"lng":18.52,"typ":"gmina","sieci":2},{"n":"Papowo Biskupie","lat":53.24,"lng":18.60,"typ":"gmina","sieci":2},{"n":"Dąbrowa Chełmińska","lat":53.19,"lng":18.28,"typ":"gmina","sieci":2},{"n":"Zławieś Wielka","lat":53.10,"lng":18.35,"typ":"gmina","sieci":2}],
+  "lubelskie": [{"n":"Lublin","lat":51.25,"lng":22.57,"typ":"gmina","sieci":4},{"n":"Zamość","lat":50.72,"lng":23.25,"typ":"gmina","sieci":3},{"n":"Chełm","lat":51.14,"lng":23.47,"typ":"gmina","sieci":3},{"n":"Biała Podlaska","lat":52.03,"lng":23.12,"typ":"gmina","sieci":3},{"n":"Łuków","lat":51.93,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Radzyń Podlaski","lat":51.78,"lng":22.62,"typ":"gmina","sieci":2},{"n":"Parczew","lat":51.64,"lng":22.90,"typ":"gmina","sieci":2},{"n":"Włodawa","lat":51.55,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Hrubieszów","lat":50.81,"lng":23.89,"typ":"gmina","sieci":2},{"n":"Tomaszów Lubelski","lat":50.45,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Biłgoraj","lat":50.54,"lng":22.72,"typ":"gmina","sieci":2},{"n":"Janów Lubelski","lat":50.71,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Opole Lubelskie","lat":51.15,"lng":21.97,"typ":"gmina","sieci":2},{"n":"Trawniki","lat":51.13,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Ostrów Lubelski","lat":51.49,"lng":22.85,"typ":"gmina","sieci":2},{"n":"Kazimierz Dolny","lat":51.32,"lng":21.95,"typ":"gmina","sieci":2},{"n":"Żyrzyn","lat":51.49,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Zakrzew (lubelski)","lat":51.04,"lng":22.35,"typ":"gmina","sieci":2},{"n":"Nowodwór","lat":51.72,"lng":22.03,"typ":"gmina","sieci":2},{"n":"Ułęż","lat":51.63,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Kłoczew","lat":51.72,"lng":21.88,"typ":"gmina","sieci":2},{"n":"Adamów","lat":51.75,"lng":22.25,"typ":"gmina","sieci":2},{"n":"Serokomla","lat":51.72,"lng":22.20,"typ":"gmina","sieci":2},{"n":"Wojcieszków","lat":51.83,"lng":22.28,"typ":"gmina","sieci":2},{"n":"Stanin","lat":51.85,"lng":22.32,"typ":"gmina","sieci":2},{"n":"Trzebieszów","lat":51.94,"lng":22.55,"typ":"gmina","sieci":2},{"n":"Ulan-Majorat","lat":51.85,"lng":22.55,"typ":"gmina","sieci":2},{"n":"Kąkolewnica","lat":51.87,"lng":22.65,"typ":"gmina","sieci":2},{"n":"Międzyrzec Podlaski","lat":51.98,"lng":22.79,"typ":"gmina","sieci":2},{"n":"Wisznice","lat":51.79,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Rossosz","lat":51.86,"lng":23.08,"typ":"gmina","sieci":2},{"n":"Łomazy","lat":51.90,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Piszczac","lat":52.00,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Kodeń","lat":51.91,"lng":23.61,"typ":"gmina","sieci":2},{"n":"Janów Podlaski","lat":52.19,"lng":23.21,"typ":"gmina","sieci":2},{"n":"Leśna Podlaska","lat":52.13,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Rokitno","lat":52.10,"lng":23.24,"typ":"gmina","sieci":2},{"n":"Zalesie","lat":52.10,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Sławatycze","lat":51.79,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Hanna","lat":51.72,"lng":23.53,"typ":"gmina","sieci":2},{"n":"Dubienka","lat":51.05,"lng":23.87,"typ":"gmina","sieci":2},{"n":"Dorohusk","lat":51.15,"lng":23.79,"typ":"gmina","sieci":2},{"n":"Rejowiec","lat":51.02,"lng":23.28,"typ":"gmina","sieci":2},{"n":"Siedliszcze","lat":51.16,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Sawin","lat":51.28,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Ruda-Huta","lat":51.20,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Wierzbica (chełmska)","lat":51.05,"lng":23.32,"typ":"gmina","sieci":2},{"n":"Żółkiewka","lat":50.86,"lng":22.86,"typ":"gmina","sieci":2},{"n":"Gorzków","lat":50.90,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Grabowiec","lat":50.83,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Miączyn","lat":50.75,"lng":23.50,"typ":"gmina","sieci":2},{"n":"Józefów (biłgorajski)","lat":50.48,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Susiec","lat":50.42,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Komarów-Osada","lat":50.61,"lng":23.48,"typ":"gmina","sieci":2},{"n":"Tarnogród","lat":50.36,"lng":22.74,"typ":"gmina","sieci":2},{"n":"Józefów Roztoczański","lat":50.48,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Terespol","lat":52.07,"lng":23.61,"typ":"gmina","sieci":2}],
+  "podlaskie": [{"n":"Białystok","lat":53.13,"lng":23.16,"typ":"gmina","sieci":4},{"n":"Suwałki","lat":54.10,"lng":22.93,"typ":"gmina","sieci":3},{"n":"Łomża","lat":53.18,"lng":22.06,"typ":"gmina","sieci":3},{"n":"Bielsk Podlaski","lat":52.77,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Zambrów","lat":52.98,"lng":22.24,"typ":"gmina","sieci":2},{"n":"Wysokie Mazowieckie","lat":52.92,"lng":22.51,"typ":"gmina","sieci":2},{"n":"Sejny","lat":54.11,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Dąbrowa Białostocka","lat":53.65,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Jasionówka","lat":53.46,"lng":22.99,"typ":"gmina","sieci":2},{"n":"Stawiski","lat":53.38,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Jedwabne","lat":53.29,"lng":22.30,"typ":"gmina","sieci":2},{"n":"Nowogród","lat":53.22,"lng":21.88,"typ":"gmina","sieci":2},{"n":"Piątnica","lat":53.19,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Wizna","lat":53.19,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Śniadowo","lat":53.03,"lng":22.02,"typ":"gmina","sieci":2},{"n":"Miastkowo","lat":53.09,"lng":21.87,"typ":"gmina","sieci":2},{"n":"Czerwone","lat":53.32,"lng":21.98,"typ":"gmina","sieci":2},{"n":"Turośl","lat":53.42,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Zbójna","lat":53.30,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Łomża-Wschód","lat":53.16,"lng":22.15,"typ":"gmina","sieci":2},{"n":"Rutki","lat":53.10,"lng":22.51,"typ":"gmina","sieci":2},{"n":"Kołaki","lat":53.02,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Szumowo","lat":52.90,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Andrzejewo","lat":52.85,"lng":22.22,"typ":"gmina","sieci":2},{"n":"Klukowo","lat":52.75,"lng":22.42,"typ":"gmina","sieci":2},{"n":"Nowe Piekuty","lat":52.83,"lng":22.62,"typ":"gmina","sieci":2},{"n":"Kulesze Kościelne","lat":52.98,"lng":22.55,"typ":"gmina","sieci":2},{"n":"Rudka","lat":52.63,"lng":22.75,"typ":"gmina","sieci":2},{"n":"Czeremcha","lat":52.51,"lng":23.34,"typ":"gmina","sieci":2},{"n":"Białowieża","lat":52.70,"lng":23.86,"typ":"gmina","sieci":2},{"n":"Dubicze Cerkiewne","lat":52.64,"lng":23.51,"typ":"gmina","sieci":2},{"n":"Nurzec-Stacja","lat":52.51,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Perlejewo","lat":52.62,"lng":22.63,"typ":"gmina","sieci":2},{"n":"Filipów","lat":54.18,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Bakałarzewo","lat":54.07,"lng":22.65,"typ":"gmina","sieci":2},{"n":"Raczki","lat":53.98,"lng":22.78,"typ":"gmina","sieci":2},{"n":"Nowinka","lat":53.92,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Płaska","lat":53.94,"lng":23.24,"typ":"gmina","sieci":2},{"n":"Giby","lat":54.05,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Krasnopol","lat":54.08,"lng":23.28,"typ":"gmina","sieci":2},{"n":"Puńsk","lat":54.24,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Szypliszki","lat":54.20,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Jeleniewo","lat":54.18,"lng":22.86,"typ":"gmina","sieci":2},{"n":"Suwałki-Wschód","lat":54.09,"lng":23.00,"typ":"gmina","sieci":2},{"n":"Wiżajny","lat":54.38,"lng":22.86,"typ":"gmina","sieci":2}],
+  "warmińsko-mazurskie": [{"n":"Olsztyn","lat":53.78,"lng":20.49,"typ":"gmina","sieci":4},{"n":"Ełk","lat":53.83,"lng":22.36,"typ":"gmina","sieci":3},{"n":"Giżycko","lat":54.04,"lng":21.77,"typ":"gmina","sieci":2},{"n":"Szczytno","lat":53.56,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Pisz","lat":53.63,"lng":21.81,"typ":"gmina","sieci":2},{"n":"Lidzbark Warmiński","lat":54.13,"lng":20.58,"typ":"gmina","sieci":2},{"n":"Olecko","lat":54.03,"lng":22.50,"typ":"gmina","sieci":2},{"n":"Gołdap","lat":54.31,"lng":22.31,"typ":"gmina","sieci":2},{"n":"Węgorzewo","lat":54.21,"lng":21.74,"typ":"gmina","sieci":2},{"n":"Nowe Miasto Lubawskie","lat":53.42,"lng":19.60,"typ":"gmina","sieci":2},{"n":"Dobrze Miasto-Wieś","lat":53.99,"lng":20.42,"typ":"gmina","sieci":2},{"n":"Wilczęta","lat":54.15,"lng":19.75,"typ":"gmina","sieci":2},{"n":"Górowo Iławeckie","lat":54.28,"lng":20.49,"typ":"gmina","sieci":2},{"n":"Srokowo","lat":54.22,"lng":21.52,"typ":"gmina","sieci":2},{"n":"Barciany","lat":54.20,"lng":21.35,"typ":"gmina","sieci":2},{"n":"Kruklanki","lat":54.11,"lng":21.94,"typ":"gmina","sieci":2},{"n":"Pozezdrze","lat":54.14,"lng":21.86,"typ":"gmina","sieci":2},{"n":"Budry","lat":54.25,"lng":21.98,"typ":"gmina","sieci":2},{"n":"Banie Mazurskie","lat":54.25,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Kowale Oleckie","lat":54.14,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Świętajno","lat":54.05,"lng":22.35,"typ":"gmina","sieci":2},{"n":"Wieliczki","lat":54.00,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Prostki","lat":53.70,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Kalinowo","lat":53.83,"lng":22.55,"typ":"gmina","sieci":2},{"n":"Stare Juchy","lat":53.94,"lng":22.16,"typ":"gmina","sieci":2},{"n":"Ryn","lat":53.94,"lng":21.55,"typ":"gmina","sieci":2},{"n":"Miłki","lat":53.94,"lng":21.80,"typ":"gmina","sieci":2},{"n":"Wydminy","lat":53.99,"lng":22.00,"typ":"gmina","sieci":2},{"n":"Orzysz","lat":53.81,"lng":21.94,"typ":"gmina","sieci":2},{"n":"Biała Piska","lat":53.61,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Ruciane-Nida","lat":53.65,"lng":21.60,"typ":"gmina","sieci":2},{"n":"Świętajno-Szczytno","lat":53.65,"lng":21.14,"typ":"gmina","sieci":2},{"n":"Rozogi","lat":53.44,"lng":21.35,"typ":"gmina","sieci":2},{"n":"Wielbark","lat":53.40,"lng":20.94,"typ":"gmina","sieci":2},{"n":"Janowiec Kościelny","lat":53.20,"lng":20.50,"typ":"gmina","sieci":2},{"n":"Biskupiec Pomorski","lat":53.45,"lng":19.44,"typ":"gmina","sieci":2}],
+}
+
+
+# Scalamy rozszerzenie z bazą główną. Kolejność ma znaczenie: pierwszy wpis
+# o danej nazwie wygrywa, więc dane oryginalne nie są nadpisywane.
+for _w_roz, _lista_roz in MIASTA_ROZSZERZENIE.items():
+    _istniejace = {str(_m.get("n", "")).lower() for _m in MIASTA_RAW.get(_w_roz, [])}
+    for _m_roz in _lista_roz:
+        if str(_m_roz.get("n", "")).lower() not in _istniejace:
+            MIASTA_RAW.setdefault(_w_roz, []).append(_m_roz)
+            _istniejace.add(str(_m_roz.get("n", "")).lower())
 
 # --- Offline baza współrzędnych miast (z MIASTA_RAW) ---------------------
 # UWAGA: MIASTA_RAW zawiera głównie mniejsze gminy — brakuje w niej WIĘKSZOŚCI
@@ -11519,6 +11715,16 @@ class App(QMainWindow):
         self.e_imie = GrubyKursorEdit(); self.e_imie.setPlaceholderText("np. Jan Kowalski")
         self.si_imie = StyledInput("user", self.e_imie, self.is_dark, self.card_top_frame)
         w_imie, self.l_imie = field("Imię i nazwisko", self.si_imie)
+        # Dane osoby biorą się z konta, na które zalogowano program. Pole jest
+        # zablokowane — dokument można wystawić tylko na siebie, nie na kolegę.
+        _imie_konta = online_imie_uzytkownika()
+        if _imie_konta:
+            self.e_imie.setText(_imie_konta)
+            self.e_imie.setReadOnly(True)
+            self.e_imie.setToolTip("Dane z Twojego konta (kod " +
+                                   str(online_kod_uzytkownika() or "?") +
+                                   ") — nie można ich zmienić.")
+            self.l_imie.setText("Imię i nazwisko (z konta)")
         
         self.e_pesel = GrubyKursorEdit(); self.e_pesel.setPlaceholderText("np. 85010112345")
         self.si_pesel = StyledInput("card", self.e_pesel, self.is_dark, self.card_top_frame)
@@ -11571,6 +11777,33 @@ class App(QMainWindow):
 
         row1_b.addWidget(w_kwota); row1_b.addWidget(w_mies); row1_b.addWidget(w_silnik)
         cr.addLayout(row1_b)
+
+        # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
+        row2_b = QHBoxLayout(); row2_b.setSpacing(16)
+        self.c_tryb = QComboBox()
+        self.c_tryb.addItems(["cykl tygodniowy", "wieczory i weekendy"])
+        self.c_tryb.setCurrentIndex(0)
+        self.si_tryb = StyledInput("clock", self.c_tryb, self.is_dark, self.card_bot_frame)
+        w_tryb, self.l_tryb = field("Tryb pracy", self.si_tryb)
+
+        # Podpowiedź obok wyboru: co dokładnie oznacza każdy tryb. Sam wybór
+        # jest jednoznaczny — bez godzin i dni do klikania przez użytkownika.
+        self.lbl_tryb_opis = QLabel("")
+        self.lbl_tryb_opis.setWordWrap(True)
+        def _tryb_zmieniony(idx):
+            if idx == 1:
+                self.lbl_tryb_opis.setText(
+                    "Trasy po godzinach: start ok. 16:30, ostatnia placówka do 22:00 "
+                    "i powrót do bazy. Soboty liczą się jak zwykłe dni, niedziele tylko "
+                    "handlowe — program sam sprawdza, czy w danym miesiącu takie są.")
+            else:
+                self.lbl_tryb_opis.setText(
+                    "Trasy w dni robocze, od poniedziałku do piątku, bez świąt.")
+        self.c_tryb.currentIndexChanged.connect(_tryb_zmieniony)
+        _tryb_zmieniony(0)
+
+        row2_b.addWidget(w_tryb, 1); row2_b.addWidget(self.lbl_tryb_opis, 2)
+        cr.addLayout(row2_b)
 
         cards_layout.addWidget(self.card_bot_frame)
 
@@ -12703,6 +12936,10 @@ class App(QMainWindow):
             kwota = waliduj_kwote(kwota_s)
             woj = rozpoznaj_wojewodztwo(adres_d['kod_pocztowy'])
 
+            # Tryb pracy MUSI być ustawiony przed pobraniem dni — od niego
+            # zależy, czy w planie znajdą się soboty i niedziele handlowe,
+            # oraz jak długi jest dzień pracy.
+            ustaw_tryb_pracy("wieczory" if self.c_tryb.currentIndex() == 1 else "tydzien")
             dni = pobierz_dni_robocze(rok, mies)
             # Każdy dzień pracy = maksymalnie jeden limit delegacji (~587 zł).
             # Górna granica kwoty to liczba dni roboczych × limit delegacji.

@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.14.6"
+WERSJA_PROGRAMU = "3.14.8"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -11832,7 +11832,7 @@ class App(QMainWindow):
             return w, l
 
         self.card_top_frame = QFrame()
-        self.card_top_frame.setMinimumHeight(170)
+        self.card_top_frame.setMinimumHeight(178)   # zapas na pole adresu (dwa wiersze)
         sh1 = QGraphicsDropShadowEffect(self.card_top_frame); sh1.setBlurRadius(30); sh1.setColor(QColor(0, 0, 0, 80)); sh1.setOffset(0, 8); self.card_top_frame.setGraphicsEffect(sh1)
         cl = QVBoxLayout(self.card_top_frame); cl.setContentsMargins(20, 14, 20, 14); cl.setSpacing(12)
         
@@ -11878,7 +11878,10 @@ class App(QMainWindow):
         cards_layout.addWidget(self.card_top_frame)
         
         self.card_bot_frame = QFrame()
-        self.card_bot_frame.setMinimumHeight(115)
+        self.card_bot_frame.setMinimumHeight(200)   # dwa wiersze pol: kwota/miesiac/silnik + tryb/dni/opis
+        # Karta ma rosnac razem z zawartoscia — inaczej dolny wiersz jest ucinany.
+        self.card_bot_frame.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                         QSizePolicy.Policy.MinimumExpanding)
         sh2 = QGraphicsDropShadowEffect(self.card_bot_frame); sh2.setBlurRadius(30); sh2.setColor(QColor(0, 0, 0, 80)); sh2.setOffset(0, 8); self.card_bot_frame.setGraphicsEffect(sh2)
         cr = QVBoxLayout(self.card_bot_frame); cr.setContentsMargins(20, 14, 20, 14); cr.setSpacing(12)
         
@@ -11949,7 +11952,7 @@ class App(QMainWindow):
         # jest jednoznaczny — bez godzin i dni do klikania przez użytkownika.
         self.lbl_tryb_opis = QLabel("")
         self.lbl_tryb_opis.setWordWrap(True)
-        self.lbl_tryb_opis.setMinimumHeight(46)
+        self.lbl_tryb_opis.setMinimumHeight(32)
         self.lbl_tryb_opis.setStyleSheet(
             "QLabel { color:%s; font-family:'Segoe UI'; font-size:11px;"
             " background:transparent; border:none; }"
@@ -11989,7 +11992,15 @@ class App(QMainWindow):
 
         # ---- Formularz (lewa) + Panel Asystenta (prawa) obok siebie ----
         self.body_row = QHBoxLayout(); self.body_row.setContentsMargins(0, 0, 0, 0); self.body_row.setSpacing(16)
-        self.body_row.addWidget(self.cards_wrap, 1)
+        # Formularz w obszarze przewijanym — przy mniejszym ekranie lub
+        # powiekszonym skalowaniu Windows nic nie zostanie obciete.
+        self.cards_scroll = QScrollArea()
+        self.cards_scroll.setWidgetResizable(True)
+        self.cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.cards_scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+        self.cards_scroll.setWidget(self.cards_wrap)
+        self.body_row.addWidget(self.cards_scroll, 1)
         self.assistant = AssistantPanel(self.is_dark)
         self.body_row.addWidget(self.assistant, 0)
         body_l.addLayout(self.body_row)

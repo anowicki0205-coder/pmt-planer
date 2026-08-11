@@ -1,2 +1,2 @@
-3.14.6
-Poprawki trybu wieczorno-weekendowego: trasy startuja po 16:15 i koncza sie przed 22:00 (wczesniej zawsze rano), soboty i niedziele handlowe naprawde wchodza do planu, kalendarz wylaczania dni pokazuje dni wlasciwe dla wybranego trybu. Uklad: tryb pracy, wylaczanie dni i opis w jednym wierszu, bez zbednych ramek.
+3.14.8
+Poprawka wygladu: formularz w obszarze przewijanym i karty rosnace razem z zawartoscia — nic nie jest obcinane niezaleznie od rozdzielczosci i skalowania Windows.

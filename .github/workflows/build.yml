@@ -67,25 +67,32 @@ jobs:
           # przy aktualizacji obie kopie wchodza sobie w droge i pojawia sie
           # blad "Failed to load Python DLL". Losowy katalog na kazde
           # uruchomienie jest tu bezpieczniejszy.
-          pyinstaller --onefile --windowed \
+          # TRYB FOLDEROWY (--onedir). Program NIE rozpakowuje sie przy starcie —
+          # biblioteki leza gotowe obok pliku .exe. To usuwa u zrodla blad
+          # "Failed to load Python DLL": nie ma czego rozpakowywac, wiec nie ma
+          # kolizji z antywirusem, chmura ani druga instancja programu.
+          # Start jest tez znacznie szybszy (brak wypakowywania 48 MB).
+          pyinstaller --onedir --windowed \
             --name PMT_Planer \
             --icon pmt_logo.ico \
             $DODAJ \
             PMT_Delegacje.py
 
-      - name: Sprawdź, czy .exe powstał
+      - name: Sprawdź, czy program powstał
         shell: bash
         run: |
-          test -f dist/PMT_Planer.exe || { echo "BRAK dist/PMT_Planer.exe"; exit 1; }
-          ls -la dist/
+          test -f dist/PMT_Planer/PMT_Planer.exe || { echo "BRAK dist/PMT_Planer/PMT_Planer.exe"; exit 1; }
+          ls -la dist/PMT_Planer/ | head -20
 
       - name: Spakuj do zip
         shell: bash
         run: |
+          # W archiwum ma byc FOLDER "PMT_Planer" z plikiem .exe i katalogiem
+          # _internal. Aktualizator rozpoznaje ten uklad i podmienia caly folder.
           cd dist
-          7z a ../PMT_Planer.Windows.zip PMT_Planer.exe
+          7z a ../PMT_Planer.Windows.zip PMT_Planer
           cd ..
-          7z l PMT_Planer.Windows.zip     # kontrola: co jest w archiwum
+          7z l PMT_Planer.Windows.zip | head -25
 
       - name: Dołącz do wydania
         uses: softprops/action-gh-release@v2
@@ -138,7 +145,7 @@ jobs:
                    DejaVuSans.ttf DejaVuSans-Bold.ttf; do
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z:."; fi
           done
-          pyinstaller --onefile --windowed \
+          pyinstaller --onedir --windowed \
             --name PMT_Planer \
             --icon "${{ matrix.ikona }}" \
             $DODAJ \
@@ -148,7 +155,7 @@ jobs:
         shell: bash
         run: |
           cd dist
-          zip -j ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
+          zip -r ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
 
       - name: Dołącz do wydania
         uses: softprops/action-gh-release@v2

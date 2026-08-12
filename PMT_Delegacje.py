@@ -790,6 +790,8 @@ URL_API_RELEASE = "https://api.github.com/repos/anowicki0205-coder/pmt-planer/re
 # ten plik na GitHubie, bez wydawania nowej wersji programu — poprawka działa
 # natychmiast u WSZYSTKICH użytkowników, niezależnie jaką wersję .exe mają.
 URL_UPDATERA = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.bat"
+# Wersja folderowa programu (bez rozpakowywania przy starcie) uzywa innego skryptu:
+URL_UPDATERA_FOLDER = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater_folder.bat"
 # odpowiednik dla macOS i Linuksa — ta sama idea: poprawka na GitHubie
 # działa natychmiast u wszystkich, bez wydawania nowej wersji programu
 URL_UPDATERA_SH = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.sh"
@@ -798,6 +800,19 @@ URL_UPDATERA_SH = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-plan
 def czy_zamrozony() -> bool:
     """Czy działamy jako .exe (PyInstaller)? Tylko wtedy da się podmienić plik."""
     return bool(getattr(sys, "frozen", False))
+
+
+def czy_wersja_folderowa() -> bool:
+    """Wersja folderowa ma obok pliku .exe katalog "_internal" z bibliotekami.
+    Wersja jednoplikowa rozpakowuje sie do katalogu tymczasowego (sys._MEIPASS
+    wskazuje wtedy poza folder programu)."""
+    try:
+        if not getattr(sys, "frozen", False):
+            return False
+        katalog = os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.isdir(os.path.join(katalog, "_internal"))
+    except Exception:
+        return False
 
 
 def sciezka_programu() -> str:
@@ -938,7 +953,10 @@ def przygotuj_skrypt_aktualizacji(nowy_plik: str, docelowy: str, pid: int):
                 pass
         return zbuduj_skrypt_podmiany_sh(nowy_plik, docelowy, pid), []
 
-    tekst = pobierz_tekst_url(URL_UPDATERA)
+    # Wersja folderowa ma wlasny skrypt — podmienia caly katalog programu,
+    # a nie pojedynczy plik .exe.
+    _url_skryptu = URL_UPDATERA_FOLDER if czy_wersja_folderowa() else URL_UPDATERA
+    tekst = pobierz_tekst_url(_url_skryptu)
     # prosta weryfikacja, że to nasz skrypt, a nie np. strona błędu GitHuba
     if tekst and "setlocal enabledelayedexpansion" in tekst and len(tekst) < 20000:
         bat = os.path.join(tempfile.gettempdir(), "pmt_updater_zdalny.bat")
@@ -7176,6 +7194,11 @@ class PobieranieAktualizacjiThread(QThread):
 
             if czy_zip:
                 self.postep.emit(0.85, "Rozpakowuję…")
+                # Najpierw sprawdzamy, czy to nowe wydanie FOLDEROWE.
+                folder_nowej = self._rozpakuj_folder(pobrany)
+                if folder_nowej:
+                    self.gotowe.emit(folder_nowej)
+                    return
                 cel = self._rozpakuj_exe(pobrany)
                 if not cel:
                     self.blad.emit("W pobranym archiwum nie znalazłem pliku programu.")
@@ -7195,6 +7218,43 @@ class PobieranieAktualizacjiThread(QThread):
             self.sukces.emit(cel)
         except Exception as e:
             self.blad.emit(f"Nie udało się pobrać aktualizacji: {e}")
+
+    def _rozpakuj_folder(self, zip_path: str):
+        """Nowe wydania to FOLDER z programem (plik .exe + katalog _internal).
+        Zwraca sciezke do rozpakowanego folderu albo None, gdy archiwum jest
+        starego typu (pojedynczy plik)."""
+        try:
+            with zipfile.ZipFile(zip_path, "r") as z:
+                nazwy = [i.filename for i in z.infolist() if not i.is_dir()]
+                # cecha wersji folderowej: katalog _internal obok programu
+                if not any("_internal/" in n or "_internal\\" in n for n in nazwy):
+                    return None
+                cel = os.path.join(tempfile.gettempdir(), "PMT_Planer_nowa_wersja")
+                if os.path.isdir(cel):
+                    shutil.rmtree(cel, ignore_errors=True)
+                os.makedirs(cel, exist_ok=True)
+                z.extractall(cel)
+            # jesli w archiwum byl jeden folder nadrzedny — wchodzimy do niego
+            wpisy = [w for w in os.listdir(cel) if not w.startswith(".")]
+            if len(wpisy) == 1 and os.path.isdir(os.path.join(cel, wpisy[0])):
+                cel = os.path.join(cel, wpisy[0])
+            nazwa_exe = os.path.basename(sys.executable)
+            if not os.path.exists(os.path.join(cel, nazwa_exe)):
+                # w paczce program moze nazywac sie inaczej niz plik uzytkownika
+                for w in os.listdir(cel):
+                    if w.lower().endswith(".exe") or (not CZY_WINDOWS and "." not in w):
+                        try:
+                            shutil.copy2(os.path.join(cel, w), os.path.join(cel, nazwa_exe))
+                        except Exception:
+                            pass
+                        break
+            try:
+                os.remove(zip_path)
+            except Exception:
+                pass
+            return cel
+        except Exception:
+            return None
 
     def _rozpakuj_exe(self, zip_path: str) -> str:
         """Wyciąga plik .exe z archiwum do katalogu tymczasowego. Jeśli

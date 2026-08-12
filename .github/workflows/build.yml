@@ -63,14 +63,13 @@ jobs:
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z;."; echo "dolaczam: $Z";
             else echo "POMIJAM (brak w repo): $Z"; fi
           done
-          # --runtime-tmpdir: program rozpakowuje sie ZAWSZE do tego samego,
-          # lokalnego katalogu zamiast losowego _MEI w %TEMP%. Dzieki temu nie
-          # wchodzi w droge synchronizacji chmury ani czyszczeniu folderu temp,
-          # co bylo przyczyna bledow "Failed to load Python DLL".
+          # oznacza, ze stara i nowa wersja uzywaja TEGO SAMEGO folderu —
+          # przy aktualizacji obie kopie wchodza sobie w droge i pojawia sie
+          # blad "Failed to load Python DLL". Losowy katalog na kazde
+          # uruchomienie jest tu bezpieczniejszy.
           pyinstaller --onefile --windowed \
             --name PMT_Planer \
             --icon pmt_logo.ico \
-            --runtime-tmpdir "%LOCALAPPDATA%\PMT_Planer" \
             $DODAJ \
             PMT_Delegacje.py
 

@@ -1,2 +1,2 @@
-3.14.9
-Poprawka wygladu: wszystkie parametry trasy w jednym wierszu (kwota, miesiac, silnik, tryb pracy, wylaczanie dni) — koniec z przewijaniem i ukrytymi opcjami. Opis wybranego trybu pojawia sie w podtytule karty.
+3.15.0
+Zwarty uklad parametrow trasy (mniej pustego miejsca), wyrazny bursztynowy przycisk wylaczania dni z ikona kalendarza. Zmiana w budowaniu: usunieto staly katalog rozpakowania, ktory powodowal kolizje starej i nowej wersji przy aktualizacji.

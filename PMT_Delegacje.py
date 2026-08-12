@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.14.9"
+WERSJA_PROGRAMU = "3.15.0"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -11881,7 +11881,7 @@ class App(QMainWindow):
         self.card_bot_frame.setMinimumHeight(118)   # jeden wiersz — wszystko widoczne bez przewijania
 
         sh2 = QGraphicsDropShadowEffect(self.card_bot_frame); sh2.setBlurRadius(30); sh2.setColor(QColor(0, 0, 0, 80)); sh2.setOffset(0, 8); self.card_bot_frame.setGraphicsEffect(sh2)
-        cr = QVBoxLayout(self.card_bot_frame); cr.setContentsMargins(20, 14, 20, 14); cr.setSpacing(12)
+        cr = QVBoxLayout(self.card_bot_frame); cr.setContentsMargins(20, 12, 20, 12); cr.setSpacing(6)
         
         self.ic_map_wrap = QWidget(); self.ic_map_wrap.setStyleSheet("background: transparent;"); l_m = QHBoxLayout(self.ic_map_wrap); l_m.setContentsMargins(0,0,0,0); l_m.setSpacing(12)
         self.ic_map = SvgIconLabel("map", parent=self.ic_map_wrap, size=24)
@@ -11916,9 +11916,9 @@ class App(QMainWindow):
         # Tryb pracy i wyłączanie dni w TYM SAMYM wierszu co kwota i miesiąc —
         # nic nie schodzi poniżej krawędzi okna, więc żadna opcja nie umknie.
         def _kolumna(etykieta_txt, zawartosc):
-            kol = QVBoxLayout(); kol.setSpacing(4); kol.setContentsMargins(0, 0, 0, 0)
+            kol = QVBoxLayout(); kol.setSpacing(3); kol.setContentsMargins(0, 0, 0, 0)
             lab = QLabel(etykieta_txt)
-            lab.setStyleSheet("QLabel { color:%s; font-family:'Segoe UI'; font-size:10.5px;"
+            lab.setStyleSheet("QLabel { color:%s; font-family:'Segoe UI'; font-size:11px;"
                               " font-weight:700; letter-spacing:0.4px; background:transparent;"
                               " border:none; }" % ("#94A3B8" if self.is_dark else "#475569"))
             kol.addWidget(lab)
@@ -12830,15 +12830,23 @@ class App(QMainWindow):
 
     def _odswiez_przycisk_dni(self):
         ile = len(getattr(self, "dni_wylaczone", ()))
-        self.btn_wylacz_dni.setText(f"Wyłączone: {ile}" if ile else "Wyłącz dni")
-        akcent = "#FBBF24" if ile else ("#94A3B8" if self.is_dark else "#475569")
-        self.btn_wylacz_dni.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,0.05); color:%s;"
-            " border:1px solid %s; border-radius:8px; font-family:'Segoe UI';"
-            " font-size:13px; font-weight:%s; padding:6px 12px; }"
-            "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }"
-            % (akcent, ("rgba(251,191,36,0.55)" if ile else "rgba(255,255,255,0.28)"),
-               ("800" if ile else "600")))
+        self.btn_wylacz_dni.setText(f"\U0001F4C5  Wyłączone: {ile}" if ile else "\U0001F4C5  Wyłącz dni")
+        # Bez wyłączonych dni: wyraźny bursztynowy obrys (żeby przycisk nie ginął).
+        # Z wyłączonymi dniami: pełne bursztynowe wypełnienie — widać na pierwszy rzut oka.
+        if ile:
+            self.btn_wylacz_dni.setStyleSheet(
+                "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                " stop:0 #FBBF24, stop:1 #F59E0B); color:#1A1206; border:none;"
+                " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
+                " font-weight:800; padding:7px 14px; }"
+                "QPushButton:hover { background:#FCD34D; }")
+        else:
+            self.btn_wylacz_dni.setStyleSheet(
+                "QPushButton { background: rgba(251,191,36,0.10); color:#FBBF24;"
+                " border:1.5px solid rgba(251,191,36,0.65); border-radius:8px;"
+                " font-family:'Segoe UI'; font-size:13px; font-weight:800;"
+                " padding:7px 14px; }"
+                "QPushButton:hover { background:#FBBF24; color:#1A1206; }")
 
     def _otworz_wylaczanie_dni(self):
         """Kalendarz miesiąca rozliczenia: zaznacz dni, w których nie pracujesz.

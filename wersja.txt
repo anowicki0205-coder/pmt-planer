@@ -1,2 +1,2 @@
-3.14.8
-Poprawka wygladu: formularz w obszarze przewijanym i karty rosnace razem z zawartoscia — nic nie jest obcinane niezaleznie od rozdzielczosci i skalowania Windows.
+3.14.9
+Poprawka wygladu: wszystkie parametry trasy w jednym wierszu (kwota, miesiac, silnik, tryb pracy, wylaczanie dni) — koniec z przewijaniem i ukrytymi opcjami. Opis wybranego trybu pojawia sie w podtytule karty.

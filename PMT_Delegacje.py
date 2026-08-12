@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.14.8"
+WERSJA_PROGRAMU = "3.14.9"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -11878,10 +11878,8 @@ class App(QMainWindow):
         cards_layout.addWidget(self.card_top_frame)
         
         self.card_bot_frame = QFrame()
-        self.card_bot_frame.setMinimumHeight(200)   # dwa wiersze pol: kwota/miesiac/silnik + tryb/dni/opis
-        # Karta ma rosnac razem z zawartoscia — inaczej dolny wiersz jest ucinany.
-        self.card_bot_frame.setSizePolicy(QSizePolicy.Policy.Preferred,
-                                         QSizePolicy.Policy.MinimumExpanding)
+        self.card_bot_frame.setMinimumHeight(118)   # jeden wiersz — wszystko widoczne bez przewijania
+
         sh2 = QGraphicsDropShadowEffect(self.card_bot_frame); sh2.setBlurRadius(30); sh2.setColor(QColor(0, 0, 0, 80)); sh2.setOffset(0, 8); self.card_bot_frame.setGraphicsEffect(sh2)
         cr = QVBoxLayout(self.card_bot_frame); cr.setContentsMargins(20, 14, 20, 14); cr.setSpacing(12)
         
@@ -11914,57 +11912,49 @@ class App(QMainWindow):
         self.si_silnik = StyledInput("activity", self.c_silnik, self.is_dark, self.card_bot_frame)
         w_silnik, self.l_silnik = field("Pojemność silnika", self.si_silnik)
 
-        row1_b.addWidget(w_kwota); row1_b.addWidget(w_mies); row1_b.addWidget(w_silnik)
-        cr.addLayout(row1_b)
-
-        # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
-        row2_b = QHBoxLayout(); row2_b.setSpacing(12)
-
-        # Tryb pracy: dwa przyciski zamiast listy — wybrany świeci naszą zielenią.
-        self.tryb_wybrany = 0
-        self.btn_tryb_tydzien  = QPushButton("Cykl tygodniowy")
-        self.btn_tryb_wieczory = QPushButton("Wieczory i weekendy")
-        for _b in (self.btn_tryb_tydzien, self.btn_tryb_wieczory):
-            _b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            _b.setMinimumHeight(32)
-            _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        def _kolumna(etykieta_txt, widget_lub_layout):
-            """Etykieta + zawartość, BEZ dodatkowej ramki (ramkę ma tylko pole
-            tekstowe). Wcześniej przyciski dostawały niepotrzebny obrys."""
+        row1_b.addWidget(w_kwota, 2); row1_b.addWidget(w_mies, 2); row1_b.addWidget(w_silnik, 2)
+        # Tryb pracy i wyłączanie dni w TYM SAMYM wierszu co kwota i miesiąc —
+        # nic nie schodzi poniżej krawędzi okna, więc żadna opcja nie umknie.
+        def _kolumna(etykieta_txt, zawartosc):
             kol = QVBoxLayout(); kol.setSpacing(4); kol.setContentsMargins(0, 0, 0, 0)
             lab = QLabel(etykieta_txt)
             lab.setStyleSheet("QLabel { color:%s; font-family:'Segoe UI'; font-size:10.5px;"
-                              " font-weight:700; letter-spacing:0.5px; background:transparent;"
+                              " font-weight:700; letter-spacing:0.4px; background:transparent;"
                               " border:none; }" % ("#94A3B8" if self.is_dark else "#475569"))
             kol.addWidget(lab)
-            if isinstance(widget_lub_layout, QHBoxLayout):
-                kol.addLayout(widget_lub_layout)
+            if isinstance(zawartosc, QHBoxLayout):
+                kol.addLayout(zawartosc)
             else:
-                kol.addWidget(widget_lub_layout)
+                kol.addWidget(zawartosc)
             kont = QWidget(); kont.setLayout(kol)
             return kont, lab
 
-        rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(8); rzad_tryb.setContentsMargins(0,0,0,0)
+        self.tryb_wybrany = 0
+        self.btn_tryb_tydzien  = QPushButton("Tygodniowy")
+        self.btn_tryb_wieczory = QPushButton("Wieczory i weekendy")
+        for _b in (self.btn_tryb_tydzien, self.btn_tryb_wieczory):
+            _b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            _b.setFixedHeight(32)
+            _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(6); rzad_tryb.setContentsMargins(0, 0, 0, 0)
         rzad_tryb.addWidget(self.btn_tryb_tydzien); rzad_tryb.addWidget(self.btn_tryb_wieczory)
         w_tryb, self.l_tryb = _kolumna("TRYB PRACY", rzad_tryb)
 
-        # Podpowiedź obok wyboru: co dokładnie oznacza każdy tryb. Sam wybór
-        # jest jednoznaczny — bez godzin i dni do klikania przez użytkownika.
-        self.lbl_tryb_opis = QLabel("")
-        self.lbl_tryb_opis.setWordWrap(True)
-        self.lbl_tryb_opis.setMinimumHeight(32)
-        self.lbl_tryb_opis.setStyleSheet(
-            "QLabel { color:%s; font-family:'Segoe UI'; font-size:11px;"
-            " background:transparent; border:none; }"
-            % ("#94A3B8" if self.is_dark else "#475569"))
+        self.dni_wylaczone = set()
+        self.btn_wylacz_dni = QPushButton("Wyłącz dni")
+        self.btn_wylacz_dni.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_wylacz_dni.setFixedHeight(32)
+        self.btn_wylacz_dni.clicked.connect(self._otworz_wylaczanie_dni)
+        self._odswiez_przycisk_dni()
+        w_dni, self.l_dni = _kolumna("DNI BEZ PRACY", self.btn_wylacz_dni)
+
+        # Opis trybu w podtytule karty — nie zajmuje osobnej kolumny.
         def _tryb_zmieniony(idx):
             if idx == 1:
-                self.lbl_tryb_opis.setText(
-                    "Start ok. 16:30, koniec do 22:00 plus powrót.\n"
-                    "Soboty jak zwykłe dni, niedziele tylko handlowe.")
+                self.lbl_m_desc.setText("Wieczory i weekendy: start ok. 16:30, koniec do 22:00, "
+                                        "soboty jak zwykłe dni, niedziele tylko handlowe.")
             else:
-                self.lbl_tryb_opis.setText(
-                    "Dni robocze, poniedziałek-piątek, bez świąt.")
+                self.lbl_m_desc.setText("Cykl tygodniowy: trasy od poniedziałku do piątku, bez świąt.")
         def _wybierz_tryb(idx):
             self.tryb_wybrany = idx
             self._odswiez_przyciski_trybu()
@@ -11974,33 +11964,16 @@ class App(QMainWindow):
         self._odswiez_przyciski_trybu()
         _tryb_zmieniony(0)
 
-        # Wyłączanie dni: urlop, choroba, szkolenie — te dni nie trafią do planu.
-        self.dni_wylaczone = set()
-        self.btn_wylacz_dni = QPushButton("Wyłącz dni")
-        self.btn_wylacz_dni.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_wylacz_dni.setMinimumHeight(32)
-        self.btn_wylacz_dni.clicked.connect(self._otworz_wylaczanie_dni)
-        self._odswiez_przycisk_dni()
-        w_dni, self.l_dni = _kolumna("DNI BEZ PRACY", self.btn_wylacz_dni)
+        row1_b.addWidget(w_tryb, 3); row1_b.addWidget(w_dni, 1)
+        cr.addLayout(row1_b)
 
-        w_opis, self.l_opis = _kolumna("", self.lbl_tryb_opis)
-        row2_b.addWidget(w_tryb, 3); row2_b.addWidget(w_dni, 2); row2_b.addWidget(w_opis, 4)
-        cr.addSpacing(6)
-        cr.addLayout(row2_b)
+        # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
 
         cards_layout.addWidget(self.card_bot_frame)
 
         # ---- Formularz (lewa) + Panel Asystenta (prawa) obok siebie ----
         self.body_row = QHBoxLayout(); self.body_row.setContentsMargins(0, 0, 0, 0); self.body_row.setSpacing(16)
-        # Formularz w obszarze przewijanym — przy mniejszym ekranie lub
-        # powiekszonym skalowaniu Windows nic nie zostanie obciete.
-        self.cards_scroll = QScrollArea()
-        self.cards_scroll.setWidgetResizable(True)
-        self.cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.cards_scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
-        self.cards_scroll.setWidget(self.cards_wrap)
-        self.body_row.addWidget(self.cards_scroll, 1)
+        self.body_row.addWidget(self.cards_wrap, 1)
         self.assistant = AssistantPanel(self.is_dark)
         self.body_row.addWidget(self.assistant, 0)
         body_l.addLayout(self.body_row)

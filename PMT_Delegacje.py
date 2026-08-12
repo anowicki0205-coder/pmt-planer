@@ -11948,13 +11948,11 @@ class App(QMainWindow):
         self._odswiez_przycisk_dni()
         w_dni, self.l_dni = _kolumna("DNI BEZ PRACY", self.btn_wylacz_dni)
 
-        # Opis trybu w podtytule karty — nie zajmuje osobnej kolumny.
+        # Podtytuł zostaje neutralny — użytkownik nie musi znać godzin ani zasad
+        # działania silnika. Szczegóły tylko jako podpowiedź po najechaniu.
         def _tryb_zmieniony(idx):
-            if idx == 1:
-                self.lbl_m_desc.setText("Wieczory i weekendy: start ok. 16:30, koniec do 22:00, "
-                                        "soboty jak zwykłe dni, niedziele tylko handlowe.")
-            else:
-                self.lbl_m_desc.setText("Cykl tygodniowy: trasy od poniedziałku do piątku, bez świąt.")
+            self.btn_tryb_tydzien.setToolTip("Trasy w dni robocze, od poniedziałku do piątku")
+            self.btn_tryb_wieczory.setToolTip("Trasy po godzinach oraz w soboty")
         def _wybierz_tryb(idx):
             self.tryb_wybrany = idx
             self._odswiez_przyciski_trybu()

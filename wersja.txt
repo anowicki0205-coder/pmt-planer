@@ -1,2 +1,2 @@
-3.15.0
-Zwarty uklad parametrow trasy (mniej pustego miejsca), wyrazny bursztynowy przycisk wylaczania dni z ikona kalendarza. Zmiana w budowaniu: usunieto staly katalog rozpakowania, ktory powodowal kolizje starej i nowej wersji przy aktualizacji.
+3.15.2
+Kosmetyka: etykiety tuz nad polami (koniec z dziura w srodku karty), neutralny podtytul bez opisu dzialania silnika, wyrazny przycisk wylaczania dni.

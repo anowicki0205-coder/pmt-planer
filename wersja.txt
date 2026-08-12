@@ -1,2 +1,2 @@
-3.15.2
-Kosmetyka: etykiety tuz nad polami (koniec z dziura w srodku karty), neutralny podtytul bez opisu dzialania silnika, wyrazny przycisk wylaczania dni.
+3.15.3
+Aktualizacja odporna na zrywane polaczenia: pobieranie jest wznawiane od miejsca przerwania (do 5 podejsc) zamiast konczyc sie bledem, sprawdzana jest kompletnosc pliku, a limit czasu wydluzony. Kosmetyka: etykiety tuz nad polami, neutralny podtytul karty.

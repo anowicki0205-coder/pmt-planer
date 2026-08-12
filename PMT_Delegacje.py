@@ -7089,6 +7089,16 @@ class PlanerOverlay(QFrame):
 
 
 class PobieranieAktualizacjiThread(QThread):
+    def _raportuj(self, pobrano, calosc, czy_zip):
+        """Pasek postępu — rozpakowanie zajmuje ostatnie ~15%."""
+        gorna = 0.80 if czy_zip else 0.95
+        if calosc:
+            frakcja = 0.10 + (gorna - 0.10) * (pobrano / calosc)
+            self.postep.emit(min(gorna, frakcja),
+                             f"Pobieram… {pobrano/1048576:.1f} / {calosc/1048576:.1f} MB")
+        else:
+            self.postep.emit(0.35, f"Pobieram… {pobrano/1048576:.1f} MB")
+
     """Pobiera nową wersję do katalogu tymczasowego, raportując postęp.
     Obsługuje zarówno .zip (preferowane — patrz znajdz_plik_wydania) jak
     i goły .exe (zgodność wsteczna ze starszymi wydaniami)."""
@@ -7117,28 +7127,49 @@ class PobieranieAktualizacjiThread(QThread):
                 except Exception: pass
 
             self.postep.emit(0.10, "Łączę z serwerem…")
-            req = urllib.request.Request(url, headers={"User-Agent": "PMT-Planer"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                calosc = int(resp.headers.get("Content-Length") or 0)
-                pobrano = 0
-                with open(pobrany, "wb") as f:
-                    while True:
-                        kawalek = resp.read(262144)     # 256 kB
-                        if not kawalek:
-                            break
-                        f.write(kawalek)
-                        pobrano += len(kawalek)
-                        # rozpakowanie zajmie ostatnie ~15% paska
-                        gorna_granica = 0.80 if czy_zip else 0.95
-                        if calosc:
-                            frakcja = 0.10 + (gorna_granica - 0.10) * (pobrano / calosc)
-                            mb = pobrano / (1024 * 1024)
-                            mb_all = calosc / (1024 * 1024)
-                            self.postep.emit(min(gorna_granica, frakcja),
-                                             f"Pobieram… {mb:.1f} / {mb_all:.1f} MB")
-                        else:
-                            self.postep.emit(0.5, f"Pobieram… {pobrano/(1024*1024):.1f} MB")
-
+            # POBIERANIE Z WZNAWIANIEM. Plik ma ~48 MB, a firmowe sieci, VPN-y
+            # i słabe łącza potrafią zerwać takie połączenie w połowie
+            # ("Remote end closed connection without response"). Zamiast
+            # zaczynać od zera, dociągamy brakującą część nagłówkiem Range —
+            # do pięciu podejść.
+            calosc = 0
+            pobrano = 0
+            ostatni_blad = None
+            for podejscie in range(1, 6):
+                try:
+                    naglowki = {"User-Agent": "PMT-Planer",
+                                "Accept-Encoding": "identity",   # bez kompresji: znany rozmiar
+                                "Connection": "close"}
+                    if pobrano:
+                        naglowki["Range"] = f"bytes={pobrano}-"
+                        self.postep.emit(min(0.75, 0.10 + 0.65 * (pobrano / max(calosc, 1))),
+                                         f"Wznawiam pobieranie… (próba {podejscie})")
+                    req = urllib.request.Request(url, headers=naglowki)
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        dlugosc = int(resp.headers.get("Content-Length") or 0)
+                        if not calosc:
+                            calosc = dlugosc
+                        tryb_pliku = "ab" if (pobrano and resp.status == 206) else "wb"
+                        if tryb_pliku == "wb":
+                            pobrano = 0
+                        with open(pobrany, tryb_pliku) as f:
+                            while True:
+                                kawalek = resp.read(262144)     # 256 kB
+                                if not kawalek:
+                                    break
+                                f.write(kawalek)
+                                pobrano += len(kawalek)
+                                self._raportuj(pobrano, calosc, czy_zip)
+                    if calosc and pobrano < calosc:
+                        raise IOError("połączenie przerwane w trakcie pobierania")
+                    ostatni_blad = None
+                    break
+                except Exception as e:
+                    ostatni_blad = e
+                    if podejscie < 5:
+                        time.sleep(2 * podejscie)
+            if ostatni_blad is not None:
+                raise ostatni_blad
             if os.path.getsize(pobrany) < 50 * 1024:      # sanity check
                 self.blad.emit("Pobrany plik wygląda na uszkodzony (za mały).")
                 return

@@ -7197,7 +7197,7 @@ class PobieranieAktualizacjiThread(QThread):
                 # Najpierw sprawdzamy, czy to nowe wydanie FOLDEROWE.
                 folder_nowej = self._rozpakuj_folder(pobrany)
                 if folder_nowej:
-                    self.gotowe.emit(folder_nowej)
+                    self.sukces.emit(folder_nowej)
                     return
                 cel = self._rozpakuj_exe(pobrany)
                 if not cel:

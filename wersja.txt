@@ -1,2 +1,2 @@
-3.16.0
-DUZA ZMIANA: program jest teraz FOLDEREM, a nie jednym plikiem .exe. Nic nie rozpakowuje sie przy starcie, wiec znika blad 'Failed to load Python DLL' przy aktualizacji, a program uruchamia sie znacznie szybciej. Aktualizacja podmienia caly folder. UWAGA: przejscie na te wersje wymaga jednorazowego recznego pobrania paczki ze strony wydania.
+3.16.1
+Program jest FOLDEREM, a nie jednym plikiem .exe — nic nie rozpakowuje sie przy starcie, wiec znika blad Failed to load Python DLL, a uruchamianie jest szybsze. Aktualizacja podmienia caly folder. Poprawka 3.16.1: naprawiony blad zglaszania pobrania nowej wersji.

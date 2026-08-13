@@ -89,6 +89,9 @@ jobs:
         run: |
           # W archiwum ma byc FOLDER "PMT_Planer" z plikiem .exe i katalogiem
           # _internal. Aktualizator rozpoznaje ten uklad i podmienia caly folder.
+          # Do paczki dokladamy skrypt pierwszego uruchomienia — zdejmuje on
+          # znacznik "plik z internetu", ktory blokuje start programu.
+          cp URUCHOM_PMT.bat dist/PMT_Planer/ 2>/dev/null || true
           cd dist
           7z a ../PMT_Planer.Windows.zip PMT_Planer
           cd ..

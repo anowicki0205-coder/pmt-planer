@@ -777,7 +777,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.15.0"
+WERSJA_PROGRAMU = "3.16.3"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -800,6 +800,31 @@ URL_UPDATERA_SH = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-plan
 def czy_zamrozony() -> bool:
     """Czy działamy jako .exe (PyInstaller)? Tylko wtedy da się podmienić plik."""
     return bool(getattr(sys, "frozen", False))
+
+
+def odblokuj_wlasny_folder():
+    """Zdejmuje z plikow programu znacznik "pochodzi z internetu".
+
+    Windows nadaje go kazdemu plikowi z pobranego archiwum, a przy wersji
+    folderowej blokuje to uruchamianie ("Odmowa dostepu" / "Mozesz nie miec
+    odpowiednich uprawnien"). Robimy to raz — znacznik po zdjeciu nie wraca.
+    """
+    if not (CZY_WINDOWS and getattr(sys, "frozen", False)):
+        return
+    try:
+        katalog = os.path.dirname(os.path.abspath(sys.executable))
+        znacznik = os.path.join(katalog, ".pmt_odblokowano")
+        if os.path.exists(znacznik):
+            return
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+             f"Get-ChildItem -LiteralPath '{katalog}' -Recurse -File | "
+             "Unblock-File -ErrorAction SilentlyContinue"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        with open(znacznik, "w", encoding="utf-8") as f:
+            f.write(datetime.datetime.now().isoformat(timespec="seconds"))
+    except Exception:
+        pass
 
 
 def czy_wersja_folderowa() -> bool:
@@ -13558,6 +13583,8 @@ if __name__ == "__main__":
     font = QFont("Segoe UI", 10)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
+
+    odblokuj_wlasny_folder()   # zdejmij blokade "plik z internetu" (raz)
 
     # --- Logowanie przy KAZDYM uruchomieniu (login + haslo) ---------------
     # Swiadoma zmiana wzgledem wczesniejszych wersji: kod nie jest juz

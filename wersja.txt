@@ -1,2 +1,2 @@
-3.16.2
-Poprawka aktualizacji wersji folderowej: o wyborze sposobu podmiany decyduje teraz zawartosc pobranej paczki, a nie zgadywanie typu biezacej wersji. Wczesniej program restartowal sie w starej wersji, bo uruchamial skrypt dla pojedynczego pliku.
+3.16.3
+Stabilne wydanie wersji folderowej. Poprawki: skrypt aktualizacji nie blokuje juz sam siebie (koniec z 'Odmowa dostepu'), kopiowanie plikow odporne na pliki w uzyciu, program przy pierwszym starcie sam zdejmuje windowsowy znacznik 'plik z internetu', a w paczce jest skrypt URUCHOM_PMT.bat do pierwszego uruchomienia.

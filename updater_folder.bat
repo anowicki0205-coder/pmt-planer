@@ -24,6 +24,11 @@ for %%F in ("%CEL_EXE%") do set "FOLDER_CEL=%%~dpF"
 if "%FOLDER_CEL:~-1%"=="\" set "FOLDER_CEL=%FOLDER_CEL:~0,-1%"
 set "KOPIA=%FOLDER_CEL%_poprzednia"
 
+rem KLUCZOWE: przechodzimy do katalogu tymczasowego. Jesli skrypt "stoi"
+rem w folderze programu, Windows nie pozwoli go przeniesc ani usunac
+rem (komunikat "Odmowa dostepu") — i cala aktualizacja pada.
+cd /d "%TEMP%"
+
 title Aktualizacja PMT Planer
 echo ============================== > "%LOG%"
 echo Start: %DATE% %TIME%          >> "%LOG%"
@@ -56,16 +61,20 @@ echo [1] OK. >> "%LOG%"
 rem --- 2) kopia zapasowa poprzedniej wersji ---
 echo [2] Zapisuje kopie poprzedniej wersji... >> "%LOG%"
 if exist "%KOPIA%" rd /s /q "%KOPIA%" >nul 2>&1
-move "%FOLDER_CEL%" "%KOPIA%" >nul 2>>"%LOG%"
-if errorlevel 1 (
-    echo [2] Nie moge przeniesc starego folderu - probuje kopiowac zawartosc. >> "%LOG%"
-    xcopy "%FOLDER_CEL%" "%KOPIA%\" /e /i /y >nul 2>>"%LOG%"
-)
+rem Kopiujemy zamiast przenosic: folder programu zostaje na miejscu, wiec
+rem nie ryzykujemy "Odmowy dostepu" ani utraty programu przy bledzie.
+xcopy "%FOLDER_CEL%" "%KOPIA%\" /e /i /y /q >nul 2>>"%LOG%"
+if errorlevel 1 echo [2] UWAGA: kopia zapasowa niepelna. >> "%LOG%"
 
 rem --- 3) wgrywamy nowa wersje ---
 echo [3] Kopiuje nowa wersje... >> "%LOG%"
-xcopy "%NOWY_FOLDER%" "%FOLDER_CEL%\" /e /i /y >nul 2>>"%LOG%"
-if errorlevel 1 goto porazka
+rem robocopy radzi sobie z plikami w uzyciu i dlugimi sciezkami lepiej niz xcopy;
+rem kody wyjscia 0-7 oznaczaja sukces, dopiero 8+ to blad.
+robocopy "%NOWY_FOLDER%" "%FOLDER_CEL%" /e /is /it /r:2 /w:2 /nfl /ndl /njh /njs >>"%LOG%" 2>&1
+if errorlevel 8 (
+    echo [3] robocopy zawiodl - probuje xcopy... >> "%LOG%"
+    xcopy "%NOWY_FOLDER%" "%FOLDER_CEL%\" /e /i /y >nul 2>>"%LOG%"
+)
 if not exist "%CEL_EXE%" goto porazka
 echo [3] Podmieniono pomyslnie. >> "%LOG%"
 
@@ -96,8 +105,7 @@ if "%WYSTARTOWALA%"=="1" (
 :porazka
 echo [BLAD] Nowa wersja nie wystartowala - przywracam poprzednia. >> "%LOG%"
 if exist "%KOPIA%" (
-    rd /s /q "%FOLDER_CEL%" >nul 2>&1
-    move "%KOPIA%" "%FOLDER_CEL%" >nul 2>&1
+    xcopy "%KOPIA%" "%FOLDER_CEL%\" /e /i /y /q >nul 2>&1
     start "" "%CEL_EXE%"
     echo.
     echo   Nowa wersja nie uruchomila sie poprawnie.

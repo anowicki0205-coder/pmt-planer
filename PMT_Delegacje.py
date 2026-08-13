@@ -423,6 +423,10 @@ def online_zaloguj(kod: str, haslo: str):
     st["imie"] = str(odp.get("imie", ""))
     _zapisz(PLIK_STATUSU, st)
     _zapisz_logowanie(kod, st["imie"], st["skrot"])
+    try:
+        threading.Thread(target=online_zdarzenie_sesji, args=("logowanie",), daemon=True).start()
+    except Exception:
+        pass
     return True, st["imie"], ""
 
 
@@ -479,6 +483,26 @@ def online_imie_uzytkownika():
     """Imię i nazwisko przypisane do zalogowanego kodu (z arkusza, zapisane
     lokalnie przy logowaniu). Pusty napis, gdy nieznane."""
     return str(_wczytaj(PLIK_STATUSU, {}).get("imie", "")).strip()
+
+
+def online_zdarzenie_sesji(rodzaj: str, minuty: float = 0.0):
+    """Zapisuje w arkuszu moment logowania/wylogowania i dlugosc sesji.
+    Bez sieci — cicho pomijamy; to informacja pomocnicza, nie krytyczna."""
+    try:
+        kod = online_kod_uzytkownika()
+        if not kod:
+            return False
+        cialo = json.dumps({"akcja": "sesja", "kod": kod, "rodzaj": rodzaj,
+                            "minuty": round(float(minuty), 1),
+                            "wersja": WERSJA_PROGRAMU}).encode("utf-8")
+        req = urllib.request.Request(
+            URL_BACKENDU, data=cialo,
+            headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        return True
+    except Exception:
+        return False
 
 
 def online_wyloguj():
@@ -777,7 +801,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.16.3"
+WERSJA_PROGRAMU = "3.17.0"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -825,6 +849,63 @@ def odblokuj_wlasny_folder():
             f.write(datetime.datetime.now().isoformat(timespec="seconds"))
     except Exception:
         pass
+
+
+def sprzataj_stare_wersje():
+    """Usuwa pozostalosci po poprzednich wersjach programu.
+
+    Po udanej aktualizacji zostaja: kopia zapasowa (folder "..._poprzednia"
+    albo plik ".poprzednia"), pobrane archiwa i katalogi tymczasowe. Przy 65
+    osobach to setki megabajtow smieci na dyskach. Kasujemy je dopiero przy
+    starcie NOWEJ wersji — czyli gdy mamy pewnosc, ze aktualizacja sie udala.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    usuniete = []
+    try:
+        katalog = os.path.dirname(os.path.abspath(sys.executable))
+        rodzic = os.path.dirname(katalog)
+        # kopie zapasowe obok programu
+        for kandydat in (katalog + "_poprzednia", os.path.abspath(sys.executable) + ".poprzednia"):
+            try:
+                if os.path.isdir(kandydat):
+                    shutil.rmtree(kandydat, ignore_errors=True); usuniete.append(kandydat)
+                elif os.path.isfile(kandydat):
+                    os.remove(kandydat); usuniete.append(kandydat)
+            except Exception:
+                pass
+        # stare kopie w katalogu nadrzednym: "PMT_Planer_stare", "PMT Planer (1).exe" itp.
+        try:
+            for wpis in os.listdir(rodzic):
+                pelna = os.path.join(rodzic, wpis)
+                if pelna.rstrip("\\/") == katalog.rstrip("\\/"):
+                    continue
+                niski = wpis.lower()
+                stare = (niski.endswith(".poprzednia") or niski.endswith("_poprzednia")
+                         or niski.endswith(".old") or niski.endswith(".bak"))
+                if stare and ("pmt" in niski):
+                    try:
+                        shutil.rmtree(pelna, ignore_errors=True) if os.path.isdir(pelna) else os.remove(pelna)
+                        usuniete.append(pelna)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # pobrane archiwa i rozpakowane paczki w katalogu tymczasowym
+        tmp = tempfile.gettempdir()
+        for wzor in ("PMT_Planer_nowy.exe", "PMT_Planer_nowa_wersja",
+                     "PMT_Planer.Windows.zip", "pmt_nowa_wersja.zip"):
+            sciezka = os.path.join(tmp, wzor)
+            try:
+                if os.path.isdir(sciezka):
+                    shutil.rmtree(sciezka, ignore_errors=True); usuniete.append(sciezka)
+                elif os.path.isfile(sciezka):
+                    os.remove(sciezka); usuniete.append(sciezka)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return usuniete
 
 
 def czy_wersja_folderowa() -> bool:
@@ -13100,6 +13181,9 @@ class App(QMainWindow):
         if mb.exec() != QMessageBox.StandardButton.Yes:
             return
         try:
+            _min = (datetime.datetime.now() - _START_SESJI).total_seconds() / 60.0 \
+                   if "_START_SESJI" in globals() else 0.0
+            online_zdarzenie_sesji("wylogowanie", _min)
             online_synchronizuj()      # oddaj liczniki poprzedniego użytkownika
         except Exception:
             pass
@@ -13585,6 +13669,7 @@ if __name__ == "__main__":
     app.setFont(font)
 
     odblokuj_wlasny_folder()   # zdejmij blokade "plik z internetu" (raz)
+    sprzataj_stare_wersje()    # usun kopie po poprzednich aktualizacjach
 
     # --- Logowanie przy KAZDYM uruchomieniu (login + haslo) ---------------
     # Swiadoma zmiana wzgledem wczesniejszych wersji: kod nie jest juz
@@ -13598,6 +13683,8 @@ if __name__ == "__main__":
 
     online_zdarzenie(uruchomienia=1)
     _START_PROGRAMU = datetime.datetime.now()
+    global _START_SESJI
+    _START_SESJI = _START_PROGRAMU
 
     # --- Kontrola sesji: najpierw arkusz (online), awaryjnie lokalne 30 dni ---
     _wazna_o, _dni_o, _imie_o = online_status_sesji()
@@ -13619,6 +13706,7 @@ if __name__ == "__main__":
         try:
             _min = (datetime.datetime.now() - _START_PROGRAMU).total_seconds() / 60.0
             online_zdarzenie(minuty=_min)
+            online_zdarzenie_sesji("zamkniecie", _min)
             online_synchronizuj()
         except Exception:
             pass

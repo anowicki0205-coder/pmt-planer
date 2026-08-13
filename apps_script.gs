@@ -198,6 +198,7 @@ var ZAKLADKA_WIZYTY     = "Wizyty";
 var ZAKLADKA_REJONIZACJA = "Rejonizacja";
 var ZAKLADKA_PRODUKTY = "Produkty";
 var ZAKLADKA_ZGLOSZENIA = "Zgloszenia";
+var ZAKLADKA_SESJE = "Sesje";
 /* Definicje układów półek (kod, rząd, pozycja) — plik generowany z PDF-ów
    producenta i trzymany w repozytorium obok aplikacji. */
 var URL_PLANOGRAMY = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/planogramy.json";
@@ -220,6 +221,8 @@ function inicjalizuj_v2() {
     ["Kod", "Nazwa", "EAN", "Foto URL"]);
   _zakladka(ss, ZAKLADKA_ZGLOSZENIA,
     ["Kiedy", "Kod", "Sklep", "Opis", "Foto URL"]);
+  _zakladka(ss, ZAKLADKA_SESJE,
+    ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)", "Wersja programu"]);
 }
 
 /* --- rozszerzony rozdzielacz akcji (podmienia doPost z v1) --------- */
@@ -241,6 +244,8 @@ function doPost(e) {
       case "ostatnia_wizyta":     return _json(ostatniaWizyta(dane));
       case "zgloszenie":          return _json(zgloszenie(dane));
       case "zmien_haslo":         return _json(zmienHaslo(dane));
+      case "sesja":               return _json(zapiszSesje(dane));
+      case "reset_hasla":         return _json(resetHasla(dane));
       case "rozpoznaj_planogram":  return _json(rozpoznajPlanogram(dane));
       default: return _json({ status: "blad", opis: "Nieznana akcja" });
     }
@@ -761,4 +766,50 @@ function rozpoznajPlanogram(dane) {
   return { status: "ok", planogram: wybrany, pewnosc: wynik.pewnosc,
            uzasadnienie: wynik.uzasadnienie || "", uklad: wynik.uklad || "",
            pozycje: pozycje };
+}
+
+
+/* ====== REJESTR SESJI: kto, kiedy i jak dlugo pracowal ================= */
+function zapiszSesje(dane) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var kod = String(dane.kod || "").trim();
+  var imie = "";
+  var shU = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
+  if (shU && shU.getLastRow() > 1) {
+    var w = shU.getRange(2, 1, shU.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < w.length; i++) {
+      if (String(w[i][0]).trim() === kod) { imie = String(w[i][1] || ""); break; }
+    }
+  }
+  var nazwy = { logowanie: "zalogowanie", wylogowanie: "wylogowanie",
+                zamkniecie: "zamkniecie programu" };
+  _zakladka(ss, ZAKLADKA_SESJE,
+    ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)", "Wersja programu"])
+    .appendRow([new Date(), kod, imie,
+                nazwy[String(dane.rodzaj)] || String(dane.rodzaj || "?"),
+                Number(dane.minuty) || "", String(dane.wersja || "")]);
+  return { status: "ok" };
+}
+
+/* ====== RESET HASLA ==================================================== */
+/*  Administrator: menu PMT -> "Resetuj haslo" albo recznie czysci kolumne  */
+/*  N w zakladce Uzytkownicy. Uzytkownik: ta sama akcja z aplikacji po      */
+/*  podaniu kodu i numeru telefonu z kartoteki.                             */
+function resetHasla(dane) {
+  var kod = String(dane.kod || "").trim();
+  var tel = String(dane.telefon || "").replace(/\D/g, "");
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ZAKLADKA_UZYTKOWNICY);
+  if (!sh || sh.getLastRow() < 2) return { status: "blad", opis: "Brak bazy uzytkownikow" };
+  var w = sh.getRange(2, 1, sh.getLastRow() - 1, 14).getValues();
+  for (var i = 0; i < w.length; i++) {
+    if (String(w[i][0]).trim() !== kod) continue;
+    var telBaza = String(w[i][12] || "").replace(/\D/g, "");
+    if (!telBaza) return { status: "blad", opis: "Konto nie ma telefonu w kartotece — zglos sie do administratora" };
+    if (telBaza.slice(-9) !== tel.slice(-9)) return { status: "blad", opis: "Numer telefonu nie zgadza sie z kartoteka" };
+    sh.getRange(i + 2, 14).setValue("");     // kasujemy hash hasla
+    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "reset_hasla", "OK");
+    return { status: "ok",
+             opis: "Haslo skasowane. Zaloguj sie numerem telefonu i ustaw nowe haslo." };
+  }
+  return { status: "blad", opis: "Nie znaleziono takiego kodu" };
 }

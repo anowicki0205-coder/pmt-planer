@@ -1,2 +1,2 @@
-3.16.3
-Stabilne wydanie wersji folderowej. Poprawki: skrypt aktualizacji nie blokuje juz sam siebie (koniec z 'Odmowa dostepu'), kopiowanie plikow odporne na pliki w uzyciu, program przy pierwszym starcie sam zdejmuje windowsowy znacznik 'plik z internetu', a w paczce jest skrypt URUCHOM_PMT.bat do pierwszego uruchomienia.
+3.17.0
+Nowosci: program po udanej aktualizacji sam usuwa kopie starych wersji z komputera, rejestr sesji w arkuszu administratora (zalogowanie, wylogowanie, czas pracy, wersja programu), mozliwosc resetu hasla przez administratora i uzytkownika.

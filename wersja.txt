@@ -1,2 +1,2 @@
-3.16.1
-Program jest FOLDEREM, a nie jednym plikiem .exe — nic nie rozpakowuje sie przy starcie, wiec znika blad Failed to load Python DLL, a uruchamianie jest szybsze. Aktualizacja podmienia caly folder. Poprawka 3.16.1: naprawiony blad zglaszania pobrania nowej wersji.
+3.16.2
+Poprawka aktualizacji wersji folderowej: o wyborze sposobu podmiany decyduje teraz zawartosc pobranej paczki, a nie zgadywanie typu biezacej wersji. Wczesniej program restartowal sie w starej wersji, bo uruchamial skrypt dla pojedynczego pliku.

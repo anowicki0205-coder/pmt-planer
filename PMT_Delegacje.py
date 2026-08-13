@@ -955,7 +955,22 @@ def przygotuj_skrypt_aktualizacji(nowy_plik: str, docelowy: str, pid: int):
 
     # Wersja folderowa ma wlasny skrypt — podmienia caly katalog programu,
     # a nie pojedynczy plik .exe.
-    _url_skryptu = URL_UPDATERA_FOLDER if czy_wersja_folderowa() else URL_UPDATERA
+    # O tym, ktory skrypt jest potrzebny, decyduje ZAWARTOSC pobranej paczki:
+    # gdy nowa wersja to FOLDER (jest w nim katalog _internal), podmieniamy caly
+    # katalog. Wczesniej decydowalo wykrywanie biezacej wersji — i gdy sie mylilo,
+    # uruchamiany byl stary skrypt, ktory tylko restartowal program bez podmiany.
+    _nowa_to_folder = os.path.isdir(nowy_plik) and (
+        os.path.isdir(os.path.join(nowy_plik, "_internal")) or
+        any(w.lower().endswith(".exe") for w in os.listdir(nowy_plik))
+    )
+    _url_skryptu = URL_UPDATERA_FOLDER if _nowa_to_folder else URL_UPDATERA
+    try:
+        with open(os.path.join(tempfile.gettempdir(), "pmt_aktualizacja.log"),
+                  "a", encoding="utf-8") as _f:
+            _f.write(f"[wybor skryptu] nowa_to_folder={_nowa_to_folder} "
+                     f"nowy={nowy_plik} cel={docelowy}\n")
+    except Exception:
+        pass
     tekst = pobierz_tekst_url(_url_skryptu)
     # prosta weryfikacja, że to nasz skrypt, a nie np. strona błędu GitHuba
     if tekst and "setlocal enabledelayedexpansion" in tekst and len(tekst) < 20000:

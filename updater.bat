@@ -37,6 +37,18 @@ echo   Aktualizuje PMT Planer...
 echo   Program uruchomi sie sam za chwile.
 echo.
 
+rem Zabezpieczenie: ten skrypt podmienia POJEDYNCZY PLIK. Jesli dostal folder
+rem (nowy format wydania), przerywamy — inaczej program tylko by sie zrestartowal
+rem w starej wersji, bez zadnego komunikatu.
+if exist "%NOWY%\" (
+    echo [BLAD] Otrzymalem folder, a ten skrypt podmienia pojedynczy plik. >> "%LOG%"
+    echo.
+    echo   Ta wersja programu wymaga recznej instalacji z paczki.
+    echo   Pobierz ja ze strony wydania i rozpakuj.
+    echo.
+    pause
+    exit /b 1
+)
 if not exist "%NOWY%" (
     echo [BLAD] Brak pobranego pliku: %NOWY% >> "%LOG%"
     echo   Nie znaleziono pobranego pliku aktualizacji.
@@ -186,12 +198,13 @@ echo %CEL% | find /i "OneDrive" >nul
 if not errorlevel 1 (
     echo [4] Plik lezy w folderze OneDrive - czekam na zakonczenie synchronizacji. >> "%LOG%"
     for /l %%s in (1,1,10) do (
-        for %%a in ("%CEL%") do set "ROZ1=%%~za"
-        ping -n 4 127.0.0.1 >nul
-        for %%a in ("%CEL%") do set "ROZ2=%%~za"
-        if "!ROZ1!"=="!ROZ2!" goto plik_stabilny
+        if not defined STABILNY (
+            for %%a in ("%CEL%") do set "ROZ1=%%~za"
+            ping -n 4 127.0.0.1 >nul
+            for %%a in ("%CEL%") do set "ROZ2=%%~za"
+            if "!ROZ1!"=="!ROZ2!" set "STABILNY=1"
+        )
     )
-    :plik_stabilny
     echo [4] Rozmiar pliku ustabilizowany. >> "%LOG%"
 )
 

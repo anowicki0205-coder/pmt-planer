@@ -387,7 +387,8 @@ def online_zaloguj(kod: str, haslo: str):
     try:
         cialo = json.dumps({"akcja": "logowanie", "kod": kod,
                             "haslo": haslo, "telefon": haslo,
-                            "zrodlo": "program"}).encode("utf-8")
+                            "zrodlo": "program",
+                            "wersja": WERSJA_PROGRAMU}).encode("utf-8")
         req = urllib.request.Request(
             URL_BACKENDU, data=cialo,
             headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
@@ -421,6 +422,9 @@ def online_zaloguj(kod: str, haslo: str):
     st["kod"] = kod
     st["skrot"] = _hash_hasla(kod, haslo)
     st["imie"] = str(odp.get("imie", ""))
+    _zapisz(PLIK_STATUSU, st)
+    st["dokumenty_sesja"] = 0
+    st["plany_sesja"] = 0
     _zapisz(PLIK_STATUSU, st)
     _zapisz_logowanie(kod, st["imie"], st["skrot"])
     try:
@@ -492,8 +496,11 @@ def online_zdarzenie_sesji(rodzaj: str, minuty: float = 0.0):
         kod = online_kod_uzytkownika()
         if not kod:
             return False
+        st = _wczytaj(PLIK_STATUSU, {})
         cialo = json.dumps({"akcja": "sesja", "kod": kod, "rodzaj": rodzaj,
                             "minuty": round(float(minuty), 1),
+                            "dokumenty": int(st.get("dokumenty_sesja", 0)),
+                            "plany": int(st.get("plany_sesja", 0)),
                             "wersja": WERSJA_PROGRAMU}).encode("utf-8")
         req = urllib.request.Request(
             URL_BACKENDU, data=cialo,
@@ -629,6 +636,10 @@ def dialog_logowania():
     blad.setMinimumHeight(30); ukl.addWidget(blad)
 
     rzad = QHBoxLayout()
+    b_haslo = QPushButton("Zmień hasło"); b_haslo.setObjectName("anuluj")
+    b_haslo.setToolTip("Ustaw własne hasło albo odzyskaj dostęp, gdy hasło nie działa")
+    rzad.addWidget(b_haslo)
+    rzad.addSpacing(6)
     b_test = QPushButton("Sprawdź połączenie"); b_test.setObjectName("anuluj")
     b_test.setToolTip("Sprawdza internet i dostęp do serwera — przydatne, gdy logowanie nie przechodzi")
     rzad.addWidget(b_test)
@@ -683,6 +694,50 @@ def dialog_logowania():
                               "działa, blokuje go najprawdopodobniej sieć firmowa lub VPN.")
         mb.exec()
         blad.setText(" ")
+    def _zmien_haslo():
+        """Ustawienie wlasnego hasla. Weryfikacja: dotychczasowe haslo albo —
+        gdy uzytkownik go nie pamieta — numer telefonu z kartoteki."""
+        from PyQt6.QtWidgets import QInputDialog, QLineEdit as _QLE, QMessageBox as _QMB
+        kod = pole_kod.text().strip()
+        if not (kod.isdigit() and len(kod) == 5):
+            blad.setText("Najpierw wpisz swój login (5 cyfr)."); return
+        stare, ok = QInputDialog.getText(
+            d, "Zmiana hasła",
+            "Podaj dotychczasowe hasło.\nJeśli go nie pamiętasz — wpisz swój numer telefonu:",
+            _QLE.EchoMode.Password, "")
+        if not ok or not stare.strip():
+            return
+        nowe, ok = QInputDialog.getText(d, "Zmiana hasła",
+                                        "Nowe hasło (min. 6 znaków):", _QLE.EchoMode.Password, "")
+        if not ok:
+            return
+        if len(nowe) < 6:
+            _QMB.warning(d, "Za krótkie", "Hasło musi mieć co najmniej 6 znaków."); return
+        powtorz, ok = QInputDialog.getText(d, "Zmiana hasła",
+                                           "Powtórz nowe hasło:", _QLE.EchoMode.Password, "")
+        if not ok:
+            return
+        if nowe != powtorz:
+            _QMB.warning(d, "Różne hasła", "Podane hasła nie są takie same."); return
+        blad.setText("Zapisuję nowe hasło…")
+        QApplication.processEvents()
+        try:
+            cialo = json.dumps({"akcja": "zmien_haslo", "kod": kod,
+                                "stare_haslo": stare, "nowe_haslo": nowe}).encode("utf-8")
+            req = urllib.request.Request(
+                URL_BACKENDU, data=cialo,
+                headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            if odp.get("status") == "ok":
+                blad.setText(" ")
+                _QMB.information(d, "Gotowe", "Hasło zmienione. Zaloguj się nowym hasłem.")
+                pole_haslo.clear(); pole_haslo.setFocus()
+            else:
+                blad.setText(str(odp.get("opis") or "Nie udało się zmienić hasła."))
+        except Exception as e:
+            blad.setText(_opisz_blad_sieci(e))
+    b_haslo.clicked.connect(_zmien_haslo)
     b_test.clicked.connect(_test)
     b_ok.clicked.connect(_zatwierdz)
     b_anuluj.clicked.connect(d.reject)
@@ -801,7 +856,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.17.0"
+WERSJA_PROGRAMU = "3.18.0"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -906,6 +961,93 @@ def sprzataj_stare_wersje():
     except Exception:
         pass
     return usuniete
+
+
+def znajdz_stare_wersje():
+    """Szuka WSZYSTKICH starych kopii programu na dysku uzytkownika.
+
+    Przeszukujemy typowe miejsca: pulpit (takze ten z OneDrive), Pobrane,
+    Dokumenty, katalog nadrzedny biezacej wersji i katalog tymczasowy.
+    Zwracamy liste (sciezka, rozmiar_MB, czy_folder) — BEZ kasowania.
+    Decyzje podejmuje uzytkownik: nie usuwamy niczego po cichu.
+    """
+    if not getattr(sys, "frozen", False):
+        return []
+    biezacy = os.path.dirname(os.path.abspath(sys.executable)).rstrip("\\/").lower()
+    dom = os.path.expanduser("~")
+    miejsca = [dom, os.path.join(dom, "Desktop"), os.path.join(dom, "Pulpit"),
+               os.path.join(dom, "Downloads"), os.path.join(dom, "Pobrane"),
+               os.path.join(dom, "Documents"), os.path.join(dom, "Dokumenty"),
+               os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))),
+               tempfile.gettempdir()]
+    # pulpit i dokumenty w OneDrive (czeste w firmach)
+    try:
+        for wpis in os.listdir(dom):
+            if wpis.lower().startswith("onedrive"):
+                baza = os.path.join(dom, wpis)
+                miejsca += [baza, os.path.join(baza, "Desktop"), os.path.join(baza, "Pulpit"),
+                            os.path.join(baza, "Documents"), os.path.join(baza, "Dokumenty")]
+    except Exception:
+        pass
+
+    def _rozmiar(sciezka):
+        try:
+            if os.path.isfile(sciezka):
+                return os.path.getsize(sciezka) / 1048576.0
+            suma = 0
+            for katalog, _, pliki in os.walk(sciezka):
+                for f in pliki:
+                    try:
+                        suma += os.path.getsize(os.path.join(katalog, f))
+                    except Exception:
+                        pass
+            return suma / 1048576.0
+        except Exception:
+            return 0.0
+
+    znalezione, widziane = [], set()
+    for miejsce in miejsca:
+        if not os.path.isdir(miejsce):
+            continue
+        try:
+            wpisy = os.listdir(miejsce)
+        except Exception:
+            continue
+        for wpis in wpisy:
+            pelna = os.path.join(miejsce, wpis)
+            klucz = pelna.rstrip("\\/").lower()
+            if klucz in widziane or klucz == biezacy:
+                continue
+            niski = wpis.lower()
+            if "pmt" not in niski or "planer" not in niski.replace(" ", "_"):
+                continue
+            # plik programu albo folder z programem w srodku
+            czy_program = (os.path.isfile(pelna) and niski.endswith(".exe")) or \
+                          (os.path.isdir(pelna) and any(
+                              os.path.isfile(os.path.join(pelna, n))
+                              for n in ("PMT_Planer.exe", "PMT Planer.exe")))
+            czy_kopia = niski.endswith((".poprzednia", ".old", ".bak", "_poprzednia"))
+            if not (czy_program or czy_kopia):
+                continue
+            widziane.add(klucz)
+            znalezione.append((pelna, round(_rozmiar(pelna), 1), os.path.isdir(pelna)))
+    return znalezione
+
+
+def usun_stare_wersje(lista):
+    """Kasuje wskazane pozycje. Zwraca (ile_usunieto, ile_MB)."""
+    ile, mb = 0, 0.0
+    for sciezka, rozmiar, czy_folder in lista:
+        try:
+            if czy_folder:
+                shutil.rmtree(sciezka, ignore_errors=True)
+            else:
+                os.remove(sciezka)
+            if not os.path.exists(sciezka):
+                ile += 1; mb += rozmiar
+        except Exception:
+            pass
+    return ile, round(mb, 1)
 
 
 def czy_wersja_folderowa() -> bool:
@@ -4387,6 +4529,12 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     except OSError: raise ValueError(f"Plik podsumowania jest otwarty w innym programie!\nZamknij: rozliczenie_wydatków...pdf")
     try:
         online_zdarzenie(dokumenty=len(podsumowanie))
+        try:
+            _st = _wczytaj(PLIK_STATUSU, {})
+            _st["dokumenty_sesja"] = int(_st.get("dokumenty_sesja", 0)) + len(podsumowanie)
+            _zapisz(PLIK_STATUSU, _st)
+        except Exception:
+            pass
         online_synchronizuj_w_tle()   # dane w arkuszu od razu, nie za 15 min
     except Exception:
         pass
@@ -13669,7 +13817,22 @@ if __name__ == "__main__":
     app.setFont(font)
 
     odblokuj_wlasny_folder()   # zdejmij blokade "plik z internetu" (raz)
-    sprzataj_stare_wersje()    # usun kopie po poprzednich aktualizacjach
+    sprzataj_stare_wersje()    # usun kopie po ostatniej aktualizacji
+
+    # Stare kopie programu usuwamy AUTOMATYCZNIE przy kazdym starcie.
+    # Powod: kazda pozostawiona kopia to dzialajaca instalacja, ktora
+    # omija zasady dostepu (a docelowo — subskrypcje). Biezaca wersja i
+    # kopia zapasowa po ostatniej aktualizacji zostaja nietkniete.
+    try:
+        _stare = znajdz_stare_wersje()
+        if _stare:
+            _ile, _mbytes = usun_stare_wersje(_stare)
+            if _ile:
+                threading.Thread(
+                    target=online_zdarzenie_sesji,
+                    args=("usuniete_stare_wersje", 0.0), daemon=True).start()
+    except Exception:
+        pass
 
     # --- Logowanie przy KAZDYM uruchomieniu (login + haslo) ---------------
     # Swiadoma zmiana wzgledem wczesniejszych wersji: kod nie jest juz

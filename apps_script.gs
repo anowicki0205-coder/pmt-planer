@@ -199,6 +199,11 @@ var ZAKLADKA_REJONIZACJA = "Rejonizacja";
 var ZAKLADKA_PRODUKTY = "Produkty";
 var ZAKLADKA_ZGLOSZENIA = "Zgloszenia";
 var ZAKLADKA_SESJE = "Sesje";
+/* NAJSTARSZA DOPUSZCZALNA WERSJA PROGRAMU.
+   Starsze kopie dostana odmowe logowania — to skuteczniejsze niz kasowanie
+   plikow, bo dziala takze wtedy, gdy ktos zachowa program na pendrive.
+   Podnies ten numer, gdy chcesz wymusic aktualizacje u wszystkich. */
+var MINIMALNA_WERSJA = "3.16.0";
 /* Definicje układów półek (kod, rząd, pozycja) — plik generowany z PDF-ów
    producenta i trzymany w repozytorium obok aplikacji. */
 var URL_PLANOGRAMY = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/planogramy.json";
@@ -222,7 +227,8 @@ function inicjalizuj_v2() {
   _zakladka(ss, ZAKLADKA_ZGLOSZENIA,
     ["Kiedy", "Kod", "Sklep", "Opis", "Foto URL"]);
   _zakladka(ss, ZAKLADKA_SESJE,
-    ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)", "Wersja programu"]);
+    ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)",
+     "Dokumenty w sesji", "Plany wizyt", "Wersja programu"]);
 }
 
 /* --- rozszerzony rozdzielacz akcji (podmienia doPost z v1) --------- */
@@ -426,6 +432,15 @@ function logowanie(dane) {
   var tel = String(dane.telefon || "").replace(/\D/g, "");
   if (!/^\d{5}$/.test(kod)) return { status: "blad", opis: "Kod musi miec 5 cyfr" };
   if (tel.length < 9)        return { status: "blad", opis: "Podaj 9-cyfrowy numer telefonu" };
+  // Kontrola wersji programu — zanim sprawdzimy haslo.
+  var wersjaKlienta = String(dane.wersja || "").trim();
+  if (dane.zrodlo === "program" && wersjaKlienta && !_wersjaWystarczajaca(wersjaKlienta)) {
+    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_odrzucone",
+         "za stara wersja " + wersjaKlienta);
+    return { status: "blad",
+             opis: "Ta wersja programu (" + wersjaKlienta + ") nie jest juz obslugiwana. " +
+                   "Pobierz aktualna wersje ze strony wydania." };
+  }
   var haslo = String(dane.haslo || dane.telefon || "");
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ZAKLADKA_UZYTKOWNICY);
   if (!sh || sh.getLastRow() < 2) return { status: "blad", opis: "Brak bazy uzytkownikow" };
@@ -784,10 +799,13 @@ function zapiszSesje(dane) {
   var nazwy = { logowanie: "zalogowanie", wylogowanie: "wylogowanie",
                 zamkniecie: "zamkniecie programu" };
   _zakladka(ss, ZAKLADKA_SESJE,
-    ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)", "Wersja programu"])
+    ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)",
+     "Dokumenty w sesji", "Plany wizyt", "Wersja programu"])
     .appendRow([new Date(), kod, imie,
                 nazwy[String(dane.rodzaj)] || String(dane.rodzaj || "?"),
-                Number(dane.minuty) || "", String(dane.wersja || "")]);
+                Number(dane.minuty) || "",
+                Number(dane.dokumenty) || "", Number(dane.plany) || "",
+                String(dane.wersja || "")]);
   return { status: "ok" };
 }
 
@@ -812,4 +830,18 @@ function resetHasla(dane) {
              opis: "Haslo skasowane. Zaloguj sie numerem telefonu i ustaw nowe haslo." };
   }
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
+}
+
+
+/* Porownanie wersji: czy klient ma co najmniej MINIMALNA_WERSJA */
+function _wersjaWystarczajaca(wersja) {
+  function _naLiczbe(w) {
+    var cz = String(w).split(".").map(function (x) {
+      var c = String(x).replace(/\D/g, "");
+      return c ? parseInt(c, 10) : 0;
+    });
+    while (cz.length < 3) cz.push(0);
+    return cz[0] * 1000000 + cz[1] * 1000 + cz[2];
+  }
+  return _naLiczbe(wersja) >= _naLiczbe(MINIMALNA_WERSJA);
 }

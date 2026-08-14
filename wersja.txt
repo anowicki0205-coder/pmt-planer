@@ -1,2 +1,2 @@
-3.17.0
-Nowosci: program po udanej aktualizacji sam usuwa kopie starych wersji z komputera, rejestr sesji w arkuszu administratora (zalogowanie, wylogowanie, czas pracy, wersja programu), mozliwosc resetu hasla przez administratora i uzytkownika.
+3.18.0
+Nowosci: program automatycznie usuwa starsze kopie z komputera przy kazdym starcie (biezaca wersja i kopia zapasowa zostaja), a serwer odmawia logowania zbyt starym wersjom — przygotowanie pod subskrypcje. Wczesniej: zmiana hasla z okna logowania, rejestr sesji.

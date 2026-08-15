@@ -1,2 +1,2 @@
-3.19.1
-Nowosc: filmowy ekran powitalny po zalogowaniu — logo PMT spada jak meteor ze swietlnym ogonem, uderza z fala uderzeniowa, a zielono-cyjanowy pierscien zatacza wokol niego pelne kolo. Poprawki: przyciski w oknie logowania nie sa juz obcinane i podswietlaja sie po najechaniu, okna dialogowe w stylu systemu PMT zamiast windowsowych, czytelne komunikaty przy zmianie hasla.
+3.19.2
+Poprawka krytyczna: program nie uruchamial sie po zalogowaniu (kolizja nazw nowego ekranu startowego z istniejacym panelem powitalnym). Filmowa animacja startowa dziala teraz obok, nie zamiast panelu.

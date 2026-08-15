@@ -882,7 +882,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.19.1"
+WERSJA_PROGRAMU = "3.19.2"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -12054,7 +12054,7 @@ class PlanWizytOverlay(QFrame):
 
 
 
-class EkranPowitalny(QWidget):
+class AnimacjaStartowa(QWidget):
     """Ekran startowy po zalogowaniu — ok. 4,7 s spektaklu.
 
     Sekwencja:
@@ -12351,17 +12351,17 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
     return bool(wynik)
 
 
-def pokaz_ekran_powitalny(imie: str = ""):
+def pokaz_animacje_startowa(imie: str = ""):
     """Wyświetla animację i czeka, aż się skończy. Awaria animacji nie może
     zablokować programu — dlatego całość w zabezpieczeniu."""
     try:
-        ekran = EkranPowitalny(imie)
+        ekran = AnimacjaStartowa(imie)
         petla = QEventLoop()
         ekran.zakonczony.connect(petla.quit)
         ekran.show()
         ekran.raise_()
         ekran.activateWindow()
-        QTimer.singleShot(EkranPowitalny.CZAS_MS + 900, petla.quit)   # bezpiecznik
+        QTimer.singleShot(AnimacjaStartowa.CZAS_MS + 900, petla.quit)   # bezpiecznik
         petla.exec()
         ekran.deleteLater()
     except Exception:
@@ -14185,7 +14185,7 @@ if __name__ == "__main__":
         sys.exit(0)
     online_zapisz_kod(_kod)
 
-    pokaz_ekran_powitalny(_imie_zal if "_imie_zal" in dir() else "")
+    pokaz_animacje_startowa(_imie_zal if "_imie_zal" in dir() else "")
 
     online_zdarzenie(uruchomienia=1)
     _START_PROGRAMU = datetime.datetime.now()

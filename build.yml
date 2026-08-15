@@ -63,30 +63,39 @@ jobs:
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z;."; echo "dolaczam: $Z";
             else echo "POMIJAM (brak w repo): $Z"; fi
           done
-          # --runtime-tmpdir: program rozpakowuje sie ZAWSZE do tego samego,
-          # lokalnego katalogu zamiast losowego _MEI w %TEMP%. Dzieki temu nie
-          # wchodzi w droge synchronizacji chmury ani czyszczeniu folderu temp,
-          # co bylo przyczyna bledow "Failed to load Python DLL".
-          pyinstaller --onefile --windowed \
+          # oznacza, ze stara i nowa wersja uzywaja TEGO SAMEGO folderu —
+          # przy aktualizacji obie kopie wchodza sobie w droge i pojawia sie
+          # blad "Failed to load Python DLL". Losowy katalog na kazde
+          # uruchomienie jest tu bezpieczniejszy.
+          # TRYB FOLDEROWY (--onedir). Program NIE rozpakowuje sie przy starcie —
+          # biblioteki leza gotowe obok pliku .exe. To usuwa u zrodla blad
+          # "Failed to load Python DLL": nie ma czego rozpakowywac, wiec nie ma
+          # kolizji z antywirusem, chmura ani druga instancja programu.
+          # Start jest tez znacznie szybszy (brak wypakowywania 48 MB).
+          pyinstaller --onedir --windowed \
             --name PMT_Planer \
             --icon pmt_logo.ico \
-            --runtime-tmpdir "%LOCALAPPDATA%\PMT_Planer" \
             $DODAJ \
             PMT_Delegacje.py
 
-      - name: Sprawdź, czy .exe powstał
+      - name: Sprawdź, czy program powstał
         shell: bash
         run: |
-          test -f dist/PMT_Planer.exe || { echo "BRAK dist/PMT_Planer.exe"; exit 1; }
-          ls -la dist/
+          test -f dist/PMT_Planer/PMT_Planer.exe || { echo "BRAK dist/PMT_Planer/PMT_Planer.exe"; exit 1; }
+          ls -la dist/PMT_Planer/ | head -20
 
       - name: Spakuj do zip
         shell: bash
         run: |
+          # W archiwum ma byc FOLDER "PMT_Planer" z plikiem .exe i katalogiem
+          # _internal. Aktualizator rozpoznaje ten uklad i podmienia caly folder.
+          # Do paczki dokladamy skrypt pierwszego uruchomienia — zdejmuje on
+          # znacznik "plik z internetu", ktory blokuje start programu.
+          cp URUCHOM_PMT.bat dist/PMT_Planer/ 2>/dev/null || true
           cd dist
-          7z a ../PMT_Planer.Windows.zip PMT_Planer.exe
+          7z a ../PMT_Planer.Windows.zip PMT_Planer
           cd ..
-          7z l PMT_Planer.Windows.zip     # kontrola: co jest w archiwum
+          7z l PMT_Planer.Windows.zip | head -25
 
       - name: Dołącz do wydania
         uses: softprops/action-gh-release@v2
@@ -139,7 +148,7 @@ jobs:
                    DejaVuSans.ttf DejaVuSans-Bold.ttf; do
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z:."; fi
           done
-          pyinstaller --onefile --windowed \
+          pyinstaller --onedir --windowed \
             --name PMT_Planer \
             --icon "${{ matrix.ikona }}" \
             $DODAJ \
@@ -149,7 +158,7 @@ jobs:
         shell: bash
         run: |
           cd dist
-          zip -j ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
+          zip -r ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
 
       - name: Dołącz do wydania
         uses: softprops/action-gh-release@v2

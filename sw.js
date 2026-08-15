@@ -2,7 +2,7 @@
    Zadania: (1) aplikacja startuje offline (cache powloki),
             (2) powiadomienia dzialaja na Androidzie,
             (3) aktualizacje HTML zawsze swieze przy zasiegu (network-first). */
-const WERSJA = "pmt-v3-4";
+const WERSJA = "pmt-v1";
 const POWLOKA = ["./pmt_wizyty.html", "./manifest.webmanifest", "./pwa_192.png", "./pwa_512.png"];
 
 self.addEventListener("install", (e) => {

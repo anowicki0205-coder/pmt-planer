@@ -882,7 +882,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.19.2"
+WERSJA_PROGRAMU = "3.20.0"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -5026,7 +5026,7 @@ class StyledInput(QFrame):
 
     def _widget_css(self):
         txt = self._text_css()
-        ph = "#64748B" if self.is_dark else "#94A3B8"
+        ph = "#64748B" if self.is_dark else "#5B6B80"
         view_bg = "#0B1320" if self.is_dark else "#FFFFFF"
         view_sel = "#00F0FF" if self.is_dark else "#0D9488"
         view_seltxt = "#000000" if self.is_dark else "#FFFFFF"
@@ -5673,9 +5673,9 @@ class StageTimeline(QWidget):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
         n = len(self.ETAPY)
         akcent = QColor("#00E4A1") if self.is_dark else QColor("#0D9488")
-        nieakt = QColor(255, 255, 255, 40) if self.is_dark else QColor(15, 23, 42, 40)
+        nieakt = QColor(255, 255, 255, 40) if self.is_dark else QColor(15, 23, 42, 75)
         txt_akt = QColor("#F8FAFC") if self.is_dark else QColor("#0F172A")
-        txt_nieakt = QColor(148, 163, 184, 160)
+        txt_nieakt = QColor(148, 163, 184, 160) if self.is_dark else QColor(51, 65, 85, 220)
 
         w = self.width(); pad = 46
         y = 16; r = 6
@@ -5809,12 +5809,12 @@ class AssistantPanel(QFrame):
             self._sec_color = "#00F0FF"
         else:
             self.setStyleSheet("""
-                QFrame#AssistantPanel { background-color: rgba(255,255,255,0.55); border: 1px solid rgba(148,163,184,0.45); border-radius: 14px; }
+                QFrame#AssistantPanel { background-color: rgba(255,255,255,0.86); border: 1px solid rgba(15,23,42,0.16); border-radius: 14px; }
                 QLabel { background: transparent; border: none; }
                 QLabel#metricLabel, QLabel#checkLabel { color: #475569; font-family:'Segoe UI'; font-size: 12px; }
                 QLabel#metricValue { color: #0D9488; font-family:'Segoe UI'; font-size: 13px; font-weight: 700; }
-                QLabel#checkIcon { color: #94A3B8; font-size: 14px; }
-                QFrame#panelSep { background-color: rgba(15,23,42,0.10); border: none; }
+                QLabel#checkIcon { color: #64748B; font-size: 14px; }
+                QFrame#panelSep { background-color: rgba(15,23,42,0.14); border: none; }
             """)
             self._sec_color = "#0D9488"
         sec_style = f"color: {self._sec_color}; font-family:'Segoe UI'; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; background: transparent; border: none;"
@@ -8804,9 +8804,9 @@ class EkranPowitalny(QFrame):
             przyciem = QColor(4, 8, 16, 130)     # delikatne przyciemnienie pod treścią
         else:
             akc = QColor(13, 148, 136)
-            txt = QColor(248, 250, 252); txt_mut = QColor(226, 232, 240)
-            ring = QColor(255, 255, 255, 120)
-            przyciem = QColor(10, 20, 30, 90)
+            txt = QColor(15, 23, 42); txt_mut = QColor(30, 41, 59, 235)
+            ring = QColor(15, 23, 42, 110)
+            przyciem = QColor(255, 255, 255, 125)   # jasna poświata pod treścią zamiast przyciemnienia
 
         # NIE malujemy pełnego tła — widget jest przezroczysty, więc prześwituje
         # tło aplikacji (góry + świecąca droga). Dajemy tylko miękką, owalną
@@ -9619,7 +9619,7 @@ class PanelAdminaOverlay(QFrame):
             f"QHeaderView::section {{ background:{naglo}; color:{akc}; border:none; padding:8px; font-weight:700; }}"
             f"QTableWidget::item {{ padding:6px; }}")
         # celowo dyskretne — bez zwracania uwagi
-        mut = "#4B5563" if is_dark else "#94A3B8"
+        mut = "#4B5563" if is_dark else "#475569"
         self.pole_kod_dostepu.setStyleSheet(
             f"QLineEdit {{ background:transparent; border:1px solid {ramka}; border-radius:6px; "
             f"padding:0 8px; color:{mut}; font-family:'Segoe UI'; font-size:10px; }}")
@@ -12055,35 +12055,72 @@ class PlanWizytOverlay(QFrame):
 
 
 class AnimacjaStartowa(QWidget):
-    """Ekran startowy po zalogowaniu — ok. 4,7 s spektaklu.
+    """Ekran startowy po zalogowaniu — smuga światła z drogi w tle pisze
+    odręcznie "PMT" na niebie i zastyga w ładujące się logo.
 
-    Sekwencja:
-      0,00-1,10 s  METEOR — logo spada z góry po łuku, ciągnąc świetlny ogon,
-                   obracając się i rosnąc; za nim lecą iskry.
-      1,10-1,45 s  UDERZENIE — błysk, trzy fale uderzeniowe rozchodzące się
-                   na boki, logo "odbija się" (efekt sprężystości).
-      1,20-3,40 s  PIERŚCIEŃ — zielono-cyjanowy łuk zatacza pełne 360° wokół
-                   logo, z jasną iskrą na czubku i smugą za nią.
-      2,40-4,00 s  NAPIS — "PMT PLANER" wyłania się litera po literze,
-                   pod spodem imię zalogowanej osoby.
-      4,00-4,70 s  ZANIKANIE — całość gaśnie, program się pokazuje.
+    Sekwencja (czasy bazowe × TEMPO; przy TEMPO=2.0 całość ~10,7 s):
+      START      tło programu (ciemny.png / jasny.png) wyłania się z mroku,
+      DROGA      iskra rodzi się na drodze i jedzie po jej realnym śladzie,
+      PINEZKA    dociera do pinezki — ta pulsuje pomarańczowo ("dojechałeś"),
+      WYSTRZAŁ   światło odrywa się od ziemi i szybuje łukiem w niebo,
+      PODPIS     smuga pisze odręcznie wielkie "PMT" nad krajobrazem,
+      WĘZŁY      (ciemny motyw) sieć tras nad miastem zapala się po kolei,
+      ZWINIĘCIE  błysk — pismo zasysa się do środka i zastyga jako logo,
+      PIERŚCIEŃ  łuk postępu domyka pełne 360°, poniżej powitanie,
+      ZANIKANIE  całość płynnie przechodzi w program.
+
+    Trasa smugi jest zapisana we współrzędnych ZNORMALIZOWANYCH względem
+    grafiki tła (0..1), więc pokrywa się z drogą przy każdej rozdzielczości
+    — tło rysujemy w trybie "cover" i tym samym przekształceniem mapujemy
+    punkty trasy.
     """
     zakonczony = pyqtSignal()
 
-    CZAS_MS = 4700
+    TEMPO = 2.0                          # 1.0 = tempo bazowe; 2.0 = dwa razy wolniej
+    CZAS_MS = int(5350 * TEMPO)
 
-    def __init__(self, imie: str = "", parent=None):
+    # ---- trasa smugi po drodze (współrzędne 0..1 względem grafiki tła) ----
+    _DROGA_CIEMNA = [(0.370, 0.996), (0.444, 0.932), (0.522, 0.880),
+                     (0.596, 0.832), (0.663, 0.792), (0.714, 0.760),
+                     (0.740, 0.734), (0.743, 0.716)]
+    _DROGA2_CIEMNA = [(0.520, 1.000), (0.611, 0.909), (0.690, 0.840),
+                      (0.752, 0.793), (0.812, 0.758)]
+    _PIN_CIEMNY = (0.743, 0.712)
+    _WEZLY_CIEMNE = [(0.503, 0.575), (0.590, 0.564), (0.654, 0.529),
+                     (0.694, 0.630), (0.723, 0.581), (0.791, 0.536)]
+    _DROGA_JASNA = [(0.510, 0.508), (0.574, 0.557), (0.622, 0.589),
+                    (0.565, 0.641), (0.481, 0.673), (0.432, 0.711),
+                    (0.481, 0.757), (0.581, 0.784), (0.669, 0.803),
+                    (0.728, 0.815)]
+    _PIN_JASNY = (0.727, 0.737)
+
+    # ---- odręczne "PMT": łamana w układzie 228×150 + kreska litery T ----
+    _LITERY = [(14, 146), (4, 96), (10, 42), (30, 14), (58, 16), (66, 48),
+               (46, 74), (16, 80), (28, 118), (34, 146), (52, 150), (68, 146),
+               (78, 70), (88, 20), (104, 64), (114, 112), (124, 66),
+               (136, 20), (150, 66), (158, 120), (164, 146), (184, 132),
+               (204, 66), (214, 26), (220, 18), (224, 60), (226, 110),
+               (228, 146)]
+    _KRESKA_T = [(192, 28), (218, 20), (246, 16), (260, 20)]
+
+    def __init__(self, imie: str = "", is_dark: bool = True, parent=None):
         super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setWindowState(Qt.WindowState.WindowFullScreen)
         self.imie = (imie or "").strip()
-        self._t = 0.0                      # czas w sekundach
-        self._iskry = []                   # ogon meteoru
-        self._gwiazdy = []                 # tło
-        rng = random.Random(7)
-        for _ in range(90):
-            self._gwiazdy.append((rng.random(), rng.random(),
-                                  rng.uniform(0.6, 2.2), rng.uniform(0.25, 1.0)))
+        self.is_dark = bool(is_dark)
+        self._t = 0.0
+        self._ost_t = 0.0
+
+        # tło motywu (to samo, które program pokazuje pod spodem)
+        self._tlo = None
+        sciezka_tla = zasob_sciezka("ciemny.png" if self.is_dark else "jasny.png")
+        if sciezka_tla and os.path.exists(sciezka_tla):
+            px = QPixmap(sciezka_tla)
+            if not px.isNull():
+                self._tlo = px
+        self._tlo_cache = None           # (W, H, przeskalowane, ox, oy, sw, sh)
+
         # logo (jeśli jest w zasobach)
         self._logo = None
         for nazwa in ("pmt_logo.png", "pmt.png", "pmt_logo.jpg"):
@@ -12093,12 +12130,44 @@ class AnimacjaStartowa(QWidget):
                 if not obraz.isNull():
                     self._logo = obraz
                     break
+
+        # geometria: wygładzona trasa i pismo
+        droga = self._DROGA_CIEMNA if self.is_dark else self._DROGA_JASNA
+        self._droga = self._wygladz(droga)
+        self._droga2 = self._wygladz(self._DROGA2_CIEMNA) if self.is_dark else []
+        self._pin = self._PIN_CIEMNY if self.is_dark else self._PIN_JASNY
+        self._pismo_a = self._wygladz(self._LITERY)
+        self._pismo_b = self._wygladz(self._KRESKA_T)
+        self._pismo_n1 = len(self._pismo_a)
+        self._pismo_n = self._pismo_n1 + len(self._pismo_b)
+        self._pismo_tr = (1.0, 0.0, 0.0)   # (skala, ox, oy) — liczone w paintEvent
+
+        # stan animacji
+        self._ogon = []                  # ślad głównej smugi
+        self._ogon2 = []                 # ślad drugiej smugi (ciemny motyw)
+        self._iskry = []                 # [x, y, vx, vy, graw, życie, ubytek, r, (r,g,b)]
+        self._pulsy = []                 # fale wokół pinezki: [promień, życie]
+        self._blysk = 0.0
+        self._raz = set()
+
+        # kolory motywu
+        if self.is_dark:
+            self._akc1 = QColor(0, 240, 255)      # cyjan smug z tła
+            self._akc2 = QColor(0, 228, 161)      # zieleń PMT
+            self._smuga = QColor(0, 240, 255)
+            self._pioro = QColor(0, 240, 255)
+        else:
+            self._akc1 = QColor(13, 148, 136)     # teal jasnego motywu
+            self._akc2 = QColor(16, 185, 129)
+            self._smuga = QColor(10, 118, 94)
+            self._pioro = QColor(7, 94, 78)
+
         self._zegar = QTimer(self)
         self._zegar.timeout.connect(self._krok)
-        self._zegar.start(16)              # ~60 klatek na sekundę
+        self._zegar.start(16)            # ~60 klatek na sekundę
         self._start = datetime.datetime.now()
 
-    # ---------- animacja ----------
+    # ---------- pętla czasu ----------
     def _krok(self):
         self._t = (datetime.datetime.now() - self._start).total_seconds()
         if self._t * 1000 >= self.CZAS_MS:
@@ -12108,159 +12177,473 @@ class AnimacjaStartowa(QWidget):
             return
         self.update()
 
+    # ---------- matematyka ruchu ----------
     @staticmethod
-    def _plynnie(x):                       # łagodne wejście i wyjście
+    def _plynnie(x):
         x = max(0.0, min(1.0, x))
         return x * x * (3 - 2 * x)
 
     @staticmethod
-    def _odbicie(x):                       # sprężyste dojście do celu
+    def _wyplyw(x):                      # szybki start, łagodne dojście
         x = max(0.0, min(1.0, x))
-        c1, c3 = 1.70158, 2.70158
+        return 1 - (1 - x) ** 3
+
+    @staticmethod
+    def _odbicie(x):                     # sprężyste dojście do celu
+        x = max(0.0, min(1.0, x))
+        c1, c3 = 1.40, 2.40
         return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2
 
+    @staticmethod
+    def _wygladz(pkt, seg=12):
+        """Wygładzenie łamanej krzywą Catmulla-Roma (gęsta lista punktów)."""
+        if len(pkt) < 2:
+            return [tuple(p) for p in pkt]
+        p = [pkt[0]] + list(pkt) + [pkt[-1]]
+        wyn = []
+        for i in range(len(p) - 3):
+            p0, p1, p2, p3 = p[i], p[i + 1], p[i + 2], p[i + 3]
+            for s in range(seg):
+                u = s / seg
+                u2, u3 = u * u, u * u * u
+                wyn.append((
+                    0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * u
+                           + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2
+                           + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * u3),
+                    0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * u
+                           + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2
+                           + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * u3)))
+        wyn.append((pkt[-1][0], pkt[-1][1]))
+        return wyn
+
+    # ---------- tło i mapowanie współrzędnych ----------
+    def _tlo_rysuj(self, p, W, H):
+        if self._tlo is None:
+            grad = QLinearGradient(0, 0, 0, H)
+            if self.is_dark:
+                grad.setColorAt(0.0, QColor("#0F172A"))
+                grad.setColorAt(0.62, QColor("#241B3A"))
+                grad.setColorAt(0.71, QColor("#B4652E"))
+                grad.setColorAt(0.77, QColor("#101018"))
+                grad.setColorAt(1.0, QColor("#04121A"))
+            else:
+                grad.setColorAt(0.0, QColor("#BFE3F7"))
+                grad.setColorAt(0.44, QColor("#E3F2F6"))
+                grad.setColorAt(0.47, QColor("#9CCB6F"))
+                grad.setColorAt(1.0, QColor("#6FAF52"))
+            p.fillRect(self.rect(), grad)
+            self._tlo_cache = (W, H, None, 0.0, 0.0, float(W), float(H))
+            return
+        c = self._tlo_cache
+        if (not c) or c[0] != W or c[1] != H:
+            sk = self._tlo.scaled(W, H,
+                                  Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                  Qt.TransformationMode.SmoothTransformation)
+            ox = (W - sk.width()) / 2.0
+            oy = (H - sk.height()) / 2.0
+            self._tlo_cache = (W, H, sk, ox, oy, float(sk.width()), float(sk.height()))
+        c = self._tlo_cache
+        if c[2] is not None:
+            p.drawPixmap(int(c[3]), int(c[4]), c[2])
+
+    def _mapa(self, nx, ny):
+        """Punkt 0..1 grafiki tła -> piksele ekranu (z uwzgl. kadru cover)."""
+        c = self._tlo_cache
+        if not c:
+            return nx * self.width(), ny * self.height()
+        return c[3] + nx * c[5], c[4] + ny * c[6]
+
+    # ---------- cząsteczki ----------
+    def _sypnij(self, x, y, ile, moc, graw, ubytek, prom, kolory, unos=0.0):
+        for _ in range(ile):
+            a = random.random() * 6.2832
+            sp = moc * (0.3 + random.random())
+            self._iskry.append([x, y, math.cos(a) * sp, math.sin(a) * sp - unos,
+                                graw, 1.0, ubytek,
+                                prom * (0.4 + random.random()),
+                                random.choice(kolory)])
+
+    def _iskry_rysuj(self, p, dt):
+        f = max(0.2, min(3.0, dt * 60.0))
+        p.setPen(Qt.PenStyle.NoPen)
+        for isk in self._iskry[:]:
+            isk[0] += isk[2] * f
+            isk[1] += isk[3] * f
+            isk[3] += isk[4] * f
+            isk[5] -= isk[6] * f
+            if isk[5] <= 0:
+                self._iskry.remove(isk)
+                continue
+            kol = QColor(isk[8][0], isk[8][1], isk[8][2])
+            kol.setAlphaF(max(0.0, min(1.0, isk[5])))
+            p.setBrush(kol)
+            r = max(0.6, isk[7] * isk[5])
+            p.drawEllipse(QPointF(isk[0], isk[1]), r, r)
+
+    def _ogon_rysuj(self, p, ogon, moc, fade, prom):
+        if not ogon or fade <= 0:
+            return
+        n = len(ogon)
+        p.setPen(Qt.PenStyle.NoPen)
+        for i, (x, y) in enumerate(ogon):
+            a = (i + 1) / n * moc * fade
+            r = prom * (0.35 + 0.85 * (i + 1) / n)
+            g = QRadialGradient(QPointF(x, y), r)
+            k1 = QColor(self._smuga); k1.setAlphaF(min(1.0, a))
+            k2 = QColor(self._akc2); k2.setAlphaF(0.0)
+            g.setColorAt(0.0, k1)
+            g.setColorAt(1.0, k2)
+            p.setBrush(g)
+            p.drawEllipse(QPointF(x, y), r, r)
+
+    def _glowa_rysuj(self, p, x, y, r):
+        g = QRadialGradient(QPointF(x, y), r * 3.2)
+        k1 = QColor(255, 255, 255, 235)
+        k2 = QColor(self._akc1); k2.setAlpha(150)
+        k3 = QColor(self._akc1); k3.setAlpha(0)
+        g.setColorAt(0.0, k1); g.setColorAt(0.35, k2); g.setColorAt(1.0, k3)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(g)
+        p.drawEllipse(QPointF(x, y), r * 3.2, r * 3.2)
+        if not self.is_dark:
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(7, 94, 78, 210), max(1.2, r * 0.5)))
+            p.drawEllipse(QPointF(x, y), r * 1.5, r * 1.5)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 245))
+            p.drawEllipse(QPointF(x, y), r * 0.9, r * 0.9)
+
+    # ---------- pismo ----------
+    def _pismo_rysuj(self, p, n, srodek, skala, alfa, W, H):
+        """Rysuje pierwsze n punktów podpisu; zwraca pozycję "pióra"."""
+        if n < 2 or alfa <= 0:
+            return None
+        s, lox, loy = self._pismo_tr
+
+        def ekran(pt):
+            return QPointF(lox + pt[0] * s, loy + pt[1] * s)
+
+        n1 = min(n, self._pismo_n1)
+        sc1 = QPainterPath()
+        sc1.moveTo(ekran(self._pismo_a[0]))
+        for i in range(1, n1):
+            sc1.lineTo(ekran(self._pismo_a[i]))
+        koniec = ekran(self._pismo_a[n1 - 1])
+        sc2 = None
+        if n > self._pismo_n1:
+            n2 = min(n - self._pismo_n1, len(self._pismo_b))
+            if n2 >= 2:
+                sc2 = QPainterPath()
+                sc2.moveTo(ekran(self._pismo_b[0]))
+                for i in range(1, n2):
+                    sc2.lineTo(ekran(self._pismo_b[i]))
+                koniec = ekran(self._pismo_b[n2 - 1])
+
+        p.save()
+        p.translate(srodek)
+        p.scale(skala, skala)
+        p.translate(-srodek.x(), -srodek.y())
+        wd = max(3.0, min(W, H) * 0.011)
+        if self.is_dark:
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        warstwy = ((wd * 3.4, self._akc2, 0.16 * alfa),
+                   (wd * 2.0, self._akc1, 0.34 * alfa),
+                   (wd * 1.0, self._pioro, 0.95 * alfa))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for szer, kol, a in warstwy:
+            k = QColor(kol); k.setAlphaF(max(0.0, min(1.0, a)))
+            pi = QPen(k, szer)
+            pi.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pi.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pi)
+            p.drawPath(sc1)
+            if sc2 is not None:
+                p.drawPath(sc2)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        k = QColor(255, 255, 255); k.setAlphaF(max(0.0, min(1.0, alfa)))
+        pi = QPen(k, wd * 0.40)
+        pi.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pi.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pi)
+        p.drawPath(sc1)
+        if sc2 is not None:
+            p.drawPath(sc2)
+        p.restore()
+        dx = srodek.x() + (koniec.x() - srodek.x()) * skala
+        dy = srodek.y() + (koniec.y() - srodek.y()) * skala
+        return QPointF(dx, dy)
+
+    def _tekst(self, p, prost, flagi, txt, kolor, halo=False):
+        """Tekst; na jasnym motywie z delikatnym białym halo dla czytelności."""
+        if halo and not self.is_dark:
+            p.setPen(QColor(255, 255, 255, 175))
+            for dx, dy in ((-1.4, 0), (1.4, 0), (0, -1.4), (0, 1.4)):
+                p.drawText(prost.translated(dx, dy), flagi, txt)
+        p.setPen(kolor)
+        p.drawText(prost, flagi, txt)
+
+    # ---------- rysowanie klatki ----------
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         W, H = self.width(), self.height()
-        srx, sry = W / 2, H / 2
+        mn = min(W, H)
         t = self._t
+        dt = max(0.0, t - self._ost_t)
+        self._ost_t = t
+        td = t / self.TEMPO                       # czas w skali bazowej
+        sk_ekr = mn / 500.0                        # skala prędkości cząsteczek
 
-        # --- tło: granat z poświatą ---
-        grad = QLinearGradient(0, 0, 0, H)
-        grad.setColorAt(0.0, QColor("#0F172A"))
-        grad.setColorAt(1.0, QColor("#04121A"))
-        p.fillRect(self.rect(), grad)
-        for gx, gy, gr, ga in self._gwiazdy:
-            mig = 0.55 + 0.45 * math.sin(t * 2.4 + gx * 40)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(255, 255, 255, int(255 * ga * mig * 0.5)))
-            p.drawEllipse(QPointF(gx * W, gy * H), gr, gr)
+        # 1) tło
+        self._tlo_rysuj(p, W, H)
 
-        promien = min(W, H) * 0.16          # docelowy promień logo
+        # układ pisma: szeroko na niebie
+        s = min(W * 0.74 / 228.0, H * 0.40 / 150.0)
+        lox = (W - 228.0 * s) / 2.0
+        loy = max(H * 0.05, H * 0.27 - 75.0 * s)
+        self._pismo_tr = (s, lox, loy)
+        pismo_start = QPointF(lox + self._pismo_a[0][0] * s,
+                              loy + self._pismo_a[0][1] * s)
+        srodek = QPointF(W * 0.5, H * 0.44)        # cel zwinięcia = środek pierścienia
+        promien = mn * 0.13                        # promień logo
+        rr = promien * 1.60                        # promień pierścienia
 
-        # ================= FAZA 1: METEOR =================
-        faza_met = min(1.0, t / 1.10)
-        if t < 1.10:
-            e = self._plynnie(faza_met)
-            # tor lotu: z prawej góry po łuku do środka
-            x = W * 1.15 + (srx - W * 1.15) * e
-            y = -H * 0.25 + (sry + H * 0.25) * e - math.sin(e * math.pi) * H * 0.10
-            skala = 0.25 + 0.75 * e
-            # ogon
-            self._iskry.append((x, y, t))
-            self._iskry = [i for i in self._iskry if t - i[2] < 0.42]
-            for ix, iy, it in self._iskry:
-                wiek = (t - it) / 0.42
-                a = int(230 * (1 - wiek) ** 2)
-                r = promien * skala * (1.05 - wiek) * 0.55
-                if a <= 0 or r <= 0:
+        # 2) pozycja głowy smugi
+        glowa = None
+        if td < 1.25:
+            k = self._plynnie((td - 0.25) / 1.00)
+            if td >= 0.25:
+                i = int(k * (len(self._droga) - 1))
+                glowa = self._mapa(*self._droga[i])
+        elif td < 1.55:
+            glowa = self._mapa(*self._pin)
+        elif td < 1.90:
+            k = self._plynnie((td - 1.55) / 0.35)
+            p0 = self._mapa(*self._pin)
+            cx, cy = W * 0.93, H * 0.08
+            u = 1 - k
+            glowa = (u * u * p0[0] + 2 * u * k * cx + k * k * pismo_start.x(),
+                     u * u * p0[1] + 2 * u * k * cy + k * k * pismo_start.y())
+        if glowa is not None and td < 1.90:
+            self._ogon.append(glowa)
+            if len(self._ogon) > int(26 * self.TEMPO):
+                self._ogon.pop(0)
+        if self.is_dark and 0.55 <= td < 1.50:
+            k2 = self._plynnie((td - 0.55) / 0.95)
+            i2 = int(k2 * (len(self._droga2) - 1))
+            self._ogon2.append(self._mapa(*self._droga2[i2]))
+            if len(self._ogon2) > int(16 * self.TEMPO):
+                self._ogon2.pop(0)
+
+        # 3) pinezka: fale i poświata
+        if td >= 1.25 and "pin1" not in self._raz:
+            self._raz.add("pin1")
+            self._pulsy.append([mn * 0.012, 1.0])
+            px, py = self._mapa(*self._pin)
+            self._sypnij(px, py, 14, 2.0 * sk_ekr, 0.03 * sk_ekr, 0.030,
+                         2.4 * sk_ekr, ((255, 179, 107), (255, 217, 174),
+                                        (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
+        if td >= 1.42 and "pin2" not in self._raz:
+            self._raz.add("pin2")
+            self._pulsy.append([mn * 0.012, 1.0])
+        if self._pulsy:
+            px, py = self._mapa(*self._pin)
+            f = max(0.2, min(3.0, dt * 60.0))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for puls in self._pulsy[:]:
+                puls[0] += mn * 0.0035 * f
+                puls[1] -= 0.028 * f
+                if puls[1] <= 0:
+                    self._pulsy.remove(puls)
                     continue
-                poswiata = QRadialGradient(QPointF(ix, iy), r)
-                poswiata.setColorAt(0.0, QColor(0, 240, 255, a))
-                poswiata.setColorAt(0.5, QColor(0, 228, 161, int(a * 0.55)))
-                poswiata.setColorAt(1.0, QColor(0, 228, 161, 0))
-                p.setBrush(poswiata); p.setPen(Qt.PenStyle.NoPen)
-                p.drawEllipse(QPointF(ix, iy), r, r)
-            self._rysuj_logo(p, x, y, promien * skala, obrot=e * 540, jasnosc=1.0)
-            p.end(); return
+                kol = QColor(255, 179, 107, int(200 * puls[1]))
+                p.setPen(QPen(kol, max(1.0, mn * 0.005 * puls[1])))
+                p.drawEllipse(QPointF(px, py), puls[0], puls[0])
+        if 1.25 <= td < 2.30:
+            px, py = self._mapa(*self._pin)
+            a = (0.40 + 0.32 * math.sin(t * 11.0)) * (1.0 - self._plynnie((td - 2.00) / 0.30))
+            if a > 0:
+                g = QRadialGradient(QPointF(px, py), mn * 0.035)
+                g.setColorAt(0.0, QColor(255, 179, 107, int(230 * a)))
+                g.setColorAt(1.0, QColor(255, 179, 107, 0))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(g)
+                p.drawEllipse(QPointF(px, py), mn * 0.035, mn * 0.035)
 
-        # ================= FAZA 2: UDERZENIE =================
-        od_uderzenia = t - 1.10
-        if od_uderzenia < 0.40:
-            blysk = int(200 * (1 - od_uderzenia / 0.40) ** 2)
-            if blysk > 0:
-                p.fillRect(self.rect(), QColor(0, 240, 255, blysk // 3))
-        for nr in range(3):                 # trzy fale uderzeniowe
-            op = od_uderzenia - nr * 0.13
-            if 0 < op < 0.95:
-                fr = op / 0.95
-                r = promien * (1.0 + fr * 6.5)
-                a = int(150 * (1 - fr) ** 2)
-                pióro = QPen(QColor(0, 228, 161, a), max(1.0, 4.0 * (1 - fr)))
-                p.setPen(pióro); p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawEllipse(QPointF(srx, sry), r, r * 0.42)   # elipsa = fala "po ziemi"
+        # 4) smugi (ślad + głowa)
+        if self.is_dark:
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        znik = 1.0 - self._plynnie((td - 1.90) / 0.35)
+        if self._ogon2:
+            self._ogon_rysuj(p, self._ogon2, 0.30, max(0.0, 1.0 - self._plynnie((td - 1.90) / 0.40)),
+                             mn * 0.010)
+        if self._ogon:
+            self._ogon_rysuj(p, self._ogon, 0.60 if self.is_dark else 0.95,
+                             max(0.0, znik), mn * (0.013 if self.is_dark else 0.016))
+        if glowa is not None and td < 1.90:
+            self._glowa_rysuj(p, glowa[0], glowa[1], mn * 0.008)
+            if td >= 0.25 and random.random() < 0.9:
+                self._sypnij(glowa[0], glowa[1], 1, 1.1 * sk_ekr, 0.02 * sk_ekr,
+                             0.05, 1.7 * sk_ekr,
+                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                              (255, 255, 255)))
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
-        # ================= FAZA 3: PIERŚCIEŃ =================
-        faza_ring = (t - 1.20) / 2.20
-        if faza_ring > 0:
-            kat = 360 * self._plynnie(min(1.0, faza_ring))
-            rr = promien * 1.55
-            prost = QRectF(srx - rr, sry - rr, rr * 2, rr * 2)
-            # ślad toru
-            p.setPen(QPen(QColor(255, 255, 255, 22), 3))
+        # 5) węzły sieci nad miastem (tylko ciemny motyw)
+        if self.is_dark:
+            czasy = (2.05, 2.25, 2.45, 2.65, 2.85, 3.05)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+            for i, wez in enumerate(self._WEZLY_CIEMNE):
+                k = (td - czasy[i]) / 0.52
+                if 0 < k < 1:
+                    wx, wy = self._mapa(*wez)
+                    kol = QColor(self._akc2)
+                    kol.setAlphaF(0.85 * (1 - k))
+                    p.setPen(QPen(kol, max(1.0, mn * 0.0035)))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawEllipse(QPointF(wx, wy), mn * 0.005 + mn * 0.028 * k,
+                                  mn * 0.005 + mn * 0.028 * k)
+                    kropka = QColor(223, 252, 244)
+                    kropka.setAlphaF(1 - 0.3 * k)
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(kropka)
+                    p.drawEllipse(QPointF(wx, wy), mn * 0.004, mn * 0.004)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
+        # 6) podpis odręczny + zwinięcie
+        kw = self._plynnie((td - 1.90) / 1.35)
+        kz = self._plynnie((td - 3.25) / 0.40)
+        if kw > 0 and kz < 1:
+            n = max(2, int(kw * self._pismo_n))
+            piora = self._pismo_rysuj(p, n, srodek, 1.0 - 0.55 * kz,
+                                      1.0 - kz, W, H)
+            if kw < 1 and piora is not None:
+                self._glowa_rysuj(p, piora.x(), piora.y(), mn * 0.009)
+                self._sypnij(piora.x(), piora.y(), 1, 1.0 * sk_ekr,
+                             0.015 * sk_ekr, 0.055, 1.6 * sk_ekr,
+                             ((self._akc2.red(), self._akc2.green(), self._akc2.blue()),
+                              (255, 255, 255)))
+        if kw >= 1 and "snap" not in self._raz:
+            self._raz.add("snap")
+            self._blysk = 0.5
+            kx = lox + self._pismo_b[-1][0] * s
+            ky = loy + self._pismo_b[-1][1] * s
+            self._sypnij(kx, ky, 24, 2.6 * sk_ekr, 0.02 * sk_ekr, 0.025,
+                         2.2 * sk_ekr,
+                         ((self._akc2.red(), self._akc2.green(), self._akc2.blue()),
+                          (255, 255, 255),
+                          (self._akc1.red(), self._akc1.green(), self._akc1.blue())))
+
+        # 7) iskry
+        if self.is_dark:
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        self._iskry_rysuj(p, dt)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
+        # 8) logo + pierścień postępu
+        klogo = (td - 3.32) / 0.46
+        if klogo > 0:
+            alfa = self._plynnie(min(1.0, (td - 3.32) / 0.30))
+            skala = 0.40 + 0.60 * self._odbicie(min(1.0, klogo))
+            p.setOpacity(alfa)
+            self._rysuj_logo(p, srodek.x(), srodek.y(), promien * skala,
+                             obrot=0, jasnosc=alfa)
+            p.setOpacity(1.0)
+        kring = (td - 3.40) / 1.40
+        if kring > 0:
+            kat = 360.0 * self._wyplyw(min(1.0, kring))
+            prost = QRectF(srodek.x() - rr, srodek.y() - rr, rr * 2, rr * 2)
+            tor = QColor(255, 255, 255, 26) if self.is_dark else QColor(15, 23, 42, 42)
+            p.setPen(QPen(tor, max(2.0, mn * 0.004)))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(prost)
-            # łuk postępu
-            luk = QConicalGradient(QPointF(srx, sry), 90)
-            luk.setColorAt(0.0, QColor("#00F0FF"))
-            luk.setColorAt(0.5, QColor("#00E4A1"))
-            luk.setColorAt(1.0, QColor("#00F0FF"))
-            pióro = QPen(QBrush(luk), 7)
-            pióro.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pióro)
+            luk = QConicalGradient(srodek, 90)
+            luk.setColorAt(0.0, self._akc1)
+            luk.setColorAt(0.5, self._akc2)
+            luk.setColorAt(1.0, self._akc1)
+            pioro = QPen(QBrush(luk), max(4.0, mn * 0.0075))
+            pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pioro)
             p.drawArc(prost, 90 * 16, int(-kat * 16))
-            # iskra na czubku łuku
             rad = math.radians(90 - kat)
-            cx, cy = srx + rr * math.cos(rad), sry - rr * math.sin(rad)
-            iskra = QRadialGradient(QPointF(cx, cy), 22)
-            iskra.setColorAt(0.0, QColor(255, 255, 255, 230))
-            iskra.setColorAt(0.4, QColor(0, 240, 255, 170))
-            iskra.setColorAt(1.0, QColor(0, 240, 255, 0))
-            p.setPen(Qt.PenStyle.NoPen); p.setBrush(iskra)
-            p.drawEllipse(QPointF(cx, cy), 22, 22)
+            cx = srodek.x() + rr * math.cos(rad)
+            cy = srodek.y() - rr * math.sin(rad)
+            g = QRadialGradient(QPointF(cx, cy), mn * 0.020)
+            g.setColorAt(0.0, QColor(255, 255, 255, 235))
+            koll = QColor(self._akc1); koll.setAlpha(170)
+            g.setColorAt(0.4, koll)
+            koll0 = QColor(self._akc1); koll0.setAlpha(0)
+            g.setColorAt(1.0, koll0)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(g)
+            p.drawEllipse(QPointF(cx, cy), mn * 0.020, mn * 0.020)
+            # procent i napisy
+            proc = int(round(self._wyplyw(min(1.0, kring)) * 100))
+            kol_tekst = QColor(226, 240, 240, 220) if self.is_dark else QColor(15, 23, 42, 245)
+            p.setFont(QFont("Segoe UI", max(9, int(mn * 0.016)), QFont.Weight.DemiBold))
+            self._tekst(p, QRectF(srodek.x() - rr, srodek.y() + promien * 1.10, rr * 2, mn * 0.05),
+                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                        f"{proc}%", kol_tekst, halo=True)
+            if proc >= 100:
+                nap = "Gotowe"
+                kol_nap = QColor(self._akc2)
+            else:
+                nap = "Wczytywanie PMT Planer" + "." * (1 + int(t * 2.8) % 3)
+                kol_nap = kol_tekst
+            p.setFont(QFont("Segoe UI", max(10, int(mn * 0.019)), QFont.Weight.DemiBold))
+            self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.030, W, mn * 0.05),
+                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                        nap, kol_nap, halo=True)
+        if td > 3.90 and self.imie:
+            a = int(215 * self._plynnie((td - 3.90) / 0.40))
+            kol_im = QColor(self._akc2.red(), self._akc2.green(), self._akc2.blue(), a) \
+                if self.is_dark else QColor(6, 78, 59, a)
+            p.setFont(QFont("Segoe UI", max(10, int(mn * 0.021)), QFont.Weight.Bold))
+            self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.072, W, mn * 0.06),
+                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                        "Witaj, " + self.imie.split()[0] + "!", kol_im, halo=True)
 
-        # --- logo: odbicie po uderzeniu, potem delikatne oddychanie ---
-        if od_uderzenia < 0.55:
-            skala = 1.0 + 0.28 * (1 - self._odbicie(od_uderzenia / 0.55))
-        else:
-            skala = 1.0 + 0.012 * math.sin((t - 1.65) * 2.6)
-        self._rysuj_logo(p, srx, sry, promien * skala, obrot=0, jasnosc=1.0)
-
-        # ================= FAZA 4: NAPISY =================
-        napis = "PMT PLANER"
-        faza_txt = (t - 2.40) / 0.90
-        if faza_txt > 0:
-            ile = int(len(napis) * min(1.0, faza_txt))
-            czcionka = QFont("Segoe UI", max(16, int(min(W, H) * 0.045)), QFont.Weight.Black)
-            czcionka.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, min(W, H) * 0.012)
-            p.setFont(czcionka)
-            p.setPen(QColor(248, 250, 252, 255))
-            prost = QRectF(0, sry + promien * 2.0, W, min(W, H) * 0.09)
-            p.drawText(prost, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                       napis[:ile])
-        if t > 3.05 and self.imie:
-            a = int(210 * self._plynnie((t - 3.05) / 0.55))
-            p.setFont(QFont("Segoe UI", max(10, int(min(W, H) * 0.019)), QFont.Weight.DemiBold))
-            p.setPen(QColor(0, 228, 161, a))
-            prost = QRectF(0, sry + promien * 2.0 + min(W, H) * 0.085, W, min(W, H) * 0.06)
-            p.drawText(prost, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                       "Witaj, " + self.imie.split()[0] + "!")
-
-        # ================= FAZA 5: ZANIKANIE =================
-        if t > 4.00:
-            a = int(255 * self._plynnie((t - 4.00) / 0.70))
-            p.fillRect(self.rect(), QColor(4, 18, 26, a))
+        # 9) błysk i przejścia
+        if self._blysk > 0.02:
+            p.fillRect(self.rect(), QColor(255, 255, 255, int(150 * self._blysk)))
+        self._blysk *= 0.86 ** max(0.2, min(3.0, dt * 60.0))
+        wej = self._plynnie(td / 0.25)
+        if wej < 1:
+            zas = QColor(4, 10, 18) if self.is_dark else QColor(255, 255, 255)
+            zas.setAlpha(int(255 * (1 - wej)))
+            p.fillRect(self.rect(), zas)
+        if td > 4.95:
+            a = int(255 * self._plynnie((td - 4.95) / 0.40))
+            cel = QColor(4, 18, 26, a) if self.is_dark else QColor(241, 245, 249, a)
+            p.fillRect(self.rect(), cel)
         p.end()
 
     def _rysuj_logo(self, p, x, y, r, obrot=0.0, jasnosc=1.0):
         """Logo z poświatą; gdy brak pliku — rysowany monogram PMT."""
         poswiata = QRadialGradient(QPointF(x, y), r * 2.1)
-        poswiata.setColorAt(0.0, QColor(0, 240, 255, int(70 * jasnosc)))
-        poswiata.setColorAt(0.55, QColor(0, 228, 161, int(28 * jasnosc)))
-        poswiata.setColorAt(1.0, QColor(0, 228, 161, 0))
-        p.setPen(Qt.PenStyle.NoPen); p.setBrush(poswiata)
+        if self.is_dark:
+            poswiata.setColorAt(0.0, QColor(0, 240, 255, int(70 * jasnosc)))
+            poswiata.setColorAt(0.55, QColor(0, 228, 161, int(28 * jasnosc)))
+            poswiata.setColorAt(1.0, QColor(0, 228, 161, 0))
+        else:
+            poswiata.setColorAt(0.0, QColor(13, 148, 136, int(55 * jasnosc)))
+            poswiata.setColorAt(0.55, QColor(16, 185, 129, int(24 * jasnosc)))
+            poswiata.setColorAt(1.0, QColor(16, 185, 129, 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(poswiata)
         p.drawEllipse(QPointF(x, y), r * 2.1, r * 2.1)
         p.save()
         p.translate(x, y)
         if obrot:
             p.rotate(obrot)
         if self._logo is not None and not self._logo.isNull():
-            # Logo przycinamy do KOLA — inaczej widac bialy kwadrat pliku.
             bok = int(r * 2.04)
-            skalowane = self._logo.scaled(bok, bok, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            skalowane = self._logo.scaled(bok, bok,
+                                          Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                           Qt.TransformationMode.SmoothTransformation)
-            p.setBrush(QColor(255, 255, 255)); p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255))
+            p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
             sciezka = QPainterPath()
             sciezka.addEllipse(QPointF(0, 0), r * 1.0, r * 1.0)
@@ -12268,15 +12651,21 @@ class AnimacjaStartowa(QWidget):
             p.setClipPath(sciezka)
             p.drawPixmap(QPointF(-skalowane.width() / 2, -skalowane.height() / 2), skalowane)
             p.restore()
-            # delikatna obwodka w kolorze akcentu
-            p.setPen(QPen(QColor(0, 228, 161, 150), max(1.5, r * 0.035)))
+            obw = QColor(0, 228, 161, 150) if self.is_dark else QColor(13, 148, 136, 190)
+            p.setPen(QPen(obw, max(1.5, r * 0.035)))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
         else:
-            p.setBrush(QColor("#0B1320"))
-            p.setPen(QPen(QColor("#00E4A1"), max(2.0, r * 0.06)))
-            p.drawEllipse(QPointF(0, 0), r, r)
-            p.setPen(QColor("#00F0FF"))
+            if self.is_dark:
+                p.setBrush(QColor("#0B1320"))
+                p.setPen(QPen(QColor("#00E4A1"), max(2.0, r * 0.06)))
+                p.drawEllipse(QPointF(0, 0), r, r)
+                p.setPen(QColor("#00F0FF"))
+            else:
+                p.setBrush(QColor("#FFFFFF"))
+                p.setPen(QPen(QColor("#0D9488"), max(2.0, r * 0.06)))
+                p.drawEllipse(QPointF(0, 0), r, r)
+                p.setPen(QColor("#0F766E"))
             p.setFont(QFont("Segoe UI", max(10, int(r * 0.55)), QFont.Weight.Black))
             p.drawText(QRectF(-r, -r, r * 2, r * 2),
                        Qt.AlignmentFlag.AlignCenter, "PMT")
@@ -12353,9 +12742,11 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
 
 def pokaz_animacje_startowa(imie: str = ""):
     """Wyświetla animację i czeka, aż się skończy. Awaria animacji nie może
-    zablokować programu — dlatego całość w zabezpieczeniu."""
+    zablokować programu — dlatego całość w zabezpieczeniu. Motyw splasha
+    podąża za ostatnio zapisanym motywem programu (domyślnie ciemny)."""
     try:
-        ekran = AnimacjaStartowa(imie)
+        ciemny = bool(ustawienie("ciemny_motyw", True))
+        ekran = AnimacjaStartowa(imie, is_dark=ciemny)
         petla = QEventLoop()
         ekran.zakonczony.connect(petla.quit)
         ekran.show()
@@ -12403,7 +12794,7 @@ class App(QMainWindow):
             self.resize(1120, 700)
         # minimum dopasowane do małych ekranów (nie blokuje laptopów 1366x768)
         self.setMinimumSize(940, 600)
-        self.is_dark = True
+        self.is_dark = bool(ustawienie("ciemny_motyw", True))   # motyw zapamiętany między uruchomieniami
         
         self.main_container = ImageBackgroundWidget(self)
         self.main_container.setStyleSheet("border-radius: 16px;")
@@ -13540,12 +13931,20 @@ class App(QMainWindow):
                 " font-weight:800; padding:7px 14px; }"
                 "QPushButton:hover { background:#FCD34D; }")
         else:
-            self.btn_wylacz_dni.setStyleSheet(
-                "QPushButton { background: rgba(251,191,36,0.10); color:#FBBF24;"
-                " border:1.5px solid rgba(251,191,36,0.65); border-radius:8px;"
-                " font-family:'Segoe UI'; font-size:13px; font-weight:800;"
-                " padding:7px 14px; }"
-                "QPushButton:hover { background:#FBBF24; color:#1A1206; }")
+            if self.is_dark:
+                self.btn_wylacz_dni.setStyleSheet(
+                    "QPushButton { background: rgba(251,191,36,0.10); color:#FBBF24;"
+                    " border:1.5px solid rgba(251,191,36,0.65); border-radius:8px;"
+                    " font-family:'Segoe UI'; font-size:13px; font-weight:800;"
+                    " padding:7px 14px; }"
+                    "QPushButton:hover { background:#FBBF24; color:#1A1206; }")
+            else:
+                self.btn_wylacz_dni.setStyleSheet(
+                    "QPushButton { background: rgba(255,251,235,0.92); color:#92400E;"
+                    " border:1.5px solid rgba(180,83,9,0.70); border-radius:8px;"
+                    " font-family:'Segoe UI'; font-size:13px; font-weight:800;"
+                    " padding:7px 14px; }"
+                    "QPushButton:hover { background:#F59E0B; color:#1A1206; }")
 
     def _otworz_wylaczanie_dni(self):
         """Kalendarz miesiąca rozliczenia: zaznacz dni, w których nie pracujesz.
@@ -13640,16 +14039,26 @@ class App(QMainWindow):
 
     def _odswiez_przyciski_trybu(self):
         """Wybrany tryb świeci gradientem systemu, drugi jest wygaszony."""
-        akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-               " stop:0 #00F0FF, stop:1 #00E4A1); color:#050B14; border:none;"
-               " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
-               " font-weight:800; padding:8px 14px; }")
-        nieakt = ("QPushButton { background: rgba(255,255,255,0.05); color:%s;"
-                  " border:1px solid rgba(255,255,255,0.28); border-radius:8px;"
-                  " font-family:'Segoe UI'; font-size:13px; font-weight:600;"
-                  " padding:8px 14px; }"
-                  "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }"
-                  % ("#94A3B8" if self.is_dark else "#475569"))
+        if self.is_dark:
+            akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                   " stop:0 #00F0FF, stop:1 #00E4A1); color:#050B14; border:none;"
+                   " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
+                   " font-weight:800; padding:8px 14px; }")
+            nieakt = ("QPushButton { background: rgba(255,255,255,0.05); color:#94A3B8;"
+                      " border:1px solid rgba(255,255,255,0.28); border-radius:8px;"
+                      " font-family:'Segoe UI'; font-size:13px; font-weight:600;"
+                      " padding:8px 14px; }"
+                      "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }")
+        else:
+            akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                   " stop:0 #0D9488, stop:1 #10B981); color:#FFFFFF; border:none;"
+                   " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
+                   " font-weight:800; padding:8px 14px; }")
+            nieakt = ("QPushButton { background: rgba(255,255,255,0.80); color:#334155;"
+                      " border:1px solid rgba(15,23,42,0.28); border-radius:8px;"
+                      " font-family:'Segoe UI'; font-size:13px; font-weight:600;"
+                      " padding:8px 14px; }"
+                      "QPushButton:hover { border-color:#0D9488; color:#0D9488; }")
         self.btn_tryb_tydzien.setStyleSheet(akt if self.tryb_wybrany == 0 else nieakt)
         self.btn_tryb_wieczory.setStyleSheet(akt if self.tryb_wybrany == 1 else nieakt)
 
@@ -13788,6 +14197,7 @@ class App(QMainWindow):
 
     def toggle_theme(self):
         self.is_dark = not self.is_dark
+        zapisz_ustawienie("ciemny_motyw", self.is_dark)   # splash i kolejny start podążą za motywem
         self.apply_theme()
 
     def apply_theme(self):
@@ -13837,19 +14247,19 @@ class App(QMainWindow):
             c_text_med = "#475569"
             c_accent = "#0D9488"
             c_title_grad = "qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #0D9488, stop:1 #059669)"
-            self.topbar.setStyleSheet("border-bottom: 1px solid rgba(0, 0, 0, 0.05); background: transparent;")
+            self.topbar.setStyleSheet("border-bottom: 1px solid rgba(0, 0, 0, 0.10); background: transparent;")
             if hasattr(self, "logo_lbl") and hasattr(self.logo_lbl, "update_theme"):
                 self.logo_lbl.update_theme(False)
 
-            self.sidebar_frame.setStyleSheet("QFrame { background-color: rgba(255, 255, 255, 0.6); border-right: 2px solid rgba(148, 163, 184, 0.6); border-radius: 0px; }")
+            self.sidebar_frame.setStyleSheet("QFrame { background-color: rgba(255, 255, 255, 0.85); border-right: 2px solid rgba(100, 116, 139, 0.70); border-radius: 0px; }")
             self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #0F172A; border: none; font-size: 56px; } QPushButton:hover { color: #0D9488; }")
             self.btn_bug.setStyleSheet("QPushButton { background-color: #DC2626; color: white; border: none; border-radius: 14px; padding: 6px 16px; font-family: 'Segoe UI', sans-serif; font-size: 12px; font-weight: bold; } QPushButton:hover { background-color: #B91C1C; }")
 
-            card_style_light = "QFrame { background-color: rgba(255, 255, 255, 0.4); border: 1px solid rgba(148, 163, 184, 0.4); border-radius: 12px; }"
+            card_style_light = "QFrame { background-color: rgba(255, 255, 255, 0.86); border: 1px solid rgba(15, 23, 42, 0.16); border-radius: 12px; }"
             self.card_top_frame.setStyleSheet(card_style_light)
             self.card_bot_frame.setStyleSheet(card_style_light)
 
-            self.bot_card.setStyleSheet("QFrame { background-color: rgba(255, 255, 255, 0.6); border: 1px solid rgba(200, 210, 220, 0.8); border-radius: 12px; }")
+            self.bot_card.setStyleSheet("QFrame { background-color: rgba(255, 255, 255, 0.88); border: 1px solid rgba(15, 23, 42, 0.18); border-radius: 12px; }")
             self.ic_user.set_color(c_accent)
             self.ic_map.set_color(c_accent)
             self.status_icon.set_color("#10B981")
@@ -13884,6 +14294,10 @@ class App(QMainWindow):
 
         self.lbl_status.setStyleSheet(f"color:{c_text_hi}; font-family:'Segoe UI', sans-serif; font-size:12px; font-weight:500; background: transparent; border: none;")
         self.lbl_pct.setStyleSheet(f"color:{c_text_med}; font-family:'Segoe UI', sans-serif; font-size:12px; font-weight:700; background: transparent; border: none;")
+        if hasattr(self, "btn_tryb_tydzien"):
+            self._odswiez_przyciski_trybu()
+        if hasattr(self, "btn_wylacz_dni"):
+            self._odswiez_przycisk_dni()
 
     def reset_ui(self):
         self.timeline.reset()

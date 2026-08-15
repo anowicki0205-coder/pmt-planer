@@ -434,6 +434,17 @@ def online_zaloguj(kod: str, haslo: str):
     return True, st["imie"], ""
 
 
+def czyOnline_program() -> bool:
+    """Szybkie sprawdzenie, czy jest sieć — bez czekania na pełny timeout."""
+    try:
+        req = urllib.request.Request("https://www.google.com/generate_204",
+                                     headers={"User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=6):
+            return True
+    except Exception:
+        return False
+
+
 def _opisz_blad_sieci(blad) -> str:
     """Zamienia wyjątek sieciowy na wskazówkę, co realnie zrobić."""
     tekst = f"{type(blad).__name__}: {blad}".lower()
@@ -571,11 +582,13 @@ def dialog_logowania():
         QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
                                  stop:0 #33F5FF, stop:1 #33EAB7); }
         QPushButton#ok:disabled { background: rgba(30,41,59,0.6); color:#475569; }
-        QPushButton#anuluj { background:transparent; color:#94A3B8; font-family:'Segoe UI';
-                             font-size:13px; font-weight:600;
-                             border:1px solid rgba(255,255,255,0.20);
-                             border-radius:8px; padding:10px 18px; }
-        QPushButton#anuluj:hover { color:#E2E8F0; border-color: rgba(255,255,255,0.40); }
+        QPushButton#anuluj { background:rgba(255,255,255,0.05); color:#94A3B8;
+                             font-family:'Segoe UI'; font-size:12px; font-weight:600;
+                             border:1px solid rgba(255,255,255,0.22);
+                             border-radius:8px; padding:9px 14px; }
+        QPushButton#anuluj:hover { color:#00E4A1; border-color:#00E4A1;
+                                   background:rgba(0,228,161,0.10); }
+        QPushButton#anuluj:pressed { background:rgba(0,228,161,0.20); }
         QPushButton#chip { color:#94A3B8; background:rgba(255,255,255,0.05);
                            border:1px solid rgba(255,255,255,0.18); border-radius:12px;
                            font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
@@ -635,15 +648,20 @@ def dialog_logowania():
     blad = QLabel(" "); blad.setObjectName("blad"); blad.setWordWrap(True)
     blad.setMinimumHeight(30); ukl.addWidget(blad)
 
-    rzad = QHBoxLayout()
+    # Dwa rzedy przyciskow: pomocnicze u gory, glowne na dole. Dzieki temu
+    # zaden napis nie jest obcinany, niezaleznie od dlugosci tekstu.
+    rzad_pomoc = QHBoxLayout(); rzad_pomoc.setSpacing(8)
     b_haslo = QPushButton("Zmień hasło"); b_haslo.setObjectName("anuluj")
     b_haslo.setToolTip("Ustaw własne hasło albo odzyskaj dostęp, gdy hasło nie działa")
-    rzad.addWidget(b_haslo)
-    rzad.addSpacing(6)
     b_test = QPushButton("Sprawdź połączenie"); b_test.setObjectName("anuluj")
     b_test.setToolTip("Sprawdza internet i dostęp do serwera — przydatne, gdy logowanie nie przechodzi")
-    rzad.addWidget(b_test)
-    rzad.addStretch(1)
+    for _b in (b_haslo, b_test):
+        _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        rzad_pomoc.addWidget(_b)
+    ukl.addLayout(rzad_pomoc)
+    ukl.addSpacing(6)
+
+    rzad = QHBoxLayout(); rzad.addStretch(1)
     b_anuluj = QPushButton("Zamknij"); b_anuluj.setObjectName("anuluj")
     b_ok = QPushButton("Zaloguj"); b_ok.setObjectName("ok"); b_ok.setEnabled(False)
     rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
@@ -686,39 +704,47 @@ def dialog_logowania():
         QApplication.processEvents()
         wynik = test_polaczenia()
         b_test.setEnabled(True); b_test.setText("Sprawdź połączenie")
-        from PyQt6.QtWidgets import QMessageBox
-        mb = QMessageBox(d)
-        mb.setWindowTitle("Test połączenia")
-        mb.setText("Wynik sprawdzenia:")
-        mb.setInformativeText(wynik + "\n\nJeśli nasz serwer nie odpowiada, a internet "
-                              "działa, blokuje go najprawdopodobniej sieć firmowa lub VPN.")
-        mb.exec()
+        _okno_pmt(d, "Test połączenia",
+                  wynik + "\n\nJeśli nasz serwer nie odpowiada, a internet działa, "
+                  "blokuje go najprawdopodobniej sieć firmowa lub VPN.", tylko_ok=True)
         blad.setText(" ")
     def _zmien_haslo():
         """Ustawienie wlasnego hasla. Weryfikacja: dotychczasowe haslo albo —
         gdy uzytkownik go nie pamieta — numer telefonu z kartoteki."""
-        from PyQt6.QtWidgets import QInputDialog, QLineEdit as _QLE, QMessageBox as _QMB
         kod = pole_kod.text().strip()
         if not (kod.isdigit() and len(kod) == 5):
-            blad.setText("Najpierw wpisz swój login (5 cyfr)."); return
-        stare, ok = QInputDialog.getText(
-            d, "Zmiana hasła",
-            "Podaj dotychczasowe hasło.\nJeśli go nie pamiętasz — wpisz swój numer telefonu:",
-            _QLE.EchoMode.Password, "")
-        if not ok or not stare.strip():
+            _okno_pmt(d, "Najpierw login",
+                      "Wpisz swój 5-cyfrowy kod użytkownika w polu LOGIN, "
+                      "a potem kliknij „Zmień hasło”.", tylko_ok=True)
             return
-        nowe, ok = QInputDialog.getText(d, "Zmiana hasła",
-                                        "Nowe hasło (min. 6 znaków):", _QLE.EchoMode.Password, "")
-        if not ok:
+        if not czyOnline_program():
+            _okno_pmt(d, "Brak połączenia",
+                      "Zmiana hasła wymaga internetu — hasła są zapisywane na serwerze. "
+                      "Sprawdź połączenie i spróbuj ponownie.", tylko_ok=True)
+            return
+        stare = _okno_pmt(d, "Zmiana hasła",
+                          "Podaj dotychczasowe hasło. Jeśli go nie pamiętasz — "
+                          "wpisz swój numer telefonu z kartoteki.", pole=True, haslo=True)
+        if stare is None:            # anulowano
+            return
+        if not stare.strip():
+            _okno_pmt(d, "Brak danych",
+                      "Musisz podać dotychczasowe hasło albo numer telefonu.",
+                      tylko_ok=True)
+            return
+        nowe = _okno_pmt(d, "Nowe hasło", "Minimum 6 znaków.", pole=True, haslo=True)
+        if nowe is None:
             return
         if len(nowe) < 6:
-            _QMB.warning(d, "Za krótkie", "Hasło musi mieć co najmniej 6 znaków."); return
-        powtorz, ok = QInputDialog.getText(d, "Zmiana hasła",
-                                           "Powtórz nowe hasło:", _QLE.EchoMode.Password, "")
-        if not ok:
+            _okno_pmt(d, "Za krótkie hasło", "Hasło musi mieć co najmniej 6 znaków.",
+                      tylko_ok=True); return
+        powtorz = _okno_pmt(d, "Powtórz hasło", "Wpisz nowe hasło jeszcze raz.",
+                            pole=True, haslo=True)
+        if powtorz is None:
             return
         if nowe != powtorz:
-            _QMB.warning(d, "Różne hasła", "Podane hasła nie są takie same."); return
+            _okno_pmt(d, "Hasła się różnią", "Podane hasła nie są takie same.",
+                      tylko_ok=True); return
         blad.setText("Zapisuję nowe hasło…")
         QApplication.processEvents()
         try:
@@ -731,7 +757,7 @@ def dialog_logowania():
                 odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
             if odp.get("status") == "ok":
                 blad.setText(" ")
-                _QMB.information(d, "Gotowe", "Hasło zmienione. Zaloguj się nowym hasłem.")
+                _okno_pmt(d, "Gotowe", "Hasło zmienione. Zaloguj się nowym hasłem.", tylko_ok=True)
                 pole_haslo.clear(); pole_haslo.setFocus()
             else:
                 blad.setText(str(odp.get("opis") or "Nie udało się zmienić hasła."))
@@ -856,7 +882,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.18.0"
+WERSJA_PROGRAMU = "3.19.1"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -12027,6 +12053,321 @@ class PlanWizytOverlay(QFrame):
             self._szukaj_w_planie(self.pole_szukaj_plan.text())
 
 
+
+class EkranPowitalny(QWidget):
+    """Ekran startowy po zalogowaniu — ok. 4,7 s spektaklu.
+
+    Sekwencja:
+      0,00-1,10 s  METEOR — logo spada z góry po łuku, ciągnąc świetlny ogon,
+                   obracając się i rosnąc; za nim lecą iskry.
+      1,10-1,45 s  UDERZENIE — błysk, trzy fale uderzeniowe rozchodzące się
+                   na boki, logo "odbija się" (efekt sprężystości).
+      1,20-3,40 s  PIERŚCIEŃ — zielono-cyjanowy łuk zatacza pełne 360° wokół
+                   logo, z jasną iskrą na czubku i smugą za nią.
+      2,40-4,00 s  NAPIS — "PMT PLANER" wyłania się litera po literze,
+                   pod spodem imię zalogowanej osoby.
+      4,00-4,70 s  ZANIKANIE — całość gaśnie, program się pokazuje.
+    """
+    zakonczony = pyqtSignal()
+
+    CZAS_MS = 4700
+
+    def __init__(self, imie: str = "", parent=None):
+        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setWindowState(Qt.WindowState.WindowFullScreen)
+        self.imie = (imie or "").strip()
+        self._t = 0.0                      # czas w sekundach
+        self._iskry = []                   # ogon meteoru
+        self._gwiazdy = []                 # tło
+        rng = random.Random(7)
+        for _ in range(90):
+            self._gwiazdy.append((rng.random(), rng.random(),
+                                  rng.uniform(0.6, 2.2), rng.uniform(0.25, 1.0)))
+        # logo (jeśli jest w zasobach)
+        self._logo = None
+        for nazwa in ("pmt_logo.png", "pmt.png", "pmt_logo.jpg"):
+            sciezka = zasob_sciezka(nazwa)
+            if sciezka and os.path.exists(sciezka):
+                obraz = QPixmap(sciezka)
+                if not obraz.isNull():
+                    self._logo = obraz
+                    break
+        self._zegar = QTimer(self)
+        self._zegar.timeout.connect(self._krok)
+        self._zegar.start(16)              # ~60 klatek na sekundę
+        self._start = datetime.datetime.now()
+
+    # ---------- animacja ----------
+    def _krok(self):
+        self._t = (datetime.datetime.now() - self._start).total_seconds()
+        if self._t * 1000 >= self.CZAS_MS:
+            self._zegar.stop()
+            self.zakonczony.emit()
+            self.close()
+            return
+        self.update()
+
+    @staticmethod
+    def _plynnie(x):                       # łagodne wejście i wyjście
+        x = max(0.0, min(1.0, x))
+        return x * x * (3 - 2 * x)
+
+    @staticmethod
+    def _odbicie(x):                       # sprężyste dojście do celu
+        x = max(0.0, min(1.0, x))
+        c1, c3 = 1.70158, 2.70158
+        return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        W, H = self.width(), self.height()
+        srx, sry = W / 2, H / 2
+        t = self._t
+
+        # --- tło: granat z poświatą ---
+        grad = QLinearGradient(0, 0, 0, H)
+        grad.setColorAt(0.0, QColor("#0F172A"))
+        grad.setColorAt(1.0, QColor("#04121A"))
+        p.fillRect(self.rect(), grad)
+        for gx, gy, gr, ga in self._gwiazdy:
+            mig = 0.55 + 0.45 * math.sin(t * 2.4 + gx * 40)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, int(255 * ga * mig * 0.5)))
+            p.drawEllipse(QPointF(gx * W, gy * H), gr, gr)
+
+        promien = min(W, H) * 0.16          # docelowy promień logo
+
+        # ================= FAZA 1: METEOR =================
+        faza_met = min(1.0, t / 1.10)
+        if t < 1.10:
+            e = self._plynnie(faza_met)
+            # tor lotu: z prawej góry po łuku do środka
+            x = W * 1.15 + (srx - W * 1.15) * e
+            y = -H * 0.25 + (sry + H * 0.25) * e - math.sin(e * math.pi) * H * 0.10
+            skala = 0.25 + 0.75 * e
+            # ogon
+            self._iskry.append((x, y, t))
+            self._iskry = [i for i in self._iskry if t - i[2] < 0.42]
+            for ix, iy, it in self._iskry:
+                wiek = (t - it) / 0.42
+                a = int(230 * (1 - wiek) ** 2)
+                r = promien * skala * (1.05 - wiek) * 0.55
+                if a <= 0 or r <= 0:
+                    continue
+                poswiata = QRadialGradient(QPointF(ix, iy), r)
+                poswiata.setColorAt(0.0, QColor(0, 240, 255, a))
+                poswiata.setColorAt(0.5, QColor(0, 228, 161, int(a * 0.55)))
+                poswiata.setColorAt(1.0, QColor(0, 228, 161, 0))
+                p.setBrush(poswiata); p.setPen(Qt.PenStyle.NoPen)
+                p.drawEllipse(QPointF(ix, iy), r, r)
+            self._rysuj_logo(p, x, y, promien * skala, obrot=e * 540, jasnosc=1.0)
+            p.end(); return
+
+        # ================= FAZA 2: UDERZENIE =================
+        od_uderzenia = t - 1.10
+        if od_uderzenia < 0.40:
+            blysk = int(200 * (1 - od_uderzenia / 0.40) ** 2)
+            if blysk > 0:
+                p.fillRect(self.rect(), QColor(0, 240, 255, blysk // 3))
+        for nr in range(3):                 # trzy fale uderzeniowe
+            op = od_uderzenia - nr * 0.13
+            if 0 < op < 0.95:
+                fr = op / 0.95
+                r = promien * (1.0 + fr * 6.5)
+                a = int(150 * (1 - fr) ** 2)
+                pióro = QPen(QColor(0, 228, 161, a), max(1.0, 4.0 * (1 - fr)))
+                p.setPen(pióro); p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawEllipse(QPointF(srx, sry), r, r * 0.42)   # elipsa = fala "po ziemi"
+
+        # ================= FAZA 3: PIERŚCIEŃ =================
+        faza_ring = (t - 1.20) / 2.20
+        if faza_ring > 0:
+            kat = 360 * self._plynnie(min(1.0, faza_ring))
+            rr = promien * 1.55
+            prost = QRectF(srx - rr, sry - rr, rr * 2, rr * 2)
+            # ślad toru
+            p.setPen(QPen(QColor(255, 255, 255, 22), 3))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(prost)
+            # łuk postępu
+            luk = QConicalGradient(QPointF(srx, sry), 90)
+            luk.setColorAt(0.0, QColor("#00F0FF"))
+            luk.setColorAt(0.5, QColor("#00E4A1"))
+            luk.setColorAt(1.0, QColor("#00F0FF"))
+            pióro = QPen(QBrush(luk), 7)
+            pióro.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pióro)
+            p.drawArc(prost, 90 * 16, int(-kat * 16))
+            # iskra na czubku łuku
+            rad = math.radians(90 - kat)
+            cx, cy = srx + rr * math.cos(rad), sry - rr * math.sin(rad)
+            iskra = QRadialGradient(QPointF(cx, cy), 22)
+            iskra.setColorAt(0.0, QColor(255, 255, 255, 230))
+            iskra.setColorAt(0.4, QColor(0, 240, 255, 170))
+            iskra.setColorAt(1.0, QColor(0, 240, 255, 0))
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(iskra)
+            p.drawEllipse(QPointF(cx, cy), 22, 22)
+
+        # --- logo: odbicie po uderzeniu, potem delikatne oddychanie ---
+        if od_uderzenia < 0.55:
+            skala = 1.0 + 0.28 * (1 - self._odbicie(od_uderzenia / 0.55))
+        else:
+            skala = 1.0 + 0.012 * math.sin((t - 1.65) * 2.6)
+        self._rysuj_logo(p, srx, sry, promien * skala, obrot=0, jasnosc=1.0)
+
+        # ================= FAZA 4: NAPISY =================
+        napis = "PMT PLANER"
+        faza_txt = (t - 2.40) / 0.90
+        if faza_txt > 0:
+            ile = int(len(napis) * min(1.0, faza_txt))
+            czcionka = QFont("Segoe UI", max(16, int(min(W, H) * 0.045)), QFont.Weight.Black)
+            czcionka.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, min(W, H) * 0.012)
+            p.setFont(czcionka)
+            p.setPen(QColor(248, 250, 252, 255))
+            prost = QRectF(0, sry + promien * 2.0, W, min(W, H) * 0.09)
+            p.drawText(prost, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                       napis[:ile])
+        if t > 3.05 and self.imie:
+            a = int(210 * self._plynnie((t - 3.05) / 0.55))
+            p.setFont(QFont("Segoe UI", max(10, int(min(W, H) * 0.019)), QFont.Weight.DemiBold))
+            p.setPen(QColor(0, 228, 161, a))
+            prost = QRectF(0, sry + promien * 2.0 + min(W, H) * 0.085, W, min(W, H) * 0.06)
+            p.drawText(prost, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                       "Witaj, " + self.imie.split()[0] + "!")
+
+        # ================= FAZA 5: ZANIKANIE =================
+        if t > 4.00:
+            a = int(255 * self._plynnie((t - 4.00) / 0.70))
+            p.fillRect(self.rect(), QColor(4, 18, 26, a))
+        p.end()
+
+    def _rysuj_logo(self, p, x, y, r, obrot=0.0, jasnosc=1.0):
+        """Logo z poświatą; gdy brak pliku — rysowany monogram PMT."""
+        poswiata = QRadialGradient(QPointF(x, y), r * 2.1)
+        poswiata.setColorAt(0.0, QColor(0, 240, 255, int(70 * jasnosc)))
+        poswiata.setColorAt(0.55, QColor(0, 228, 161, int(28 * jasnosc)))
+        poswiata.setColorAt(1.0, QColor(0, 228, 161, 0))
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(poswiata)
+        p.drawEllipse(QPointF(x, y), r * 2.1, r * 2.1)
+        p.save()
+        p.translate(x, y)
+        if obrot:
+            p.rotate(obrot)
+        if self._logo is not None and not self._logo.isNull():
+            # Logo przycinamy do KOLA — inaczej widac bialy kwadrat pliku.
+            bok = int(r * 2.04)
+            skalowane = self._logo.scaled(bok, bok, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                          Qt.TransformationMode.SmoothTransformation)
+            p.setBrush(QColor(255, 255, 255)); p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
+            sciezka = QPainterPath()
+            sciezka.addEllipse(QPointF(0, 0), r * 1.0, r * 1.0)
+            p.save()
+            p.setClipPath(sciezka)
+            p.drawPixmap(QPointF(-skalowane.width() / 2, -skalowane.height() / 2), skalowane)
+            p.restore()
+            # delikatna obwodka w kolorze akcentu
+            p.setPen(QPen(QColor(0, 228, 161, 150), max(1.5, r * 0.035)))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
+        else:
+            p.setBrush(QColor("#0B1320"))
+            p.setPen(QPen(QColor("#00E4A1"), max(2.0, r * 0.06)))
+            p.drawEllipse(QPointF(0, 0), r, r)
+            p.setPen(QColor("#00F0FF"))
+            p.setFont(QFont("Segoe UI", max(10, int(r * 0.55)), QFont.Weight.Black))
+            p.drawText(QRectF(-r, -r, r * 2, r * 2),
+                       Qt.AlignmentFlag.AlignCenter, "PMT")
+        p.restore()
+
+
+def _styl_okna_pmt():
+    """Wspolny wyglad naszych okien dialogowych — ten sam jezyk wizualny
+    co okno logowania (granat, cyjan-zielen, zaokraglone rogi)."""
+    return '''
+        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                      stop:0 #0F172A, stop:1 #04121A);
+                    border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
+        QLabel#tytul { color:#F8FAFC; font-family:'Segoe UI'; font-size:17px; font-weight:800;
+                       background: transparent; }
+        QLabel#tresc { color:#94A3B8; font-family:'Segoe UI'; font-size:12.5px;
+                       background: transparent; }
+        QLineEdit { background:#0B1320; color:#F8FAFC; border:1px solid rgba(255,255,255,0.20);
+                    border-radius:8px; padding:9px; font-family:'Segoe UI'; font-size:15px; }
+        QLineEdit:focus { border:1px solid #00E4A1; }
+        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                           stop:0 #00F0FF, stop:1 #00E4A1);
+                         color:#050B14; font-family:'Segoe UI'; font-size:13px; font-weight:800;
+                         border:none; border-radius:8px; padding:9px 20px; }
+        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                                 stop:0 #33F5FF, stop:1 #33EAB7); }
+        QPushButton#anuluj { background:rgba(255,255,255,0.05); color:#94A3B8;
+                             font-family:'Segoe UI'; font-size:13px; font-weight:600;
+                             border:1px solid rgba(255,255,255,0.22);
+                             border-radius:8px; padding:9px 18px; }
+        QPushButton#anuluj:hover { color:#00E4A1; border-color:#00E4A1;
+                                   background:rgba(0,228,161,0.10); }
+    '''
+
+
+def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
+    """Nasze okno zamiast systemowego. Zwraca tekst z pola (gdy pole=True),
+    True/False przy pytaniu albo None po anulowaniu."""
+    from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame
+    d = QDialog(rodzic)
+    d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    d.setStyleSheet(_styl_okna_pmt())
+    d.setFixedWidth(430)
+    zewn = QVBoxLayout(d); zewn.setContentsMargins(10, 10, 10, 10)
+    karta = QFrame(); karta.setObjectName("PmtKarta"); zewn.addWidget(karta)
+    ukl = QVBoxLayout(karta); ukl.setContentsMargins(24, 20, 24, 18); ukl.setSpacing(8)
+    et = QLabel(tytul); et.setObjectName("tytul"); ukl.addWidget(et)
+    op = QLabel(tresc); op.setObjectName("tresc"); op.setWordWrap(True); ukl.addWidget(op)
+    we = None
+    if pole:
+        we = QLineEdit()
+        if haslo:
+            we.setEchoMode(QLineEdit.EchoMode.Password)
+        ukl.addSpacing(4); ukl.addWidget(we)
+    ukl.addSpacing(6)
+    rzad = QHBoxLayout(); rzad.addStretch(1)
+    if not tylko_ok:
+        b_anuluj = QPushButton("Anuluj"); b_anuluj.setObjectName("anuluj")
+        b_anuluj.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        b_anuluj.clicked.connect(d.reject); rzad.addWidget(b_anuluj); rzad.addSpacing(8)
+    b_ok = QPushButton("OK" if tylko_ok else ("Zapisz" if pole else "Tak"))
+    b_ok.setObjectName("ok"); b_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    b_ok.clicked.connect(d.accept); rzad.addWidget(b_ok)
+    ukl.addLayout(rzad)
+    if we is not None:
+        we.returnPressed.connect(d.accept)
+        QTimer.singleShot(0, we.setFocus)
+    wynik = d.exec()
+    if pole:
+        return we.text() if wynik else None
+    return bool(wynik)
+
+
+def pokaz_ekran_powitalny(imie: str = ""):
+    """Wyświetla animację i czeka, aż się skończy. Awaria animacji nie może
+    zablokować programu — dlatego całość w zabezpieczeniu."""
+    try:
+        ekran = EkranPowitalny(imie)
+        petla = QEventLoop()
+        ekran.zakonczony.connect(petla.quit)
+        ekran.show()
+        ekran.raise_()
+        ekran.activateWindow()
+        QTimer.singleShot(EkranPowitalny.CZAS_MS + 900, petla.quit)   # bezpiecznik
+        petla.exec()
+        ekran.deleteLater()
+    except Exception:
+        pass
+
+
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -13843,6 +14184,8 @@ if __name__ == "__main__":
     if not _kod:
         sys.exit(0)
     online_zapisz_kod(_kod)
+
+    pokaz_ekran_powitalny(_imie_zal if "_imie_zal" in dir() else "")
 
     online_zdarzenie(uruchomienia=1)
     _START_PROGRAMU = datetime.datetime.now()

@@ -1,2 +1,2 @@
-3.18.0
-Nowosci: program automatycznie usuwa starsze kopie z komputera przy kazdym starcie (biezaca wersja i kopia zapasowa zostaja), a serwer odmawia logowania zbyt starym wersjom — przygotowanie pod subskrypcje. Wczesniej: zmiana hasla z okna logowania, rejestr sesji.
+3.19.1
+Nowosc: filmowy ekran powitalny po zalogowaniu — logo PMT spada jak meteor ze swietlnym ogonem, uderza z fala uderzeniowa, a zielono-cyjanowy pierscien zatacza wokol niego pelne kolo. Poprawki: przyciski w oknie logowania nie sa juz obcinane i podswietlaja sie po najechaniu, okna dialogowe w stylu systemu PMT zamiast windowsowych, czytelne komunikaty przy zmianie hasla.

@@ -882,7 +882,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.1"
+WERSJA_PROGRAMU = "3.20.2"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -14757,7 +14757,32 @@ if __name__ == "__main__":
         _mb.exec()
         sys.exit(0)
 
-    window = App()
+    try:
+        window = App()
+    except Exception:
+        # Pancerz startu: zamiast zrzutu w konsoli — czytelne okno z wersją
+        # programu i pełnym opisem błędu + zapis do pliku do diagnozy.
+        import traceback
+        _opis = traceback.format_exc()
+        try:
+            with open(os.path.join(os.path.expanduser("~"), ".pmt_start_blad.txt"),
+                      "w", encoding="utf-8") as f:
+                f.write("PMT Planer %s — błąd podczas startu programu\n\n%s"
+                        % (WERSJA_PROGRAMU, _opis))
+        except Exception:
+            pass
+        from PyQt6.QtWidgets import QMessageBox
+        _mb = QMessageBox()
+        _ico = znajdz_ikone()
+        if _ico: _mb.setWindowIcon(QIcon(_ico))
+        _mb.setWindowTitle("PMT Planer %s — błąd startu" % WERSJA_PROGRAMU)
+        _mb.setIcon(QMessageBox.Icon.Critical)
+        _mb.setText("Program nie mógł wystartować.")
+        _mb.setInformativeText("Szczegóły zapisano w pliku .pmt_start_blad.txt "
+                               "w katalogu użytkownika — prześlij go administratorowi.")
+        _mb.setDetailedText(_opis)
+        _mb.exec()
+        sys.exit(1)
     window._demo_pozostalo = _pozostalo    # do ewentualnego pokazania w UI
     window.show()
     sys.exit(app.exec())

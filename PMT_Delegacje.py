@@ -882,7 +882,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.2"
+WERSJA_PROGRAMU = "3.20.3"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -1047,6 +1047,20 @@ def znajdz_stare_wersje():
             niski = wpis.lower()
             if "pmt" not in niski or "planer" not in niski.replace(" ", "_"):
                 continue
+            # Ochrona przed skasowaniem NOWSZEGO wydania: folder z plikiem
+            # pmt_wersja.txt o wersji >= naszej zostaje nietknięty.
+            try:
+                if os.path.isdir(pelna):
+                    zn = os.path.join(pelna, "pmt_wersja.txt")
+                    if not os.path.exists(zn):
+                        zn = os.path.join(pelna, "PMT_Planer", "pmt_wersja.txt")
+                    if os.path.exists(zn):
+                        with open(zn, "r", encoding="utf-8") as _f:
+                            _w = _f.read().strip()
+                        if _wersja_na_liczbe(_w) >= _wersja_na_liczbe(WERSJA_PROGRAMU):
+                            continue
+            except Exception:
+                pass
             # plik programu albo folder z programem w srodku
             czy_program = (os.path.isfile(pelna) and niski.endswith(".exe")) or \
                           (os.path.isdir(pelna) and any(
@@ -12110,13 +12124,16 @@ class AnimacjaStartowa(QWidget):
     _KRESKA_T = [(192, 28), (218, 20), (246, 16), (260, 20)]
 
     def __init__(self, imie: str = "", is_dark: bool = True, parent=None):
-        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+                         | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.imie = (imie or "").strip()
         self.is_dark = bool(is_dark)
         self._t = 0.0
         self._ost_t = 0.0
         self._awaria = False             # gdy True — rysujemy prosty pokaz awaryjny
+        self._tyki = 0                   # ile razy zadziałał zegar animacji
+        self._klatki = 0                 # ile klatek naprawdę narysowano
 
         # tło motywu (to samo, które program pokazuje pod spodem)
         self._tlo = None
@@ -12176,6 +12193,7 @@ class AnimacjaStartowa(QWidget):
 
     # ---------- pętla czasu ----------
     def _krok(self):
+        self._tyki += 1
         self._t = (datetime.datetime.now() - self._start).total_seconds()
         if self._t * 1000 >= self.CZAS_MS:
             self._zegar.stop()
@@ -12404,6 +12422,7 @@ class AnimacjaStartowa(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         try:
+            self._klatki += 1
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             W, H = self.width(), self.height()
@@ -12444,6 +12463,34 @@ class AnimacjaStartowa(QWidget):
                 pass
         finally:
             p.end()
+
+    def _zapisz_diag(self):
+        """Krótki raport techniczny z przebiegu animacji — zapisujemy go po
+        każdym pokazie, żeby dało się zdiagnozować komputer, na którym
+        animacja nie jest widoczna (ile klatek naprawdę narysowano itd.)."""
+        try:
+            ekrany = []
+            try:
+                for e in QApplication.screens():
+                    g = e.geometry()
+                    ekrany.append("%dx%d @ %d,%d" % (g.width(), g.height(), g.x(), g.y()))
+            except Exception:
+                pass
+            g = self.geometry()
+            with open(os.path.join(os.path.expanduser("~"), ".pmt_splash_diag.txt"),
+                      "w", encoding="utf-8") as f:
+                f.write("PMT Planer %s — raport animacji startowej\n" % WERSJA_PROGRAMU)
+                f.write("motyw ciemny: %s\n" % self.is_dark)
+                f.write("tło wczytane: %s\n" % (self._tlo is not None))
+                f.write("okno: %dx%d @ %d,%d  widoczne: %s\n"
+                        % (g.width(), g.height(), g.x(), g.y(), self.isVisible()))
+                f.write("ekrany: %s\n" % ("; ".join(ekrany) or "?"))
+                f.write("tyknięcia zegara: %d\n" % self._tyki)
+                f.write("narysowane klatki: %d\n" % self._klatki)
+                f.write("czas pokazu: %.2f s\n" % self._t)
+                f.write("tryb awaryjny: %s\n" % self._awaria)
+        except Exception:
+            pass
 
     def _zapisz_blad(self):
         """Jednorazowy zapis szczegółów błędu rysowania do pliku w katalogu
@@ -12853,20 +12900,38 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
 def pokaz_animacje_startowa(imie: str = ""):
     """Wyświetla animację i czeka, aż się skończy. Awaria animacji nie może
     zablokować programu — dlatego całość w zabezpieczeniu. Motyw splasha
-    podąża za ostatnio zapisanym motywem programu (domyślnie ciemny)."""
+    podąża za ostatnio zapisanym motywem programu (domyślnie ciemny).
+
+    Uwaga techniczna: celowo NIE używamy trybu pełnoekranowego
+    (WindowFullScreen). Na części komputerów Windows traktuje bezramkowe
+    okna pełnoekranowe specjalnie ("fullscreen optimizations") i potrafi
+    nie wyświetlać ich treści — użytkownik widzi czerń albo pulpit, choć
+    program rysuje klatki. Zwykłe okno bez ramki, rozciągnięte na cały
+    ekran i trzymane na wierzchu, wygląda identycznie, a renderuje się
+    jak każde inne okno."""
+    ekran = None
     try:
         ciemny = bool(ustawienie("ciemny_motyw", True))
         ekran = AnimacjaStartowa(imie, is_dark=ciemny)
+        e = QApplication.primaryScreen()
+        if e is not None:
+            ekran.setGeometry(e.geometry())
+        else:
+            ekran.resize(1280, 720)
         petla = QEventLoop()
         ekran.zakonczony.connect(petla.quit)
         ekran.show()
-        ekran.showFullScreen()      # jawnie PO show() — część Windowsów gubi
-        ekran.raise_()              # pełny ekran ustawiony przed pokazaniem okna
+        ekran.raise_()
         ekran.activateWindow()
         ekran.repaint()             # wymuś natychmiast pierwszą klatkę
         QTimer.singleShot(AnimacjaStartowa.CZAS_MS + 900, petla.quit)   # bezpiecznik
         petla.exec()
-        ekran.deleteLater()
+    except Exception:
+        pass
+    try:
+        if ekran is not None:
+            ekran._zapisz_diag()
+            ekran.deleteLater()
     except Exception:
         pass
 
@@ -14685,6 +14750,16 @@ if __name__ == "__main__":
 
     odblokuj_wlasny_folder()   # zdejmij blokade "plik z internetu" (raz)
     sprzataj_stare_wersje()    # usun kopie po ostatniej aktualizacji
+
+    # Znacznik wersji obok programu: dzięki niemu żadna kopia 3.20.3+
+    # nigdy nie skasuje kopii NOWSZEJ od siebie (patrz znajdz_stare_wersje).
+    try:
+        if getattr(sys, "frozen", False):
+            with open(os.path.join(os.path.dirname(os.path.abspath(sys.executable)),
+                                   "pmt_wersja.txt"), "w", encoding="utf-8") as _f:
+                _f.write(WERSJA_PROGRAMU)
+    except Exception:
+        pass
 
     # Stare kopie programu usuwamy AUTOMATYCZNIE przy kazdym starcie.
     # Powod: kazda pozostawiona kopia to dzialajaca instalacja, ktora

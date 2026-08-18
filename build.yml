@@ -1,0 +1,168 @@
+# ============================================================
+#  PMT Planer — automatyczne budowanie wydań (Windows / macOS / Linux)
+#
+#  JAK TO DZIAŁA:
+#  1. Wypychasz tag zaczynający się od "v" (np. przez Releases → Draft
+#     a new release → tag v3.13.3 → Publish).
+#  2. GitHub buduje program na trzech systemach i dołącza do wydania:
+#        PMT_Planer.Windows.zip   <- ZAWSZE PIERWSZY na liście
+#        PMT_Planer_macOS.zip
+#        PMT_Planer_Linux.zip
+#
+#  DLACZEGO WINDOWS MA KROPKĘ W NAZWIE (nie "_Windows"):
+#  Starsze wersje programu (3.12.x) pobierają PIERWSZE archiwum z wydania,
+#  bez sprawdzania systemu. Kropka sortuje się przed podkreśleniem, więc
+#  "PMT_Planer.Windows.zip" trafia na początek listy i stare instalacje
+#  pobierają właściwy plik. Dodatkowo job Windows kończy się jako pierwszy
+#  (pozostałe czekają przez "needs"), więc kolejność wysyłki też się zgadza.
+#  Nowsze wersje (3.13.2+) i tak szukają nazwy zawierającej "windows".
+#
+#  GDZIE WGRAĆ TEN PLIK: .github/workflows/build.yml
+#
+#  UWAGA: budujemy na Pythonie 3.13 (nie 3.14) — celowo, patrz problem
+#  z python314.dll na maszynach użytkowników.
+# ============================================================
+name: Buduj wydanie
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "v*"        # np. v3.13.6
+      - "[0-9]*"    # np. 3.13.6 — tag bez litery "v" tez uruchomi budowanie
+  workflow_dispatch:
+
+jobs:
+  # ---------- 1) WINDOWS — buduje się i wysyła jako pierwszy ----------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj Pythona 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Zainstaluj zależności
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pyqt6 fpdf2 pillow
+
+      - name: Zbuduj program
+        shell: bash
+        run: |
+          # Dolaczamy KAZDY zasob, ktory jest w repo (tla, czcionki, ikony).
+          # Brak pliku nie przerywa budowania — program ma tlo zastepcze.
+          DODAJ=""
+          for Z in pmt_logo.png pmt_logo.ico ciemny.png jasny.png pmt.jpg PMT.jpg \
+                   DejaVuSans.ttf DejaVuSans-Bold.ttf; do
+            if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z;."; echo "dolaczam: $Z";
+            else echo "POMIJAM (brak w repo): $Z"; fi
+          done
+          # oznacza, ze stara i nowa wersja uzywaja TEGO SAMEGO folderu —
+          # przy aktualizacji obie kopie wchodza sobie w droge i pojawia sie
+          # blad "Failed to load Python DLL". Losowy katalog na kazde
+          # uruchomienie jest tu bezpieczniejszy.
+          # TRYB FOLDEROWY (--onedir). Program NIE rozpakowuje sie przy starcie —
+          # biblioteki leza gotowe obok pliku .exe. To usuwa u zrodla blad
+          # "Failed to load Python DLL": nie ma czego rozpakowywac, wiec nie ma
+          # kolizji z antywirusem, chmura ani druga instancja programu.
+          # Start jest tez znacznie szybszy (brak wypakowywania 48 MB).
+          pyinstaller --onedir --windowed \
+            --name PMT_Planer \
+            --icon pmt_logo.ico \
+            $DODAJ \
+            PMT_Delegacje.py
+
+      - name: Sprawdź, czy program powstał
+        shell: bash
+        run: |
+          test -f dist/PMT_Planer/PMT_Planer.exe || { echo "BRAK dist/PMT_Planer/PMT_Planer.exe"; exit 1; }
+          ls -la dist/PMT_Planer/ | head -20
+
+      - name: Spakuj do zip
+        shell: bash
+        run: |
+          # W archiwum ma byc FOLDER "PMT_Planer" z plikiem .exe i katalogiem
+          # _internal. Aktualizator rozpoznaje ten uklad i podmienia caly folder.
+          # Do paczki dokladamy skrypt pierwszego uruchomienia — zdejmuje on
+          # znacznik "plik z internetu", ktory blokuje start programu.
+          cp URUCHOM_PMT.bat dist/PMT_Planer/ 2>/dev/null || true
+          cd dist
+          7z a ../PMT_Planer.Windows.zip PMT_Planer
+          cd ..
+          7z l PMT_Planer.Windows.zip | head -25
+
+      - name: Dołącz do wydania
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PMT_Planer.Windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------- 2) macOS i Linux — dopiero po Windows ----------
+  pozostale:
+    needs: windows            # gwarantuje, że Windows jest w wydaniu pierwszy
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            nazwa: macOS
+            ikona: pmt_logo.icns
+          - os: ubuntu-22.04
+            nazwa: Linux
+            ikona: pmt_logo.png
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj Pythona 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Zainstaluj zależności
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pyqt6 fpdf2 pillow
+
+      - name: Biblioteki systemowe (tylko Linux)
+        if: matrix.nazwa == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3
+
+      - name: Zbuduj program
+        shell: bash
+        run: |
+          DODAJ=""
+          for Z in pmt_logo.png pmt_logo.ico ciemny.png jasny.png pmt.jpg PMT.jpg \
+                   DejaVuSans.ttf DejaVuSans-Bold.ttf; do
+            if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z:."; fi
+          done
+          pyinstaller --onedir --windowed \
+            --name PMT_Planer \
+            --icon "${{ matrix.ikona }}" \
+            $DODAJ \
+            PMT_Delegacje.py
+
+      - name: Spakuj do zip
+        shell: bash
+        run: |
+          cd dist
+          zip -r ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
+
+      - name: Dołącz do wydania
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PMT_Planer_${{ matrix.nazwa }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

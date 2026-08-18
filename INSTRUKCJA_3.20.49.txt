@@ -1,0 +1,81 @@
+PMT PLANER 3.20.49 - PACZKA KOMPLETNA
+=====================================
+
+CO NOWEGO (3.20.49)
+- AUTOMATYCZNY RESET HASLA: przycisk "Nie pamietam hasla"
+  w oknie logowania. Uzytkownik podaje kod + telefon z kartoteki
+  + nowe haslo; program kasuje stare na serwerze (reset_hasla),
+  od razu ustawia nowe i weryfikuje probnym logowaniem - gotowe
+  haslo laduje w polu. Zero udzialu administratora.
+  W paczce jest apps_script.gs z akcja reset_hasla - jesli serwer
+  ma starsza wersje, program sam to wykryje i poprosi o wklejenie
+  skryptu + Deploy (nowe wdrozenie).
+(3.20.48)
+- JAZDA PO PETLI 2x DLUZSZA (8 s zamiast 4): mapowanie osi czasu
+  rozciaga sam przejazd, a pin, druk, rozpad i final ida dalej
+  bez zmian; slad wstegi i druga smuga zyja 2x dluzej, wiec ogon
+  ma dawna dlugosc; caly pokaz wydluzyl sie o 4 s.
+(3.20.47)
+- PAMIEC MOTYWU pancerna: zapis atomowy ustawien + kopia .bak
+  + samonaprawa po uszkodzeniu pliku + zapis motywu przy wyjsciu
+  (jasny/ciemny przezyje kazda aktualizacje i pad programu).
+- SCENA DRUKU ozywiona: techniczny blueprint znikajacy z postepem,
+  panel telemetrii (WARSTWA / DYSZA C / STATUS, bursztyn przy
+  zacieciu), kabel zasilania z plynacymi impulsami, dym z dyszy
+  przy zacieciu, meldunki drukowania w lewym dole zsynchronizowane
+  z realnymi zacieciami glowicy.
+(3.20.46)
+- JASNY MOTYW pelnokrwisty: okno logowania w zieleniach
+  logo (listwa, tytul, chipy, pola, przyciski), tunel prologu
+  z ciemnymi smugami i bialym rozblyskiem skoku, wstega trasy
+  z bialym podkladem-papierem i soczysta zielenia, mocniejsze
+  wezly/HUD/meldunki, ciemne drobiny kurzu.
+(3.20.45)
+- ZYWA MAPA w intro: petla delegacji DOM -> 6 sieci -> DOM, swiat
+  (wies, kosciol, pola, rzeka z mostem, wiatraki, domki, drzewa)
+  dorysowuje sie wzdluz przejechanej drogi; HUD z kilometrami,
+  meldunki zdarzeniowe, oba "warianty odrzucone".
+- OSTROSC LOGA, 3 warstwy: intro laduje logo przez znajdz_logo();
+  znajdz_logo() wybiera NAJWIEKSZY znaleziony plik (a nie pierwszy
+  z brzegu); logo w intro renderowane w rozdzielczosci fizycznej
+  ekranu (devicePixelRatio) - koniec miekniecia przy skalowaniu
+  Windows 125/150%.
+
+DIAGNOZA Z TWOJEGO LOGU (rozwiazanie zagadki rozmycia)
+  LOGO ZRODLO: 16x16 px <- Desktop\PMT\pmt_logo.ico
+  Program ladowal 16-pikselowa IKONE i rozciagal ja na monete
+  ~300+ px. Stad rozmycie od poczatku sagi. W tej wersji najwiekszy
+  plik wygrywa automatycznie, a w paczce dostajesz:
+  - pmt_logo.png 1024x1024 (master, superrozdzielczosc)
+  - pmt_logo.ico NOWY, wielorozmiarowy (16-256 px) - ikona exe
+    i skrotow tez bedzie ostra. Podmien oba w folderze projektu.
+
+ZAWARTOSC PACZKI (wszystko do JEDNEGO folderu projektu):
+  apps_script.gs     - backend z akcja reset_hasla (wklej do Apps
+                       Script i zrob Deploy, jesli jeszcze nie)
+  PMT_Delegacje.py   - zrodlo 3.20.49
+  buduj.bat          - podbity do 3.20.49 (kontrola wersji w srodku!)
+  pmt_logo.png       - 1024 px
+  pmt_logo.ico       - wielorozmiarowy
+  ciemny.png         - tlo (wymagane przez buduj.bat)
+  jasny.png          - tlo (wymagane przez buduj.bat)
+
+KROKI
+  1. Wrzuc CALA zawartosc do folderu projektu (Desktop\PMT),
+     nadpisujac stare pliki o tych samych nazwach.
+  2. Uruchom buduj.bat (wymaga python + PyQt6 + fpdf2 w PATH;
+     PyInstallera doinstaluje sam).
+     UWAGA: buduj.bat sprawdza, czy PMT_Delegacje.py to 3.20.49 -
+     stary bat odrzuci nowy plik komunikatem "to NIE wersja X"
+     (to wlasnie widziales - nie chodzilo o wersje Windows).
+  3. Po starcie programu sprawdz PMT_diagnostyka_animacji.txt:
+     powinny byc DWIE linie zrodla -
+       LOGO ZRODLO (intro): ... px <- ...
+       LOGO ZRODLO: ... px <- ...
+     Obie powinny wskazywac pmt_logo.png i >=512 px.
+  4. Release jak zawsze: zip z dist\PMT_Planer jako
+     PMT_Planer_windows.zip -> Publish release -> dopiero potem
+     wersja.txt (flota wciaz stoi na 3.20.3).
+
+W KOLEJCE (bez zmian): deploy apps_script_POPRAWIONY_v2.gs
+w Google Apps Script (Deploy -> nowa wersja).

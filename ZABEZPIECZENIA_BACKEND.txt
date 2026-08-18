@@ -1,0 +1,221 @@
+ZABEZPIECZENIE BACKENDU (Google Apps Script) — instrukcja krok po kroku
+=======================================================================
+
+SKAD WZIELY SIE WIERSZE "NOWY — uzupelnij dane":
+To NIE byl wlam. Przycisk "Sprawdz polaczenie" w oknie logowania wysylal
+testowy puls z kodem-atrapa "00000", a Twoj skrypt goscinnie dopisywal
+nieznany kod jako nowego uzytkownika (Wazne do = Ostatni kontakt + 30 dni,
+haslo puste). Trzy wiersze = trzy klikniecia diagnostyki. Od wersji
+3.20.24 diagnostyka uzywa czystego GET i nie przechodzi przez doPost.
+
+KROK 1 — POSPRZATAJ ARKUSZ
+  Usun te trzy wiersze (kolumna z kodem zawiera zapewne 00000).
+  Kolumna hasla jest pusta, wiec zadne konto nie zostalo przejete.
+
+KROK 2 — WKLEJ WERYFIKACJE PODPISU (do pliku Code.gs)
+------------------------------------------------------------------
+var SEKRET_PMT = 'PMT-2026-a7Kq9mZr4tXw';   // ten sam co w programie
+var WYMAGAJ_PODPISU = false;  // na TRUE po aktualizacji wszystkich do 3.20.24
+
+function weryfikujPodpis(d) {
+  try {
+    var czas = Number(d.klucz_czas || 0);
+    if (!czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
+    var baza = String(d.kod || '') + '|' + String(d.akcja || '') + '|' + czas;
+    var sig = Utilities.computeHmacSha256Signature(baza, SEKRET_PMT);
+    var hex = sig.map(function (b) {
+      return ('0' + (b & 255).toString(16)).slice(-2);
+    }).join('');
+    return hex === String(d.podpis || '');
+  } catch (e) { return false; }
+}
+------------------------------------------------------------------
+  A na POCZATKU funkcji doPost, zaraz po sparsowaniu JSON:
+------------------------------------------------------------------
+  if (WYMAGAJ_PODPISU && !weryfikujPodpis(dane)) {
+    return ContentService.createTextOutput(
+      JSON.stringify({status: 'blad', opis: 'odmowa'}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+------------------------------------------------------------------
+
+KROK 3 — WYLACZ AUTO-REJESTRACJE
+  Znajdz w swoim skrypcie miejsce, ktore przy NIEZNANYM kodzie dopisuje
+  wiersz z uwaga "NOWY — uzupelnij dane" i zamien je na zwrot bledu:
+    return ... {status:'blad', opis:'Nieznany login'} ...
+  Nowych uzytkownikow dodajesz odtad TYLKO recznie w arkuszu.
+
+KROK 4 — PO ROZJECHANIU AKTUALIZACJI 3.20.24 (wszyscy merchandiserzy)
+  Zmien WYMAGAJ_PODPISU na true i wdroz skrypt ponownie. Od tej chwili
+  kazde zapytanie bez waznego podpisu HMAC (boty, skanery, stare wersje)
+  odbija sie od pierwszej linijki doPost.
+
+KROK 5 (OPCJONALNIE, PELNA HIGIENA)
+  Zrob NOWE wdrozenie (Deploy -> New deployment) — powstanie nowy adres
+  /exec. Wpisz go w programie (URL_BACKENDU) przed budowa 3.20.24.
+  Stary adres, jesli krazyl po logach/botach, przestaje dzialac.
+
+Sekret mozesz zmienic na wlasny — musi byc IDENTYCZNY w dwoch miejscach:
+SEKRET_APLIKACJI w PMT_Delegacje.py oraz SEKRET_PMT w Code.gs.
+
+KONTRAKT AKCJI "zmien_haslo" (do sprawdzenia w Twoim doPost)
+------------------------------------------------------------
+Program wysyla JSON (z podpisem jak wyzej):
+  { "akcja":"zmien_haslo", "kod":"12345",
+    "stare_haslo":"...", "nowe_haslo":"...",
+    "klucz_czas":"...", "podpis":"..." }
+Weryfikacja po stronie skryptu: stare_haslo zgodne z zapisanym
+HASLEM **albo** z numerem TELEFONU z kartoteki (sciezka "nie pamietam
+hasla"). Odpowiedz zawsze JSON:
+  ok:   { "status":"ok" }
+  blad: { "status":"blad", "opis":"Czytelny powod dla uzytkownika" }
+Program czeka do 25 s i przy chwilowym braku odpowiedzi (zimny start
+serwera) automatycznie ponawia raz — doPost powinien byc IDEMPOTENTNY
+dla tej akcji (drugie identyczne zadanie po prostu nadpisze to samo).
+
+================================================================
+NAPRAWA ZMIANY HASLA — GOTOWA FUNKCJA DO WKLEJENIA (Code.gs)
+================================================================
+OBJAW: kolumna hash sie nadpisuje, ale logowanie nie przyjmuje ani
+nowego, ani starego hasla.
+PRZYCZYNA: zapis hashuje INNA funkcja niz porownanie przy logowaniu.
+KANONICZNY WZOR calego systemu PMT (tak liczy program, tak MA liczyc
+serwer):  SHA-256 hex z tekstu  "PMT|" + kod + "|" + haslo
+
+Ponizsza funkcja dodatkowo SAMA WYKRYWA schemat, jesli w arkuszu
+zostaly hashe w innym, historycznym formacie (dopasowuje stare haslo
+do zapisanego hasha) i zapisuje nowe haslo TYM SAMYM schematem.
+
+1) USTAW numery kolumn (liczone od 1) wg swojego arkusza:
+------------------------------------------------------------------
+var ARKUSZ_UZYTK = 'Uzytkownicy';  // nazwa zakladki z lista osob
+var KOL_KOD      = 1;   // kolumna z 5-cyfrowym kodem (A)
+var KOL_TELEFON  = 13;  // kolumna z telefonem (M na Twoim zrzucie)
+var KOL_HASH     = 14;  // kolumna "Haslo hash" (N)
+------------------------------------------------------------------
+
+2) WKLEJ funkcje pomocnicze i glowna:
+------------------------------------------------------------------
+function _pmtHex(b){return b.map(function(x){
+  return ('0'+(x&255).toString(16)).slice(-2);}).join('');}
+
+function _pmtWarianty(kod, haslo){
+  var A = Utilities.DigestAlgorithm.SHA_256;
+  var M = Utilities.DigestAlgorithm.MD5;
+  return {
+    'PMT|kod|haslo (KANON)':
+        _pmtHex(Utilities.computeDigest(A, 'PMT|'+String(kod)+'|'+haslo)),
+    'sha256(haslo)':     _pmtHex(Utilities.computeDigest(A, haslo)),
+    'sha256(kod+haslo)': _pmtHex(Utilities.computeDigest(A, String(kod)+haslo)),
+    'sha256(haslo+kod)': _pmtHex(Utilities.computeDigest(A, haslo+String(kod))),
+    'md5(haslo)':        _pmtHex(Utilities.computeDigest(M, haslo)),
+    'b64sha256(haslo)':  Utilities.base64Encode(Utilities.computeDigest(A, haslo)),
+    'plaintext':         String(haslo)
+  };
+}
+
+function obsluzZmianeHasla(dane){
+  var kod   = String(dane.kod || '').trim();
+  var stare = String(dane.stare_haslo || dane.haslo_stare || '').trim();
+  var nowe  = String(dane.nowe_haslo  || dane.haslo_nowe  || '').trim();
+  if (!kod || !stare || nowe.length < 6)
+    return {status:'blad', opis:'Brak danych albo za krotkie nowe haslo.'};
+  var ark = SpreadsheetApp.getActive().getSheetByName(ARKUSZ_UZYTK);
+  var w = ark.getDataRange().getValues();
+  for (var r = 1; r < w.length; r++){
+    if (String(w[r][KOL_KOD-1]).trim() === kod){
+      var zapisany = String(w[r][KOL_HASH-1] || '').trim();
+      var telefon  = String(w[r][KOL_TELEFON-1] || '').replace(/\D/g,'');
+      var war = _pmtWarianty(kod, stare);
+      var schemat = null;
+      for (var k in war){
+        if (zapisany && war[k] === zapisany){ schemat = k; break; }
+      }
+      var telOk = telefon && stare.replace(/\D/g,'') === telefon;
+      if (!schemat && !telOk)
+        return {status:'blad', opis:'Dotychczasowe haslo/telefon nie pasuje.'};
+      if (!schemat) schemat = 'PMT|kod|haslo (KANON)';  // pusty hash/telefon
+      var nowyHash = _pmtWarianty(kod, nowe)[schemat];
+      ark.getRange(r+1, KOL_HASH).setValue(nowyHash);
+      return {status:'ok', schemat:schemat};
+    }
+  }
+  return {status:'blad', opis:'Nieznany login.'};
+}
+------------------------------------------------------------------
+
+3) W doPost PODMIEN dotychczasowa obsluge tej akcji:
+------------------------------------------------------------------
+  if (dane.akcja === 'zmien_haslo') {
+    return ContentService.createTextOutput(
+        JSON.stringify(obsluzZmianeHasla(dane)))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+------------------------------------------------------------------
+
+4) ODRATOWANIE POPSUTEGO KONTA (np. 39080):
+   wyczysc komorke hash tego wiersza -> w programie kliknij
+   "Zmien haslo" i jako dotychczasowe podaj NUMER TELEFONU
+   z kartoteki -> ustaw nowe haslo. Program zweryfikuje zmiane
+   probnym logowaniem i sam wpisze nowe haslo w pole.
+
+5) KONTROLA: logowanie w Twoim doPost MUSI porownywac tym samym
+   wzorem — docelowo KANONICZNYM:
+     hash == _pmtHex(Utilities.computeDigest(
+                Utilities.DigestAlgorithm.SHA_256,
+                'PMT|' + kod + '|' + haslo))
+
+================================================================
+SAMONAPRAWA LOGOWANIA (zalecane) — system sam ujednolica hashe
+================================================================
+Twoj przypadek z 3.20.40 potwierdzil: zapis i logowanie licza hash
+ROZNYMI funkcjami. Ponizszy blok podmienia POROWNANIE HASLA w akcji
+"logowanie": akceptuje KANON i wszystkie historyczne warianty,
+a po kazdym UDANYM logowaniu nadpisuje hash KANONEM — po kilku
+logowaniach caly arkusz jest ujednolicony i problem znika na zawsze.
+
+1) Upewnij sie, ze masz juz wklejone _pmtHex i _pmtWarianty
+   (sekcja NAPRAWA ZMIANY HASLA powyzej) oraz zmienne KOL_*.
+   Dodaj jeszcze:  var KOL_IMIE = 2;   // kolumna z imieniem
+
+2) WKLEJ funkcje:
+------------------------------------------------------------------
+function pmtSprawdzLogowanie(wiersz, kod, haslo, ark, r){
+  var zapisany = String(wiersz[KOL_HASH-1]||'').trim();
+  var telefon  = String(wiersz[KOL_TELEFON-1]||'').replace(/\D/g,'');
+  var war = _pmtWarianty(kod, haslo);
+  var kanon = war['PMT|kod|haslo (KANON)'];
+  var ok = false;
+  if (zapisany){
+    for (var k in war){ if (war[k] === zapisany){ ok = true; break; } }
+  } else {
+    ok = !!telefon && haslo.replace(/\D/g,'') === telefon;
+  }
+  if (ok && zapisany !== kanon)
+    ark.getRange(r+1, KOL_HASH).setValue(kanon);   // auto-migracja
+  return ok;
+}
+------------------------------------------------------------------
+
+3) W doPost, w obsludze akcji "logowanie", ZASTAP dotychczasowe
+   porownanie hasla wywolaniem:
+------------------------------------------------------------------
+  if (String(w[r][KOL_KOD-1]).trim() === kod){
+    var ok = pmtSprawdzLogowanie(w[r], kod,
+                                 String(dane.haslo||''), ark, r);
+    return ContentService.createTextOutput(JSON.stringify(
+        ok ? {status:'ok', imie: String(w[r][KOL_IMIE-1]||'')}
+           : {status:'blad', opis:'Bledne haslo lub telefon.'}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+------------------------------------------------------------------
+(pozostale rzeczy, ktore Twoja obsluga logowania robi — zapis
+"Ostatni kontakt", licznik uruchomien itd. — zostaw jak sa, przed
+returnem.)
+
+4) Po wklejeniu: Wdroz (Deploy) nowa wersje! Zmiany w edytorze bez
+   nowego wdrozenia NIE dzialaja pod starym adresem /exec.
+
+JESLI WOLISZ DIAGNOZE ZAMIAST WYMIANY: wklej mi w rozmowie fragment
+swojego doPost z obsluga akcji "logowanie" (samo porownanie hasla,
+kilkanascie linii) — wskaze dokladnie, ktora linia liczy inny hash.

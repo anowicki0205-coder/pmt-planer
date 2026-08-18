@@ -262,7 +262,7 @@ def online_synchronizuj() -> bool:
     with _blokada:
         q = _wczytaj(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
     try:
-        cialo = json.dumps({
+        cialo = json.dumps(_podpisz_zadanie({
             "akcja": "puls", "kod": kod,
             "wersja": globals().get("WERSJA_PROGRAMU", "?"),
             "system": {"nt": "Windows"}.get(os.name,
@@ -270,7 +270,7 @@ def online_synchronizuj() -> bool:
             "uruchomienia": q.get("uruchomienia", 0),
             "dokumenty":    q.get("dokumenty", 0),
             "minuty":       q.get("minuty", 0),
-        }).encode("utf-8")
+        })).encode("utf-8")
         req = urllib.request.Request(
             URL_BACKENDU, data=cialo,
             headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
@@ -296,6 +296,47 @@ def online_synchronizuj() -> bool:
         })
         _zapisz(PLIK_STATUSU, st)
     return True
+
+def _rozgrzej_backend():
+    """Budzi backend (Apps Script) w tle, gdy tylko pojawi się okno
+    logowania. Zimny start serwera potrafi trwać kilka sekund — po
+    rozgrzewce właściwe logowanie odpowiada niemal od ręki, więc czas
+    od kliknięcia "Zaloguj" do intro spada do ułamka dawnego."""
+    def _w():
+        try:
+            if "TU_WKLEJ" in URL_BACKENDU:
+                return
+            # Zwykły GET — budzi instancję Apps Script, ale NIE przechodzi
+            # przez logikę doPost (zero skutków ubocznych po stronie arkusza).
+            req = urllib.request.Request(
+                URL_BACKENDU, headers={"User-Agent": "PMT-Planer"})
+            urllib.request.urlopen(req, timeout=12).read()
+        except Exception:
+            pass
+    threading.Thread(target=_w, daemon=True).start()
+
+
+# Wspólny sekret aplikacji — TEN SAM wpisz w Apps Script (weryfikujPodpis).
+# Podpisujemy każde zapytanie do backendu: boty i skanery trafiające na
+# publiczny adres /exec zostaną odrzucone, zanim czegokolwiek dotkną.
+SEKRET_APLIKACJI = "PMT-2026-a7Kq9mZr4tXw"
+
+
+def _podpisz_zadanie(dane: dict) -> dict:
+    """Dokłada znacznik czasu i podpis HMAC-SHA256 do zapytania."""
+    try:
+        import hmac
+        import hashlib
+        czas = str(int(time.time()))
+        baza = "%s|%s|%s" % (dane.get("kod", ""), dane.get("akcja", ""), czas)
+        dane["klucz_czas"] = czas
+        dane["podpis"] = hmac.new(SEKRET_APLIKACJI.encode("utf-8"),
+                                  baza.encode("utf-8"),
+                                  hashlib.sha256).hexdigest()
+    except Exception:
+        pass
+    return dane
+
 
 def online_synchronizuj_w_tle():
     """Odpala synchronizację w osobnym wątku — start programu nic nie czeka."""
@@ -385,10 +426,10 @@ def online_zaloguj(kod: str, haslo: str):
     if len(haslo) < 4:
         return False, "", "Podaj hasło (lub numer telefonu)."
     try:
-        cialo = json.dumps({"akcja": "logowanie", "kod": kod,
+        cialo = json.dumps(_podpisz_zadanie({"akcja": "logowanie", "kod": kod,
                             "haslo": haslo, "telefon": haslo,
                             "zrodlo": "program",
-                            "wersja": WERSJA_PROGRAMU}).encode("utf-8")
+                            "wersja": WERSJA_PROGRAMU})).encode("utf-8")
         req = urllib.request.Request(
             URL_BACKENDU, data=cialo,
             headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
@@ -483,9 +524,11 @@ def test_polaczenia() -> str:
         except Exception as e:
             wyniki.append(f"✘ {opis}: {_opisz_blad_sieci(e).split('.')[0]}")
     try:
-        cialo = json.dumps({"akcja": "puls", "kod": "00000"}).encode("utf-8")
-        req = urllib.request.Request(URL_BACKENDU, data=cialo,
-              headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        # Czysty GET — budzi i potwierdza serwer, ale NIE przechodzi przez
+        # logikę doPost. Dawny testowy puls z kodem "00000" tworzył w arkuszu
+        # widmowe wiersze "NOWY — uzupełnij dane" przy każdym kliknięciu.
+        req = urllib.request.Request(URL_BACKENDU,
+              headers={"User-Agent": "PMT-Planer"})
         with urllib.request.urlopen(req, timeout=20) as resp:
             resp.read()
             wyniki.append("✔ nasz serwer PMT: odpowiada")
@@ -508,11 +551,11 @@ def online_zdarzenie_sesji(rodzaj: str, minuty: float = 0.0):
         if not kod:
             return False
         st = _wczytaj(PLIK_STATUSU, {})
-        cialo = json.dumps({"akcja": "sesja", "kod": kod, "rodzaj": rodzaj,
+        cialo = json.dumps(_podpisz_zadanie({"akcja": "sesja", "kod": kod, "rodzaj": rodzaj,
                             "minuty": round(float(minuty), 1),
                             "dokumenty": int(st.get("dokumenty_sesja", 0)),
                             "plany": int(st.get("plany_sesja", 0)),
-                            "wersja": WERSJA_PROGRAMU}).encode("utf-8")
+                            "wersja": WERSJA_PROGRAMU})).encode("utf-8")
         req = urllib.request.Request(
             URL_BACKENDU, data=cialo,
             headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
@@ -541,6 +584,168 @@ def online_wyloguj():
         return False
 
 
+def _okno_zmiany_hasla(rodzic, ciemny):
+    """Jeden porządny dialog zmiany hasła: trzy pola, podgląd, walidacja.
+    Zwraca (stare, nowe) albo None przy anulowaniu."""
+    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                 QLineEdit, QPushButton, QFrame, QCheckBox)
+    from PyQt6.QtCore import Qt
+    okno = QDialog(rodzic)
+    okno.setModal(True)
+    okno.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    okno.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    okno.setFixedSize(430, 420)
+    zew = QVBoxLayout(okno); zew.setContentsMargins(10, 10, 10, 10)
+    karta = QFrame(); karta.setObjectName("PmtKarta")
+    zew.addWidget(karta)
+    ukl = QVBoxLayout(karta); ukl.setContentsMargins(26, 22, 26, 20)
+    ukl.setSpacing(8)
+    t1 = QLabel("Zmiana has\u0142a"); t1.setObjectName("tytul"); ukl.addWidget(t1)
+    t2 = QLabel("Dotychczasowe has\u0142o — a je\u015bli go nie pami\u0119tasz, "
+                "wpisz sw\u00f3j numer telefonu z kartoteki.")
+    t2.setObjectName("pod"); t2.setWordWrap(True); ukl.addWidget(t2)
+    e1 = QLabel("DOTYCHCZASOWE HAS\u0141O / TELEFON"); e1.setObjectName("etyk")
+    ukl.addWidget(e1)
+    p_stare = QLineEdit(); p_stare.setObjectName("haslo")
+    p_stare.setEchoMode(QLineEdit.EchoMode.Password); ukl.addWidget(p_stare)
+    e2 = QLabel("NOWE HAS\u0141O (min. 6 znak\u00f3w)"); e2.setObjectName("etyk")
+    ukl.addWidget(e2)
+    p_nowe = QLineEdit(); p_nowe.setObjectName("haslo")
+    p_nowe.setEchoMode(QLineEdit.EchoMode.Password); ukl.addWidget(p_nowe)
+    e3 = QLabel("POWT\u00d3RZ NOWE HAS\u0141O"); e3.setObjectName("etyk")
+    ukl.addWidget(e3)
+    p_pow = QLineEdit(); p_pow.setObjectName("haslo")
+    p_pow.setEchoMode(QLineEdit.EchoMode.Password); ukl.addWidget(p_pow)
+    pokaz = QCheckBox("Poka\u017c has\u0142a")
+    pokaz.setStyleSheet("QCheckBox { color:%s; font-family:'Segoe UI'; font-size:11px; "
+                        "background: transparent; }"
+                        % ("#94A3B8" if ciemny else "#475569"))
+    def _podglad(z):
+        tryb = QLineEdit.EchoMode.Normal if z else QLineEdit.EchoMode.Password
+        p_stare.setEchoMode(tryb); p_nowe.setEchoMode(tryb); p_pow.setEchoMode(tryb)
+    pokaz.toggled.connect(_podglad)
+    ukl.addWidget(pokaz)
+    blad2 = QLabel(" "); blad2.setObjectName("blad"); blad2.setWordWrap(True)
+    ukl.addWidget(blad2)
+    rzad = QHBoxLayout(); rzad.addStretch(1)
+    b_an = QPushButton("Anuluj"); b_an.setObjectName("anuluj")
+    b_an.setAutoDefault(False); rzad.addWidget(b_an)
+    b_zap = QPushButton("Zapisz nowe has\u0142o"); b_zap.setObjectName("ok")
+    b_zap.setDefault(True); rzad.addWidget(b_zap)
+    ukl.addLayout(rzad)
+    wynik = {}
+    def _zapisz():
+        stare = p_stare.text().strip()
+        nowe = p_nowe.text().strip()
+        powt = p_pow.text().strip()
+        if not stare:
+            blad2.setText("Podaj dotychczasowe has\u0142o albo numer telefonu.")
+            p_stare.setFocus(); return
+        if len(nowe) < 6:
+            blad2.setText("Nowe has\u0142o musi mie\u0107 co najmniej 6 znak\u00f3w.")
+            p_nowe.setFocus(); return
+        if nowe != powt:
+            blad2.setText("Nowe has\u0142a nie s\u0105 takie same.")
+            p_pow.setFocus(); return
+        if nowe == stare:
+            blad2.setText("Nowe has\u0142o musi si\u0119 r\u00f3\u017cni\u0107 od dotychczasowego.")
+            p_nowe.setFocus(); return
+        wynik["dane"] = (stare, nowe)
+        okno.accept()
+    b_zap.clicked.connect(_zapisz)
+    b_an.clicked.connect(okno.reject)
+    for pl in (p_stare, p_nowe, p_pow):
+        pl.returnPressed.connect(_zapisz)
+    p_stare.setFocus()
+    okno.exec()
+    return wynik.get("dane")
+
+
+def _okno_resetu_hasla(rodzic, ciemny, kod_start=""):
+    """Samoobslugowy reset ZAPOMNIANEGO hasla: kod + numer telefonu
+    z kartoteki + nowe haslo. Zwraca (kod, telefon_cyfry, nowe) albo None."""
+    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                 QLineEdit, QPushButton, QFrame, QCheckBox)
+    from PyQt6.QtCore import Qt
+    okno = QDialog(rodzic)
+    okno.setModal(True)
+    okno.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    okno.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    okno.setFixedSize(430, 500)
+    zew = QVBoxLayout(okno); zew.setContentsMargins(10, 10, 10, 10)
+    karta = QFrame(); karta.setObjectName("PmtKarta")
+    zew.addWidget(karta)
+    ukl = QVBoxLayout(karta); ukl.setContentsMargins(26, 22, 26, 20)
+    ukl.setSpacing(8)
+    t1 = QLabel("Reset has\u0142a"); t1.setObjectName("tytul"); ukl.addWidget(t1)
+    t2 = QLabel("Nie pami\u0119tasz has\u0142a? Podaj sw\u00f3j kod i numer "
+                "telefonu z kartoteki \u2014 program skasuje stare has\u0142o "
+                "na serwerze i OD RAZU ustawi nowe. Bez administratora.")
+    t2.setObjectName("pod"); t2.setWordWrap(True); ukl.addWidget(t2)
+    e0 = QLabel("TW\u00d3J KOD (LOGIN)"); e0.setObjectName("etyk"); ukl.addWidget(e0)
+    p_kod = QLineEdit(kod_start); p_kod.setObjectName("kod")
+    p_kod.setMaxLength(5)
+    p_kod.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    ukl.addWidget(p_kod)
+    e1 = QLabel("NUMER TELEFONU Z KARTOTEKI (9 cyfr)"); e1.setObjectName("etyk")
+    ukl.addWidget(e1)
+    p_tel = QLineEdit(); p_tel.setObjectName("haslo")
+    p_tel.setPlaceholderText("np. 600100200")
+    ukl.addWidget(p_tel)
+    e2 = QLabel("NOWE HAS\u0141O (min. 6 znak\u00f3w)"); e2.setObjectName("etyk")
+    ukl.addWidget(e2)
+    p_nowe = QLineEdit(); p_nowe.setObjectName("haslo")
+    p_nowe.setEchoMode(QLineEdit.EchoMode.Password); ukl.addWidget(p_nowe)
+    e3 = QLabel("POWT\u00d3RZ NOWE HAS\u0141O"); e3.setObjectName("etyk")
+    ukl.addWidget(e3)
+    p_pow = QLineEdit(); p_pow.setObjectName("haslo")
+    p_pow.setEchoMode(QLineEdit.EchoMode.Password); ukl.addWidget(p_pow)
+    pokaz = QCheckBox("Poka\u017c has\u0142a")
+    pokaz.setStyleSheet("QCheckBox { color:%s; font-family:'Segoe UI'; font-size:11px; "
+                        "background: transparent; }"
+                        % ("#94A3B8" if ciemny else "#3F6B60"))
+    def _podglad(zz):
+        tryb = QLineEdit.EchoMode.Normal if zz else QLineEdit.EchoMode.Password
+        p_nowe.setEchoMode(tryb); p_pow.setEchoMode(tryb)
+    pokaz.toggled.connect(_podglad)
+    ukl.addWidget(pokaz)
+    blad2 = QLabel(" "); blad2.setObjectName("blad"); blad2.setWordWrap(True)
+    ukl.addWidget(blad2)
+    rzad = QHBoxLayout(); rzad.addStretch(1)
+    b_an = QPushButton("Anuluj"); b_an.setObjectName("anuluj")
+    b_an.setAutoDefault(False); rzad.addWidget(b_an)
+    b_ok = QPushButton("Zresetuj i ustaw"); b_ok.setObjectName("ok")
+    b_ok.setDefault(True); rzad.addWidget(b_ok)
+    ukl.addLayout(rzad)
+    wynik = {}
+    def _zatw():
+        kod_ = p_kod.text().strip()
+        tel_ = "".join(ch for ch in p_tel.text() if ch.isdigit())
+        nowe_ = p_nowe.text().strip()
+        powt_ = p_pow.text().strip()
+        if not (kod_.isdigit() and len(kod_) == 5):
+            blad2.setText("Kod to 5 cyfr \u2014 ten sam, kt\u00f3rym si\u0119 logujesz.")
+            p_kod.setFocus(); return
+        if len(tel_) < 9:
+            blad2.setText("Podaj 9-cyfrowy numer telefonu z kartoteki.")
+            p_tel.setFocus(); return
+        if len(nowe_) < 6:
+            blad2.setText("Nowe has\u0142o musi mie\u0107 co najmniej 6 znak\u00f3w.")
+            p_nowe.setFocus(); return
+        if nowe_ != powt_:
+            blad2.setText("Nowe has\u0142a nie s\u0105 takie same.")
+            p_pow.setFocus(); return
+        wynik["dane"] = (kod_, tel_, nowe_)
+        okno.accept()
+    b_ok.clicked.connect(_zatw)
+    b_an.clicked.connect(okno.reject)
+    for pl in (p_kod, p_tel, p_nowe, p_pow):
+        pl.returnPressed.connect(_zatw)
+    (p_tel if kod_start else p_kod).setFocus()
+    okno.exec()
+    return wynik.get("dane")
+
+
 def dialog_logowania():
     """Okno logowania w stylu programu: LOGIN (5-cyfrowy kod) + HASŁO.
     Zwraca (kod, imie) albo (None, "") gdy użytkownik zrezygnował.
@@ -552,14 +757,91 @@ def dialog_logowania():
                                  QLineEdit, QPushButton)
     from PyQt6.QtCore import Qt, QRegularExpression, QTimer
     from PyQt6.QtGui import QRegularExpressionValidator
+    _rozgrzej_backend()   # obudź serwer, zanim użytkownik wpisze hasło
     d = QDialog()
     d.setWindowTitle("PMT Planer \u2014 logowanie")
     d.setModal(True)
-    d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    # typ Window (nie Dialog): okno ma WPIS NA PASKU ZADAŃ, więc po
+    # zminimalizowaniu da się je odzyskać jednym kliknięciem
+    d.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint
+                     | Qt.WindowType.WindowMinimizeButtonHint)
     d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     d.setFixedSize(470, 410)
     d.setObjectName("PmtLogowanie")
-    d.setStyleSheet('''
+    # okno logowania ZAWSZE na wierzchu otwartych kart — nie trzeba go szukać
+    d.setWindowFlags(d.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+    QTimer.singleShot(0, lambda: (d.raise_(), d.activateWindow()))
+    # bezramkowe okno da się PRZECIĄGNĄĆ (chwyt w dowolnym miejscu)...
+    d._chwyt = None
+    def _mysz_wcisk(ev):
+        if ev.button() == Qt.MouseButton.LeftButton:
+            d._chwyt = ev.globalPosition().toPoint() - d.frameGeometry().topLeft()
+    def _mysz_ruch(ev):
+        if d._chwyt is not None and (ev.buttons() & Qt.MouseButton.LeftButton):
+            d.move(ev.globalPosition().toPoint() - d._chwyt)
+    def _mysz_pusc(ev):
+        d._chwyt = None
+    d.mousePressEvent = _mysz_wcisk
+    d.mouseMoveEvent = _mysz_ruch
+    d.mouseReleaseEvent = _mysz_pusc
+    # ...i ZMINIMALIZOWAĆ małym przyciskiem w prawym górnym rogu
+    b_minim = QPushButton("\u2013", d)
+    b_minim.setObjectName("chipmin")     # osobna nazwa: NIE wpada w pętlę chipów
+    b_minim.setAutoDefault(False)
+    b_minim.setFixedSize(30, 24)
+    b_minim.setToolTip("Minimalizuj")
+    b_minim.clicked.connect(d.showMinimized)
+    b_x = QPushButton("\u2715", d)
+    b_x.setObjectName("chipmin")
+    b_x.setAutoDefault(False)
+    b_x.setFixedSize(30, 24)
+    b_x.setToolTip("Zamknij")
+    b_x.clicked.connect(d.reject)
+    QTimer.singleShot(0, lambda: (b_minim.move(d.width() - 86, 16),
+                                  b_x.move(d.width() - 48, 16),
+                                  b_minim.raise_(), b_x.raise_(),
+                                  b_minim.show(), b_x.show()))
+    ciemny = bool(ustawienie("ciemny_motyw", True))   # okno logowania podąża za motywem
+    if not ciemny:
+        d.setStyleSheet('''
+        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                      stop:0 #FFFFFF, stop:0.62 #F2FBF7, stop:1 #DCF3EA);
+                    border: 1px solid rgba(13,148,136,0.55);
+                    border-top: 4px solid #10B981; border-radius: 14px; }
+        QLabel#tytul { color:#047857; font-family:'Segoe UI'; font-size:18px; font-weight:800;
+                       background: transparent; }
+        QLabel#pod   { color:#3F6B60; font-family:'Segoe UI'; font-size:12px; background: transparent; }
+        QLabel#etyk  { color:#0D9488; font-family:'Segoe UI'; font-size:10px; font-weight:800;
+                       letter-spacing:1px; background: transparent; }
+        QLabel#blad  { color:#DC2626; font-family:'Segoe UI'; font-size:11px; font-weight:600;
+                       background: transparent; }
+        QLineEdit { background:#FFFFFF; color:#064E3B; border:2px solid rgba(13,148,136,0.40);
+                    border-radius:8px; padding:8px; font-family:'Segoe UI'; }
+        QLineEdit#kod { font-size:20px; font-weight:700; letter-spacing:8px; }
+        QLineEdit#haslo { font-size:15px; letter-spacing:2px; }
+        QLineEdit:focus { border:2px solid #10B981; background:#F0FDF9; }
+        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                           stop:0 #0D9488, stop:1 #10B981);
+                         color:#FFFFFF; font-family:'Segoe UI'; font-size:14px; font-weight:800;
+                         border:none; border-radius:8px; padding:10px 24px; }
+        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                                 stop:0 #14B8A6, stop:1 #34D399); }
+        QPushButton#ok:disabled { background: rgba(16,185,129,0.20); color: rgba(6,78,59,0.55); }
+        QPushButton#anuluj { background:rgba(16,185,129,0.07); color:#0D9488;
+                             font-family:'Segoe UI'; font-size:12px; font-weight:700;
+                             border:1px solid rgba(13,148,136,0.55);
+                             border-radius:8px; padding:9px 14px; }
+        QPushButton#anuluj:hover { color:#047857; border-color:#10B981;
+                                   background:rgba(16,185,129,0.16); }
+        QPushButton#anuluj:pressed { background:rgba(16,185,129,0.26); }
+        QPushButton#chip, QPushButton#chipmin { color:#065F46; background:rgba(16,185,129,0.10);
+                           border:1px solid rgba(13,148,136,0.45); border-radius:12px;
+                           font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
+        QPushButton#chip:hover, QPushButton#chipmin:hover { color:#064E3B; border-color:#10B981;
+                           background:rgba(16,185,129,0.20); }
+        ''')
+    else:
+        d.setStyleSheet('''
         #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
                       stop:0 #0F172A, stop:1 #04121A);
                     border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
@@ -589,16 +871,17 @@ def dialog_logowania():
         QPushButton#anuluj:hover { color:#00E4A1; border-color:#00E4A1;
                                    background:rgba(0,228,161,0.10); }
         QPushButton#anuluj:pressed { background:rgba(0,228,161,0.20); }
-        QPushButton#chip { color:#94A3B8; background:rgba(255,255,255,0.05);
+        QPushButton#chip, QPushButton#chipmin { color:#94A3B8; background:rgba(255,255,255,0.05);
                            border:1px solid rgba(255,255,255,0.18); border-radius:12px;
                            font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
-        QPushButton#chip:hover { color:#00E4A1; border-color:#00E4A1; }
+        QPushButton#chip:hover, QPushButton#chipmin:hover { color:#00E4A1; border-color:#00E4A1; }
     ''')
     from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect
     zewn = QVBoxLayout(d); zewn.setContentsMargins(10, 10, 10, 10)
     karta = QFrame(); karta.setObjectName("PmtKarta")
     cien = QGraphicsDropShadowEffect(karta)
-    cien.setBlurRadius(28); cien.setOffset(0, 6); cien.setColor(QColor(0, 0, 0, 180))
+    cien.setBlurRadius(28); cien.setOffset(0, 6)
+    cien.setColor(QColor(0, 0, 0, 180) if ciemny else QColor(6, 78, 59, 90))
     karta.setGraphicsEffect(cien)
     zewn.addWidget(karta)
     ukl = QVBoxLayout(karta); ukl.setContentsMargins(26, 22, 26, 18); ukl.setSpacing(6)
@@ -653,9 +936,12 @@ def dialog_logowania():
     rzad_pomoc = QHBoxLayout(); rzad_pomoc.setSpacing(8)
     b_haslo = QPushButton("Zmień hasło"); b_haslo.setObjectName("anuluj")
     b_haslo.setToolTip("Ustaw własne hasło albo odzyskaj dostęp, gdy hasło nie działa")
+    b_reset = QPushButton("Nie pami\u0119tam has\u0142a"); b_reset.setObjectName("anuluj")
+    b_reset.setToolTip("Automatyczny reset: weryfikacja numerem telefonu z kartoteki i ustawienie nowego has\u0142a")
+    b_reset.setAutoDefault(False)
     b_test = QPushButton("Sprawdź połączenie"); b_test.setObjectName("anuluj")
     b_test.setToolTip("Sprawdza internet i dostęp do serwera — przydatne, gdy logowanie nie przechodzi")
-    for _b in (b_haslo, b_test):
+    for _b in (b_haslo, b_reset, b_test):
         _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         rzad_pomoc.addWidget(_b)
     ukl.addLayout(rzad_pomoc)
@@ -667,6 +953,16 @@ def dialog_logowania():
     rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
     ukl.addLayout(rzad)
 
+    # ENTER ma znaczyć "Zaloguj" i NIC innego. Domyślnie Qt potrafi przy
+    # Enterze kliknąć pierwszy przycisk okna — u nas "Zmień hasło" — i stąd
+    # samootwierające się okno zmiany hasła po zatwierdzeniu Enterem.
+    for _b in (b_haslo, b_test, b_anuluj):
+        _b.setAutoDefault(False); _b.setDefault(False)
+    for _chip in d.findChildren(QPushButton):
+        if _chip.objectName() == "chip":
+            _chip.setAutoDefault(False)
+    b_ok.setAutoDefault(True); b_ok.setDefault(True)
+
     wynik = {"kod": None, "imie": ""}
 
     def _sprawdz_pola():
@@ -675,21 +971,72 @@ def dialog_logowania():
     def _zatwierdz():
         if not b_ok.isEnabled():
             return
-        b_ok.setEnabled(False); b_ok.setText("Sprawdzam\u2026")
+        # Weryfikacja w WĄTKU: okno nie zamiera, a kropki pokazują życie.
+        # Wcześniej zapytanie szło na wątku interfejsu i to ONO było
+        # ~5-sekundową "przerwą" między kliknięciem a intro.
+        b_ok.setEnabled(False); b_anuluj.setEnabled(False)
+        pole_kod.setEnabled(False); pole_haslo.setEnabled(False)
         blad.setText(" ")
-        QApplication.processEvents()
-        ok, imie, komunikat = online_zaloguj(pole_kod.text(), pole_haslo.text())
-        b_ok.setText("Zaloguj"); _sprawdz_pola()
-        if ok:
-            wynik["kod"] = pole_kod.text().strip()
-            wynik["imie"] = imie
-            d.accept()
-        else:
-            blad.setText(komunikat)
-            pole_haslo.selectAll(); pole_haslo.setFocus()
+        # Stała szerokość dobrana pod PEŁNY napis "Sprawdzam…" — nic nie
+        # skacze i nic się nie ucina; życie pokazuje zielony pasek światła.
+        _szer_przed = b_ok.width()
+        b_ok.setText("Sprawdzam\u2026")
+        _fm = b_ok.fontMetrics()
+        b_ok.setFixedWidth(max(_szer_przed,
+                               _fm.horizontalAdvance("Sprawdzam\u2026") + 58))
+        _dziennik_animacji("klik Zaloguj — weryfikacja na serwerze", nowy=True)
+        _start_wer = time.time()
+        _wynik_wer = {}
+
+        def _w_tle(kod=pole_kod.text(), hs=pole_haslo.text()):
+            try:
+                _wynik_wer["res"] = online_zaloguj(kod, hs)
+            except Exception as e:
+                _wynik_wer["res"] = (False, "", _opisz_blad_sieci(e))
+
+        threading.Thread(target=_w_tle, daemon=True).start()
+        _kropki = {"n": 0}
+        _zeg = QTimer(d)
+
+        def _tik():
+            if "res" not in _wynik_wer:
+                _kropki["n"] += 1
+                poz = (_kropki["n"] % 26) / 26.0
+                a1 = max(0.001, poz - 0.20)
+                a2 = min(0.999, poz + 0.20)
+                b_ok.setStyleSheet(
+                    "QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                    " stop:0 #0D9488, stop:%.3f #10B981, stop:%.3f #7CF5D4,"
+                    " stop:%.3f #10B981, stop:1 #0D9488);"
+                    " color:#FFFFFF; font-family:'Segoe UI'; font-size:14px;"
+                    " font-weight:800; border:none; border-radius:8px;"
+                    " padding:10px 24px; }" % (a1, poz, a2))
+                return
+            _zeg.stop()
+            ok, imie, komunikat = _wynik_wer["res"]
+            _dziennik_animacji("serwer odpowiedział po %.2f s (%s)"
+                               % (time.time() - _start_wer,
+                                  "zalogowano" if ok else "odmowa"))
+            b_ok.setStyleSheet("")
+            b_ok.setMinimumWidth(0); b_ok.setMaximumWidth(16777215)
+            b_ok.setText("Zaloguj"); b_anuluj.setEnabled(True)
+            pole_kod.setEnabled(True); pole_haslo.setEnabled(True)
+            _sprawdz_pola()
+            if ok:
+                wynik["kod"] = pole_kod.text().strip()
+                wynik["imie"] = imie
+                d.accept()
+            else:
+                blad.setText(komunikat)
+                pole_haslo.selectAll(); pole_haslo.setFocus()
+
+        _zeg.timeout.connect(_tik)
+        _zeg.start(150)
 
     for _chip in d.findChildren(QPushButton):
         if _chip.objectName() == "chip":
+            if not hasattr(_chip, "_kod"):
+                continue
             def _uzyj(_=False, kod=_chip._kod):
                 pole_kod.setText(kod); pole_haslo.clear(); pole_haslo.setFocus()
             _chip.clicked.connect(_uzyj)
@@ -722,48 +1069,301 @@ def dialog_logowania():
                       "Zmiana hasła wymaga internetu — hasła są zapisywane na serwerze. "
                       "Sprawdź połączenie i spróbuj ponownie.", tylko_ok=True)
             return
-        stare = _okno_pmt(d, "Zmiana hasła",
-                          "Podaj dotychczasowe hasło. Jeśli go nie pamiętasz — "
-                          "wpisz swój numer telefonu z kartoteki.", pole=True, haslo=True)
-        if stare is None:            # anulowano
+        dane = _okno_zmiany_hasla(d, ciemny)
+        if dane is None:
             return
-        if not stare.strip():
-            _okno_pmt(d, "Brak danych",
-                      "Musisz podać dotychczasowe hasło albo numer telefonu.",
-                      tylko_ok=True)
-            return
-        nowe = _okno_pmt(d, "Nowe hasło", "Minimum 6 znaków.", pole=True, haslo=True)
-        if nowe is None:
-            return
-        if len(nowe) < 6:
-            _okno_pmt(d, "Za krótkie hasło", "Hasło musi mieć co najmniej 6 znaków.",
-                      tylko_ok=True); return
-        powtorz = _okno_pmt(d, "Powtórz hasło", "Wpisz nowe hasło jeszcze raz.",
-                            pole=True, haslo=True)
-        if powtorz is None:
-            return
-        if nowe != powtorz:
-            _okno_pmt(d, "Hasła się różnią", "Podane hasła nie są takie same.",
-                      tylko_ok=True); return
-        blad.setText("Zapisuję nowe hasło…")
-        QApplication.processEvents()
-        try:
-            cialo = json.dumps({"akcja": "zmien_haslo", "kod": kod,
-                                "stare_haslo": stare, "nowe_haslo": nowe}).encode("utf-8")
-            req = urllib.request.Request(
-                URL_BACKENDU, data=cialo,
-                headers={"Content-Type": "application/json", "User-Agent": "PMT-Planer"})
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            if odp.get("status") == "ok":
+        stare, nowe = dane
+        # wysyłka W WĄTKU (koniec zamrożonego okna przy zimnym starcie
+        # serwera) + jedno automatyczne ponowienie przy chwilowym timeout
+        b_haslo.setEnabled(False)
+        b_haslo.setText("Zapisuj\u0119\u2026")
+        def _pokaz_wynik(odp, nowe_ok, stare_ok):
+            b_haslo.setEnabled(True)
+            b_haslo.setText("Zmie\u0144 has\u0142o")
+            if nowe_ok is True:
                 blad.setText(" ")
-                _okno_pmt(d, "Gotowe", "Hasło zmienione. Zaloguj się nowym hasłem.", tylko_ok=True)
-                pole_haslo.clear(); pole_haslo.setFocus()
+                pole_haslo.setText(nowe)
+                try:
+                    # lokalny skrót do logowania OFFLINE też na nowe hasło
+                    hist = _wczytaj(PLIK_LOGOWAN, {})
+                    im_ = str((hist.get(str(kod)) or {}).get("imie", ""))
+                    _zapisz_logowanie(kod, im_, _hash_hasla(kod, nowe))
+                except Exception:
+                    pass
+                _okno_pmt(d, "Gotowe",
+                          "Has\u0142o zmienione i ZWERYFIKOWANE pr\u00f3bnym "
+                          "logowaniem. Wpisali\u015bmy je ju\u017c w pole \u2014 "
+                          "kliknij Zaloguj.", tylko_ok=True)
+                return
+            if stare_ok is True:
+                op = str(odp.get("opis") or "serwer odrzuci\u0142 zmian\u0119")
+                blad.setText("Zmiana NIE przesz\u0142a \u2014 has\u0142o bez zmian.")
+                _okno_pmt(d, "Zmiana nie przesz\u0142a",
+                          "Serwer nie przyj\u0105\u0142 nowego has\u0142a (" + op +
+                          "). Twoje DOTYCHCZASOWE has\u0142o dalej dzia\u0142a \u2014 "
+                          "nic nie zosta\u0142o popsute.", tylko_ok=True)
+                return
+            if nowe_ok is False and stare_ok is False:
+                blad.setText("UWAGA: konto wymaga resetu przez administratora.")
+                _okno_pmt(d, "Powa\u017cny problem po stronie serwera",
+                          "Skrypt serwera zapisa\u0142 has\u0142o NIEZGODNIE "
+                          "z wys\u0142anym (nie dzia\u0142a ani nowe, ani stare). "
+                          "Najcz\u0119stsza przyczyna: doPost czyta inne nazwy "
+                          "p\u00f3l ni\u017c stare_haslo/nowe_haslo albo hashuje "
+                          "inn\u0105 funkcj\u0105 ni\u017c przy logowaniu. "
+                          "Popro\u015b administratora o reset has\u0142a i "
+                          "por\u00f3wnaj doPost z plikiem ZABEZPIECZENIA_BACKEND.txt "
+                          "(sekcja NAPRAWA ZMIANY HASLA \u2014 gotowa funkcja "
+                          "sama wykrywa schemat hashowania). Dora\u017ana furtka: "
+                          "popro\u015b o wyczyszczenie kom\u00f3rki hash i zaloguj "
+                          "si\u0119 numerem telefonu.",
+                          tylko_ok=True)
+                return
+            op = str(odp.get("opis") or odp.get("status") or
+                     "brak jednoznacznej odpowiedzi serwera")
+            blad.setText("Nie uda\u0142o si\u0119 potwierdzi\u0107 zmiany: " + op)
+            _okno_pmt(d, "Bez potwierdzenia",
+                      "Nie uda\u0142o si\u0119 jednoznacznie potwierdzi\u0107 zmiany "
+                      "(" + op + "). Spr\u00f3buj zalogowa\u0107 si\u0119 nowym "
+                      "has\u0142em; je\u015bli nie zadzia\u0142a \u2014 starym.",
+                      tylko_ok=True)
+
+        _stan_zh = {"start": time.time(), "koniec": False}
+        _tik = QTimer(d)
+        def _tyk():
+            if _stan_zh["koniec"]:
+                _tik.stop(); return
+            wyn = _stan_zh.pop("wynik", None)
+            if wyn is not None:
+                _stan_zh["koniec"] = True
+                _tik.stop()
+                _pokaz_wynik(*wyn)
+                return
+            up = int(time.time() - _stan_zh["start"])
+            blad.setText("Zapisuj\u0119 i weryfikuj\u0119\u2026 %d s "
+                         "(wybudzenie serwera trwa czasem ~30 s)" % up)
+            if up >= 75:      # watchdog: NIC nie może wisieć w nieskończoność
+                _stan_zh["koniec"] = True
+                _tik.stop()
+                b_haslo.setEnabled(True)
+                b_haslo.setText("Zmie\u0144 has\u0142o")
+                blad.setText("Przekroczono czas \u2014 spr\u00f3buj ponownie.")
+        _tik.timeout.connect(_tyk)
+        _tik.start(300)
+        def _surowe_logowanie(hs, tmo=12):
+            """Weryfikacja WYŁĄCZNIE po odpowiedzi serwera (żadnych
+            lokalnych fallbacków, które mogłyby zafałszować wynik)."""
+            try:
+                cialo2 = json.dumps(_podpisz_zadanie(
+                    {"akcja": "logowanie", "kod": kod, "haslo": hs,
+                     "telefon": hs, "zrodlo": "weryfikacja",
+                     "wersja": WERSJA_PROGRAMU})).encode("utf-8")
+                req2 = urllib.request.Request(
+                    URL_BACKENDU, data=cialo2,
+                    headers={"Content-Type": "application/json",
+                             "User-Agent": "PMT-Planer"})
+                with urllib.request.urlopen(req2, timeout=tmo) as r2:
+                    o2 = json.loads(r2.read().decode("utf-8", errors="ignore"))
+                if o2.get("status") == "ok":
+                    return True
+                if o2.get("status") == "blad":
+                    return False
+            except Exception:
+                pass
+            return None
+        def _w():
+            odp = {}
+            for proba in (1, 2):
+                try:
+                    # synonimy nazw pól — na wypadek starszej wersji skryptu
+                    cialo = json.dumps(_podpisz_zadanie(
+                        {"akcja": "zmien_haslo", "kod": kod,
+                         "stare_haslo": stare, "nowe_haslo": nowe,
+                         "haslo_stare": stare, "haslo_nowe": nowe})).encode("utf-8")
+                    req = urllib.request.Request(
+                        URL_BACKENDU, data=cialo,
+                        headers={"Content-Type": "application/json",
+                                 "User-Agent": "PMT-Planer"})
+                    with urllib.request.urlopen(req, timeout=18) as resp:
+                        odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                    break
+                except Exception as e:
+                    if proba == 2:
+                        odp = {"status": "blad", "opis": _opisz_blad_sieci(e)}
+                    else:
+                        time.sleep(0.8)   # zimny start serwera — druga próba
+            # NIEZALEŻNA WERYFIKACJA: próbne logowanie nowym, w razie
+            # niepowodzenia — starym. Zero zgadywania, zero cichych szkód.
+            nowe_ok = _surowe_logowanie(nowe, tmo=10)
+            stare_ok = None
+            if nowe_ok is False and odp.get("status") == "blad":
+                stare_ok = True    # serwer ODMÓWIŁ zapisu ⇒ nic nie ruszone
+            elif nowe_ok is False:
+                stare_ok = _surowe_logowanie(stare, tmo=10)
+            _stan_zh["wynik"] = (odp, nowe_ok, stare_ok)
+
+        threading.Thread(target=_w, daemon=True).start()
+
+    def _resetuj_haslo():
+        """AUTOMATYCZNY reset zapomnianego hasla: telefon z kartoteki jako
+        dowod tozsamosci, skasowanie starego hasha (akcja reset_hasla),
+        NATYCHMIASTOWE ustawienie nowego i niezalezna weryfikacja probnym
+        logowaniem — jeden przebieg, zero administratora."""
+        kod_p = pole_kod.text().strip()
+        dane = _okno_resetu_hasla(
+            d, ciemny, kod_p if (kod_p.isdigit() and len(kod_p) == 5) else "")
+        if not dane:
+            return
+        kod_r, tel_r, nowe_r = dane
+        b_reset.setEnabled(False)
+        b_reset.setText("Resetuj\u0119\u2026")
+        blad.setText("Weryfikuj\u0119 numer i ustawiam nowe has\u0142o\u2026")
+
+        def _pokaz_wynik_r(etap, odp, nowe_ok):
+            b_reset.setEnabled(True)
+            b_reset.setText("Nie pami\u0119tam has\u0142a")
+            op = str((odp or {}).get("opis") or (odp or {}).get("status")
+                     or "brak jednoznacznej odpowiedzi serwera")
+            if nowe_ok is True:
+                pole_kod.setText(kod_r)
+                pole_haslo.setText(nowe_r)
+                try:
+                    im_ = ""
+                    for hh in historia_logowan(6):
+                        try:
+                            if str(hh.get("kod", "")).strip() == kod_r:
+                                im_ = str(hh.get("imie", "")).strip()
+                                break
+                        except Exception:
+                            continue
+                    _zapisz_logowanie(kod_r, im_, _hash_hasla(kod_r, nowe_r))
+                except Exception:
+                    pass
+                blad.setText(" ")
+                _okno_pmt(d, "Has\u0142o zresetowane",
+                          "Nowe has\u0142o dzia\u0142a i zosta\u0142o zweryfikowane "
+                          "na serwerze. Wpisa\u0142em je ju\u017c w polu logowania "
+                          "\u2014 wystarczy klikn\u0105\u0107 Zaloguj.",
+                          tylko_ok=True)
+                return
+            if etap == 1:
+                blad.setText("Reset odrzucony: " + op)
+                _okno_pmt(d, "Reset nie przeszed\u0142",
+                          "Serwer odrzuci\u0142 reset: " + op + "\n\n"
+                          "Sprawd\u017a kod i numer telefonu \u2014 musi zgadza\u0107 "
+                          "si\u0119 z kartotek\u0105 (liczy si\u0119 ostatnich 9 cyfr).",
+                          tylko_ok=True)
+                return
+            if etap == 3:
+                blad.setText("Serwer ma star\u0105 wersj\u0119 skryptu \u2014 szczeg\u00f3\u0142y w komunikacie.")
+                _okno_pmt(d, "Stary skrypt na serwerze",
+                          "Serwer nie zna akcji resetu (dzia\u0142a starsza wersja "
+                          "skryptu Apps Script) i odm\u00f3wi\u0142 zmiany has\u0142a.\n\n"
+                          "Wklej apps_script.gs z paczki do edytora Apps Script "
+                          "i opublikuj NOWE wdro\u017cenie (Deploy) \u2014 reset "
+                          "zadzia\u0142a od r\u0119ki.",
+                          tylko_ok=True)
+                return
+            if nowe_ok is None:
+                blad.setText("Brak potwierdzenia \u2014 spr\u00f3buj zalogowa\u0107 si\u0119 nowym has\u0142em.")
+                _okno_pmt(d, "Bez potwierdzenia",
+                          "Reset najprawdopodobniej przeszed\u0142, ale weryfikacja "
+                          "nie dosta\u0142a odpowiedzi (sie\u0107). Spr\u00f3buj "
+                          "zalogowa\u0107 si\u0119 nowym has\u0142em.",
+                          tylko_ok=True)
+                return
+            blad.setText("Nie uda\u0142o si\u0119: " + op)
+            _okno_pmt(d, "Reset nie przeszed\u0142",
+                      "Ustawienie nowego has\u0142a nie powiod\u0142o si\u0119: " + op,
+                      tylko_ok=True)
+
+        _stan_rh = {"start": time.time(), "koniec": False}
+        _tik_r = QTimer(d)
+        def _tyk_r():
+            if _stan_rh["koniec"]:
+                _tik_r.stop(); return
+            wyn = _stan_rh.pop("wynik", None)
+            if wyn is not None:
+                _stan_rh["koniec"] = True
+                _tik_r.stop()
+                _pokaz_wynik_r(*wyn)
+                return
+            up = int(time.time() - _stan_rh["start"])
+            blad.setText("Resetuj\u0119 i weryfikuj\u0119\u2026 %d s "
+                         "(wybudzenie serwera trwa czasem ~30 s)" % up)
+            if up >= 75:
+                _stan_rh["koniec"] = True
+                _tik_r.stop()
+                b_reset.setEnabled(True)
+                b_reset.setText("Nie pami\u0119tam has\u0142a")
+                blad.setText("Przekroczono czas \u2014 spr\u00f3buj ponownie.")
+        _tik_r.timeout.connect(_tyk_r)
+        _tik_r.start(300)
+
+        def _post_r(pak, tmo=18):
+            odp = {}
+            for proba in (1, 2):
+                try:
+                    cialo = json.dumps(_podpisz_zadanie(pak)).encode("utf-8")
+                    req = urllib.request.Request(
+                        URL_BACKENDU, data=cialo,
+                        headers={"Content-Type": "application/json",
+                                 "User-Agent": "PMT-Planer"})
+                    with urllib.request.urlopen(req, timeout=tmo) as resp:
+                        odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                    break
+                except Exception as e:
+                    if proba == 2:
+                        odp = {"status": "blad", "opis": _opisz_blad_sieci(e)}
+                    else:
+                        time.sleep(0.8)
+            return odp
+
+        def _surowe_logowanie_r(hs, tmo=10):
+            try:
+                cialo2 = json.dumps(_podpisz_zadanie(
+                    {"akcja": "logowanie", "kod": kod_r, "haslo": hs,
+                     "telefon": hs, "zrodlo": "weryfikacja_resetu",
+                     "wersja": WERSJA_PROGRAMU})).encode("utf-8")
+                req2 = urllib.request.Request(
+                    URL_BACKENDU, data=cialo2,
+                    headers={"Content-Type": "application/json",
+                             "User-Agent": "PMT-Planer"})
+                with urllib.request.urlopen(req2, timeout=tmo) as r2:
+                    o2 = json.loads(r2.read().decode("utf-8", errors="ignore"))
+                if o2.get("status") == "ok":
+                    return True
+                if o2.get("status") == "blad":
+                    return False
+            except Exception:
+                pass
+            return None
+
+        def _w_r():
+            # ETAP 1: skasowanie starego hasla (telefon = dowod tozsamosci)
+            odp1 = _post_r({"akcja": "reset_hasla", "kod": kod_r,
+                            "telefon": tel_r, "wersja": WERSJA_PROGRAMU})
+            stary_skrypt = "nieznana akcja" in str(odp1.get("opis", "")).lower()
+            if odp1.get("status") != "ok" and not stary_skrypt:
+                _stan_rh["wynik"] = (1, odp1, False)
+                return
+            # ETAP 2: natychmiastowe ustawienie nowego (po skasowaniu hasha
+            # telefon dziala jako "stare haslo" w zmien_haslo)
+            odp2 = _post_r({"akcja": "zmien_haslo", "kod": kod_r,
+                            "stare_haslo": tel_r, "nowe_haslo": nowe_r,
+                            "haslo_stare": tel_r, "haslo_nowe": nowe_r})
+            # ETAP 3: niezalezna weryfikacja probnym logowaniem nowym haslem
+            nowe_ok = _surowe_logowanie_r(nowe_r)
+            if nowe_ok is True:
+                _stan_rh["wynik"] = (2, odp2, True)
+            elif stary_skrypt and odp2.get("status") != "ok":
+                _stan_rh["wynik"] = (3, odp2, False)
             else:
-                blad.setText(str(odp.get("opis") or "Nie udało się zmienić hasła."))
-        except Exception as e:
-            blad.setText(_opisz_blad_sieci(e))
+                _stan_rh["wynik"] = (2, odp2, nowe_ok)
+
+        threading.Thread(target=_w_r, daemon=True).start()
     b_haslo.clicked.connect(_zmien_haslo)
+    b_reset.clicked.connect(_resetuj_haslo)
     b_test.clicked.connect(_test)
     b_ok.clicked.connect(_zatwierdz)
     b_anuluj.clicked.connect(d.reject)
@@ -882,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.3"
+WERSJA_PROGRAMU = "3.20.49"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -932,6 +1532,22 @@ def odblokuj_wlasny_folder():
         pass
 
 
+def _folder_z_programem(sciezka) -> bool:
+    """Czy folder naprawdę zawiera NASZ program (a nie tylko "PMT" w nazwie)?
+    "PMT" to nazwa firmy, więc dowodem musi być zawartość: plik .exe z "pmt"
+    i "planer" w nazwie albo katalog _internal (ślad budowy PyInstallera)."""
+    try:
+        for w in os.listdir(sciezka):
+            n = w.lower()
+            if n == "_internal" and os.path.isdir(os.path.join(sciezka, w)):
+                return True
+            if n.endswith(".exe") and "pmt" in n and "planer" in n.replace(" ", "_"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def sprzataj_stare_wersje():
     """Usuwa pozostalosci po poprzednich wersjach programu.
 
@@ -964,6 +1580,14 @@ def sprzataj_stare_wersje():
                 niski = wpis.lower()
                 stare = (niski.endswith(".poprzednia") or niski.endswith("_poprzednia")
                          or niski.endswith(".old") or niski.endswith(".bak"))
+                # "PMT" to nazwa firmy — sama końcówka .old/.bak to za mało.
+                # Kasujemy wyłącznie kopie PROGRAMU: plik musi mieć ".exe"
+                # w nazwie (np. PMT_Planer.exe.poprzednia), a folder musi mieć
+                # program w środku.
+                if stare and os.path.isfile(pelna) and ".exe" not in niski:
+                    continue
+                if stare and os.path.isdir(pelna) and not _folder_z_programem(pelna):
+                    continue
                 if stare and ("pmt" in niski):
                     try:
                         shutil.rmtree(pelna, ignore_errors=True) if os.path.isdir(pelna) else os.remove(pelna)
@@ -1016,6 +1640,12 @@ def znajdz_stare_wersje():
     except Exception:
         pass
 
+    # Stare kopie często leżą w folderze o nazwie samej "PMT" (np. Pulpit\PMT),
+    # którego filtr nazw ("pmt"+"planer") nigdy nie oglądał od środka — dlatego
+    # zaglądamy też do podfolderu "PMT" każdego z powyższych miejsc.
+    for _m in list(miejsca):
+        miejsca.append(os.path.join(_m, "PMT"))
+
     def _rozmiar(sciezka):
         try:
             if os.path.isfile(sciezka):
@@ -1061,12 +1691,17 @@ def znajdz_stare_wersje():
                             continue
             except Exception:
                 pass
-            # plik programu albo folder z programem w srodku
+            # KASUJEMY WYŁĄCZNIE PROGRAM. "PMT" to nazwa firmy, więc pliki
+            # robocze (grafiki, raporty, arkusze) też miewają "PMT Planer"
+            # w nazwie — takich nie wolno tknąć. Dowód, że to program:
+            #   plik   -> końcówka .exe,
+            #   folder -> PMT_Planer*.exe w środku albo katalog _internal.
             czy_program = (os.path.isfile(pelna) and niski.endswith(".exe")) or \
-                          (os.path.isdir(pelna) and any(
-                              os.path.isfile(os.path.join(pelna, n))
-                              for n in ("PMT_Planer.exe", "PMT Planer.exe")))
-            czy_kopia = niski.endswith((".poprzednia", ".old", ".bak", "_poprzednia"))
+                          (os.path.isdir(pelna) and _folder_z_programem(pelna))
+            # kopie zapasowe: te same dowody, tylko z końcówką kopii
+            czy_kopia = niski.endswith((".poprzednia", ".old", ".bak", "_poprzednia")) and (
+                (os.path.isfile(pelna) and ".exe" in niski) or
+                (os.path.isdir(pelna) and _folder_z_programem(pelna)))
             if not (czy_program or czy_kopia):
                 continue
             widziane.add(klucz)
@@ -2071,14 +2706,25 @@ def _wczytaj_ustawienia():
     if _ustawienia is not None:
         return _ustawienia
     _ustawienia = {}
-    try:
-        if os.path.exists(USTAWIENIA_STORE):
-            with open(USTAWIENIA_STORE, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            if isinstance(d, dict):
-                _ustawienia = d
-    except Exception:
-        _ustawienia = {}
+    # PANCERZ: ucięty/uszkodzony plik (np. pad w trakcie zapisu) nie może
+    # wyzerować ustawień — wtedy ratujemy się kopią .bak i odtwarzamy plik.
+    for sciezka, z_baku in ((USTAWIENIA_STORE, False),
+                            (USTAWIENIA_STORE + ".bak", True)):
+        try:
+            if os.path.exists(sciezka):
+                with open(sciezka, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                if isinstance(d, dict):
+                    _ustawienia = d
+                    if z_baku:
+                        try:
+                            with open(USTAWIENIA_STORE, "w", encoding="utf-8") as f:
+                                json.dump(d, f, ensure_ascii=False, indent=1)
+                        except Exception:
+                            pass
+                    break
+        except Exception:
+            continue
     return _ustawienia
 
 def ustawienie(klucz, domyslne=""):
@@ -2093,9 +2739,18 @@ def _ustawienia_reset():
 def zapisz_ustawienie(klucz, wartosc):
     u = _wczytaj_ustawienia()
     u[klucz] = wartosc
+    # ZAPIS ATOMOWY: najpierw plik tymczasowy, potem podmiana; poprzednia
+    # dobra wersja laduje w .bak — motyw i reszta przezyja kazdy pad.
     try:
-        with open(USTAWIENIA_STORE, "w", encoding="utf-8") as f:
+        tmp = USTAWIENIA_STORE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(u, f, ensure_ascii=False, indent=1)
+        try:
+            if os.path.exists(USTAWIENIA_STORE):
+                os.replace(USTAWIENIA_STORE, USTAWIENIA_STORE + ".bak")
+        except Exception:
+            pass
+        os.replace(tmp, USTAWIENIA_STORE)
     except Exception:
         pass
 
@@ -4743,17 +5398,38 @@ def znajdz_logo() -> Optional[str]:
     folder PMT na Pulpicie (tam użytkownik trzyma pliki źródłowe)."""
     nazwy = ["pmt_logo.png", "pmt_logo.jpg", "pmt_logo.ico",
              "pmt.png", "pmt.jpg", "PMT.jpg"]
-    # katalogi do przeszukania
+    # KOLEJNOŚĆ MA ZNACZENIE: plik OBOK PROGRAMU (podmienialny przez
+    # administratora) wygrywa z kopią zapakowaną do środka przy budowie
+    # (_internal/_MEIPASS) — inaczej podmiana logo nic nie zmienia.
     pulpit = sciezka_pulpitu()
-    katalogi = [None,                                   # zasob_sciezka (exe/_MEIPASS/obok)
+    obok = os.path.dirname(os.path.abspath(sys.argv[0]))
+    katalogi = [obok,
                 pulpit,
-                os.path.join(pulpit, "PMT")]
-    for nazwa in nazwy:
-        for kat in katalogi:
+                os.path.join(pulpit, "PMT"),
+                None]                                  # _internal jako OSTATNIA deska
+    kandydaci = []
+    for kat in katalogi:
+        for nazwa in nazwy:
             p = zasob_sciezka(nazwa) if kat is None else os.path.join(kat, nazwa)
-            if os.path.exists(p):
-                return p
-    return None
+            if p and os.path.exists(p):
+                ap = os.path.abspath(p)
+                if ap not in kandydaci:
+                    kandydaci.append(ap)
+    if not kandydaci:
+        return None
+    # NAJLEPSZY kandydat: bierzemy plik o NAJWIĘKSZEJ szerokości obrazu —
+    # mała ikonka obok exe nie może wygrać z dużą grafiką w innym katalogu.
+    # Remisy rozstrzyga kolejność listy (obok exe przed _internal, png przed ico).
+    najlepszy, naj_w = kandydaci[0], -1
+    for ap in kandydaci:
+        try:
+            im = QPixmap(ap)
+            w = 0 if im.isNull() else im.width()
+        except Exception:
+            w = 0
+        if w > naj_w:
+            najlepszy, naj_w = ap, w
+    return najlepszy
 
 def znajdz_ikone() -> Optional[str]:
     """Ikona okna/aplikacji — preferuje .ico, potem .png. Te same lokalizacje."""
@@ -4945,14 +5621,26 @@ class ImageBackgroundWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         orig = self._orig_dark if self.is_dark else self._orig_light
-        if orig and not orig.isNull():
-            painter.fillRect(self.rect(), QColor("#0B1320") if self.is_dark else QColor("#F1F5F9"))
-        else:
+        if not orig or orig.isNull():
             self._tlo_zastepcze(painter)
-        if orig and not orig.isNull():
-            scaled = orig.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-            crop_x = (scaled.width() - self.width()) // 2; crop_y = (scaled.height() - self.height()) // 2
-            painter.drawPixmap(0, 0, scaled, crop_x, crop_y, self.width(), self.height())
+            painter.end()
+            return
+        painter.fillRect(self.rect(), QColor("#0B1320") if self.is_dark else QColor("#F1F5F9"))
+        # Skalujemy TYLKO przy zmianie motywu albo rozmiaru — wynik trzymamy
+        # w pamięci. Wcześniej pełne wygładzone skalowanie 1,4-megapikselowego
+        # tła leciało przy KAŻDYM przerysowaniu okna, przez co samo nałożenie
+        # motywu (dziesiątki zmian stylów = dziesiątki przerysowań) potrafiło
+        # trwać wiele sekund, a cała aplikacja była ociężała.
+        klucz = (self.is_dark, self.width(), self.height())
+        if getattr(self, "_tlo_klucz", None) != klucz:
+            self._tlo_klucz = klucz
+            self._tlo_gotowe = orig.scaled(
+                self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation)
+        scaled = self._tlo_gotowe
+        crop_x = (scaled.width() - self.width()) // 2
+        crop_y = (scaled.height() - self.height()) // 2
+        painter.drawPixmap(0, 0, scaled, crop_x, crop_y, self.width(), self.height())
         painter.end()
 
 class GrubyKursorEdit(QLineEdit):
@@ -7257,7 +7945,7 @@ class PlanerOverlay(QFrame):
         self.karta.setFixedSize(w, h)
 
     # ---------- motyw ----------
-    def update_theme(self, is_dark):
+    def update_theme(self, is_dark, przebuduj=True):
         self.is_dark = is_dark
         if is_dark:
             tlo = "rgba(5, 10, 20, 0.90)"; karta = "rgba(11, 19, 32, 0.98)"
@@ -7384,8 +8072,10 @@ class PlanerOverlay(QFrame):
         self.btn_ostatni.setStyleSheet(btn_akcja_css)
         # Chipy sieci i wiersze mają kolory "wypalone" w chwili budowy — po
         # zmianie motywu trzeba je przebudować, inaczej zostają jasne litery
-        # na jasnym tle (i odwrotnie).
-        self._przerysuj()
+        # na jasnym tle (i odwrotnie). Gdy motyw się NIE zmienił (przebuduj=
+        # False), nakładamy same style kontenera — bez kosztownej przebudowy.
+        if przebuduj:
+            self._przerysuj()
 
         uchwyt = "rgba(0,240,255,0.35)" if self.is_dark else "rgba(13,148,136,0.35)"
         uchwyt_hover = "rgba(0,240,255,0.65)" if self.is_dark else "rgba(13,148,136,0.6)"
@@ -7408,6 +8098,7 @@ class PlanerOverlay(QFrame):
         self._css_usun = (f"#PlanerUsun {{ color:{txt_mut}; background:transparent; border:none; font-size:14px; }} #PlanerUsun:hover {{ color:#EF4444; }}")
         self._css_pusty = (f"#PlanerPusty {{ color:{txt_mut}; font-family:'Segoe UI'; font-size:13px; background:transparent; border:none; padding:40px; }}")
         self._zastosuj_css_wierszy()
+        self._motyw_nalozony = is_dark
 
     def _zastosuj_css_wierszy(self):
         laczny = "\n".join([getattr(self, k, "") for k in
@@ -8717,6 +9408,10 @@ class EkranPowitalny(QFrame):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._krok)
         self._powitanie = "Witaj w PMT Planer"
+        self._material_t0 = None      # start ładowania logo piksel po pikselu
+        self._material_czeka = False  # True = centrum PUSTE aż doleci puls
+        self._material_kolej = None
+        self._material_cache = {}
 
         # KOKPIT DNIA — od razu widać, co dziś w trasie
         self.karta_dzis = KartaDzisiaj(self, self.is_dark)
@@ -8738,6 +9433,109 @@ class EkranPowitalny(QFrame):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._ustaw_karte()
+
+    def start_material(self):
+        """Po dolocie pulsu z intro: logo ładuje się PIKSEL PO PIKSELU,
+        a tarcza kompasu (N/W/S/E) równolegle wypełnia się na zielono."""
+        self._material_czeka = False
+        self._material_t0 = time.time()
+        kolej = list(range(676))          # 26×26 bloków mozaiki
+        random.shuffle(kolej)
+        self._material_kolej = kolej
+        self._material_cache = {}
+        try:
+            self.update()
+        except Exception:
+            pass
+
+    def _logo_kolo_pix(self, srednica, akc):
+        """Okrągła, gotowa 'moneta' logo: białe koło + grafika + obwódka.
+        Materializacja składa z niej DOKŁADNIE okrąg — a nie surową ikonę
+        pliku (która bywa zaokrąglonym kwadratem)."""
+        if not getattr(self, "_logo_diag", False):
+            self._logo_diag = True
+            try:
+                sc = znajdz_logo() or "?"
+                with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])),
+                                       "PMT_diagnostyka_animacji.txt"),
+                          "a", encoding="utf-8") as f:
+                    f.write("LOGO ZRODLO: %dx%d px  <-  %s\n"
+                            % (self._logo_pix.width(), self._logo_pix.height(), sc))
+            except Exception:
+                pass
+        klucz = (int(srednica), self.is_dark)
+        if getattr(self, "_kolo_pix_klucz", None) == klucz and \
+                getattr(self, "_kolo_pix", None) is not None:
+            return self._kolo_pix
+        dpr = 2
+        s = max(8, int(srednica)) * dpr
+        pm = QPixmap(s, s)
+        pm.fill(Qt.GlobalColor.transparent)
+        q = QPainter(pm)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing)
+        q.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        q.setPen(Qt.PenStyle.NoPen)
+        q.setBrush(QColor(255, 255, 255))
+        q.drawEllipse(0, 0, s, s)
+        cel = int(s * 0.88)
+        sk = self._logo_pix.scaled(cel, cel,
+                                   Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+        q.save()
+        _kl = QPainterPath()
+        _kl.addEllipse(0.0, 0.0, float(s), float(s))
+        q.setClipPath(_kl)
+        q.drawPixmap((s - sk.width()) // 2, (s - sk.height()) // 2, sk)
+        q.restore()
+        obw = QColor(akc); obw.setAlpha(160)
+        q.setBrush(Qt.BrushStyle.NoBrush)
+        q.setPen(QPen(obw, 2.5 * dpr))
+        kr = 2.5 * dpr
+        q.drawEllipse(QRectF(kr / 2, kr / 2, s - kr, s - kr))
+        q.end()
+        pm.setDevicePixelRatio(dpr)
+        self._kolo_pix_klucz = klucz
+        self._kolo_pix = pm
+        self._material_cache = {}      # poziomy schodków z NOWEJ monety
+        return pm
+
+    def _material_postep(self):
+        if self._material_t0 is None:
+            return 1.0
+        return (time.time() - self._material_t0) / 2.10
+
+    def _rysuj_mozaike(self, p, skala, dpr, cx, cy, szer, wys, M):
+        """Etap A: losowe bloki pikseli wskakują; etap B: obraz wyostrza
+        się schodkami rozdzielczości aż do pełnej grafiki."""
+        x0, y0 = cx - szer / 2.0, cy - wys / 2.0
+        if M < 0.45 and self._material_kolej:
+            prog = M / 0.45
+            n_b = 26
+            bw, bh = szer / n_b, wys / n_b
+            sw, sh = skala.width() / n_b, skala.height() / n_b
+            widoczne = int(prog * len(self._material_kolej))
+            for idx in self._material_kolej[:widoczne]:
+                bx, by = idx % n_b, idx // n_b
+                zrod = QRectF(bx * sw, by * sh, sw, sh)
+                cel = QRectF(x0 + bx * bw, y0 + by * bh, bw + 0.5, bh + 0.5)
+                p.drawPixmap(cel, skala, zrod)
+            return
+        k = (M - 0.45) / 0.55
+        poziomy = (20, 32, 48, 80, 128, 192, 0)
+        lvl = poziomy[min(len(poziomy) - 1, int(k * len(poziomy)))]
+        if lvl == 0:
+            p.drawPixmap(QRectF(x0, y0, szer, wys), skala,
+                         QRectF(0, 0, skala.width(), skala.height()))
+            return
+        if lvl not in self._material_cache:
+            maly = skala.scaled(lvl, lvl,
+                                Qt.AspectRatioMode.IgnoreAspectRatio,
+                                Qt.TransformationMode.FastTransformation)
+            self._material_cache[lvl] = maly
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        p.drawPixmap(QRectF(x0, y0, szer, wys), self._material_cache[lvl],
+                     QRectF(0, 0, lvl, lvl))
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
     def start(self):
         # personalizacja powitania — jeśli jest zapisany profil, przywitaj imieniem
@@ -8810,6 +9608,15 @@ class EkranPowitalny(QFrame):
         # żeby nic na siebie nie nachodziło
         przesun = 78 if (hasattr(self, "karta_dzis") and self.karta_dzis.isVisible()) else 20
         cx, cy = W / 2, H / 2 - przesun
+        # dolna granica wolnego miejsca (góra karty "Dziś w trasie" albo dół okna)
+        try:
+            dol_wolny = (self.karta_dzis.geometry().top() - 8
+                         if (hasattr(self, "karta_dzis") and self.karta_dzis.isVisible())
+                         else H - 40)
+        except Exception:
+            dol_wolny = H - 40
+        if dol_wolny < 220:            # geometria karty jeszcze nieustalona
+            dol_wolny = H - 40
 
         if self.is_dark:
             akc = QColor(0, 240, 255)
@@ -8835,6 +9642,14 @@ class EkranPowitalny(QFrame):
 
         # --- świecące trasy: linie od krawędzi ku centrum, rysujące się i gasnące ---
         maxr = math.hypot(W, H) / 2
+        # trasy nie wjeżdżają pod krawędź monety logo (zero zgrubień)
+        _og = getattr(self, "_ost_logo", None)
+        if _og is not None:
+            _wyc_t = QPainterPath()
+            _wyc_t.addRect(QRectF(self.rect()))
+            _kolo_t = QPainterPath()
+            _kolo_t.addEllipse(QPointF(_og[0], _og[1]), _og[2] + 2.0, _og[2] + 2.0)
+            p.setClipPath(_wyc_t.subtracted(_kolo_t))
         for tr in self._trasy:
             faza = tr["faza"]
             r_od = maxr * tr["dlugosc"] * (1.0 - faza)
@@ -8860,7 +9675,17 @@ class EkranPowitalny(QFrame):
             p.drawEllipse(QPointF(x2, y2), 2.5, 2.5)
 
         # --- pierścień kompasu (obracający się) ---
-        R = min(W, H) * 0.16
+        # PEŁNA adaptacja pionu: kompas + napis MUSZĄ zmieścić się nad
+        # kartą. Najpierw promień z dostępnej wysokości, potem środek
+        # kompasu dosuwany w górę, a napis z twardym sufitem nad kartą.
+        # Gdy mimo to brak miejsca na etykiety N/E/S/W — znikają.
+        gora_wolna = 56.0
+        R = max(44.0, min(min(W, H) * 0.16,
+                          (dol_wolny - gora_wolna - 168.0) / 2.0))
+        cy = max(gora_wolna + R + 52.0, min(cy, dol_wolny - R - 116.0))
+        y_pow = min(cy + R + 72.0, dol_wolny - 46.0)
+        etykiety_ok = (y_pow - (cy + R)) >= 62.0
+        p.setClipping(False)
         p.save()
         p.translate(cx, cy)
         # zewnętrzny pierścień
@@ -8884,60 +9709,94 @@ class EkranPowitalny(QFrame):
 
         # kierunki świata (nieruchome, N na górze)
         p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        for etyk, dx, dy in [("N", 0, -(R + 58)), ("E", R + 58, 0), ("S", 0, R + 58), ("W", -(R + 58), 0)]:
-            p.setPen(txt_mut)
-            p.drawText(QRectF(cx + dx - 12, cy + dy - 10, 24, 20),
-                       Qt.AlignmentFlag.AlignCenter, etyk)
+        if etykiety_ok:
+            for etyk, dx, dy in [("N", 0, -(R + 40)), ("E", R + 40, 0),
+                                 ("S", 0, R + 40), ("W", -(R + 40), 0)]:
+                p.setPen(txt_mut)
+                p.drawText(QRectF(cx + dx - 12, cy + dy - 10, 24, 20),
+                           Qt.AlignmentFlag.AlignCenter, etyk)
+
 
         # --- logo z poświatą w centrum ---
-        if self._logo_pix:
-            rozmiar = int(R * 1.35)      # nieco mniejsze — napis mieści się w kuli
-            r_kolo = rozmiar / 2
-            # poświata pod logo
-            pos = QRadialGradient(cx, cy, rozmiar * 0.95)
-            g0 = QColor(akc); g0.setAlpha(70); g1 = QColor(akc); g1.setAlpha(0)
+        if self._logo_pix and not (self._material_czeka and self._material_t0 is None):
+            # tarcza znaczników żyje na promieniu R+40 (kreski do R+28) —
+            # logo domyka jej WEWNĘTRZNĄ stronę z małym prześwitem
+            r_kolo = (R + 40.0) - 17.0
+            rozmiar = int(r_kolo * 2)
+            M_mat = self._material_postep()
+            widz = max(0.0, min(1.0, M_mat))
+            # materializacja startuje W WIĘKSZEJ FORMULE (~1.55×) i pod
+            # koniec zjeżdża płynnie do rozmiaru logo w kompasie
+            sform = 1.0
+            if M_mat < 1.0:
+                kk = min(1.0, max(0.0, (M_mat - 0.78) / 0.22))
+                sform = 1.55 - 0.55 * (kk * kk * (3.0 - 2.0 * kk))
+            r_kolo_d = r_kolo * sform
+            rozmiar_d = rozmiar * sform
+            # poświata pod logo — narasta razem z materializacją
+            pos = QRadialGradient(cx, cy, rozmiar_d * 0.95)
+            g0 = QColor(akc); g0.setAlpha(int(70 * widz))
+            g1 = QColor(akc); g1.setAlpha(0)
             pos.setColorAt(0, g0); pos.setColorAt(1, g1)
             p.setBrush(pos); p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(cx, cy), rozmiar * 0.95, rozmiar * 0.95)
+            p.drawEllipse(QPointF(cx, cy), rozmiar_d * 0.95, rozmiar_d * 0.95)
 
-            # Białe koło-podkład — gdy logo jest prostokątne (szersze niż wyższe),
-            # po wpisaniu całego w koło zostają puste pasy u góry/dołu. Podkład
-            # w kolorze tła logo (biały) wypełnia je spójnie, więc widać pełne koło.
-            p.setBrush(QColor(255, 255, 255)); p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(cx, cy), r_kolo, r_kolo)
+            # moneta-okrąg: podkład, grafika i obwódka WBUDOWANE — mozaika
+            # od pierwszego bloku składa okrąg, potem zjeżdża do kompasu
+            pm_kolo = self._logo_kolo_pix(rozmiar, akc)
+            dpr = pm_kolo.devicePixelRatio()
+            self._ost_logo = (cx, cy, r_kolo_d)   # dla przycinania tras
+            if M_mat >= 1.0:
+                p.drawPixmap(QRectF(cx - r_kolo, cy - r_kolo,
+                                    float(rozmiar), float(rozmiar)),
+                             pm_kolo,
+                             QRectF(0, 0, pm_kolo.width(), pm_kolo.height()))
+            else:
+                self._rysuj_mozaike(p, pm_kolo, dpr, cx, cy,
+                                    rozmiar * sform, rozmiar * sform,
+                                    max(0.0, M_mat))
 
-            # Logo mieści się CAŁE w kole (KeepAspectRatio) — nic nie obcinamy,
-            # więc litery P i T po bokach są w całości widoczne. Zajmuje ~88%
-            # średnicy koła. Renderujemy w 2x dla ostrości.
-            dpr = 2
-            cel = int(rozmiar * 0.88)
-            skala = self._logo_pix.scaled(int(cel * dpr), int(cel * dpr),
-                                          Qt.AspectRatioMode.KeepAspectRatio,
-                                          Qt.TransformationMode.SmoothTransformation)
-            skala.setDevicePixelRatio(dpr)
-            p.save()
-            klip = QPainterPath()
-            klip.addEllipse(QPointF(cx, cy), r_kolo, r_kolo)
-            p.setClipPath(klip)
-            szer_log = skala.width() / dpr; wys_log = skala.height() / dpr
-            p.drawPixmap(int(cx - szer_log / 2), int(cy - wys_log / 2),
-                         int(szer_log), int(wys_log), skala)
-            p.restore()
-
-            # subtelna obwódka koła w kolorze akcentu
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            obw = QColor(akc); obw.setAlpha(160)
-            p.setPen(QPen(obw, 2.5))
-            p.drawEllipse(QPointF(cx, cy), r_kolo, r_kolo)
-        else:
+        elif not (self._material_czeka and self._material_t0 is None):
             # brak logo — narysuj tekst PMT
             p.setPen(akc); p.setFont(QFont("Segoe UI", 34, QFont.Weight.Black))
             p.drawText(QRectF(cx - R, cy - R, 2 * R, 2 * R),
                        Qt.AlignmentFlag.AlignCenter, "PMT")
 
+        # ZIELONE ładowanie tarczy NWSE — rysowane NAD logo, więc widoczne
+        # także, gdy materializacja odbywa się w powiększonej formule
+        M_t = self._material_postep()
+        if self._material_t0 is not None and 0.0 < M_t < 1.18:
+            a_zl = 1.0 if M_t <= 1.0 else max(0.0, (1.18 - M_t) / 0.18)
+            kat_z = 360.0 * min(1.0, M_t)
+            ziel = QColor(0, 228, 161) if self.is_dark else QColor(13, 148, 136)
+            R_t = R + 34.0
+            pr_t = QRectF(cx - R_t, cy - R_t, 2 * R_t, 2 * R_t)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            zg = QColor(ziel); zg.setAlphaF(0.35 * a_zl)
+            pio = QPen(zg, 26.0)
+            pio.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pio)
+            p.drawArc(pr_t, 90 * 16, int(-kat_z * 16))
+            z2 = QColor(ziel); z2.setAlphaF(0.95 * a_zl)
+            pio = QPen(z2, 13.0)
+            pio.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pio)
+            p.drawArc(pr_t, 90 * 16, int(-kat_z * 16))
+            if etykiety_ok:
+                zt = QColor(ziel); zt.setAlphaF(a_zl)
+                p.setPen(zt)
+                for etyk, dx, dy, kat_l in [("N", 0, -(R + 40), 0.0),
+                                            ("E", R + 40, 0, 90.0),
+                                            ("S", 0, R + 40, 180.0),
+                                            ("W", -(R + 40), 0, 270.0)]:
+                    if kat_z >= kat_l:
+                        p.drawText(QRectF(cx + dx - 12, cy + dy - 10, 24, 20),
+                                   Qt.AlignmentFlag.AlignCenter, etyk)
+
         # --- powitanie ---
         p.setPen(txt); p.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
-        p.drawText(QRectF(0, cy + R + 46, W, 40),
+        # napis NIGDY nie schodzi pod kartę "Dziś w trasie" (y_pow wyżej)
+        p.drawText(QRectF(0, y_pow, W, 40),
                    Qt.AlignmentFlag.AlignHCenter, self._powitanie)
 
         # --- pasek na dole: wersja + data ---
@@ -12068,6 +12927,28 @@ class PlanWizytOverlay(QFrame):
 
 
 
+def _dziennik_animacji(tekst, nowy=False):
+    """Dziennik animacji startowej: PMT_diagnostyka_animacji.txt OBOK
+    programu (a gdy tam się nie da zapisać — w katalogu użytkownika).
+    Dzięki temu po każdym starcie wiadomo dokładnie, co się wydarzyło."""
+    try:
+        linia = "%s | %s\n" % (datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3], tekst)
+        if getattr(sys, "frozen", False):
+            kat_prog = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            kat_prog = os.path.dirname(os.path.abspath(__file__))
+        for kat in (kat_prog, os.path.expanduser("~")):
+            try:
+                with open(os.path.join(kat, "PMT_diagnostyka_animacji.txt"),
+                          "w" if nowy else "a", encoding="utf-8") as f:
+                    f.write(linia)
+                return
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 class AnimacjaStartowa(QWidget):
     """Ekran startowy po zalogowaniu — smuga światła z drogi w tle pisze
     odręcznie "PMT" na niebie i zastyga w ładujące się logo.
@@ -12096,8 +12977,9 @@ class AnimacjaStartowa(QWidget):
     """
     zakonczony = pyqtSignal()
 
-    TEMPO = 2.0                          # 1.0 = tempo bazowe; 2.0 = dwa razy wolniej
-    CZAS_MS = int(5350 * TEMPO)
+    TEMPO = 1.25                       # pełny pokaz ~19,5 s (wolniej o 25%)                          # 1.0 = tempo bazowe; 2.0 = dwa razy wolniej
+    PROLOG = 3.00                      # powitanie + DŁUŻSZY, czytelny tunel
+    CZAS_MS = int((16900 + 3000) * TEMPO)
 
     # ---- trasa smugi po drodze (współrzędne 0..1 względem grafiki tła) ----
     _DROGA_CIEMNA = [(0.370, 0.996), (0.444, 0.932), (0.522, 0.880),
@@ -12114,19 +12996,39 @@ class AnimacjaStartowa(QWidget):
                     (0.728, 0.815)]
     _PIN_JASNY = (0.727, 0.737)
 
-    # ---- odręczne "PMT": łamana w układzie 228×150 + kreska litery T ----
-    _LITERY = [(14, 146), (4, 96), (10, 42), (30, 14), (58, 16), (66, 48),
-               (46, 74), (16, 80), (28, 118), (34, 146), (52, 150), (68, 146),
-               (78, 70), (88, 20), (104, 64), (114, 112), (124, 66),
-               (136, 20), (150, 66), (158, 120), (164, 146), (184, 132),
-               (204, 66), (214, 26), (220, 18), (224, 60), (226, 110),
-               (228, 146)]
-    _KRESKA_T = [(192, 28), (218, 20), (246, 16), (260, 20)]
+    # ---- odręczny podpis "PMT" w układzie 228×150: trzy pociągnięcia ----
+    # 1. P→M→pion T jednym śladem (z domknięciem brzuszka P na lasce),
+    # 2. zamaszysta poprzeczka T,
+    # 3. podkreślenie całego podpisu z uniesieniem na końcu.
+    _POC_GLOWNE = [(16, 140), (20, 96), (24, 52), (28, 18), (38, 8),
+                   (54, 10), (64, 22), (64, 38), (54, 50), (38, 55), (28, 52),
+                   (27, 76), (24, 108), (21, 136), (30, 145), (42, 142),
+                   (50, 104), (56, 44), (62, 14), (70, 10), (76, 22),
+                   (82, 84), (86, 106), (90, 88), (96, 24), (102, 11),
+                   (110, 16), (116, 80), (120, 126), (124, 140), (132, 120),
+                   (140, 66), (146, 26), (150, 12), (151, 48), (152, 96),
+                   (152, 128), (158, 142), (168, 146), (178, 138)]
+    _POC_KRESKA = [(112, 22), (136, 11), (164, 6), (192, 7), (216, 14),
+                   (224, 19)]
+    _POC_PODKRES = [(14, 172), (58, 181), (116, 183), (170, 177),
+                    (206, 164), (224, 149)]
 
     def __init__(self, imie: str = "", is_dark: bool = True, parent=None):
-        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
-                         | Qt.WindowType.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self._w_oknie = parent is not None
+        if self._w_oknie:
+            # NAKŁADKA wewnątrz zwykłego okna programu — renderuje się tą samą
+            # drogą co całe UI, więc nie podlega żadnym sztuczkom Windows
+            # wokół osobnych okien pełnoekranowych.
+            super().__init__(parent)
+            try:
+                parent.installEventFilter(self)
+                self.setGeometry(parent.rect())
+            except Exception:
+                pass
+        else:
+            super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+                             | Qt.WindowType.WindowStaysOnTopHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.imie = (imie or "").strip()
         self.is_dark = bool(is_dark)
         self._t = 0.0
@@ -12145,25 +13047,70 @@ class AnimacjaStartowa(QWidget):
         self._tlo_cache = None           # (W, H, przeskalowany pixmap)
         self._kadr = None                # (ox, oy, dw, dh) — aktualny kadr tła
 
-        # logo (jeśli jest w zasobach)
+        # logo — TO SAMO źródło co moneta i topbar (znajdz_logo wybiera
+        # najlepszy plik, więc podmiana obok exe działa także w intrze)
         self._logo = None
-        for nazwa in ("pmt_logo.png", "pmt.png", "pmt_logo.jpg"):
-            sciezka = zasob_sciezka(nazwa)
-            if sciezka and os.path.exists(sciezka):
-                obraz = QPixmap(sciezka)
-                if not obraz.isNull():
-                    self._logo = obraz
-                    break
+        sciezka_logo = znajdz_logo()
+        if sciezka_logo and os.path.exists(sciezka_logo):
+            obraz = QPixmap(sciezka_logo)
+            if not obraz.isNull():
+                self._logo = obraz
+                try:
+                    _dziennik_animacji("LOGO ZRODLO (intro): %dx%d px  <-  %s"
+                                       % (obraz.width(), obraz.height(), sciezka_logo))
+                except Exception:
+                    pass
+
+        # PĘTLA DELEGACJI po całym ekranie (współrzędne 0..1 EKRANU):
+        # wyjazd z DOMU (pinezka), objazd sceny z nawrotem i powrót do DOMU —
+        # oba końce dociąga do pinezki magnes (start i finisz w tym samym miejscu)
+        self._trasa_ekranu = self._wygladz(
+            [(0.796, 0.760), (0.868, 0.664), (0.813, 0.400), (0.706, 0.211),
+             (0.594, 0.239), (0.519, 0.133), (0.450, 0.333), (0.363, 0.322),
+             (0.263, 0.244), (0.169, 0.456), (0.113, 0.622), (0.225, 0.722),
+             (0.356, 0.844), (0.519, 0.656), (0.650, 0.778), (0.744, 0.716)],
+            seg=10)
+        self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=6)
+        self._trasa_ekranu = self._slalom(self._trasa_ekranu,
+                                          amp0=0.024, amp1=0.0, prop=1.78)
+        # kanapka: krzywa -> równe odcinki -> krzywa -> równe odcinki.
+        # Wygładzanie na RÓWNOMIERNEJ siatce węzłów daje zakręty po okręgu
+        # (Catmull zachowuje się jednorodnie), a finalny resampling — stałą,
+        # płynną jazdę i jednolitą gęstość wstęgi.
+        self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=6)
+        self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 900)
+        self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=3)
+        self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 2600)
+        # losowe zacięcia głowicy druku (poziomy postępu, przy których staje)
+        self._zaciecia = sorted((random.uniform(0.22, 0.42),
+                                 random.uniform(0.58, 0.82)))
+
+        # ŻYWA MAPA (3.20.45): świat delegacji budowany wzdłuż pętli
+        try:
+            self._zbuduj_swiat()
+        except Exception:
+            self._sieci_intro = []
+            self._sw_elem = []
+            self._sys_zdarzenia = ()
 
         # geometria: wygładzona trasa i pismo
         droga = self._DROGA_CIEMNA if self.is_dark else self._DROGA_JASNA
-        self._droga = self._wygladz(droga)
-        self._droga2 = self._wygladz(self._DROGA2_CIEMNA) if self.is_dark else []
+        if self.is_dark:
+            # SLALOM po świetlnych pasach: dwie smugi, każda z własnym,
+            # losowym wężykiem — mijają się jak narciarze
+            self._droga = self._slalom(self._wygladz(droga),
+                                       amp0=0.085, amp1=0.011)
+            self._droga2 = self._slalom(self._wygladz(self._DROGA2_CIEMNA),
+                                        amp0=0.062, amp1=0.009)
+        else:
+            self._droga = self._slalom(self._wygladz(droga),
+                                       amp0=0.020, amp1=0.005)
+            self._droga2 = []
         self._pin = self._PIN_CIEMNY if self.is_dark else self._PIN_JASNY
-        self._pismo_a = self._wygladz(self._LITERY)
-        self._pismo_b = self._wygladz(self._KRESKA_T)
-        self._pismo_n1 = len(self._pismo_a)
-        self._pismo_n = self._pismo_n1 + len(self._pismo_b)
+        self._pociagniecia = [self._wygladz(self._POC_GLOWNE),
+                              self._wygladz(self._POC_KRESKA),
+                              self._wygladz(self._POC_PODKRES)]
+        self._pismo_n = sum(len(p) for p in self._pociagniecia)
         self._pismo_tr = (1.0, 0.0, 0.0)   # (skala, ox, oy) — liczone co klatkę
 
         # stan animacji
@@ -12173,6 +13120,24 @@ class AnimacjaStartowa(QWidget):
         self._fale = []                  # fale/kręgi: [x, y, promień, życie, (r,g,b)]
         self._blysk = 0.0
         self._raz = set()
+        # ---- finałowy ROZPAD: nieforemne kafelki (siatka z poszarpanymi
+        # narożnikami) budowane leniwie pod aktualny rozmiar okna ----
+        self._kafle = None            # [lista narożników QPointF] na kafel
+        self._kafle_kraw = None       # krawędzie pęknięć: (punkty, metryka)
+        self._start_kafli = {}        # indeks kafla -> czas oderwania (td)
+        self._odpadle = set()
+        self._zdjecie = None          # zdjęcie sceny — tekstura odłamków
+        # gniazdo ikony na topbarze ma być PUSTE aż do przylotu pulsu
+        try:
+            _lbl = getattr(self.parent(), "logo_lbl", None)
+            if _lbl is not None:
+                _lbl.setVisible(False)
+            _ep = getattr(self.parent(), "ekran_powitalny", None)
+            if _ep is not None:
+                _ep._material_czeka = True   # centrum kompasu puste do przylotu
+                _ep.update()
+        except Exception:
+            pass
 
         # kolory motywu
         if self.is_dark:
@@ -12190,13 +13155,461 @@ class AnimacjaStartowa(QWidget):
         self._zegar.timeout.connect(self._krok)
         self._zegar.start(16)            # ~60 klatek na sekundę
         self._start = datetime.datetime.now()
+        _dziennik_animacji("widżet gotowy (motyw ciemny: %s, tło: %s, tryb: %s)"
+                           % (self.is_dark, self._tlo is not None,
+                              "nakładka w oknie" if self._w_oknie else "osobne okno"))
+
+    CZAS_SPADKU = 0.60
+
+    def _kafel_upadek_geo(self, idx, td):
+        """Geometria opadającego odłamka: (dx, dy, kąt, alfa, skończone)."""
+        start = self._start_kafli.get(idx, 1e9)
+        f = (td - start) / self.CZAS_SPADKU
+        if f <= 0:
+            return 0.0, 0.0, 0.0, 1.0, False
+        if f >= 1:
+            return 0.0, 0.0, 0.0, 0.0, True
+        drift, rot = self._kafle_upadek[idx]
+        W_ = float(self.width() or 1)
+        H_ = float(self.height() or 1)
+        dy = f * f * H_ * 1.20              # grawitacja: w odchłań
+        dx = drift * f * W_ * 0.035
+        ang = rot * f
+        alfa = 1.0 - self._plynnie((f - 0.55) / 0.45)
+        return dx, dy, ang, alfa, False
+
+    def _zbuduj_kafle(self, W, H):
+        """CAŁKOWICIE nieforemny rozpad: komórki Voronoi z nieregularnie
+        rozrzuconych ziaren (żadnej siatki, żadnej szachownicy). Krawędzie
+        sąsiadów są WSPÓLNE, łukowo poszarpane; główne szczeliny to
+        wędrujące ścieżki po grafie krawędzi — od brzegu do brzegu,
+        z losowym meandrem. Reszta krawędzi dochodzi jako wtórne pęknięcia
+        (a granice wczesnych odłamków — tuż przed ich oderwaniem)."""
+        M = 46.0
+        lewy, gorny = -M, -M
+        prawy, dolny = W + M, H + M
+        mn_e = min(W, H)
+
+        # 1) ziarna metodą rzutek: organiczny rozkład bez regularności
+        ziarna = []
+        min_d = mn_e * 0.170
+        proby = 0
+        while len(ziarna) < 26 and proby < 900:
+            proby += 1
+            kx = random.uniform(lewy, prawy)
+            ky = random.uniform(gorny, dolny)
+            if all((kx - a_) * (kx - a_) + (ky - b_) * (ky - b_) >= min_d * min_d
+                   for a_, b_ in ziarna):
+                ziarna.append((kx, ky))
+
+        # 2) komórki Voronoi: prostokąt cięty połówkami płaszczyzn
+        def _tnij(poly, s, o):
+            nx_, ny_ = s[0] - o[0], s[1] - o[1]
+            mx_, my_ = (s[0] + o[0]) * 0.5, (s[1] + o[1]) * 0.5
+            wyn = []
+            n = len(poly)
+            for i in range(n):
+                A = poly[i]
+                B = poly[(i + 1) % n]
+                da = (A[0] - mx_) * nx_ + (A[1] - my_) * ny_
+                db = (B[0] - mx_) * nx_ + (B[1] - my_) * ny_
+                if da >= 0:
+                    wyn.append(A)
+                if (da >= 0) != (db >= 0):
+                    f = da / (da - db)
+                    wyn.append((A[0] + (B[0] - A[0]) * f,
+                                A[1] + (B[1] - A[1]) * f))
+            return wyn
+
+        komorki = []
+        for i, s in enumerate(ziarna):
+            poly = [(lewy, gorny), (prawy, gorny), (prawy, dolny), (lewy, dolny)]
+            for j, o in enumerate(ziarna):
+                if i != j and len(poly) >= 3:
+                    poly = _tnij(poly, s, o)
+            komorki.append(poly)
+
+        # 3) kanoniczne wierzchołki i WSPÓLNE łukowe poszarpanie krawędzi
+        def _klucz(pt):
+            return (round(pt[0] * 8.0), round(pt[1] * 8.0))
+        _jag = {}
+        def _jag_miedzy(A, B):
+            ka, kb = _klucz(A), _klucz(B)
+            klucz = (ka, kb) if ka <= kb else (kb, ka)
+            if klucz not in _jag:
+                P, Q = (A, B) if (ka, kb) == klucz else (B, A)
+                dx, dy = Q[0] - P[0], Q[1] - P[1]
+                dl = math.hypot(dx, dy) or 1e-9
+                nx_, ny_ = -dy / dl, dx / dl
+                luk = random.uniform(-0.15, 0.15) * dl
+                pkt = [QPointF(P[0], P[1])]
+                for f_ in (0.17, 0.34, 0.50, 0.66, 0.83):
+                    j_ = luk * math.sin(math.pi * f_) \
+                        + random.uniform(-0.045, 0.045) * dl
+                    pkt.append(QPointF(P[0] + dx * f_ + nx_ * j_,
+                                       P[1] + dy * f_ + ny_ * j_))
+                pkt.append(QPointF(Q[0], Q[1]))
+                _jag[klucz] = pkt
+            pkt = _jag[klucz]
+            return pkt if _klucz((pkt[0].x(), pkt[0].y())) == _klucz(A) \
+                else list(reversed(pkt))
+
+        self._kafle = []
+        graf = {}
+        krawedzie = {}
+        kafel_kraw = []
+        for poly in komorki:
+            if len(poly) < 3:
+                self._kafle.append([QPointF(0, 0)] * 3)
+                kafel_kraw.append([])
+                continue
+            obrys = []
+            moje = []
+            n = len(poly)
+            for i in range(n):
+                A, B = poly[i], poly[(i + 1) % n]
+                if _klucz(A) == _klucz(B):
+                    continue
+                seg = _jag_miedzy(A, B)
+                obrys.extend(seg[:-1])
+                ka, kb = _klucz(A), _klucz(B)
+                ek = (ka, kb) if ka <= kb else (kb, ka)
+                moje.append(ek)
+                if ek not in krawedzie:
+                    krawedzie[ek] = (A, B)
+                    graf.setdefault(ka, []).append((kb, ek))
+                    graf.setdefault(kb, []).append((ka, ek))
+            self._kafle.append(obrys)
+            kafel_kraw.append(moje)
+
+        # 4) GŁÓWNE SZCZELINY: wędrujące ścieżki po grafie (brzeg -> brzeg)
+        def _na_brzegu(k):
+            x_, y_ = k[0] / 8.0, k[1] / 8.0
+            return (abs(x_ - lewy) < 1.0 or abs(x_ - prawy) < 1.0
+                    or abs(y_ - gorny) < 1.0 or abs(y_ - dolny) < 1.0)
+        brzegowe = [k for k in graf if _na_brzegu(k)]
+        zuzyte = set()
+        glowne = []
+        cele = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+        for nr in range(8):
+            najlepsza = None
+            for _pr in range(26):
+                if not brzegowe:
+                    break
+                start = random.choice(brzegowe)
+                kier = cele[(nr + _pr) % 4]
+                biez, poprz = start, None
+                sciezka = []
+                for _kr in range(40):
+                    kandydaci = [(kb, ek) for kb, ek in graf.get(biez, ())
+                                 if ek not in zuzyte and kb != poprz]
+                    if not kandydaci:
+                        break
+                    def _ocena(para):
+                        kb, _e = para
+                        dx = kb[0] / 8.0 - biez[0] / 8.0
+                        dy = kb[1] / 8.0 - biez[1] / 8.0
+                        dl = math.hypot(dx, dy) or 1e-9
+                        return (dx * kier[0] + dy * kier[1]) / dl \
+                            + random.uniform(-0.45, 0.45)
+                    kb, ek = max(kandydaci, key=_ocena)
+                    sciezka.append(ek)
+                    poprz, biez = biez, kb
+                    if _na_brzegu(biez) and len(sciezka) >= 4:
+                        break
+                if len(sciezka) >= 4 and (najlepsza is None
+                                          or len(sciezka) > len(najlepsza)):
+                    najlepsza = sciezka
+                if najlepsza is not None and len(najlepsza) >= 6:
+                    break
+            if najlepsza:
+                zuzyte.update(najlepsza)
+                pkt = []
+                ost = None
+                for ek in najlepsza:
+                    A, B = krawedzie[ek]
+                    if ost is not None and _klucz(A) != ost:
+                        A, B = B, A
+                    seg = _jag_miedzy(A, B)
+                    pkt.extend(seg if not pkt else seg[1:])
+                    ost = _klucz(B)
+                glowne.append(pkt)
+        starty_g = [7.80, 8.02, 8.22, 8.55, 8.76, 8.96, 9.30, 9.52]
+        # (pkt, start, czas_wzrostu, skala_grubosci)
+        self._linie_rozlamu = [(pkt, starty_g[i % len(starty_g)], 0.30, 1.0)
+                               for i, pkt in enumerate(glowne)]
+
+        # 5) dramaturgia odłamków (bez zmian) + wtórne pęknięcia
+        kolej = list(range(len(self._kafle)))
+        random.shuffle(kolej)
+        starty = ([8.35] + [9.15, 9.24] + [9.85, 9.92, 9.99] +
+                  [10.35 + k * 0.040 for k in range(max(0, len(kolej) - 6))])
+        self._start_kafli = {idx: starty[poz] for poz, idx in enumerate(kolej)}
+        wtorne_start = {}
+        for ek in krawedzie:
+            if ek not in zuzyte:
+                wtorne_start[ek] = 10.18 + random.random() * 0.55
+        for poz, idx in enumerate(kolej[:6]):
+            for ek in kafel_kraw[idx]:
+                if ek in wtorne_start:
+                    wtorne_start[ek] = min(wtorne_start[ek],
+                                           starty[poz] - 0.22)
+        for ek, s_ in wtorne_start.items():
+            A, B = krawedzie[ek]
+            self._linie_rozlamu.append((_jag_miedzy(A, B), s_, 0.22, 0.72))
+
+        self._kafle_upadek = {idx: (random.uniform(-1.0, 1.0),
+                                    random.uniform(-16.0, 16.0))
+                              for idx in range(len(self._kafle))}
+        self._wstrzasy_czasy = (starty_g[:len(glowne)] +
+                                sorted(self._start_kafli.values())[:6] +
+                                [10.35, 10.35])
+
+    def _os_czasu(self, td):
+        """SPOWOLNIENIE JAZDY 2x (3.20.48): realny odcinek 0.25-8.25
+        mapuje sie na bazowy 0.25-4.25, na ktorym napisana jest CALA
+        choreografia (pin, druk, rozpad, final); dalsza os przesuwa sie
+        w calosci o +4 s. Zadna stala czasowa nie zmienia znaczenia —
+        zmienia sie tylko tempo plyniecia jazdy."""
+        if td <= 0.25:
+            return td
+        if td < 8.25:
+            return 0.25 + (td - 0.25) * 0.5
+        return td - 4.0
+
+    def _rysuj_prolog(self, p, tp, W, H, mn, t):
+        """PROLOG na ŻYWYM widoku programu: lekki, prześwitujący welon,
+        powitanie pisane maszynowo KOLOREM WIODĄCYM (z miękką poświatą),
+        a potem tunelowy wjazd — smugi z motion-blurem i fale prędkości."""
+        # choreografia prologu napisana dla osi 1.70 s — rozciągamy ją
+        # proporcjonalnie do faktycznego PROLOG (wolniejsze pisanie, dłuższe
+        # zaproszenie, spokojniejszy wjazd w tunel)
+        tp = tp * (2.00 / self.PROLOG)
+        P = 2.00
+        cx, cy = W * 0.5, H * 0.46
+        tp0 = P - 0.92
+        k_tun = self._plynnie((tp - tp0) / 0.92) if tp >= tp0 else 0.0
+        # prześwitujący welon: delikatnie przyciemnia, tunel go zdmuchuje
+        w_al = int(118 * self._plynnie(tp / 0.25) * (1.0 - k_tun))
+        if w_al > 0:
+            p.fillRect(0, 0, int(W), int(H),
+                       QColor(2, 8, 14, w_al) if self.is_dark
+                       else QColor(236, 244, 242, min(210, w_al + 80)))
+        imie = (self.imie.split()[0] if getattr(self, "imie", "") else "")
+        pow = ("Witaj, %s." % imie) if imie else "Witaj w PMT Planer."
+        k_t = max(0.0, min(1.0, (tp - 0.12) / 0.78))
+        n_lit = int(k_t * len(pow))
+        kursor = "_" if (int(t * 3.4) % 2 == 0 and tp < P - 0.96) else " "
+        tekst = pow[:n_lit] + kursor
+        sk_t = 1.0 + 0.85 * k_tun
+        al_t = 1.0 - k_tun
+        f = QFont("Segoe UI", 1, QFont.Weight.Bold)
+        f.setPixelSize(max(18, int(mn * 0.075)))
+        p.save()
+        p.translate(cx, cy)
+        p.scale(sk_t, sk_t)
+        p.setFont(f)
+        pole_t = QRectF(-W, -mn * 0.09, 2 * W, mn * 0.14)
+        # miękka poświata napisu w kolorze wiodącym
+        gl = QColor(self._akc2)
+        gl.setAlphaF((0.28 if self.is_dark else 0.40) * al_t)
+        p.setPen(gl)
+        for dx_, dy_ in ((-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, 2)):
+            p.drawText(pole_t.translated(dx_, dy_),
+                       Qt.AlignmentFlag.AlignCenter, tekst)
+        kol_g = QColor(self._akc1) if self.is_dark else QColor(5, 92, 74)
+        kol_g.setAlphaF(al_t)
+        p.setPen(kol_g)
+        p.drawText(pole_t, Qt.AlignmentFlag.AlignCenter, tekst)
+        if tp > 1.00:
+            al_p = min(1.0, (tp - 1.00) / 0.22) * al_t
+            f2 = QFont("Segoe UI", 1)
+            f2.setPixelSize(max(11, int(mn * 0.026)))
+            f2.setBold(True)
+            p.setFont(f2)
+            kol_p = QColor(self._akc2) if self.is_dark else QColor(6, 110, 88)
+            kol_p.setAlphaF(0.92 * al_p)
+            p.setPen(kol_p)
+            p.drawText(QRectF(-W, mn * 0.055, 2 * W, mn * 0.05),
+                       Qt.AlignmentFlag.AlignCenter,
+                       "Rozpoznano profil  \u2022  zapraszamy do \u015brodka")
+        p.restore()
+        if k_tun > 0:
+            if self.is_dark:
+                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+            p.save()
+            p.translate(cx, cy)
+            p.rotate(12.0 * k_tun)            # narastający WIR pola
+            blm = math.sin(min(1.0, k_tun * 1.12) * math.pi)
+            if blm > 0.02:
+                g_b = QRadialGradient(QPointF(0, 0), mn * 0.30)
+                kb = QColor(self._akc2)
+                if self.is_dark:
+                    g_b.setColorAt(0.0, QColor(255, 255, 255, int(150 * blm)))
+                    g_b.setColorAt(0.45, QColor(kb.red(), kb.green(), kb.blue(),
+                                                int(105 * blm)))
+                else:
+                    g_b.setColorAt(0.0, QColor(16, 185, 129, int(130 * blm)))
+                    g_b.setColorAt(0.45, QColor(13, 148, 136, int(80 * blm)))
+                g_b.setColorAt(1.0, QColor(kb.red(), kb.green(), kb.blue(), 0))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(g_b)
+                p.drawEllipse(QPointF(0, 0), mn * 0.30, mn * 0.30)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for fz, do_srodka in ((0.0, False), (0.22, False),
+                                  (0.44, False), (0.16, True)):
+                kf = (k_tun - fz) / 0.62
+                if 0.0 < kf < 1.0:
+                    rw = mn * ((1.45 * (1.0 - kf) ** 2 + 0.06) if do_srodka
+                               else (0.08 + 1.40 * kf * kf))
+                    jas = kf if do_srodka else (1.0 - kf)
+                    kw = QColor(self._akc2)
+                    kw.setAlphaF((0.30 if self.is_dark else 0.52) * jas)
+                    p.setPen(QPen(kw, 12.0 + 16.0 * jas))
+                    p.drawEllipse(QPointF(0, 0), rw, rw * 0.985)
+                    kw2 = QColor(255, 255, 255, int(150 * jas)) if self.is_dark \
+                        else QColor(6, 95, 80, int(200 * jas))
+                    p.setPen(QPen(kw2, 2.4))
+                    p.drawEllipse(QPointF(0, 0), rw, rw * 0.985)
+            for j in range(84):
+                rj = 0.30 + ((j * 2654435761) % 997) / 997.0 * 0.70
+                fj = ((j * 40503) % 977) / 977.0
+                ang = j / 84.0 * 6.28318 + rj * 0.9
+                ca, sa = math.cos(ang), math.sin(ang)
+                pj = (fj + k_tun * (1.15 + 0.85 * rj)) % 1.0
+                zycie = math.sin(pj * math.pi)
+                r1 = mn * (0.035 + 1.35 * (pj ** 1.7) * (0.55 + 0.45 * rj))
+                dl = mn * (0.06 + (0.12 + 0.85 * k_tun) * pj) * rj
+                baza = ((self._akc1, self._akc2, QColor(235, 255, 250))[j % 3]
+                        if self.is_dark else
+                        (QColor(6, 120, 104), QColor(5, 150, 105),
+                         QColor(4, 70, 56))[j % 3])
+                for f0, f1, mo, gr in ((0.00, 0.62, 0.32, 2.5),
+                                       (0.55, 1.00, 1.00, 1.3)):
+                    gk = QColor(baza)
+                    gk.setAlpha(min(255, int(((70 + 180 * k_tun) if self.is_dark
+                                              else (120 + 210 * k_tun))
+                                             * rj * mo * zycie)))
+                    p.setPen(QPen(gk, ((1.0 + 3.4 * k_tun * rj) if self.is_dark
+                                       else (1.7 + 4.8 * k_tun * rj)) * gr * 0.5))
+                    p.drawLine(QPointF(ca * (r1 + dl * f0), sa * (r1 + dl * f0)),
+                               QPointF(ca * (r1 + dl * f1), sa * (r1 + dl * f1)))
+            if k_tun > 0.78:
+                kz = ((k_tun - 0.78) / 0.22) ** 2
+                g_z = QRadialGradient(QPointF(0, 0), mn * 0.62 * kz + 1.0)
+                if self.is_dark:
+                    g_z.setColorAt(0.0, QColor(0, 0, 0, 255))
+                    g_z.setColorAt(0.72, QColor(0, 0, 0, 235))
+                    g_z.setColorAt(1.0, QColor(0, 0, 0, 0))
+                else:
+                    # jasny motyw: skok w SWIATLO, nie w czarna dziure
+                    g_z.setColorAt(0.0, QColor(255, 255, 255, 255))
+                    g_z.setColorAt(0.62, QColor(240, 253, 248, 235))
+                    g_z.setColorAt(1.0, QColor(16, 185, 129, 0))
+                p.setCompositionMode(
+                    QPainter.CompositionMode.CompositionMode_SourceOver)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(g_z)
+                p.drawEllipse(QPointF(0, 0), mn * 0.62 * kz + 1.0,
+                              mn * 0.62 * kz + 1.0)
+                if self.is_dark:
+                    p.setCompositionMode(
+                        QPainter.CompositionMode.CompositionMode_Plus)
+            p.restore()
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            g_w = QRadialGradient(QPointF(cx, cy), max(W, H) * 0.72)
+            g_w.setColorAt(0.0, QColor(0, 0, 0, 0))
+            g_w.setColorAt(0.72, QColor(0, 0, 0, 0))
+            g_w.setColorAt(1.0, QColor(0, 0, 0, int(130 * k_tun)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(g_w)
+            p.drawRect(QRectF(0, 0, W, H))
+        if tp >= P - 0.04 and "prolog_blysk" not in self._raz:
+            self._raz.add("prolog_blysk")
+            self._blysk = 0.26
+
+    def _maska_rozpadu(self):
+        """Wycina z nakładki kafle, które już "wypadły" — odsłaniając program."""
+        if not self._kafle:
+            return
+        from PyQt6.QtGui import QRegion, QPolygon
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtGui import QTransform
+        td = self._os_czasu(self._t / self.TEMPO - self.PROLOG)
+        region = QRegion(0, 0, self.width(), self.height())
+        for idx, start in self._start_kafli.items():
+            if td < start:
+                continue
+            naroz = self._kafle[idx]
+            region -= QRegion(QPolygon([QPoint(int(q.x()), int(q.y()))
+                                        for q in naroz]))
+            ddx, ddy, ang, _al, koniec = self._kafel_upadek_geo(idx, td)
+            if not koniec:
+                cx_ = sum(q.x() for q in naroz) / len(naroz)
+                cy_ = sum(q.y() for q in naroz) / len(naroz)
+                tr = QTransform().translate(cx_ + ddx, cy_ + ddy) \
+                                 .rotate(ang).translate(-cx_, -cy_)
+                region += QRegion(QPolygon(
+                    [QPoint(int(q.x()), int(q.y()))
+                     for q in (tr.map(w_) for w_ in naroz)]))
+        lx, ly, lr, lk = self._logo_lot(td, self.width(), self.height())
+        if td < self.LOGO_T_CENTRUM + 0.06:
+            rr_ = int(max(lr * 1.45, self.width() * 0.02, 30.0))
+            region += QRegion(int(lx - rr_), int(ly - rr_), rr_ * 2, rr_ * 2,
+                              QRegion.RegionType.Ellipse)
+        self.setMask(region)
+        if region.isEmpty():
+            self.hide()
+
+    def eventFilter(self, obj, zdarzenie):
+        try:
+            if self._w_oknie and obj is self.parent() and zdarzenie.type() in (
+                    QEvent.Type.Resize, QEvent.Type.Show,
+                    QEvent.Type.WindowStateChange):
+                self.setGeometry(self.parent().rect())
+                self.raise_()
+        except Exception:
+            pass
+        return False
 
     # ---------- pętla czasu ----------
     def _krok(self):
         self._tyki += 1
+        if self._tyki == 60:
+            _dziennik_animacji("zegar działa (60 tyknięć), narysowanych klatek: %d" % self._klatki)
         self._t = (datetime.datetime.now() - self._start).total_seconds()
+        # Finałowy rozpad: wypadłe kliny są WYCINANE z maski nakładki, więc
+        # w ich miejscu widać już prawdziwy program pod spodem.
+        try:
+            if self._w_oknie:
+                _tdx = self._os_czasu(self._t / self.TEMPO - self.PROLOG)
+                # kurz świetlny wypełnia scenę podczas rysowania trasy
+                if not hasattr(self, "_kurz"):
+                    self._kurz = []
+                if 0.15 < _tdx < 4.55 and len(self._kurz) < 46 \
+                        and random.random() < 0.85:
+                    self._kurz.append([random.uniform(0.04, 0.96),
+                                       random.uniform(0.10, 0.92),
+                                       random.uniform(-0.006, 0.006),
+                                       random.uniform(-0.011, -0.003),
+                                       0.0,
+                                       random.uniform(1.8, 3.0),
+                                       random.uniform(0.8, 2.4)])
+                for _cz in self._kurz:
+                    _cz[0] += _cz[2] * 0.016
+                    _cz[1] += _cz[3] * 0.016
+                    _cz[4] += 0.016
+                self._kurz = [c for c in self._kurz if c[4] < c[5]]
+                if _tdx >= 8.30 and self._zdjecie is None:
+                    self._zdjecie = self.grab()   # scena tuż przed rozpadem
+                if _tdx >= 8.34:
+                    self._maska_rozpadu()
+        except Exception:
+            pass
         if self._t * 1000 >= self.CZAS_MS:
             self._zegar.stop()
+            _dziennik_animacji("koniec pokazu: klatek %d, tyknięć %d, czas %.2f s, tryb awaryjny: %s"
+                               % (self._klatki, self._tyki, self._t, self._awaria))
             self.zakonczony.emit()
             self.close()
             return
@@ -12241,6 +13654,67 @@ class AnimacjaStartowa(QWidget):
         wyn.append((pkt[-1][0], pkt[-1][1]))
         return wyn
 
+    @staticmethod
+    def _rownomiernie(pkt, n, prop=1.78):
+        """Przepróbkowanie trasy na RÓWNE odcinki długości łuku (z wagą
+        proporcji ekranu) — pojazd jedzie stałą prędkością, bez szarpnięć,
+        a ślad ma jednolitą gęstość (koniec mikropikselizacji wstęgi)."""
+        if len(pkt) < 3:
+            return list(pkt)
+        dl = [0.0]
+        for i in range(1, len(pkt)):
+            dx = (pkt[i][0] - pkt[i - 1][0]) * prop
+            dy = pkt[i][1] - pkt[i - 1][1]
+            dl.append(dl[-1] + math.hypot(dx, dy))
+        calk = dl[-1] or 1e-9
+        wyn = []
+        j = 1
+        for k in range(n):
+            cel = calk * k / (n - 1)
+            while j < len(dl) - 1 and dl[j] < cel:
+                j += 1
+            a, b = dl[j - 1], dl[j]
+            f = 0.0 if b <= a else (cel - a) / (b - a)
+            wyn.append((pkt[j - 1][0] + (pkt[j][0] - pkt[j - 1][0]) * f,
+                        pkt[j - 1][1] + (pkt[j][1] - pkt[j - 1][1]) * f))
+        return wyn
+
+    @staticmethod
+    def _slalom(pkt, amp0=0.045, amp1=0.006, prop=1.792):
+        """Naturalny wężyk zamiast równego zygzaka: trzy nałożone fale
+        o niewspółmiernych częstotliwościach i LOSOWYCH fazach, do tego
+        wolny "oddech" amplitudy — wychylenia różnią się kierunkiem,
+        wielkością i długością, inaczej przy każdym uruchomieniu.
+        Amplituda maleje z perspektywą (blisko widza szeroko, przy pinezce
+        wąsko), start łagodnie wchodzi w taniec, a końcówka wraca dokładnie
+        na trasę. prop = proporcje grafiki tła, żeby wychylenia były
+        geometrycznie równe w obu osiach mimo współrzędnych 0..1."""
+        n = len(pkt)
+        if n < 3:
+            return list(pkt)
+        fale = ((2.4 * random.uniform(0.85, 1.15), random.uniform(0.0, 6.2832), 0.58),
+                (4.9 * random.uniform(0.85, 1.15), random.uniform(0.0, 6.2832), 0.30),
+                (7.9 * random.uniform(0.85, 1.15), random.uniform(0.0, 6.2832), 0.18))
+        oddech_f = 1.35 * random.uniform(0.85, 1.15)
+        oddech_p = random.uniform(0.0, 6.2832)
+        gladko = AnimacjaStartowa._plynnie
+        wyn = []
+        for i, (x, y) in enumerate(pkt):
+            x0, y0 = pkt[max(0, i - 1)]
+            x1, y1 = pkt[min(n - 1, i + 1)]
+            dx, dy = (x1 - x0) * prop, (y1 - y0)
+            dl = math.hypot(dx, dy) or 1e-9
+            npx, npy = -dy / dl, dx / dl
+            u = i / (n - 1.0)
+            fala = sum(w * math.sin(f * u * 6.2832 + p) for f, p, w in fale)
+            oddech = 0.72 + 0.45 * math.sin(oddech_f * u * 6.2832 + oddech_p)
+            amp = (amp0 + (amp1 - amp0) * u) * oddech \
+                * gladko(u / 0.08) \
+                * (1.0 - gladko((u - 0.78) / 0.20))
+            odch = fala * amp
+            wyn.append((x + npx * odch / prop, y + npy * odch))
+        return wyn
+
     # ---------- tło, najazd kamery i mapowanie współrzędnych ----------
     def _tlo_rysuj(self, p, W, H, td):
         if self._tlo is None:
@@ -12269,7 +13743,7 @@ class AnimacjaStartowa(QWidget):
             c = self._tlo_cache
         sk = c[2]
         # powolny filmowy najazd: 1.00 -> 1.06 przez cały pokaz
-        z = 1.0 + 0.06 * self._plynnie(td / 5.35)
+        z = 1.0 + 0.06 * self._plynnie(td / 10.60)
         # rozmiar rysowanego tła w trybie "cover" pomnożony przez zoom
         sw, sh = float(sk.width()), float(sk.height())
         baza = max(W / sw, H / sh)               # cover dla samego okna
@@ -12341,6 +13815,42 @@ class AnimacjaStartowa(QWidget):
             p.setBrush(g)
             p.drawEllipse(QPointF(x, y), r, r)
 
+    def _sciezka_rysuj(self, p, teraz):
+        """Rysuje ślad wielkiej trasy: świecąca droga, której przejechane
+        odcinki stopniowo gasną (każdy punkt pamięta chwilę narodzin)."""
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        zyc = (1.50 if self.is_dark else 2.00) * self.TEMPO
+        while self._ogon and (teraz - self._ogon[0][2]) > zyc:
+            self._ogon.pop(0)
+        og = self._ogon
+        if len(og) < 2:
+            return
+        if self.is_dark:
+            warstwy = ((0.095, self._akc2, 0.28),
+                       (0.048, self._akc1, 0.62),
+                       (0.014, QColor(205, 255, 244), 0.85))
+        else:
+            # jasny motyw: bialy podklad-papier pod wstega + soczyste
+            # zielenie loga — droga ma sie odcinac od fotorealnej trawy
+            warstwy = ((0.120, QColor(255, 255, 255), 0.50),
+                       (0.094, QColor(16, 185, 129), 0.55),
+                       (0.049, QColor(13, 148, 136), 0.90),
+                       (0.015, QColor(5, 58, 48), 1.00))
+        mn_w = min(self.width(), self.height())
+        for szer, kol, moc in warstwy:
+            for i in range(1, len(og)):
+                a_p = (1.0 - (teraz - og[i][2]) / zyc) ** 1.6
+                a_p = max(0.0, min(1.0, a_p)) * moc
+                if a_p <= 0.01:
+                    continue
+                k = QColor(kol)
+                k.setAlphaF(a_p if self.is_dark else min(1.0, a_p * 1.18))
+                pi = QPen(k, max(1.2, mn_w * szer * (0.45 + 0.55 * a_p / moc)))
+                pi.setCapStyle(Qt.PenCapStyle.RoundCap)
+                p.setPen(pi)
+                p.drawLine(QPointF(og[i - 1][0], og[i - 1][1]),
+                           QPointF(og[i][0], og[i][1]))
+
     def _glowa_rysuj(self, p, x, y, r):
         g = QRadialGradient(QPointF(x, y), r * 3.4)
         k1 = QColor(255, 255, 255, 250)
@@ -12358,9 +13868,777 @@ class AnimacjaStartowa(QWidget):
             p.setBrush(QColor(255, 255, 255, 250))
             p.drawEllipse(QPointF(x, y), r * 0.9, r * 0.9)
 
+    # ================= ŻYWA MAPA DELEGACJI (3.20.45) =================
+    # Świat rodzi się z trasy: wyjazd z DOMU, węzły-SIECI zapalane
+    # przejazdem, a wzdłuż odwiedzonej drogi dorysowują się domki,
+    # drzewa, wieś z kościółkiem, pola, rzeka z mostem i wiatraki.
+    # Przyszła część mapy pozostaje pusta, aż głowa tam dotrze.
+
+    _SIECI_CELE = (("BIEDRONKA", 0.813, 0.367), ("DINO", 0.594, 0.239),
+                   ("EUROCASH", 0.363, 0.322), ("STOKROTKA", 0.113, 0.622),
+                   ("\u017bABKA", 0.356, 0.844), ("SPO\u0141EM", 0.650, 0.778))
+
+    def _zbuduj_swiat(self):
+        """Jednorazowo: frakcje węzłów-sieci na pętli, harmonogram meldunków
+        systemowych i rozmieszczenie elementów krajobrazu."""
+        pts = self._trasa_ekranu
+        N = len(pts)
+
+        def naj_f(tx, ty):
+            ni, nd = 0, 1e9
+            for i in range(0, N, 2):
+                dx = pts[i][0] - tx
+                dy = pts[i][1] - ty
+                d = dx * dx + dy * dy
+                if d < nd:
+                    nd, ni = d, i
+            return ni / max(1, N - 1)
+
+        sieci = sorted(((nz, naj_f(cx, cy)) for nz, cx, cy in self._SIECI_CELE),
+                       key=lambda w: w[1])
+        self._sieci_intro = sieci
+
+        def t_od_u(cel):
+            lo, hi = 0.0, 1.0
+            for _ in range(26):
+                sr = (lo + hi) / 2
+                if self._plynnie(sr) < cel:
+                    lo = sr
+                else:
+                    hi = sr
+            return 0.25 + 4.0 * (lo + hi) / 2
+
+        km_tot = 214
+        zdarz = [(0.45, "Wyjazd: DOM 06:12")]
+        for i, (nz, f) in enumerate(sieci):
+            tn = t_od_u(f)
+            zdarz.append((tn, "W\u0119ze\u0142 %s potwierdzony \u2713" % nz))
+            nast = sieci[i + 1] if i + 1 < len(sieci) else ("DOM", 1.0)
+            t_nast = t_od_u(nast[1]) if i + 1 < len(sieci) else 4.28
+            if t_nast - tn > 0.85:
+                km_odc = max(6, int(km_tot * (nast[1] - f)))
+                zdarz.append((tn + 0.55,
+                              "Kierunek: %s \u2014 %d km" % (nast[0], km_odc)))
+        zdarz.append((4.30, "P\u0119tla domkni\u0119ta \u2014 powr\u00f3t: DOM \u2713"))
+        self._sys_zdarzenia = tuple(sorted(zdarz))
+
+        # meldunki fazy DRUKU — zsynchronizowane z realnymi zacieciami glowicy
+        RUCH_D, STOJ_D = 2.16, 0.22
+        u1_, u2_ = getattr(self, "_zaciecia", (0.3, 0.7))
+        z1s = 4.90 + u1_ * RUCH_D
+        z2s = 4.90 + u2_ * RUCH_D + STOJ_D
+        self._sys_druk = tuple(sorted((
+            (4.95, "Druk znaku firmowego\u2026"),
+            (min(z1s - 0.06, 5.42), "Spiekam warstwy ziele\u0144 PMT\u2026"),
+            (z1s + 0.02, "Zaci\u0119cie dyszy \u2014 czyszcz\u0119\u2026"),
+            (z1s + STOJ_D + 0.02, "Dysza czysta \u2014 wznawiam \u2713"),
+            (z2s + 0.02, "Zaci\u0119cie #2 \u2014 chwila\u2026"),
+            (z2s + STOJ_D + 0.02, "Wznowiono \u2713"),
+            (7.12, "Polerowanie kraw\u0119dzi\u2026"),
+            (7.52, "Znak gotowy \u2713"))))
+        self._sw_km = km_tot
+
+        f_by = dict(sieci)
+        f_bie = f_by.get("BIEDRONKA", 0.16)
+        f_din = f_by.get("DINO", 0.30)
+        f_eur = f_by.get("EUROCASH", 0.46)
+        f_sto = f_by.get("STOKROTKA", 0.60)
+        f_zab = f_by.get("\u017bABKA", 0.76)
+        f_spo = f_by.get("SPO\u0141EM", 0.90)
+        self._sw_wies_f = f_bie + 0.048
+        self._sw_rzeka_f = (f_eur + f_sto) / 2.0
+        self._sw_wiatraki_f = max(0.05, f_din - 0.048)
+        self._sw_pola = ((max(0.035, f_bie - 0.055),),
+                         ((f_sto + f_zab) / 2.0,),
+                         (min(0.955, f_zab + 0.045),))
+        self._sw_warianty = ((f_eur, 27), (f_sto, 14))
+
+        # luźne domki i drzewa wzdłuż trasy (stały rozkład na czas pokazu)
+        rnd = random.Random(11)
+        blokady = [f for _, f in sieci] + [self._sw_rzeka_f]
+        elem = []
+        f = 0.045
+        nr = 0
+        while f < 0.925:
+            f += rnd.uniform(0.016, 0.030)
+            if any(abs(f - b) < 0.022 for b in blokady):
+                continue
+            if self._sw_wies_f - 0.012 < f < self._sw_wies_f + 0.055:
+                continue
+            if rnd.random() > 0.78:
+                continue
+            nr += 1
+            elem.append((f,
+                         rnd.choice((-1.0, 1.0)),
+                         rnd.uniform(0.034, 0.066),
+                         nr % 4,                      # 0/2 świerk, 1 liściaste, 3 domek
+                         rnd.uniform(0.017, 0.027),
+                         rnd.random() < 0.35))        # dym z komina (domki)
+        self._sw_elem = elem
+
+    # ---------- geometria pętli ----------
+    def _trasa_pkt(self, f, W, H, pinx, piny):
+        """Punkt pętli w pikselach ekranu, z magnesem DOMU na obu końcach."""
+        f = max(0.0, min(1.0, f))
+        i = int(f * (len(self._trasa_ekranu) - 1))
+        rx, ry = self._trasa_ekranu[i]
+        x, y = rx * W, ry * H
+        mk = max(self._plynnie((f - 0.85) / 0.15),
+                 self._plynnie((0.07 - f) / 0.07))
+        if mk > 0:
+            x += (pinx - x) * mk
+            y += (piny - y) * mk
+        return x, y
+
+    def _trasa_wek(self, f, W, H, pinx, piny):
+        """Punkt + wektory: normalna i styczna trasy (na ekranie)."""
+        x, y = self._trasa_pkt(f, W, H, pinx, piny)
+        xa, ya = self._trasa_pkt(f - 0.004, W, H, pinx, piny)
+        xb, yb = self._trasa_pkt(f + 0.004, W, H, pinx, piny)
+        dx, dy = xb - xa, yb - ya
+        dl = math.hypot(dx, dy) or 1.0
+        return (x, y), (-dy / dl, dx / dl), (dx / dl, dy / dl)
+
+    def _sw_strona_zewn(self, x, y, nx, ny, W, H):
+        """+1/-1: która strona normalnej prowadzi NA ZEWNĄTRZ pętli."""
+        return 1.0 if (nx * (x - W * 0.5) + ny * (y - H * 0.5)) > 0 else -1.0
+
+    def _sw_czcionka(self, mn, gruba=False):
+        f = QFont("Consolas" if gruba else "Consolas")
+        try:
+            f.setStyleHint(QFont.StyleHint.Monospace)
+        except Exception:
+            pass
+        f.setPixelSize(max(10, int(mn * (0.0205 if gruba else 0.0185))))
+        f.setBold(gruba)
+        return f
+
+    # ---------- krajobraz (pod wstęgą) ----------
+    def _rysuj_swiat(self, p, W, H, mn, t, td, u, pinx, piny, zan):
+        if not getattr(self, "_sieci_intro", None):
+            return
+        alfa = zan * self._plynnie((td - 0.30) / 0.40)
+        if alfa <= 0.01:
+            return
+        if self.is_dark:
+            KRE = QColor(150, 242, 214)
+            DOMK = QColor(170, 247, 226)
+            WODA = QColor(122, 216, 236)
+            BIA = QColor(238, 255, 251)
+            OKNO = QColor(255, 214, 120)
+        else:
+            # jasny motyw: pelnokrwisty atrament w zieleniach loga —
+            # butelkowa kreska + teal, zadnych szarosci
+            KRE = QColor(4, 87, 64)
+            DOMK = QColor(6, 95, 84)
+            WODA = QColor(4, 98, 158)
+            BIA = QColor(3, 62, 54)
+            OKNO = QColor(200, 98, 0)
+        gr = max(1.1, mn * 0.0021) * (1.0 if self.is_dark else 1.42)
+
+        def pioro(kol, a, sz=1.0):
+            if not self.is_dark:
+                a = min(1.0, a * 1.45 + 0.10)
+            k = QColor(kol)
+            k.setAlphaF(max(0.0, min(1.0, a * alfa)))
+            p.setPen(QPen(k, gr * sz))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+
+        def kropka(kol, a, x, y, r):
+            if not self.is_dark:
+                a = min(1.0, a * 1.45 + 0.10)
+            k = QColor(kol)
+            k.setAlphaF(max(0.0, min(1.0, a * alfa)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(k)
+            p.drawEllipse(QPointF(x, y), r, r)
+
+        def iskra(x, y):
+            kropka(self._akc1, 0.95, x, y, mn * 0.0035)
+            kropka(BIA, 0.85, x, y, mn * 0.0016)
+
+        # --- księżyc (ciemny) / słońce (jasny) + ptaki ---
+        nb = self._plynnie((td - 0.35) / 0.55)
+        if nb > 0:
+            kx, ky, kr = W * 0.155, H * 0.115, mn * 0.027
+            if self.is_dark:
+                sc = QPainterPath()
+                sc.addEllipse(QPointF(kx, ky), kr, kr)
+                sc2 = QPainterPath()
+                sc2.addEllipse(QPointF(kx - kr * 0.42, ky - kr * 0.22), kr * 0.92, kr * 0.92)
+                ks = QColor(226, 246, 252)
+                ks.setAlphaF(0.88 * nb * alfa)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(ks)
+                p.drawPath(sc.subtracted(sc2))
+            else:
+                kropka(QColor(252, 190, 46), 0.72 * nb, kx, ky, kr * 0.78)
+                pioro(QColor(190, 96, 2), 0.9 * nb, 1.5)
+                p.drawEllipse(QPointF(kx, ky), kr * 0.78, kr * 0.78)
+                for i in range(8):
+                    a_ = i * math.pi / 4 + 0.3
+                    p.drawLine(QPointF(kx + math.cos(a_) * kr * 0.98,
+                                       ky + math.sin(a_) * kr * 0.98),
+                               QPointF(kx + math.cos(a_) * kr * 1.34,
+                                       ky + math.sin(a_) * kr * 1.34))
+            pioro(KRE, 0.5 * nb)
+            for bx_, by_, bs in ((W * 0.245, H * 0.132, mn * 0.009),
+                                 (W * 0.272, H * 0.152, mn * 0.007),
+                                 (W * 0.296, H * 0.128, mn * 0.008)):
+                p.drawArc(QRectF(bx_ - bs, by_ - bs, bs, bs * 2), 40 * 16, 120 * 16)
+                p.drawArc(QRectF(bx_, by_ - bs, bs, bs * 2), 20 * 16, 120 * 16)
+
+        # --- pola uprawne (szrafowane łaty) + owce + silos ---
+        for pi_, (f_p,) in enumerate(self._sw_pola):
+            cz = self._plynnie((u - f_p) / 0.05)
+            if cz <= 0:
+                continue
+            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_p, W, H, pinx, piny)
+            s_ = self._sw_strona_zewn(x, y, nx, ny, W, H)
+            cxp = x + nx * s_ * mn * 0.070
+            cyp = y + ny * s_ * mn * 0.070
+            if not (mn * 0.06 < cxp < W - mn * 0.06 and mn * 0.10 < cyp < H - mn * 0.10):
+                continue
+            e1x, e1y = tx * mn * 0.075, ty * mn * 0.075
+            e2x, e2y = nx * s_ * mn * 0.050, ny * s_ * mn * 0.050
+            A = QPointF(cxp - e1x - e2x, cyp - e1y - e2y)
+            B = QPointF(cxp + e1x - e2x, cyp + e1y - e2y)
+            C = QPointF(cxp + e1x + e2x, cyp + e1y + e2y)
+            D = QPointF(cxp - e1x + e2x, cyp - e1y + e2y)
+            pioro(KRE, 0.34 * cz)
+            p.drawPolygon(A, B, C, D)
+            G = 7
+            pioro(KRE, 0.22 * cz)
+            for g in range(1, int(G * cz) + 1):
+                w_ = g / (G + 1.0)
+                p.drawLine(QPointF(A.x() + (D.x() - A.x()) * w_,
+                                   A.y() + (D.y() - A.y()) * w_),
+                           QPointF(B.x() + (C.x() - B.x()) * w_,
+                                   B.y() + (C.y() - B.y()) * w_))
+            if pi_ == 1 and cz > 0.8:
+                for ow in (-0.3, 0.05, 0.42):
+                    ox = cxp + e1x * ow
+                    oy = cyp + e1y * ow
+                    pioro(BIA, 0.7)
+                    p.drawEllipse(QPointF(ox, oy), mn * 0.0052, mn * 0.0034)
+            if pi_ == 2 and cz > 0.9:
+                sx_ = cxp + e1x * 0.8
+                sy_ = cyp + e1y * 0.8
+                pioro(DOMK, 0.6)
+                p.drawRect(QRectF(sx_ - mn * 0.006, sy_ - mn * 0.020,
+                                  mn * 0.012, mn * 0.020))
+                p.drawArc(QRectF(sx_ - mn * 0.006, sy_ - mn * 0.027,
+                                 mn * 0.012, mn * 0.014), 0, 180 * 16)
+
+        # --- rzeka + most + jeziorko ---
+        f_r = self._sw_rzeka_f
+        cz = self._plynnie((u - f_r) / 0.07)
+        if cz > 0:
+            (bx_, by_), (nx, ny), (tx, ty) = self._trasa_wek(f_r, W, H, pinx, piny)
+            s_j = -self._sw_strona_zewn(bx_, by_, nx, ny, W, H)   # jezioro do środka
+            gora = (0.0, -1.0)
+            n_g = 8
+            pioro(WODA, 0.52, 1.6)
+            for g in range(int(n_g * cz)):
+                a0 = g / float(n_g)
+                a1 = (g + 0.9) / float(n_g)
+                wob0 = math.sin(g * 1.7) * mn * 0.006
+                wob1 = math.sin((g + 1) * 1.7) * mn * 0.006
+                p.drawLine(QPointF(bx_ + gora[0] * a0 * mn * 0.26 + wob0,
+                                   by_ + gora[1] * a0 * mn * 0.26),
+                           QPointF(bx_ + gora[0] * a1 * mn * 0.26 + wob1,
+                                   by_ + gora[1] * a1 * mn * 0.26))
+            jx = bx_ + nx * s_j * mn * 0.125 + tx * mn * 0.02
+            jy = by_ + ny * s_j * mn * 0.125 + ty * mn * 0.02
+            n_d = 6
+            for g in range(int(n_d * cz)):
+                a0 = g / float(n_d)
+                a1 = (g + 0.9) / float(n_d)
+                p.drawLine(QPointF(bx_ + (jx - bx_) * a0 + math.sin(g * 2.1) * mn * 0.005,
+                                   by_ + (jy - by_) * a0),
+                           QPointF(bx_ + (jx - bx_) * a1,
+                                   by_ + (jy - by_) * a1))
+            if cz > 0.55:
+                cj = self._plynnie((cz - 0.55) / 0.45)
+                pioro(WODA, 0.55)
+                p.drawEllipse(QPointF(jx, jy), mn * 0.052 * cj, mn * 0.031 * cj)
+                if cj > 0.7:
+                    pioro(WODA, 0.3)
+                    p.drawLine(QPointF(jx - mn * 0.03, jy - mn * 0.004),
+                               QPointF(jx + mn * 0.028, jy - 0.006 * mn))
+                    p.drawLine(QPointF(jx - mn * 0.02, jy + mn * 0.007),
+                               QPointF(jx + mn * 0.018, jy + 0.006 * mn))
+            if cz > 0.15:
+                pioro(BIA, 0.85, 1.1)
+                dl_ = mn * 0.024
+                for sm in (-1, 1):
+                    ox = nx * sm * mn * 0.011
+                    oy = ny * sm * mn * 0.011
+                    p.drawLine(QPointF(bx_ - tx * dl_ + ox, by_ - ty * dl_ + oy),
+                               QPointF(bx_ + tx * dl_ + ox, by_ + ty * dl_ + oy))
+                    for kk in (-1.0, -0.5, 0.0, 0.5, 1.0):
+                        p.drawLine(QPointF(bx_ + tx * dl_ * kk + ox,
+                                           by_ + ty * dl_ * kk + oy),
+                                   QPointF(bx_ + tx * dl_ * kk + ox * 0.55,
+                                           by_ + ty * dl_ * kk + oy * 0.55))
+
+        # --- wieś: kościółek, domki, kapliczka, latarnia, sad ---
+        f_w = self._sw_wies_f
+        cz = self._plynnie((u - f_w) / 0.06)
+        if cz > 0:
+            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_w, W, H, pinx, piny)
+            s_ = -self._sw_strona_zewn(x, y, nx, ny, W, H)        # wieś do środka
+            ax = x + nx * s_ * mn * 0.088
+            ay = y + ny * s_ * mn * 0.088
+            sK = mn * 0.030
+            if cz > 0.15:
+                pioro(BIA, 0.85, 1.15)
+                p.drawRect(QRectF(ax - sK * 0.55, ay - sK * 0.6, sK * 0.9, sK * 0.6))
+                p.drawLine(QPointF(ax - sK * 0.65, ay - sK * 0.6),
+                           QPointF(ax - sK * 0.1, ay - sK * 0.95))
+                p.drawLine(QPointF(ax - sK * 0.1, ay - sK * 0.95),
+                           QPointF(ax + sK * 0.45, ay - sK * 0.6))
+            if cz > 0.4:
+                pioro(BIA, 0.85, 1.15)
+                p.drawRect(QRectF(ax + sK * 0.35, ay - sK * 1.05, sK * 0.37, sK * 1.05))
+                p.drawLine(QPointF(ax + sK * 0.30, ay - sK * 1.05),
+                           QPointF(ax + sK * 0.535, ay - sK * 1.45))
+                p.drawLine(QPointF(ax + sK * 0.535, ay - sK * 1.45),
+                           QPointF(ax + sK * 0.78, ay - sK * 1.05))
+                p.drawLine(QPointF(ax + sK * 0.535, ay - sK * 1.45),
+                           QPointF(ax + sK * 0.535, ay - sK * 1.68))
+                p.drawLine(QPointF(ax + sK * 0.44, ay - sK * 1.575),
+                           QPointF(ax + sK * 0.63, ay - sK * 1.575))
+                p.drawEllipse(QPointF(ax + sK * 0.535, ay - sK * 0.80),
+                              sK * 0.075, sK * 0.075)
+            for dnr, (dx_, dy_, ds_, prg) in enumerate(
+                    ((-1.9, 0.02, 0.62, 0.55), (1.55, 0.34, 0.52, 0.7))):
+                if cz > prg:
+                    hx = ax + tx * sK * dx_ + nx * s_ * sK * dy_ * 2
+                    hy = ay + ty * sK * dx_ + ny * s_ * sK * dy_ * 2
+                    hs = sK * ds_
+                    pioro(DOMK, 0.8)
+                    p.drawRect(QRectF(hx - hs * 0.5, hy - hs * 0.55, hs, hs * 0.55))
+                    p.drawLine(QPointF(hx - hs * 0.6, hy - hs * 0.55),
+                               QPointF(hx, hy - hs * 1.05))
+                    p.drawLine(QPointF(hx, hy - hs * 1.05),
+                               QPointF(hx + hs * 0.6, hy - hs * 0.55))
+                    kropka(OKNO, 0.85, hx + hs * 0.24, hy - hs * 0.3, hs * 0.09)
+                    if dnr == 0 and cz > 0.92:
+                        pioro(KRE, 0.4)
+                        for dj in range(3):
+                            fa = (t * 0.7 + dj * 0.33) % 1.0
+                            p.drawArc(QRectF(hx - hs * 0.36 + dj * hs * 0.10,
+                                             hy - hs * (1.25 + fa * 0.7) - hs * 0.14,
+                                             hs * 0.24, hs * 0.2),
+                                      30 * 16, 200 * 16)
+            if cz > 0.78:
+                kx_ = ax - tx * sK * 2.9
+                ky_ = ay - ty * sK * 2.9
+                pioro(KRE, 0.7)
+                p.drawLine(QPointF(kx_, ky_), QPointF(kx_, ky_ - sK * 0.42))
+                p.drawRect(QRectF(kx_ - sK * 0.15, ky_ - sK * 0.72, sK * 0.3, sK * 0.3))
+                p.drawLine(QPointF(kx_, ky_ - sK * 0.72), QPointF(kx_, ky_ - sK * 0.92))
+                p.drawLine(QPointF(kx_ - sK * 0.1, ky_ - sK * 0.84),
+                           QPointF(kx_ + sK * 0.1, ky_ - sK * 0.84))
+            if cz > 0.88:
+                lx = ax + tx * sK * 0.1 + nx * s_ * sK * 1.7
+                ly = ay + ty * sK * 0.1 + ny * s_ * sK * 1.7
+                pioro(KRE, 0.7)
+                p.drawLine(QPointF(lx, ly), QPointF(lx, ly - sK * 0.8))
+                p.drawLine(QPointF(lx, ly - sK * 0.8), QPointF(lx + sK * 0.22, ly - sK * 0.8))
+                kropka(OKNO, 0.9, lx + sK * 0.24, ly - sK * 0.78, sK * 0.085)
+            if cz > 0.95:
+                pioro(KRE, 0.45)
+                for oi in range(3):
+                    for oj in range(2):
+                        p.drawEllipse(QPointF(ax - tx * sK * (0.4 - oi * 0.55)
+                                              - nx * s_ * sK * (0.9 + oj * 0.5),
+                                              ay - ty * sK * (0.4 - oi * 0.55)
+                                              - ny * s_ * sK * (0.9 + oj * 0.5)),
+                                      sK * 0.14, sK * 0.14)
+
+        # --- wiatraki (obracające się turbiny) ---
+        f_t = self._sw_wiatraki_f
+        cz = self._plynnie((u - f_t) / 0.05)
+        if cz > 0:
+            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_t, W, H, pinx, piny)
+            s_ = self._sw_strona_zewn(x, y, nx, ny, W, H)
+            if y + ny * s_ * mn * 0.062 - mn * 0.052 * 1.75 < mn * 0.055:
+                s_ = -s_          # przy gornej krawedzi: turbiny do srodka sceny
+            for wi, (przes, wys) in enumerate(((0.0, 0.052), (0.055, 0.041))):
+                wx = x + nx * s_ * mn * (0.062 + przes) + tx * mn * przes * 1.4
+                wy = y + ny * s_ * mn * (0.062 + przes) + ty * mn * przes * 1.4
+                hh = mn * wys * cz
+                pioro(BIA, 0.8, 1.1)
+                p.drawLine(QPointF(wx, wy), QPointF(wx, wy - hh))
+                if cz > 0.6:
+                    kat0 = t * (170 if wi == 0 else -130) + wi * 60
+                    for la in range(3):
+                        a_ = math.radians(kat0 + la * 120)
+                        p.drawLine(QPointF(wx, wy - hh),
+                                   QPointF(wx + math.cos(a_) * hh * 0.62,
+                                           wy - hh + math.sin(a_) * hh * 0.62))
+                    kropka(BIA, 0.9, wx, wy - hh, mn * 0.0032)
+
+        # --- luźne domki i drzewa wzdłuż odwiedzonej drogi ---
+        for f, strona, od, typ, sk, dym in self._sw_elem:
+            cz = self._plynnie((u - f) / 0.045)
+            if cz <= 0:
+                continue
+            (x, y), (nx, ny), _tt = self._trasa_wek(f, W, H, pinx, piny)
+            ex = x + nx * strona * od * mn
+            ey = y + ny * strona * od * mn
+            if ex < mn * 0.05 or ex > W - mn * 0.05 or ey < mn * 0.10 or ey > H - mn * 0.14:
+                continue
+            if ex > W * 0.70 and ey < H * 0.24:      # strefa HUD-u
+                continue
+            s = sk * mn
+            if typ in (0, 2):
+                pioro(KRE, 0.42 + 0.4 * cz)
+                if cz > 0.25:
+                    p.drawLine(QPointF(ex, ey), QPointF(ex, ey - s * 0.35))
+                for jw, (wd, hy2) in enumerate(((0.9, 0.35), (0.7, 0.62), (0.45, 0.86))):
+                    if cz > 0.3 + jw * 0.23:
+                        p.drawPolygon(QPointF(ex - s * wd / 2, ey - s * hy2 + s * 0.28),
+                                      QPointF(ex + s * wd / 2, ey - s * hy2 + s * 0.28),
+                                      QPointF(ex, ey - s * hy2 - s * 0.18))
+            elif typ == 1:
+                pioro(KRE, 0.42 + 0.4 * cz)
+                if cz > 0.3:
+                    p.drawLine(QPointF(ex, ey), QPointF(ex, ey - s * 0.5))
+                if cz > 0.6:
+                    p.drawEllipse(QPointF(ex, ey - s * 0.68), s * 0.42, s * 0.38)
+            else:
+                pioro(DOMK, 0.5 + 0.35 * cz)
+                if cz > 0.25:
+                    p.drawRect(QRectF(ex - s * 0.5, ey - s * 0.55, s, s * 0.55))
+                if cz > 0.55:
+                    p.drawLine(QPointF(ex - s * 0.6, ey - s * 0.55),
+                               QPointF(ex, ey - s * 1.05))
+                    p.drawLine(QPointF(ex, ey - s * 1.05),
+                               QPointF(ex + s * 0.6, ey - s * 0.55))
+                if cz > 0.8:
+                    kropka(OKNO, 0.85, ex + s * 0.26, ey - s * 0.34, s * 0.085)
+                if dym and cz >= 1.0:
+                    pioro(KRE, 0.35)
+                    for dj in range(2):
+                        fa = (t * 0.8 + dj * 0.5) % 1.0
+                        p.drawArc(QRectF(ex - s * 0.34, ey - s * (1.2 + fa * 0.6),
+                                         s * 0.22, s * 0.18), 30 * 16, 200 * 16)
+            if 0.05 < cz < 1.0:
+                iskra(ex, ey - s * cz)
+
+        # --- warianty odrzucone + drogowskaz ---
+        for wnr, (f_v, kmv) in enumerate(self._sw_warianty):
+            kk = min(1.0, max(0.0, (u - f_v - 0.008) / 0.10))
+            if kk <= 0:
+                continue
+            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_v, W, H, pinx, piny)
+            s_ = -self._sw_strona_zewn(x, y, nx, ny, W, H)
+            kdx = nx * s_ * 0.72 + tx * (0.5 if wnr == 0 else -0.5)
+            kdy = ny * s_ * 0.72 + ty * (0.5 if wnr == 0 else -0.5)
+            n_o = 10
+            for g in range(int(n_o * kk)):
+                a0 = g / float(n_o)
+                a1 = (g + 0.62) / float(n_o)
+                wob = math.sin(g * 1.3) * mn * 0.006
+                pioro(KRE, 0.55 * (1.0 - 0.75 * a0))
+                p.drawLine(QPointF(x + kdx * a0 * mn * 0.19 + wob,
+                                   y + kdy * a0 * mn * 0.19),
+                           QPointF(x + kdx * a1 * mn * 0.19 + wob,
+                                   y + kdy * a1 * mn * 0.19))
+            if kk > 0.55:
+                if not hasattr(self, "_f_sw_mala"):
+                    self._f_sw_mala = self._sw_czcionka(mn, False)
+                p.setFont(self._f_sw_mala)
+                nap_w = "wariant odrzucony (+%d km)" % kmv
+                al_w = alfa * min(1.0, (kk - 0.55) / 0.3)
+                wx_ = x + kdx * mn * 0.155 + mn * 0.012
+                wy_ = y + kdy * mn * 0.155 - mn * 0.006
+                fmw = QFontMetrics(self._f_sw_mala)
+                szw = fmw.horizontalAdvance(nap_w)
+                pod_w = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
+                pod_w.setAlphaF(0.55 * al_w)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(pod_w)
+                p.drawRoundedRect(QRectF(wx_ - mn * 0.007, wy_ - mn * 0.0195,
+                                         szw + mn * 0.014, mn * 0.027),
+                                  mn * 0.006, mn * 0.006)
+                kol = QColor(KRE)
+                kol.setAlphaF((0.6 if self.is_dark else 0.9) * al_w)
+                p.setPen(kol)
+                p.drawText(QPointF(wx_, wy_), nap_w)
+            if wnr == 0 and kk > 0.3:
+                gx = x + kdx * mn * 0.030
+                gy = y + kdy * mn * 0.030
+                pioro(DOMK, 0.7)
+                p.drawLine(QPointF(gx, gy), QPointF(gx, gy - mn * 0.026))
+                p.drawRect(QRectF(gx, gy - mn * 0.026, mn * 0.022, mn * 0.009))
+                p.drawRect(QRectF(gx - mn * 0.018, gy - mn * 0.014, mn * 0.018, mn * 0.008))
+
+        # --- słupki kilometrowe wzdłuż odwiedzonej drogi ---
+        pioro(KRE, 0.35)
+        f_s = 0.05
+        while f_s < min(u - 0.01, 0.94):
+            (x, y), (nx, ny), _tt = self._trasa_wek(f_s, W, H, pinx, piny)
+            p.drawLine(QPointF(x + nx * mn * 0.014, y + ny * mn * 0.014),
+                       QPointF(x + nx * mn * 0.021, y + ny * mn * 0.021))
+            f_s += 0.06
+
+    # ---------- węzły SIECI + DOM (nad wstęgą) ----------
+    def _rysuj_wezly_sieci(self, p, W, H, mn, t, td, u, pinx, piny, zan):
+        if not getattr(self, "_sieci_intro", None):
+            return
+        alfa = zan * self._plynnie((td - 0.30) / 0.40)
+        if alfa <= 0.01:
+            return
+        if not hasattr(self, "_f_sw_chip"):
+            self._f_sw_chip = self._sw_czcionka(mn, True)
+            self._f_sw_mala = self._sw_czcionka(mn, False)
+        fm = QFontMetrics(self._f_sw_chip)
+
+        # DOM: domek na miejscu pinezki (start i meta pętli)
+        sD = mn * 0.024
+        pos = QRadialGradient(QPointF(pinx, piny), sD * 2.4)
+        c0 = QColor(self._akc2)
+        c0.setAlphaF((0.35 if self.is_dark else 0.50) * alfa)
+        pos.setColorAt(0.0, c0)
+        c1 = QColor(self._akc2)
+        c1.setAlphaF(0.0)
+        pos.setColorAt(1.0, c1)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(pos)
+        p.drawEllipse(QPointF(pinx, piny), sD * 2.4, sD * 2.4)
+        bd = QColor(240, 255, 250) if self.is_dark else QColor(4, 56, 48)
+        bd.setAlphaF(min(1.0, 0.95 * alfa))
+        p.setPen(QPen(bd, max(1.4, mn * 0.0030)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(QRectF(pinx - sD * 0.55, piny - sD * 0.55, sD * 1.1, sD * 0.7))
+        p.drawLine(QPointF(pinx - sD * 0.7, piny - sD * 0.55),
+                   QPointF(pinx, piny - sD * 1.15))
+        p.drawLine(QPointF(pinx, piny - sD * 1.15),
+                   QPointF(pinx + sD * 0.7, piny - sD * 0.55))
+        p.drawRect(QRectF(pinx - sD * 0.13, piny - sD * 0.16, sD * 0.26, sD * 0.31))
+        p.setFont(self._f_sw_chip)
+        zl = QColor(255, 224, 130) if self.is_dark else QColor(3, 56, 44)
+        zl.setAlphaF(min(1.0, 0.95 * alfa))
+        p.setPen(zl)
+        p.drawText(QPointF(pinx - fm.horizontalAdvance("DOM") / 2.0,
+                           piny + sD * 1.9), "DOM")
+
+        # węzły sieci
+        for nz, f in self._sieci_intro:
+            (x, y) = self._trasa_pkt(f, W, H, pinx, piny)
+            akt = u >= f
+            pp = (u - f) / 0.06
+            szer = fm.horizontalAdvance(nz + "  \u2713")
+            nad = y > mn * 0.19 and not (x > W - mn * 0.46 and y < mn * 0.30)
+            cy0 = y - mn * 0.052 if nad else y + mn * 0.028
+            cxs = x
+            if abs(x - pinx) < mn * 0.10 and abs(y - piny) < mn * 0.10:
+                cxs = x - mn * 0.062   # wezel tuz przy DOM: chip w bok, nie na domku
+            if akt:
+                # beacon — pionowy snop
+                for bl in range(3):
+                    kb = QColor(self._akc1)
+                    kb.setAlphaF((0.16 if self.is_dark else 0.30) * alfa * (3 - bl) / 3.0)
+                    p.setPen(QPen(kb, max(1.0, mn * 0.0030) * (1 + bl)))
+                    p.drawLine(QPointF(x, y - mn * 0.012),
+                               QPointF(x, y - mn * (0.012 + 0.085)))
+                for rr, aa in (((0.020, 0.42), (0.013, 0.68)) if self.is_dark
+                               else ((0.020, 0.62), (0.013, 0.88))):
+                    ko = QColor(self._akc2)
+                    ko.setAlphaF(aa * alfa)
+                    p.setPen(QPen(ko, max(1.4, mn * 0.0030)))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawEllipse(QPointF(x, y), mn * rr, mn * rr)
+                if 0.0 <= pp < 1.0:
+                    a1_, a2_ = (0.55, 0.30) if self.is_dark else (0.78, 0.46)
+                    for rk, aa in ((0.030 + 0.030 * pp, a1_ * (1 - pp)),
+                                   (0.044 + 0.038 * pp, a2_ * (1 - pp))):
+                        ko = QColor(self._akc1)
+                        ko.setAlphaF(aa * alfa)
+                        p.setPen(QPen(ko, max(1.6, mn * 0.0038)))
+                        p.drawEllipse(QPointF(x, y), mn * rk, mn * rk)
+                rd = QColor(228, 255, 249) if self.is_dark else QColor(255, 255, 255)
+                rd.setAlphaF(min(1.0, alfa))
+                p.setPen(QPen(QColor(self._akc2), max(1.4, mn * 0.0032)))
+                p.setBrush(rd)
+                p.drawEllipse(QPointF(x, y), mn * 0.0062, mn * 0.0062)
+                # chip z nazwą sieci
+                tlo = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
+                tlo.setAlphaF((0.80 if self.is_dark else 0.94) * alfa)
+                ob = QColor(self._akc2)
+                ob.setAlphaF((0.55 if self.is_dark else 0.85) * alfa)
+                p.setPen(QPen(ob, max(1.0, mn * 0.0018)))
+                p.setBrush(tlo)
+                p.drawRoundedRect(QRectF(cxs - szer / 2 - mn * 0.010, cy0,
+                                         szer + mn * 0.020, mn * 0.032),
+                                  mn * 0.007, mn * 0.007)
+                p.setFont(self._f_sw_chip)
+                kt = QColor(self._akc1)
+                kt.setAlphaF(min(1.0, 0.98 * alfa))
+                p.setPen(kt)
+                p.drawText(QPointF(cxs - szer / 2, cy0 + mn * 0.0235), nz)
+                kv = QColor(self._akc2)
+                kv.setAlphaF(min(1.0, 0.98 * alfa))
+                p.setPen(kv)
+                p.drawText(QPointF(cxs - szer / 2 + fm.horizontalAdvance(nz + "  "),
+                                   cy0 + mn * 0.0235), "\u2713")
+            else:
+                sz = QColor(150, 214, 202) if self.is_dark else QColor(22, 78, 70)
+                sz.setAlphaF((0.40 if self.is_dark else 0.66) * alfa)
+                p.setPen(QPen(sz, max(1.2, mn * 0.0024)))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawEllipse(QPointF(x, y), mn * 0.0056, mn * 0.0056)
+                p.setFont(self._f_sw_mala)
+                fm2 = QFontMetrics(self._f_sw_mala)
+                sz_t = fm2.horizontalAdvance(nz)
+                if not self.is_dark:
+                    pod_ = QColor(255, 255, 255)
+                    pod_.setAlphaF(0.55 * alfa)
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(pod_)
+                    p.drawRoundedRect(QRectF(cxs - sz_t / 2.0 - mn * 0.007,
+                                             cy0 + mn * 0.0015,
+                                             sz_t + mn * 0.014, mn * 0.027),
+                                      mn * 0.006, mn * 0.006)
+                sz2 = QColor(sz)
+                sz2.setAlphaF((0.34 if self.is_dark else 0.78) * alfa)
+                p.setPen(sz2)
+                p.drawText(QPointF(cxs - sz_t / 2.0,
+                                   cy0 + mn * 0.021), nz)
+
+    # ---------- HUD trasy ----------
+    def _rysuj_hud_trasy(self, p, W, H, mn, t, td, u, zan):
+        if not getattr(self, "_sieci_intro", None):
+            return
+        alfa = zan * self._plynnie((td - 0.42) / 0.45)
+        if alfa <= 0.01:
+            return
+        if not hasattr(self, "_f_sw_chip"):
+            self._f_sw_chip = self._sw_czcionka(mn, True)
+            self._f_sw_mala = self._sw_czcionka(mn, False)
+        bw = mn * 0.335
+        bh = mn * 0.132
+        bx = W - bw - mn * 0.040
+        by = mn * 0.038
+        tlo = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
+        tlo.setAlphaF((0.66 if self.is_dark else 0.92) * alfa)
+        ob = QColor(self._akc2)
+        ob.setAlphaF((0.45 if self.is_dark else 0.80) * alfa)
+        p.setPen(QPen(ob, max(1.0, mn * 0.0018)))
+        p.setBrush(tlo)
+        p.drawRoundedRect(QRectF(bx, by, bw, bh), mn * 0.010, mn * 0.010)
+        ety = QColor(150, 214, 202) if self.is_dark else QColor(20, 72, 64)
+        ety.setAlphaF((0.85 if self.is_dark else 0.96) * alfa)
+        war = QColor(self._akc1)
+        war.setAlphaF(min(1.0, 0.98 * alfa))
+        n_ok = sum(1 for _n, f in self._sieci_intro if u >= f)
+        wiersze = (("TRASA", "%d km" % int(self._sw_km * u)),
+                   ("SIECI", "%d/%d" % (n_ok, len(self._sieci_intro))),
+                   ("POWR\u00d3T", "DOM 17:40"))
+        fmB = QFontMetrics(self._f_sw_chip)
+        for j, (a, b) in enumerate(wiersze):
+            yy = by + mn * (0.030 + j * 0.034)
+            p.setFont(self._f_sw_mala)
+            p.setPen(ety)
+            p.drawText(QPointF(bx + mn * 0.020, yy), a)
+            p.setFont(self._f_sw_chip)
+            p.setPen(war)
+            p.drawText(QPointF(bx + bw - mn * 0.020 - fmB.horizontalAdvance(b), yy), b)
+        pas = QColor(self._akc2)
+        pas.setAlphaF(0.9 * alfa)
+        p.setPen(QPen(pas, max(2.0, mn * 0.0042)))
+        p.drawLine(QPointF(bx + mn * 0.020, by + bh - mn * 0.016),
+                   QPointF(bx + mn * 0.020 + (bw - mn * 0.040) * u, by + bh - mn * 0.016))
+        resz = QColor(ety)
+        resz.setAlphaF((0.35 if self.is_dark else 0.55) * alfa)
+        p.setPen(QPen(resz, max(1.2, mn * 0.0022)))
+        p.drawLine(QPointF(bx + mn * 0.020 + (bw - mn * 0.040) * u, by + bh - mn * 0.016),
+                   QPointF(bx + bw - mn * 0.020, by + bh - mn * 0.016))
+
+    def _rysuj_logo_poswiata(self, p, x, y, r, jasnosc):
+        g = QRadialGradient(QPointF(x, y), r * 2.1)
+        if self.is_dark:
+            g.setColorAt(0.0, QColor(0, 240, 255, int(80 * jasnosc)))
+            g.setColorAt(0.55, QColor(0, 228, 161, int(32 * jasnosc)))
+            g.setColorAt(1.0, QColor(0, 228, 161, 0))
+        else:
+            g.setColorAt(0.0, QColor(13, 148, 136, int(60 * jasnosc)))
+            g.setColorAt(0.55, QColor(16, 185, 129, int(26 * jasnosc)))
+            g.setColorAt(1.0, QColor(16, 185, 129, 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(g)
+        p.drawEllipse(QPointF(x, y), r * 2.1, r * 2.1)
+
+    def _cel_logo(self, W, H):
+        """Środek i promień logo programu na topbarze (cel wchłonięcia)."""
+        if getattr(self, "_cel_logo_xy", None):
+            return self._cel_logo_xy
+        wynik = (W * 0.085, H * 0.075, min(W, H) * 0.045)
+        try:
+            rodzic = self.parent()
+            lbl = getattr(rodzic, "logo_lbl", None)
+            if lbl is not None:
+                srodek_l = lbl.mapTo(rodzic, lbl.rect().center())
+                wynik = (float(srodek_l.x()), float(srodek_l.y()),
+                         max(14.0, min(lbl.width(), lbl.height()) * 0.46))
+        except Exception:
+            pass
+        self._cel_logo_xy = wynik
+        return wynik
+
+    # fazy finału: implozja -> puls -> ikona topbara (powiększona, osiada)
+    # -> puls odbija się i transportuje logo na ŚRODEK ekranu (kompas)
+    LOGO_T_IMPLOZJA = 11.10
+    LOGO_T_LOT = 11.32
+    LOGO_T_DOLOT = 11.74
+    LOGO_T_IKONA_MAX = 11.92
+    LOGO_T_IKONA_OK = 12.10
+    LOGO_T_LOT2 = 12.16
+    LOGO_T_CENTRUM = 12.68
+
+    def _logo_lot(self, td, W, H):
+        """Pozycja i promień w finale (steruje też maską-kołem)."""
+        mn = min(W, H)
+        sx, sy, pr = W * 0.5, H * 0.44, mn * 0.13
+        if td <= self.LOGO_T_IMPLOZJA:
+            return sx, sy, pr, 0.0
+        cx, cy, cr = self._cel_logo(W, H)
+        if td <= self.LOGO_T_LOT:
+            k1 = (td - self.LOGO_T_IMPLOZJA) / (self.LOGO_T_LOT - self.LOGO_T_IMPLOZJA)
+            return sx, sy, pr * (1.0 - k1) + mn * 0.020 * k1, 0.001
+        if td <= self.LOGO_T_DOLOT:
+            k = self._plynnie((td - self.LOGO_T_LOT) /
+                              (self.LOGO_T_DOLOT - self.LOGO_T_LOT))
+            x = sx + (cx - sx) * k
+            y = sy + (cy - sy) * k - math.sin(math.pi * k) * H * 0.05
+            return x, y, mn * 0.020, max(0.001, min(0.999, k))
+        if td <= self.LOGO_T_IKONA_OK:
+            # ikona topbara: pojawia się POWIĘKSZONA i osiada do rozmiaru
+            if td <= self.LOGO_T_IKONA_MAX:
+                k2 = self._plynnie((td - self.LOGO_T_DOLOT) /
+                                   (self.LOGO_T_IKONA_MAX - self.LOGO_T_DOLOT))
+                return cx, cy, cr * (0.25 + 1.35 * k2), 1.0
+            k2 = self._plynnie((td - self.LOGO_T_IKONA_MAX) /
+                               (self.LOGO_T_IKONA_OK - self.LOGO_T_IKONA_MAX))
+            return cx, cy, cr * (1.60 - 0.60 * k2), 1.0
+        if td <= self.LOGO_T_CENTRUM:
+            # puls odbija się z topbara i niesie logo na środek ekranu
+            k = self._plynnie((td - self.LOGO_T_LOT2) /
+                              (self.LOGO_T_CENTRUM - self.LOGO_T_LOT2)) \
+                if td > self.LOGO_T_LOT2 else 0.0
+            x = cx + (sx - cx) * k
+            y = cy + (sy - cy) * k - math.sin(math.pi * k) * H * 0.05
+            return x, y, mn * 0.020, max(0.001, min(0.999, k))
+        return sx, sy, mn * 0.020, 1.0
+
     # ---------- pismo ----------
     def _pismo_rysuj(self, p, n, srodek, skala, alfa, W, H):
-        """Rysuje pierwsze n punktów podpisu; zwraca pozycję "pióra"."""
+        """Rysuje pierwsze n punktów podpisu (po kolei przez wszystkie
+        pociągnięcia); zwraca pozycję "pióra"."""
         if n < 2 or alfa <= 0:
             return None
         s, lox, loy = self._pismo_tr
@@ -12368,21 +14646,20 @@ class AnimacjaStartowa(QWidget):
         def ekran(pt):
             return QPointF(lox + pt[0] * s, loy + pt[1] * s)
 
-        n1 = min(n, self._pismo_n1)
-        sc1 = QPainterPath()
-        sc1.moveTo(ekran(self._pismo_a[0]))
-        for i in range(1, n1):
-            sc1.lineTo(ekran(self._pismo_a[i]))
-        koniec = ekran(self._pismo_a[n1 - 1])
-        sc2 = None
-        if n > self._pismo_n1:
-            n2 = min(n - self._pismo_n1, len(self._pismo_b))
-            if n2 >= 2:
-                sc2 = QPainterPath()
-                sc2.moveTo(ekran(self._pismo_b[0]))
-                for i in range(1, n2):
-                    sc2.lineTo(ekran(self._pismo_b[i]))
-                koniec = ekran(self._pismo_b[n2 - 1])
+        sciezki = []
+        koniec = None
+        zostalo = n
+        for pociag in self._pociagniecia:
+            if zostalo < 2:
+                break
+            ile = min(zostalo, len(pociag))
+            sc = QPainterPath()
+            sc.moveTo(ekran(pociag[0]))
+            for i in range(1, ile):
+                sc.lineTo(ekran(pociag[i]))
+            sciezki.append(sc)
+            koniec = ekran(pociag[ile - 1])
+            zostalo -= len(pociag)
 
         p.save()
         p.translate(srodek)
@@ -12401,18 +14678,16 @@ class AnimacjaStartowa(QWidget):
             pi.setCapStyle(Qt.PenCapStyle.RoundCap)
             pi.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             p.setPen(pi)
-            p.drawPath(sc1)
-            if sc2 is not None:
-                p.drawPath(sc2)
+            for sc in sciezki:
+                p.drawPath(sc)
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         k = QColor(255, 255, 255); k.setAlphaF(max(0.0, min(1.0, alfa)))
         pi = QPen(k, wd * 0.46)
         pi.setCapStyle(Qt.PenCapStyle.RoundCap)
         pi.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(pi)
-        p.drawPath(sc1)
-        if sc2 is not None:
-            p.drawPath(sc2)
+        for sc in sciezki:
+            p.drawPath(sc)
         p.restore()
         dx = srodek.x() + (koniec.x() - srodek.x()) * skala
         dy = srodek.y() + (koniec.y() - srodek.y()) * skala
@@ -12423,6 +14698,9 @@ class AnimacjaStartowa(QWidget):
         p = QPainter(self)
         try:
             self._klatki += 1
+            if self._klatki == 1:
+                _dziennik_animacji("pierwsza klatka narysowana (%dx%d)"
+                                   % (self.width(), self.height()))
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             W, H = self.width(), self.height()
@@ -12430,7 +14708,26 @@ class AnimacjaStartowa(QWidget):
             t = self._t
             dt = max(0.0, t - self._ost_t)
             self._ost_t = t
-            td = t / self.TEMPO                   # czas w skali bazowej
+            td = t / self.TEMPO - self.PROLOG     # czas bazowy (po prologu)
+            td = self._os_czasu(td)               # jazda 2x wolniej (3.20.48)
+            if td < 0.0:
+                Wp, Hp = float(self.width()), float(self.height())
+                self._rysuj_prolog(p, td + self.PROLOG, Wp, Hp,
+                                   min(Wp, Hp), t)
+                return
+
+            # TRZĘSIENIE finałowe: cała scena (tło + efekty) drga narastająco
+            # tuż po domknięciu pierścienia, aż do pierwszego pęknięcia.
+            wstrzas = self._plynnie((td - 7.70) / 0.50) * (1.0 - self._plynnie((td - 10.40) / 0.40))
+            dod = 0.0
+            for s_w in getattr(self, "_wstrzasy_czasy", ()):
+                d_ = td - s_w
+                if 0.0 <= d_ < 0.35:
+                    dod += (1.0 - d_ / 0.35)   # szarpnięcie przy pęknięciu/oderwaniu
+            sila = mn * 0.011 * wstrzas + mn * 0.015 * min(1.3, dod)
+            if sila > 0:
+                p.translate(math.sin(t * 63.0) * sila + random.uniform(-0.6, 0.6) * sila,
+                            math.cos(t * 71.0) * sila * 0.8 + random.uniform(-0.6, 0.6) * sila)
 
             # 1) tło z filmowym najazdem — ZAWSZE, niezależnie od efektów
             self._tlo_rysuj(p, W, H, td)
@@ -12450,10 +14747,8 @@ class AnimacjaStartowa(QWidget):
                 zas = QColor(4, 10, 18) if self.is_dark else QColor(255, 255, 255)
                 zas.setAlpha(int(205 * (1 - wej)))
                 p.fillRect(self.rect(), zas)
-            if td > 4.95:
-                a = int(255 * self._plynnie((td - 4.95) / 0.40))
-                cel = QColor(4, 18, 26, a) if self.is_dark else QColor(241, 245, 249, a)
-                p.fillRect(self.rect(), cel)
+            # Dawne zanikanie do jednolitego koloru zastąpił finałowy rozpad
+            # ekranu (trzęsienie -> pęknięcia -> wypadające odłamki).
         except Exception:
             # ostatnia linia obrony — czyste tło zamiast czarnego ekranu
             try:
@@ -12465,9 +14760,7 @@ class AnimacjaStartowa(QWidget):
             p.end()
 
     def _zapisz_diag(self):
-        """Krótki raport techniczny z przebiegu animacji — zapisujemy go po
-        każdym pokazie, żeby dało się zdiagnozować komputer, na którym
-        animacja nie jest widoczna (ile klatek naprawdę narysowano itd.)."""
+        """Podsumowanie pokazu dopisywane do dziennika animacji."""
         try:
             ekrany = []
             try:
@@ -12477,18 +14770,12 @@ class AnimacjaStartowa(QWidget):
             except Exception:
                 pass
             g = self.geometry()
-            with open(os.path.join(os.path.expanduser("~"), ".pmt_splash_diag.txt"),
-                      "w", encoding="utf-8") as f:
-                f.write("PMT Planer %s — raport animacji startowej\n" % WERSJA_PROGRAMU)
-                f.write("motyw ciemny: %s\n" % self.is_dark)
-                f.write("tło wczytane: %s\n" % (self._tlo is not None))
-                f.write("okno: %dx%d @ %d,%d  widoczne: %s\n"
-                        % (g.width(), g.height(), g.x(), g.y(), self.isVisible()))
-                f.write("ekrany: %s\n" % ("; ".join(ekrany) or "?"))
-                f.write("tyknięcia zegara: %d\n" % self._tyki)
-                f.write("narysowane klatki: %d\n" % self._klatki)
-                f.write("czas pokazu: %.2f s\n" % self._t)
-                f.write("tryb awaryjny: %s\n" % self._awaria)
+            _dziennik_animacji(
+                "PODSUMOWANIE: okno %dx%d @ %d,%d | widoczne: %s | ekrany: %s | "
+                "tyknięcia: %d | klatki: %d | czas: %.2f s | tryb awaryjny: %s"
+                % (g.width(), g.height(), g.x(), g.y(), self.isVisible(),
+                   "; ".join(ekrany) or "?", self._tyki, self._klatki,
+                   self._t, self._awaria))
         except Exception:
             pass
 
@@ -12498,6 +14785,7 @@ class AnimacjaStartowa(QWidget):
         if "blad" in self._raz:
             return
         self._raz.add("blad")
+        _dziennik_animacji("BŁĄD rysowania — przełączam na pokaz awaryjny (szczegóły: .pmt_splash_blad.txt)")
         try:
             import traceback
             with open(os.path.join(os.path.expanduser("~"), ".pmt_splash_blad.txt"),
@@ -12512,96 +14800,200 @@ class AnimacjaStartowa(QWidget):
         sk_ekr = mn / 500.0                        # skala prędkości cząsteczek
 
         # filmowe przyciemnienie/rozjaśnienie sceny pod efektami
-        kurtyna = self._plynnie((td - 0.10) / 0.45) * (1.0 - self._plynnie((td - 4.55) / 0.40))
+        kurtyna = self._plynnie((td - 0.10) / 0.45) * (1.0 - self._plynnie((td - 7.75) / 0.40))
         if kurtyna > 0:
             if self.is_dark:
                 p.fillRect(self.rect(), QColor(3, 7, 15, int(95 * kurtyna)))
             else:
-                p.fillRect(self.rect(), QColor(255, 255, 255, int(80 * kurtyna)))
+                p.fillRect(self.rect(), QColor(255, 255, 255, int(112 * kurtyna)))
 
-        # układ pisma: szeroko na niebie
-        s = min(W * 0.74 / 228.0, H * 0.40 / 150.0)
-        lox = (W - 228.0 * s) / 2.0
-        loy = max(H * 0.05, H * 0.27 - 75.0 * s)
-        self._pismo_tr = (s, lox, loy)
-        pismo_start = QPointF(lox + self._pismo_a[0][0] * s,
-                              loy + self._pismo_a[0][1] * s)
-        srodek = QPointF(W * 0.5, H * 0.44)        # cel zwinięcia = środek pierścienia
+        srodek = QPointF(W * 0.5, H * 0.44)        # środek logo i pierścienia
         promien = mn * 0.13                        # promień logo
         rr = promien * 1.60                        # promień pierścienia
+        # zapłon "głowicy druku" przy platformie logo (cel wystrzału)
+        pismo_start = QPointF(srodek.x() - promien * 0.95,
+                              srodek.y() + promien * 1.02)
+        pinx, piny = self._mapa(*self._pin)
 
-        # 2) pozycja głowy smugi
+        # 2) WIELKA TRASA: pojazd objeżdża cały ekran, ślad za nim gaśnie
         glowa = None
-        if td < 1.25:
-            k = self._plynnie((td - 0.25) / 1.00)
-            if td >= 0.25:
-                i = int(k * (len(self._droga) - 1))
-                glowa = self._mapa(*self._droga[i])
-        elif td < 1.55:
-            glowa = self._mapa(*self._pin)
-        elif td < 1.90:
-            k = self._plynnie((td - 1.55) / 0.35)
-            p0 = self._mapa(*self._pin)
-            cx, cy = W * 0.93, H * 0.08
-            u = 1 - k
-            glowa = (u * u * p0[0] + 2 * u * k * cx + k * k * pismo_start.x(),
-                     u * u * p0[1] + 2 * u * k * cy + k * k * pismo_start.y())
-        if glowa is not None and td < 1.90:
-            self._ogon.append(glowa)
-            if len(self._ogon) > int(30 * self.TEMPO):
-                self._ogon.pop(0)
-        if self.is_dark and 0.55 <= td < 1.50:
-            k2 = self._plynnie((td - 0.55) / 0.95)
+        # --- KURZ ŚWIETLNY i LINIE SYSTEMOWE: scena żyje podczas jazdy ---
+        zan_k = 1.0
+        if td > 4.30:
+            zan_k = max(0.0, 1.0 - self._plynnie((td - 4.30) / 0.45))
+        if getattr(self, "_kurz", None) and zan_k > 0:
+            p.setPen(Qt.PenStyle.NoPen)
+            for cx_, cy_, _vx, _vy, wiek, zyc_, rr in self._kurz:
+                a_ = math.sin(min(1.0, wiek / zyc_) * math.pi) \
+                    * (0.55 if self.is_dark else 0.85) * zan_k
+                kol_k = (self._akc2 if rr < 1.6 else QColor(235, 255, 250)) \
+                    if self.is_dark else \
+                    (QColor(6, 128, 106) if rr < 1.6 else QColor(4, 80, 66))
+                g1 = QColor(kol_k)
+                g1.setAlphaF(a_ * 0.45)
+                p.setBrush(g1)
+                p.drawEllipse(QPointF(cx_ * W, cy_ * H), rr * 2.7, rr * 2.7)
+                g2 = QColor(kol_k)
+                g2.setAlphaF(a_)
+                p.setBrush(g2)
+                p.drawEllipse(QPointF(cx_ * W, cy_ * H), rr, rr)
+        if 0.45 < td < 4.60 and zan_k > 0:
+            # meldunki zdarzeniowe: wyjazd z DOMU, potwierdzenia sieci,
+            # kierunek na kolejny węzeł — zsynchronizowane z jazdą głowy
+            zdarz = getattr(self, "_sys_zdarzenia", None) or \
+                ((0.45, "Analizuj\u0119 sie\u0107 tras\u2026"),)
+            akt = zdarz[0]
+            for z_ in zdarz:
+                if z_[0] <= td:
+                    akt = z_
+                else:
+                    break
+            st_l = akt[0]
+            n_zn = max(0, int((td - st_l) * 26))
+            kur = "_" if int(t * 3.2) % 2 == 0 else " "
+            f_l = QFont("Segoe UI", 1)
+            f_l.setPixelSize(max(11, int(mn * 0.021)))
+            f_l.setBold(True)
+            p.setFont(f_l)
+            kol_l = QColor(self._akc2) if self.is_dark else QColor(4, 70, 56)
+            kol_l.setAlphaF((0.62 if self.is_dark else 0.92) * zan_k)
+            p.setPen(kol_l)
+            p.drawText(QRectF(W * 0.052, H * 0.86, W * 0.6, mn * 0.05),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       akt[1][:n_zn] + kur)
+        if 4.95 < td < 7.72 and getattr(self, "_sys_druk", None):
+            zan_d = 1.0 - self._plynnie((td - 7.55) / 0.17)
+            if zan_d > 0:
+                akt_d = self._sys_druk[0]
+                for z_ in self._sys_druk:
+                    if z_[0] <= td:
+                        akt_d = z_
+                    else:
+                        break
+                n_zn = max(0, int((td - akt_d[0]) * 26))
+                kur = "_" if int(t * 3.2) % 2 == 0 else " "
+                f_l = QFont("Segoe UI", 1)
+                f_l.setPixelSize(max(11, int(mn * 0.021)))
+                f_l.setBold(True)
+                p.setFont(f_l)
+                kol_l = QColor(self._akc2) if self.is_dark else QColor(4, 70, 56)
+                kol_l.setAlphaF((0.62 if self.is_dark else 0.92) * zan_d)
+                p.setPen(kol_l)
+                p.drawText(QRectF(W * 0.052, H * 0.86, W * 0.6, mn * 0.05),
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                           akt_d[1][:n_zn] + kur)
+        if 0.25 <= td < 4.25:
+            u = self._plynnie((td - 0.25) / 4.00)
+            i = int(u * (len(self._trasa_ekranu) - 1))
+            self._gl_idx = i
+            rx, ry = self._trasa_ekranu[i]
+            x, y = rx * W, ry * H
+            mag = self._plynnie((u - 0.85) / 0.15)   # magnes DOMU na finiszu…
+            mag = max(mag, self._plynnie((0.07 - u) / 0.07))   # …i na starcie
+            glowa = (x + (pinx - x) * mag, y + (piny - y) * mag)
+            # ślad po krzywej z magnesem per-punkt (zero cięciw i grzebieni)
+            pop = getattr(self, "_ogon_i", None)
+            if pop is None:
+                pop = max(0, i - 1)
+            if i > pop:
+                ot_ = self._ogon[-1][2] if self._ogon else t
+                N1 = max(1, len(self._trasa_ekranu) - 1)
+                for k in range(pop + 1, i + 1):
+                    rxk, ryk = self._trasa_ekranu[k]
+                    xk, yk = rxk * W, ryk * H
+                    mk = max(self._plynnie((k / N1 - 0.85) / 0.15),
+                             self._plynnie((0.07 - k / N1) / 0.07))
+                    if mk > 0:
+                        xk += (pinx - xk) * mk
+                        yk += (piny - yk) * mk
+                    f_ = (k - pop) / (i - pop)
+                    self._ogon.append((xk, yk, ot_ + (t - ot_) * f_))
+            self._ogon_i = i
+        elif 4.25 <= td < 4.55:
+            glowa = (pinx, piny)
+        elif 4.55 <= td < 4.90:
+            k = self._plynnie((td - 4.55) / 0.35)
+            cx, cy = W * 0.93, H * 0.10
+            u_ = 1 - k
+            glowa = (u_ * u_ * pinx + 2 * u_ * k * cx + k * k * pismo_start.x(),
+                     u_ * u_ * piny + 2 * u_ * k * cy + k * k * pismo_start.y())
+        if glowa is not None and td < 4.25:
+            # domknięcie do głowy — krótki, gęsty łącznik (punkty krzywej
+            # zostały już dołożone w gałęzi jazdy, z magnesem per-punkt)
+            if self._ogon:
+                ox_, oy_, ot_ = self._ogon[-1]
+                dyst = math.hypot(glowa[0] - ox_, glowa[1] - oy_)
+                kroki = int(dyst / max(2.0, mn * 0.0045))
+                for s_ in range(1, kroki):
+                    f_ = s_ / kroki
+                    self._ogon.append((ox_ + (glowa[0] - ox_) * f_,
+                                       oy_ + (glowa[1] - oy_) * f_,
+                                       ot_ + (t - ot_) * f_))
+            self._ogon.append((glowa[0], glowa[1], t))
+        if self.is_dark and 0.55 <= td < 4.10:
+            k2 = self._plynnie((td - 0.55) / 3.55)
             i2 = int(k2 * (len(self._droga2) - 1))
             self._ogon2.append(self._mapa(*self._droga2[i2]))
-            if len(self._ogon2) > int(18 * self.TEMPO):
+            if len(self._ogon2) > int(52 * self.TEMPO):
                 self._ogon2.pop(0)
 
-        # 3) pinezka: fale i poświata
-        if td >= 1.25 and "pin1" not in self._raz:
+        # 3) pinezka: fale i poświata na mecie trasy
+        if td >= 4.25 and "pin1" not in self._raz:
             self._raz.add("pin1")
-            px, py = self._mapa(*self._pin)
-            self._fale.append([px, py, mn * 0.012, 1.0, (255, 179, 107)])
-            self._sypnij(px, py, 18, 2.2 * sk_ekr, 0.03 * sk_ekr, 0.028,
+            self._fale.append([pinx, piny, mn * 0.012, 1.0, (255, 179, 107)])
+            self._sypnij(pinx, piny, 18, 2.2 * sk_ekr, 0.03 * sk_ekr, 0.028,
                          2.8 * sk_ekr, ((255, 179, 107), (255, 217, 174),
                                         (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
-        if td >= 1.42 and "pin2" not in self._raz:
+        if td >= 4.42 and "pin2" not in self._raz:
             self._raz.add("pin2")
-            px, py = self._mapa(*self._pin)
-            self._fale.append([px, py, mn * 0.012, 1.0, (255, 179, 107)])
-        if 1.25 <= td < 2.30:
-            px, py = self._mapa(*self._pin)
-            a = (0.45 + 0.35 * math.sin(t * 11.0)) * (1.0 - self._plynnie((td - 2.00) / 0.30))
+            self._fale.append([pinx, piny, mn * 0.012, 1.0, (255, 179, 107)])
+        if 4.25 <= td < 4.95:
+            a = (0.45 + 0.35 * math.sin(t * 11.0)) * (1.0 - self._plynnie((td - 4.60) / 0.30))
             if a > 0:
-                g = QRadialGradient(QPointF(px, py), mn * 0.045)
+                g = QRadialGradient(QPointF(pinx, piny), mn * 0.045)
                 g.setColorAt(0.0, QColor(255, 179, 107, int(235 * a)))
                 g.setColorAt(1.0, QColor(255, 179, 107, 0))
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(g)
-                p.drawEllipse(QPointF(px, py), mn * 0.045, mn * 0.045)
+                p.drawEllipse(QPointF(pinx, piny), mn * 0.045, mn * 0.045)
 
-        # 4) smugi (ślad + głowa) — duże i jasne
+        # 3b) ŻYWA MAPA: świat dorysowuje się za przejazdem (pod wstęgą)
+        u_sw = 0.0
+        if td >= 0.25:
+            u_sw = self._plynnie(min(1.0, (td - 0.25) / 4.00))
+        if 0.10 < td < 5.40:
+            try:
+                self._rysuj_swiat(p, W, H, mn, t, td, u_sw, pinx, piny, zan_k)
+            except Exception:
+                pass
+
+        # 4) ślad trasy (gasnący) + druga smuga + głowa pojazdu
         if self.is_dark:
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        znik = 1.0 - self._plynnie((td - 1.90) / 0.35)
+        self._sciezka_rysuj(p, t)
         if self._ogon2:
             self._ogon_rysuj(p, self._ogon2, 0.40,
-                             max(0.0, 1.0 - self._plynnie((td - 1.90) / 0.40)),
+                             max(0.0, 1.0 - self._plynnie((td - 4.45) / 0.40)),
                              mn * 0.014)
-        if self._ogon:
-            self._ogon_rysuj(p, self._ogon, 0.90 if self.is_dark else 1.0,
-                             max(0.0, znik), mn * (0.020 if self.is_dark else 0.022))
-        if glowa is not None and td < 1.90:
+        if glowa is not None and td < 4.90:
             self._glowa_rysuj(p, glowa[0], glowa[1], mn * 0.012)
             self._sypnij(glowa[0], glowa[1], 2, 1.3 * sk_ekr, 0.02 * sk_ekr,
                          0.05, 2.0 * sk_ekr,
                          ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                          (255, 255, 255)))
+                          (255, 255, 255) if self.is_dark else (4, 80, 66)))
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
+        # 4b) węzły SIECI, DOM i HUD trasy (nad wstęgą)
+        if 0.10 < td < 5.40:
+            try:
+                self._rysuj_wezly_sieci(p, W, H, mn, t, td, u_sw, pinx, piny, zan_k)
+                self._rysuj_hud_trasy(p, W, H, mn, t, td, u_sw, zan_k)
+            except Exception:
+                pass
 
         # 5) węzły sieci nad miastem (tylko ciemny motyw)
         if self.is_dark:
-            czasy = (2.05, 2.25, 2.45, 2.65, 2.85, 3.05)
+            czasy = (5.20, 5.50, 5.80, 6.10, 6.40, 6.70)
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
             for i, wez in enumerate(self._WEZLY_CIEMNE):
                 k = (td - czasy[i]) / 0.52
@@ -12620,34 +15012,387 @@ class AnimacjaStartowa(QWidget):
                     p.drawEllipse(QPointF(wx, wy), mn * 0.005, mn * 0.005)
             p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
-        # 6) podpis odręczny + zwinięcie
-        kw = self._plynnie((td - 1.90) / 1.35)
-        kz = self._plynnie((td - 3.25) / 0.40)
-        if kw > 0 and kz < 1:
-            n = max(2, int(kw * self._pismo_n))
-            piora = self._pismo_rysuj(p, n, srodek, 1.0 - 0.55 * kz,
-                                      1.0 - kz, W, H)
-            if kw < 1 and piora is not None:
-                self._glowa_rysuj(p, piora.x(), piora.y(), mn * 0.011)
-                self._sypnij(piora.x(), piora.y(), 2, 1.2 * sk_ekr,
-                             0.015 * sk_ekr, 0.05, 1.9 * sk_ekr,
-                             ((self._akc2.red(), self._akc2.green(), self._akc2.blue()),
-                              (255, 255, 255)))
-        if kw >= 1 and "snap" not in self._raz:
-            self._raz.add("snap")
-            self._blysk = 0.75
-            s2, lox2, loy2 = self._pismo_tr
-            kx = lox2 + self._pismo_b[-1][0] * s2
-            ky = loy2 + self._pismo_b[-1][1] * s2
-            self._fale.append([kx, ky, mn * 0.02, 1.0,
-                               (255, 255, 255) if self.is_dark else (13, 148, 136)])
-            self._fale.append([srodek.x(), srodek.y(), mn * 0.03, 1.0,
+        # 6) DRUK 3D logo z ZACIĘCIAMI głowicy (harmonogram: jedzie, staje
+        # w losowym punkcie, rusza, znów staje, kończy)
+        RUCH, STOJ = 2.16, 0.22
+        t_in = td - 4.90
+        u1, u2 = self._zaciecia
+        zaciety = False
+        if t_in <= 0:
+            kp = 0.0
+        elif t_in <= u1 * RUCH:
+            kp = t_in / RUCH
+        elif t_in <= u1 * RUCH + STOJ:
+            kp = u1; zaciety = True
+        elif t_in <= u2 * RUCH + STOJ:
+            kp = (t_in - STOJ) / RUCH
+        elif t_in <= u2 * RUCH + 2 * STOJ:
+            kp = u2; zaciety = True
+        else:
+            kp = min(1.0, (t_in - 2 * STOJ) / RUCH)
+        mig = 1.0 if not zaciety else (0.45 + 0.55 * abs(math.sin(t * 42.0)))
+        if 4.90 <= td < 7.75:
+            R = promien
+            gora = srodek.y() - R * 1.06
+            dol = srodek.y() + R * 1.06
+            wys = dol - gora
+            N_W = 18                       # liczba warstw wydruku
+            w_h = wys / N_W
+            gotowe = kp * N_W
+            pelne = min(N_W, int(gotowe))
+            frac = gotowe - pelne
+            y_pelne = dol - pelne * w_h    # góra UKOŃCZONYCH warstw
+            y_biez = y_pelne - w_h * 0.5   # środek bieżącej warstwy
+            lewo = srodek.x() - R * 1.30
+            szer_c = R * 2.60
+            # BLUEPRINT: techniczny obrys projektu, ktory znika w miare druku
+            al_bp = wej_d if False else 0.0
+            try:
+                al_bp = self._plynnie((td - 4.95) / 0.30) \
+                    * ((1.0 - kp) ** 1.15) \
+                    * (1.0 - self._plynnie((td - 7.40) / 0.30))
+            except Exception:
+                al_bp = 0.0
+            if al_bp > 0.02:
+                kol_bp = QColor(self._akc1) if self.is_dark else QColor(6, 95, 80)
+                p.save()
+                p.translate(srodek.x(), srodek.y())
+                p.rotate((t * 4.0) % 360.0)
+                kb_ = QColor(kol_bp)
+                kb_.setAlphaF(0.30 * al_bp)
+                pi_bp = QPen(kb_, max(1.0, mn * 0.0018))
+                pi_bp.setStyle(Qt.PenStyle.DashLine)
+                p.setPen(pi_bp)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawEllipse(QPointF(0, 0), R * 1.0, R * 1.0)
+                p.drawEllipse(QPointF(0, 0), R * 0.72, R * 0.72)
+                kb2 = QColor(kol_bp)
+                kb2.setAlphaF(0.42 * al_bp)
+                p.setPen(QPen(kb2, max(1.0, mn * 0.0020)))
+                p.drawLine(QPointF(-R * 0.16, 0), QPointF(R * 0.16, 0))
+                p.drawLine(QPointF(0, -R * 0.16), QPointF(0, R * 0.16))
+                for kat_ in (0, 90, 180, 270):
+                    ar_ = math.radians(kat_)
+                    p.drawLine(QPointF(math.cos(ar_) * R * 1.0,
+                                       math.sin(ar_) * R * 1.0),
+                               QPointF(math.cos(ar_) * R * 1.10,
+                                       math.sin(ar_) * R * 1.10))
+                p.restore()
+                # linia wymiarowa nad projektem + sygnatura rewizji
+                kb3 = QColor(kol_bp)
+                kb3.setAlphaF(0.38 * al_bp)
+                p.setPen(QPen(kb3, max(1.0, mn * 0.0018)))
+                wy_w = gora - R * 0.64
+                p.drawLine(QPointF(lewo, wy_w), QPointF(lewo + szer_c, wy_w))
+                for kx_, s_ in ((lewo, 1), (lewo + szer_c, -1)):
+                    p.drawLine(QPointF(kx_, wy_w), QPointF(kx_ + s_ * R * 0.07, wy_w - R * 0.035))
+                    p.drawLine(QPointF(kx_, wy_w), QPointF(kx_ + s_ * R * 0.07, wy_w + R * 0.035))
+                    p.drawLine(QPointF(kx_, wy_w - R * 0.06), QPointF(kx_, wy_w + R * 0.06))
+                if not hasattr(self, "_f_sw_mala"):
+                    self._f_sw_mala = self._sw_czcionka(mn, False)
+                p.setFont(self._f_sw_mala)
+                p.drawText(QPointF(lewo + szer_c - mn * 0.085, wy_w - mn * 0.008),
+                           "PMT \u2022 rev 47")
+            # głowica zsynchronizowana z nakładaniem: ping-pong po warstwach
+            if pelne % 2 == 0:
+                gx = lewo + szer_c * frac
+            else:
+                gx = lewo + szer_c * (1.0 - frac)
+            if zaciety:
+                gx += math.sin(t * 90.0) * R * 0.04
+            wej_d = self._plynnie((td - 4.90) / 0.25)
+            plat = wej_d * (1.0 - self._plynnie((td - 7.60) / 0.25))
+            # PLATFORMA 3D: perspektywiczna tarcza z siatką pod wydrukiem
+            if plat > 0:
+                prx, pry = R * 1.55, R * 0.34
+                kol_pl = QColor(self._akc1); kol_pl.setAlphaF(0.55 * plat)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(kol_pl, max(1.6, mn * 0.0035)))
+                p.drawEllipse(QPointF(srodek.x(), dol + R * 0.10), prx, pry)
+                kol_s = QColor(self._akc1); kol_s.setAlphaF(0.20 * plat)
+                p.setPen(QPen(kol_s, 1.0))
+                for f_ in (0.72, 0.45):
+                    p.drawEllipse(QPointF(srodek.x(), dol + R * 0.10),
+                                  prx * f_, pry * f_)
+                for kx_ in (-0.9, -0.45, 0.0, 0.45, 0.9):
+                    p.drawLine(QPointF(srodek.x() + prx * kx_ * 0.35, dol + R * 0.10 - pry * 0.32),
+                               QPointF(srodek.x() + prx * kx_, dol + R * 0.10 + pry * 0.30))
+            # cień wydruku na platformie — rośnie razem z nadrukiem
+            if plat > 0 and kp > 0.02:
+                p.save()
+                p.translate(srodek.x(), dol + R * 0.10)
+                p.scale(1.0, 0.22)
+                cien_g = QRadialGradient(QPointF(0, 0), R * 1.15)
+                cien_g.setColorAt(0.0, QColor(0, 0, 0, int(120 * plat * min(1.0, kp * 1.4))))
+                cien_g.setColorAt(1.0, QColor(0, 0, 0, 0))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(cien_g)
+                p.drawEllipse(QPointF(0, 0), R * 1.15, R * 1.15)
+                p.restore()
+            # NADRUK: tylko ukończone warstwy + bieżąca DO miejsca głowicy —
+            # nic "gotowego" nie istnieje ponad tym, co realnie nałożono
+            if pelne > 0 or frac > 0.001:
+                p.save()
+                obszar = QPainterPath()
+                if pelne > 0:
+                    obszar.addRect(QRectF(lewo, y_pelne, szer_c,
+                                          dol - y_pelne + R * 0.45))
+                if pelne < N_W and frac > 0.001:
+                    if pelne % 2 == 0:
+                        obszar.addRect(QRectF(lewo, y_pelne - w_h,
+                                              max(0.0, gx - lewo), w_h + 0.6))
+                    else:
+                        obszar.addRect(QRectF(gx, y_pelne - w_h,
+                                              max(0.0, lewo + szer_c - gx), w_h + 0.6))
+                p.setClipPath(obszar)
+                # GRUBA bryła 3D: schodkowa wytłoczka pod licem nadruku
+                for op_, of_, gl_ in ((0.30, 0.150, 0.10), (0.40, 0.105, 0.14),
+                                      (0.55, 0.060, 0.20), (0.75, 0.024, 0.30)):
+                    p.setOpacity(op_)
+                    self._rysuj_logo(p, srodek.x(), srodek.y() + R * of_, R, 0, gl_)
+                p.setOpacity(1.0)
+                self._rysuj_logo(p, srodek.x(), srodek.y(), R, 0, 1.0)
+                p.setPen(QPen(QColor(255, 255, 255, 24), 1))
+                yl = y_pelne
+                while yl < dol:
+                    p.drawLine(QPointF(srodek.x() - R, yl),
+                               QPointF(srodek.x() + R, yl))
+                    yl += w_h
+                if kp < 1:
+                    # ŻAR WYPALANIA: świeże warstwy jarzą się i stygną w dół
+                    if self.is_dark:
+                        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+                    zar_g = QLinearGradient(0, y_pelne - w_h, 0, y_pelne + R * 0.30)
+                    zar_g.setColorAt(0.0, QColor(255, 244, 224, int(150 * mig)))
+                    zar_g.setColorAt(0.35, QColor(self._akc1.red(), self._akc1.green(),
+                                                  self._akc1.blue(), int(90 * mig)))
+                    zar_g.setColorAt(1.0, QColor(self._akc1.red(), self._akc1.green(),
+                                                 self._akc1.blue(), 0))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(zar_g)
+                    p.drawRect(QRectF(srodek.x() - R, y_pelne - w_h, R * 2.0,
+                                      w_h + R * 0.30))
+                    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+                p.restore()
+            if kp < 1:
+                # DRUKARKA: pozioma szyna, wózek z radiatorem, dysza i dioda
+                kar_y = gora - R * 0.30
+                # KABEL ZASILANIA: od dolu sceny do lewego slupka szyny,
+                # z plynacymi impulsami energii
+                P0x, P0y = lewo - R * 0.95, float(H) + R * 0.10
+                Cx, Cy = lewo - R * 0.80, kar_y + R * 1.55
+                P1x, P1y = lewo - R * 0.06, kar_y + R * 0.06
+                kab = QPainterPath(QPointF(P0x, P0y))
+                kab.quadTo(QPointF(Cx, Cy), QPointF(P1x, P1y))
+                kol_kab = QColor(10, 24, 32) if self.is_dark else QColor(28, 58, 52)
+                kol_kab.setAlphaF(0.85 * wej_d)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(kol_kab, max(2.4, mn * 0.0052),
+                              Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.drawPath(kab)
+                rdz_kab = QColor(self._akc2)
+                rdz_kab.setAlphaF(0.50 * wej_d)
+                p.setPen(QPen(rdz_kab, max(1.0, mn * 0.0018)))
+                p.drawPath(kab)
+                for j_ in range(3):
+                    tt = (t * 0.55 + j_ / 3.0) % 1.0
+                    u_ = 1.0 - tt
+                    ix = u_ * u_ * P0x + 2 * u_ * tt * Cx + tt * tt * P1x
+                    iy = u_ * u_ * P0y + 2 * u_ * tt * Cy + tt * tt * P1y
+                    imp = QColor(self._akc2)
+                    imp.setAlphaF(0.85 * wej_d * math.sin(tt * math.pi))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(imp)
+                    p.drawEllipse(QPointF(ix, iy), mn * 0.0042, mn * 0.0042)
+                kol_szy = QColor(self._akc1); kol_szy.setAlphaF(0.75 * wej_d)
+                p.setPen(QPen(kol_szy, max(2.0, mn * 0.0042)))
+                p.drawLine(QPointF(lewo - R * 0.06, kar_y),
+                           QPointF(lewo + szer_c + R * 0.06, kar_y))
+                p.setBrush(kol_szy)
+                p.setPen(Qt.PenStyle.NoPen)
+                for kx_ in (lewo - R * 0.06, lewo + szer_c + R * 0.06):
+                    p.drawRoundedRect(QRectF(kx_ - R * 0.035, kar_y - R * 0.075,
+                                             R * 0.07, R * 0.15), R * 0.02, R * 0.02)
+                # wiązka wypalająca od dyszy do bieżącej warstwy
+                wiaz = QLinearGradient(0, kar_y + R * 0.20, 0, y_biez)
+                w1 = QColor(255, 255, 255, int(235 * mig)) if self.is_dark \
+                    else QColor(6, 110, 90, int(235 * mig))
+                w2 = QColor(self._akc1); w2.setAlpha(int(60 * mig))
+                wiaz.setColorAt(0.0, w1); wiaz.setColorAt(1.0, w2)
+                p.setPen(QPen(QBrush(wiaz), max(1.8, mn * 0.0036)))
+                p.drawLine(QPointF(gx, kar_y + R * 0.20), QPointF(gx, y_biez))
+                # wózek: korpus + żeberka radiatora + dysza-trapez
+                korp = QRectF(gx - R * 0.20, kar_y - R * 0.085, R * 0.40, R * 0.17)
+                p.setPen(QPen(QColor(self._akc1), max(1.4, mn * 0.003)))
+                p.setBrush(QColor(10, 22, 30, 235) if self.is_dark else QColor(255, 255, 255, 245))
+                p.drawRoundedRect(korp, R * 0.045, R * 0.045)
+                zeb = QColor(self._akc1); zeb.setAlpha(150)
+                p.setPen(QPen(zeb, max(1.0, mn * 0.0018)))
+                for kx_ in (-0.10, -0.03, 0.04, 0.11):
+                    p.drawLine(QPointF(gx + R * kx_, kar_y - R * 0.055),
+                               QPointF(gx + R * kx_, kar_y + R * 0.055))
+                dysza = QPainterPath(QPointF(gx - R * 0.085, kar_y + R * 0.085))
+                dysza.lineTo(QPointF(gx + R * 0.085, kar_y + R * 0.085))
+                dysza.lineTo(QPointF(gx + R * 0.030, kar_y + R * 0.20))
+                dysza.lineTo(QPointF(gx - R * 0.030, kar_y + R * 0.20))
+                dysza.closeSubpath()
+                p.setPen(QPen(QColor(self._akc1), max(1.2, mn * 0.0024)))
+                p.setBrush(QColor(7, 16, 24, 235) if self.is_dark else QColor(241, 245, 249, 245))
+                p.drawPath(dysza)
+                # dioda stanu: zieleń pracy / bursztyn zacięcia (mruga)
+                # PANEL TELEMETRII: warstwa / dysza / status — zyje z drukiem
+                try:
+                    if not hasattr(self, "_f_sw_chip"):
+                        self._f_sw_chip = self._sw_czcionka(mn, True)
+                        self._f_sw_mala = self._sw_czcionka(mn, False)
+                    al_tel = wej_d * (1.0 - self._plynnie((td - 7.50) / 0.22))
+                    if al_tel > 0.02:
+                        tw_ = mn * 0.205
+                        th_ = mn * 0.118
+                        tx_ = min(W - tw_ - mn * 0.028, srodek.x() + R * 1.92)
+                        ty_ = srodek.y() - R * 0.62
+                        tlo_t = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
+                        tlo_t.setAlphaF((0.66 if self.is_dark else 0.92) * al_tel)
+                        ob_t = QColor(255, 170, 60) if zaciety else QColor(self._akc2)
+                        ob_t.setAlphaF((0.55 if self.is_dark else 0.85) * al_tel
+                                       * (mig if zaciety else 1.0))
+                        p.setPen(QPen(ob_t, max(1.0, mn * 0.0018)))
+                        p.setBrush(tlo_t)
+                        p.drawRoundedRect(QRectF(tx_, ty_, tw_, th_), mn * 0.009, mn * 0.009)
+                        ety_t = QColor(150, 214, 202) if self.is_dark else QColor(20, 72, 64)
+                        ety_t.setAlphaF((0.85 if self.is_dark else 0.96) * al_tel)
+                        war_t = QColor(self._akc1)
+                        war_t.setAlphaF(min(1.0, 0.98 * al_tel))
+                        temp_ = (166 + 5.0 * math.sin(t * 5.0)) if zaciety \
+                            else (212 + 8.0 * math.sin(t * 2.6))
+                        st_nap = "ZACI\u0118CIE" if zaciety else "DRUK"
+                        st_kol = QColor(255, 170, 60) if zaciety else QColor(self._akc2)
+                        st_kol.setAlphaF(min(1.0, 0.98 * al_tel) * (mig if zaciety else 1.0))
+                        fmT = QFontMetrics(self._f_sw_chip)
+                        wiersze_t = (("WARSTWA", "%02d/%d" % (min(N_W, pelne + (1 if frac > 0.001 else 0)), N_W), war_t),
+                                     ("DYSZA", "%d\u00b0C" % int(temp_), war_t),
+                                     ("STATUS", st_nap, st_kol))
+                        for j_, (a_n, b_n, kol_b) in enumerate(wiersze_t):
+                            yy_ = ty_ + mn * (0.027 + j_ * 0.031)
+                            p.setFont(self._f_sw_mala)
+                            p.setPen(ety_t)
+                            p.drawText(QPointF(tx_ + mn * 0.016, yy_), a_n)
+                            p.setFont(self._f_sw_chip)
+                            p.setPen(kol_b)
+                            p.drawText(QPointF(tx_ + tw_ - mn * 0.016
+                                               - fmT.horizontalAdvance(b_n), yy_), b_n)
+                        pas_t = QColor(self._akc2)
+                        pas_t.setAlphaF(0.9 * al_tel)
+                        p.setPen(QPen(pas_t, max(2.0, mn * 0.0040)))
+                        p.drawLine(QPointF(tx_ + mn * 0.016, ty_ + th_ - mn * 0.014),
+                                   QPointF(tx_ + mn * 0.016 + (tw_ - mn * 0.032) * kp,
+                                           ty_ + th_ - mn * 0.014))
+                except Exception:
+                    pass
+                led_k = QColor(255, 170, 60) if zaciety else QColor(self._akc2)
+                led_k.setAlphaF(0.35 + 0.65 * abs(math.sin(t * (14.0 if zaciety else 5.0))))
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(led_k)
+                p.drawEllipse(QPointF(gx + R * 0.145, kar_y - R * 0.038), R * 0.024, R * 0.024)
+                if zaciety:
+                    # smuzki dymu z dyszy podczas zaciecia
+                    dym_k = QColor(205, 215, 220) if self.is_dark else QColor(96, 106, 110)
+                    for j_ in range(3):
+                        fa = (t * 1.15 + j_ * 0.36) % 1.0
+                        dk = QColor(dym_k)
+                        dk.setAlphaF(0.45 * (1.0 - fa) * wej_d)
+                        p.setPen(QPen(dk, max(1.2, mn * 0.0026)))
+                        p.setBrush(Qt.BrushStyle.NoBrush)
+                        p.drawArc(QRectF(gx - R * 0.10 + j_ * R * 0.035
+                                         + math.sin(fa * 6.0 + j_) * R * 0.02,
+                                         kar_y + R * 0.16 - fa * R * 0.55,
+                                         R * 0.11, R * 0.09),
+                                  30 * 16, 200 * 16)
+                self._glowa_rysuj(p, gx, y_biez, mn * 0.009)
+                # WIĘKSZY spawalniczy pokaz iskier
+                self._sypnij(gx, y_biez, 16 if zaciety else 9, 2.6 * sk_ekr,
+                             0.16 * sk_ekr, 0.026, 3.2 * sk_ekr,
+                             ((255, 255, 255),
+                              (self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                              (255, 198, 130)))
+                self._sypnij(srodek.x() + random.uniform(-R, R), y_pelne, 2,
+                             1.3 * sk_ekr, 0.14 * sk_ekr, 0.032, 2.4 * sk_ekr,
+                             ((255, 226, 180),
+                              (self._akc2.red(), self._akc2.green(), self._akc2.blue())),
+                             unos=0.6 * sk_ekr)
+                if random.random() < 0.06:
+                    # co jakiś czas: większy rozbłysk żużlu
+                    self._sypnij(gx, y_biez, 14, 3.4 * sk_ekr, 0.15 * sk_ekr,
+                                 0.020, 3.6 * sk_ekr,
+                                 ((255, 255, 255), (255, 210, 150),
+                                  (self._akc1.red(), self._akc1.green(), self._akc1.blue())))
+        if "druk" not in self._raz and kp >= 1.0:
+            self._raz.add("druk")
+            self._blysk = 0.45
+            self._fale.append([srodek.x(), srodek.y(), promien * 0.5, 1.0,
                                (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
-            self._sypnij(kx, ky, 40, 3.0 * sk_ekr, 0.02 * sk_ekr, 0.022,
-                         2.6 * sk_ekr,
+            self._sypnij(srodek.x(), srodek.y(), 22, 2.4 * sk_ekr, 0.03 * sk_ekr,
+                         0.028, 2.2 * sk_ekr,
                          ((self._akc2.red(), self._akc2.green(), self._akc2.blue()),
                           (255, 255, 255),
                           (self._akc1.red(), self._akc1.green(), self._akc1.blue())))
+
+        # 6b) logo po druku (pełne) + lot do topbara w finale
+        if td >= 7.48:
+            lx, ly, lr, lk = self._logo_lot(td, W, H)
+            if td <= self.LOGO_T_IMPLOZJA:
+                # logo stoi w oku cyklonu — BEZ poświaty (czysto nad chaosem)
+                self._rysuj_logo(p, lx, ly, promien, obrot=0, jasnosc=1.0,
+                                 poswiata=False)
+            elif td <= self.LOGO_T_LOT:
+                # IMPLOZJA: logo zapada się w świetlny puls
+                k1 = (td - self.LOGO_T_IMPLOZJA) / (self.LOGO_T_LOT - self.LOGO_T_IMPLOZJA)
+                if "implozja" not in self._raz:
+                    self._raz.add("implozja")
+                    self._fale.append([lx, ly, promien * 0.9, 1.0,
+                                       (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
+                    self._blysk = 0.22
+                p.setOpacity(max(0.0, 1.0 - k1 * 1.25))
+                self._rysuj_logo(p, lx, ly, max(6.0, promien * (1.0 - k1)),
+                                 obrot=0, jasnosc=1.0, poswiata=False)
+                p.setOpacity(1.0)
+                self._glowa_rysuj(p, lx, ly, mn * (0.006 + 0.012 * k1))
+            elif td <= self.LOGO_T_DOLOT:
+                # PULS w drodze do celu — czysta świetlna kula ze smugą
+                self._sypnij(lx, ly, 2, 1.6 * sk_ekr, 0.02 * sk_ekr, 0.05,
+                             2.0 * sk_ekr,
+                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                              (255, 255, 255)))
+                puls_r = mn * (0.016 + 0.004 * math.sin(t * 18.0))
+                self._glowa_rysuj(p, lx, ly, puls_r)
+            elif td <= self.LOGO_T_IKONA_OK:
+                # IKONA TOPBARA: rozkwita POWIĘKSZONA, potem osiada
+                zn = self._plynnie((td - self.LOGO_T_DOLOT) / 0.10)
+                self._glowa_rysuj(p, lx, ly, mn * 0.016 * (1.0 - zn))
+                p.setOpacity(min(1.0, zn * 1.4 + 0.2))
+                self._rysuj_logo(p, lx, ly, max(6.0, lr),
+                                 obrot=0, jasnosc=1.0, poswiata=False)
+                p.setOpacity(1.0)
+                if td >= self.LOGO_T_IKONA_OK - 0.02 and "ikona_ok" not in self._raz:
+                    self._raz.add("ikona_ok")
+                    try:
+                        lbl = getattr(self.parent(), "logo_lbl", None)
+                        if lbl is not None:
+                            lbl.setVisible(True)   # prawdziwa ikona objęła służbę
+                    except Exception:
+                        pass
+            elif td <= self.LOGO_T_CENTRUM:
+                # PULS odbija się z topbara i transportuje logo do centrum
+                if "puls2" not in self._raz:
+                    self._raz.add("puls2")
+                    cx2, cy2, cr2 = self._cel_logo(W, H)
+                    self._fale.append([cx2, cy2, cr2 * 0.6, 1.0, (255, 255, 255)])
+                self._sypnij(lx, ly, 2, 1.6 * sk_ekr, 0.02 * sk_ekr, 0.05,
+                             2.0 * sk_ekr,
+                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                              (255, 255, 255)))
+                puls_r = mn * (0.016 + 0.004 * math.sin(t * 18.0))
+                self._glowa_rysuj(p, lx, ly, puls_r)
 
         # 7) iskry i fale
         if self.is_dark:
@@ -12656,20 +15401,16 @@ class AnimacjaStartowa(QWidget):
         self._fale_rysuj(p, dt, mn)
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
 
-        # 8) logo + pierścień postępu
-        klogo = (td - 3.32) / 0.46
-        if klogo > 0:
-            alfa = self._plynnie(min(1.0, (td - 3.32) / 0.30))
-            skala = 0.40 + 0.60 * self._odbicie(min(1.0, klogo))
-            p.setOpacity(alfa)
-            self._rysuj_logo(p, srodek.x(), srodek.y(), promien * skala,
-                             obrot=0, jasnosc=alfa)
-            p.setOpacity(1.0)
-        kring = (td - 3.40) / 1.40
-        if kring > 0:
-            kat = 360.0 * self._wyplyw(min(1.0, kring))
+        # 8) PIERŚCIEŃ = pasek postępu druku (jedyny wskaźnik)
+        gasn = 1.0 - self._plynnie((td - 8.05) / 0.25)
+        p.save()
+        p.setOpacity(gasn)
+        if td >= 5.00 and gasn > 0:
+            wej_r = self._plynnie((td - 5.00) / 0.30)
+            kat = 360.0 * kp
             prost = QRectF(srodek.x() - rr, srodek.y() - rr, rr * 2, rr * 2)
-            tor = QColor(255, 255, 255, 30) if self.is_dark else QColor(15, 23, 42, 50)
+            tor = QColor(255, 255, 255, int(30 * wej_r)) if self.is_dark \
+                else QColor(15, 23, 42, int(50 * wej_r))
             p.setPen(QPen(tor, max(2.5, mn * 0.005)))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(prost)
@@ -12677,8 +15418,7 @@ class AnimacjaStartowa(QWidget):
             luk.setColorAt(0.0, self._akc1)
             luk.setColorAt(0.5, self._akc2)
             luk.setColorAt(1.0, self._akc1)
-            # poświata łuku pod spodem + rdzeń
-            posw = QColor(self._akc1); posw.setAlpha(70)
+            posw = QColor(self._akc1); posw.setAlpha(int(70 * wej_r))
             pen_posw = QPen(posw, max(8.0, mn * 0.020))
             pen_posw.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(pen_posw)
@@ -12691,16 +15431,15 @@ class AnimacjaStartowa(QWidget):
             cx = srodek.x() + rr * math.cos(rad)
             cy = srodek.y() - rr * math.sin(rad)
             g = QRadialGradient(QPointF(cx, cy), mn * 0.026)
-            g.setColorAt(0.0, QColor(255, 255, 255, 245))
-            koll = QColor(self._akc1); koll.setAlpha(180)
+            g.setColorAt(0.0, QColor(255, 255, 255, int(245 * wej_r)))
+            koll = QColor(self._akc1); koll.setAlpha(int(180 * wej_r))
             g.setColorAt(0.4, koll)
             koll0 = QColor(self._akc1); koll0.setAlpha(0)
             g.setColorAt(1.0, koll0)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(g)
             p.drawEllipse(QPointF(cx, cy), mn * 0.026, mn * 0.026)
-            # procent i napisy
-            proc = int(round(self._wyplyw(min(1.0, kring)) * 100))
+            proc = int(round(kp * 100))
             kol_tekst = QColor(230, 244, 244, 235) if self.is_dark else QColor(15, 23, 42, 245)
             p.setFont(QFont("Segoe UI", max(11, int(mn * 0.020)), QFont.Weight.Bold))
             self._tekst(p, QRectF(srodek.x() - rr, srodek.y() + promien * 1.08, rr * 2, mn * 0.06),
@@ -12710,22 +15449,170 @@ class AnimacjaStartowa(QWidget):
                 nap = "Gotowe"
                 kol_nap = QColor(self._akc2)
             else:
-                nap = "Wczytywanie PMT Planer" + "." * (1 + int(t * 2.8) % 3)
+                nap = ("Zacięcie głowicy" + "." * (1 + int(t * 3.5) % 3)) if zaciety \
+                    else ("Drukowanie PMT Planer" + "." * (1 + int(t * 2.8) % 3))
                 kol_nap = kol_tekst
             p.setFont(QFont("Segoe UI", max(10, int(mn * 0.019)), QFont.Weight.DemiBold))
             self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.030, W, mn * 0.05),
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
                         nap, kol_nap, halo=True)
-        if td > 3.90 and self.imie:
-            a = int(220 * self._plynnie((td - 3.90) / 0.40))
+        if td > 7.55 and self.imie:
+            a = int(220 * self._plynnie((td - 7.55) / 0.40))
             kol_im = QColor(self._akc2.red(), self._akc2.green(), self._akc2.blue(), a) \
                 if self.is_dark else QColor(6, 78, 59, a)
             p.setFont(QFont("Segoe UI", max(11, int(mn * 0.022)), QFont.Weight.Bold))
             self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.072, W, mn * 0.06),
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
                         "Witaj, " + self.imie.split()[0] + "!", kol_im, halo=True)
+        p.restore()
 
-        # 9) błysk
+        # 9) FINAŁ: rozmycie, pęknięcia i wypadające NIEFOREMNE kafelki
+        if td >= 7.70:
+            if self._kafle is None:
+                self._zbuduj_kafle(W, H)
+            roz = self._plynnie((td - 7.85) / 0.50) * (1.0 - self._plynnie((td - 10.50) / 0.30))
+            if roz > 0:
+                g = QRadialGradient(srodek, max(W, H) * 0.85)
+                kol_r = QColor(255, 255, 255) if self.is_dark else QColor(15, 23, 42)
+                kol_r.setAlpha(int(30 * roz))
+                kol_r2 = QColor(kol_r); kol_r2.setAlpha(0)
+                g.setColorAt(0.0, kol_r); g.setColorAt(1.0, kol_r2)
+                p.setPen(Qt.PenStyle.NoPen); p.setBrush(g)
+                p.drawEllipse(srodek, max(W, H) * 0.85, max(W, H) * 0.85)
+            # rozłam i odłamki nie wchodzą w koło logo
+            lx0, ly0, lr0, _lk0 = self._logo_lot(td, W, H)
+            _wyc = QPainterPath()
+            _wyc.addRect(0.0, 0.0, float(W), float(H))
+            _kolo = QPainterPath()
+            _kolo.addEllipse(QPointF(lx0, ly0), lr0 * 1.18, lr0 * 1.18)
+            p.save()
+            p.setClipPath(_wyc.subtracted(_kolo))
+            kol_rys = QColor(255, 255, 255) if self.is_dark else QColor(15, 23, 42)
+            # 9a) ENERGETYCZNE SZCZELINY — ekran cięty tym samym światłem,
+            # którym rysowała się trasa: trójwarstwowy blask, płonąca
+            # głowica z iskrami na czole propagacji, po ułożeniu oddech
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            rdzen = QColor(255, 255, 255) if self.is_dark else QColor(6, 66, 55)
+            for pkt, s_, gr_cz, skala_g in self._linie_rozlamu:
+                prog_s = (td - s_) / gr_cz
+                if prog_s <= 0:
+                    continue
+                prog = self._plynnie(min(1.0, prog_s))
+                n_p = max(2, int(prog * len(pkt)))
+                sc = QPainterPath(pkt[0])
+                for q in pkt[1:n_p]:
+                    sc.lineTo(q)
+                if prog_s < 1.0:
+                    puls = 0.85 + 0.15 * math.sin(t * 46.0 + s_ * 7.0)
+                else:
+                    puls = 0.52 + 0.10 * math.sin(t * 3.2 + s_ * 5.0)
+                for szer_l, kol_l, moc_l in ((0.016 * skala_g, self._akc2, 0.30),
+                                             (0.0075 * skala_g, self._akc1, 0.65),
+                                             (0.0030 * skala_g, rdzen, 0.95)):
+                    gk = QColor(kol_l)
+                    gk.setAlphaF(min(1.0, moc_l * puls))
+                    pio = QPen(gk, max(1.4, mn * szer_l))
+                    pio.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    pio.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    p.setPen(pio)
+                    p.drawPath(sc)
+                if prog_s < 1.0:
+                    # płonące czoło szczeliny
+                    gx_, gy_ = pkt[n_p - 1].x(), pkt[n_p - 1].y()
+                    self._glowa_rysuj(p, gx_, gy_, mn * 0.007 * skala_g)
+                    self._sypnij(gx_, gy_, 2, 1.5 * sk_ekr, 0.10 * sk_ekr,
+                                 0.045, 1.9 * sk_ekr,
+                                 ((255, 255, 255),
+                                  (self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                                  (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
+            # 9b) ODŁAMKI ODRYWAJĄ SIĘ I OPADAJĄ W ODCHŁAŃ
+            for idx, start in self._start_kafli.items():
+                if td < start:
+                    continue
+                naroz = self._kafle[idx]
+                if idx not in self._odpadle:
+                    self._odpadle.add(idx)
+                    cx_ = sum(q.x() for q in naroz) / len(naroz)
+                    cy_ = sum(q.y() for q in naroz) / len(naroz)
+                    for _ in range(9):
+                        u1_, u2_ = random.random(), random.random()
+                        q1, q2 = random.choice(naroz), random.choice(naroz)
+                        self._sypnij(cx_ + (q1.x() - cx_) * u1_ * 0.85,
+                                     cy_ + (q2.y() - cy_) * u2_ * 0.85,
+                                     1, 2.2 * sk_ekr, 0.12 * sk_ekr, 0.018,
+                                     2.6 * sk_ekr,
+                                     ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                                      (255, 255, 255),
+                                      (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
+                ddx, ddy, ang, alfa_k, koniec = self._kafel_upadek_geo(idx, td)
+                if not koniec and alfa_k > 0.02 and self._zdjecie is not None:
+                    cx_ = sum(q.x() for q in naroz) / len(naroz)
+                    cy_ = sum(q.y() for q in naroz) / len(naroz)
+                    scK = QPainterPath(naroz[0])
+                    for q in naroz[1:]:
+                        scK.lineTo(q)
+                    scK.closeSubpath()
+                    p.save()
+                    p.translate(cx_ + ddx, cy_ + ddy)
+                    p.rotate(ang)
+                    p.translate(-cx_, -cy_)
+                    p.setClipPath(scK, Qt.ClipOperation.IntersectClip)
+                    p.setOpacity(alfa_k)
+                    p.drawPixmap(0, 0, self._zdjecie)
+                    p.setOpacity(1.0)
+                    kraw = QColor(kol_rys); kraw.setAlphaF(0.55 * alfa_k)
+                    pio = QPen(kraw, max(1.2, mn * 0.0022))
+                    pio.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    p.setPen(pio)
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawPath(scK)
+                    p.restore()
+                if td - start < 0.12:
+                    sc2 = QPainterPath(naroz[0])
+                    for q in naroz[1:]:
+                        sc2.lineTo(q)
+                    sc2.closeSubpath()
+                    _a_bl = int(235 * (1.0 - (td - start) / 0.12))
+                    bl = QColor(255, 255, 255, _a_bl) if self.is_dark \
+                        else QColor(15, 23, 42, _a_bl)
+                    pio = QPen(bl, max(2.0, mn * 0.005))
+                    pio.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    p.setPen(pio)
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawPath(sc2)
+            p.restore()
+            if "dolot" not in self._raz and td >= 11.74:
+                self._raz.add("dolot")
+                cx2, cy2, cr2 = self._cel_logo(W, H)
+                self._fale.append([cx2, cy2, cr2 * 0.7, 1.0,
+                                   (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
+                self._fale.append([cx2, cy2, cr2 * 0.4, 1.0, (255, 255, 255)])
+                self._sypnij(cx2, cy2, 26, 2.4 * sk_ekr, 0.05 * sk_ekr, 0.030,
+                             2.2 * sk_ekr,
+                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                              (255, 255, 255),
+                              (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
+                self._blysk = 0.30
+            if "centrum" not in self._raz and td >= self.LOGO_T_CENTRUM:
+                self._raz.add("centrum")
+                self._fale.append([srodek.x(), srodek.y(), mn * 0.05, 1.0,
+                                   (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
+                self._fale.append([srodek.x(), srodek.y(), mn * 0.03, 1.0,
+                                   (255, 255, 255)])
+                self._sypnij(srodek.x(), srodek.y(), 24, 2.6 * sk_ekr,
+                             0.04 * sk_ekr, 0.03, 2.4 * sk_ekr,
+                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
+                              (255, 255, 255),
+                              (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
+                self._blysk = 0.32
+            if self._odpadle:
+                if self.is_dark:
+                    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+                self._iskry_rysuj(p, dt)
+                self._fale_rysuj(p, dt, mn)
+                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+
+        # 10) błysk
         if self._blysk > 0.02:
             p.fillRect(self.rect(), QColor(255, 255, 255, int(160 * self._blysk)))
         self._blysk *= 0.86 ** max(0.2, min(3.0, dt * 60.0))
@@ -12737,7 +15624,7 @@ class AnimacjaStartowa(QWidget):
         rr = promien * 1.60
         skala = 0.40 + 0.60 * self._odbicie(min(1.0, max(0.0, (td - 0.15) / 0.55)))
         self._rysuj_logo(p, srodek.x(), srodek.y(), promien * skala, 0, 1.0)
-        kring = (td - 0.70) / 3.90
+        kring = (td - 0.70) / 10.50
         if kring > 0:
             kat = 360.0 * self._wyplyw(min(1.0, kring))
             prost = QRectF(srodek.x() - rr, srodek.y() - rr, rr * 2, rr * 2)
@@ -12760,7 +15647,7 @@ class AnimacjaStartowa(QWidget):
             self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.030, W, mn * 0.05),
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
                         nap, QColor(self._akc2) if proc >= 100 else kol_tekst, halo=True)
-        if td > 3.90 and self.imie:
+        if td > 5.30 and self.imie:
             kol_im = QColor(self._akc2) if self.is_dark else QColor(6, 78, 59)
             p.setFont(QFont("Segoe UI", max(11, int(mn * 0.022)), QFont.Weight.Bold))
             self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.072, W, mn * 0.06),
@@ -12776,37 +15663,46 @@ class AnimacjaStartowa(QWidget):
         p.setPen(kolor)
         p.drawText(prost, flagi, txt)
 
-    def _rysuj_logo(self, p, x, y, r, obrot=0.0, jasnosc=1.0):
-        """Logo z poświatą; gdy brak pliku — rysowany monogram PMT."""
-        poswiata = QRadialGradient(QPointF(x, y), r * 2.1)
-        if self.is_dark:
-            poswiata.setColorAt(0.0, QColor(0, 240, 255, int(80 * jasnosc)))
-            poswiata.setColorAt(0.55, QColor(0, 228, 161, int(32 * jasnosc)))
-            poswiata.setColorAt(1.0, QColor(0, 228, 161, 0))
+    def _rysuj_logo(self, p, x, y, r, obrot=0.0, jasnosc=1.0, poswiata=True):
+        """Logo (opcjonalnie z poświatą); brak pliku — rysowany monogram."""
+        if not poswiata:
+            pass
         else:
-            poswiata.setColorAt(0.0, QColor(13, 148, 136, int(60 * jasnosc)))
-            poswiata.setColorAt(0.55, QColor(16, 185, 129, int(26 * jasnosc)))
-            poswiata.setColorAt(1.0, QColor(16, 185, 129, 0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(poswiata)
-        p.drawEllipse(QPointF(x, y), r * 2.1, r * 2.1)
+            _pos = self._rysuj_logo_poswiata(p, x, y, r, jasnosc)
         p.save()
         p.translate(x, y)
         if obrot:
             p.rotate(obrot)
         if self._logo is not None and not self._logo.isNull():
             bok = int(r * 2.04)
-            skalowane = self._logo.scaled(bok, bok,
+            # OSTROŚĆ: pixmapę skalujemy w rozdzielczości FIZYCZNEJ ekranu
+            # (devicePixelRatio) — ten sam trick co w kompasie i topbarze
+            # ("renderujemy w 2x dla ostrości"). Bez tego przy skalowaniu
+            # Windows 125/150% logo w intrze mięknie niezależnie od pliku.
+            try:
+                dpr = max(1.0, float(self.devicePixelRatioF()))
+            except Exception:
+                dpr = 1.0
+            skalowane = self._logo.scaled(int(bok * dpr), int(bok * dpr),
                                           Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                           Qt.TransformationMode.SmoothTransformation)
+            try:
+                skalowane.setDevicePixelRatio(dpr)
+            except Exception:
+                pass
             p.setBrush(QColor(255, 255, 255))
             p.setPen(Qt.PenStyle.NoPen)
             p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
             sciezka = QPainterPath()
             sciezka.addEllipse(QPointF(0, 0), r * 1.0, r * 1.0)
             p.save()
-            p.setClipPath(sciezka)
-            p.drawPixmap(QPointF(-skalowane.width() / 2, -skalowane.height() / 2), skalowane)
+            # Przecinamy z AKTYWNYM przycinaniem (np. warstwami druku 3D) —
+            # domyślne ReplaceClip kasowało clip warstw i pixmapa logo
+            # rysowała się w całości, "drukując coś, co już jest".
+            p.setClipPath(sciezka, Qt.ClipOperation.IntersectClip)
+            _dpr = max(1.0, float(skalowane.devicePixelRatio() or 1.0))
+            p.drawPixmap(QPointF(-skalowane.width() / (2 * _dpr),
+                                 -skalowane.height() / (2 * _dpr)), skalowane)
             p.restore()
             obw = QColor(0, 228, 161, 150) if self.is_dark else QColor(13, 148, 136, 190)
             p.setPen(QPen(obw, max(1.5, r * 0.035)))
@@ -12947,6 +15843,7 @@ class App(QMainWindow):
         if _ikona:
             self.setWindowIcon(QIcon(_ikona))
 
+        _dziennik_animacji("budowa okna: start")
         # --- ROZMIAR OKNA: responsywny do ekranu użytkownika ---
         # Program służy do analizy dużych list (1000+ punktów), więc startuje
         # zmaksymalizowany do DOSTĘPNEGO obszaru ekranu (bez paska zadań).
@@ -13001,6 +15898,7 @@ class App(QMainWindow):
             b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             return b
 
+        _dziennik_animacji("budowa okna: tło i kontener gotowe")
         # --- Grupa główna (nawigacja) — kreatywne nazwy ---
         self.btn_nav_kokpit    = nav_btn("Nowa Wyprawa")       # generator delegacji
         self.btn_nav_plan      = nav_btn("Plan Wizyt")         # bezpośredni dostęp do planu (zawiera scalony kalendarz)
@@ -13048,6 +15946,7 @@ class App(QMainWindow):
         right_content_layout.setSpacing(0)
         main_body_layout.addWidget(right_content_container, 1)
 
+        _dziennik_animacji("budowa okna: nawigacja gotowa")
         # ---- Powiększony topbar z DUŻYM logo PMT (72px) ----
         self.topbar = QFrame()
         self.topbar.setFixedHeight(88)
@@ -13238,6 +16137,7 @@ class App(QMainWindow):
 
         cards_layout.addWidget(self.card_bot_frame)
 
+        _dziennik_animacji("budowa okna: topbar gotowy")
         # ---- Formularz (lewa) + Panel Asystenta (prawa) obok siebie ----
         self.body_row = QHBoxLayout(); self.body_row.setContentsMargins(0, 0, 0, 0); self.body_row.setSpacing(16)
         self.body_row.addWidget(self.cards_wrap, 1)
@@ -13350,6 +16250,7 @@ class App(QMainWindow):
         self.overlay = GeneratingOverlay(self.main_container)
         self.overlay.resize(self.main_container.size())
 
+        _dziennik_animacji("budowa okna: formularz i panele gotowe")
         # ---- ŻYWA WALIDACJA: każde pole odświeża panel asystenta ----
         self.e_imie.textChanged.connect(self._analizuj_formularz)
         self.e_imie.editingFinished.connect(self._podpowiedz_profil)
@@ -13363,7 +16264,9 @@ class App(QMainWindow):
             pole.returnPressed.connect(self._enter_generuj)
         self.c_silnik.currentIndexChanged.connect(self._analizuj_formularz)
 
+        _dziennik_animacji("budowa okna: walidacja podpięta")
         self.apply_theme()
+        _dziennik_animacji("budowa okna: motyw nałożony")
 
         # Ekran powitalny na starcie — zasłania generator do czasu, aż użytkownik
         # wybierze "Bilans Miesiąca". Uruchamiamy PO apply_theme (zna motyw).
@@ -13727,7 +16630,14 @@ class App(QMainWindow):
         self.panel_powiadomien.show()
 
     def _pokaz_planer(self):
-        self.overlay_planer.update_theme(self.is_dark)
+        # update_theme przebudowuje wszystkie wiersze bazy (sekundy przy
+        # setkach punktów) — robimy to tylko, gdy motyw faktycznie się
+        # zmienił od ostatniego nałożenia.
+        if getattr(self.overlay_planer, "_motyw_nalozony", None) != self.is_dark:
+            self.overlay_planer.update_theme(self.is_dark)
+        elif not getattr(self.overlay_planer, "_css_wiersz", None):
+            # wiersze zbudowane we właściwym motywie — dokładamy tylko style
+            self.overlay_planer.update_theme(self.is_dark, przebuduj=False)
         self.overlay_planer.resize(self.main_container.size())
         self.overlay_planer.raise_()
         self.overlay_planer.show()
@@ -14372,12 +17282,75 @@ class App(QMainWindow):
                not self.btn_dzwonek.rect().contains(pt_btn):
                 self.panel_powiadomien.hide()
 
+    def pokaz_intro(self, imie: str = ""):
+        """Animacja startowa jako NAKŁADKA wewnątrz okna programu.
+        Okno programu wyświetla się u każdego (to zwykłe okno), więc
+        nakładka też — koniec problemów z osobnym oknem pełnoekranowym."""
+        try:
+            _dziennik_animacji("start intro w wersji %s" % WERSJA_PROGRAMU)
+            self._intro = AnimacjaStartowa(imie, is_dark=self.is_dark, parent=self)
+            self._intro.zakonczony.connect(self._intro_koniec)
+            self._intro.setGeometry(self.rect())
+            self._intro.raise_()
+            self._intro.show()
+            _dziennik_animacji("nakładka pokazana w oknie programu")
+        except Exception:
+            try:
+                import traceback
+                _dziennik_animacji("BŁĄD uruchamiania intro:\n" + traceback.format_exc())
+            except Exception:
+                pass
+
+    def _intro_koniec(self):
+        try:
+            if hasattr(self, "logo_lbl"):
+                self.logo_lbl.setVisible(True)
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "ekran_powitalny"):
+                self.ekran_powitalny.start_material()
+        except Exception:
+            pass
+        try:
+            intro = getattr(self, "_intro", None)
+            if intro is not None:
+                intro._zapisz_diag()
+                intro.hide()
+                intro.deleteLater()
+                self._intro = None
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        # pas bezpieczenstwa: stan motywu ZAWSZE trafia na dysk przy wyjsciu
+        try:
+            zapisz_ustawienie("ciemny_motyw", self.is_dark)
+        except Exception:
+            pass
+        try:
+            super().closeEvent(event)
+        except Exception:
+            pass
+
     def toggle_theme(self):
         self.is_dark = not self.is_dark
         zapisz_ustawienie("ciemny_motyw", self.is_dark)   # splash i kolejny start podążą za motywem
         self.apply_theme()
 
     def apply_theme(self):
+        # Zamrażamy odświeżanie na czas nakładania motywu — dziesiątki zmian
+        # stylów nie wywołują wtedy dziesiątek pełnych przerysowań okna.
+        _start_motywu = time.time()
+        self.setUpdatesEnabled(False)
+        try:
+            self._apply_theme_srodek()
+        finally:
+            self.setUpdatesEnabled(True)
+            self.update()
+        _dziennik_animacji("motyw nałożony w %.2f s" % (time.time() - _start_motywu))
+
+    def _apply_theme_srodek(self):
         self.main_container.set_theme(self.is_dark)
         self.title_bar.update_theme(self.is_dark)
 
@@ -14393,7 +17366,11 @@ class App(QMainWindow):
         self.si_silnik.update_theme(self.is_dark)
         self.btn.update_theme(self.is_dark)
         self.gps_prog.set_theme(self.is_dark)
-        self.overlay_planer.update_theme(self.is_dark)
+        # Nakładka planera przebudowuje przy motywie WSZYSTKIE wiersze bazy
+        # (kolory są wypalane w widżety) — przy pełnej bazie to sekundy.
+        # Ukrytą pomijamy: motyw nałoży _pokaz_planer przy otwarciu.
+        if self.overlay_planer.isVisible():
+            self.overlay_planer.update_theme(self.is_dark)
         if hasattr(self, "ekran_powitalny"):
             self.ekran_powitalny.update_theme(self.is_dark)
 
@@ -14742,6 +17719,8 @@ class App(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    _rozgrzej_backend()   # zbudź backend od razu — nim użytkownik wpisze hasło,
+                          # serwer będzie ciepły i logowanie odpowie od ręki
     # Kursor rysujemy sami (GrubyKursorEdt) — systemowy zostawiamy domyślny 1px,
     # żeby cursorRect().center() wskazywał dokładne miejsce między znakami.
     font = QFont("Segoe UI", 10)
@@ -14786,25 +17765,42 @@ if __name__ == "__main__":
         sys.exit(0)
     online_zapisz_kod(_kod)
 
-    pokaz_animacje_startowa(_imie_zal if "_imie_zal" in dir() else "")
+    # Animacja startowa gra teraz WEWNĄTRZ okna programu (window.pokaz_intro
+    # poniżej) — osobne pełnoekranowe okno bywało niewidoczne na części
+    # komputerów, mimo że rysowało klatki.
 
-    online_zdarzenie(uruchomienia=1)
+    _dziennik_animacji("zalogowano — buduję okno programu")
+    online_zdarzenie(uruchomienia=1)   # lokalna kolejka — błyskawiczne
     _START_PROGRAMU = datetime.datetime.now()
     global _START_SESJI
     _START_SESJI = _START_PROGRAMU
 
-    # --- Kontrola sesji: najpierw arkusz (online), awaryjnie lokalne 30 dni ---
-    _wazna_o, _dni_o, _imie_o = online_status_sesji()
-    if _wazna_o is None:
-        online_synchronizuj()          # pierwszy kontakt z serwerem (jesli jest siec)
-        _wazna_o, _dni_o, _imie_o = online_status_sesji()
-    elif _wazna_o is False:
-        online_synchronizuj()          # moze administrator wlasnie przedluzyl sesje
-        _wazna_o, _dni_o, _imie_o = online_status_sesji()
-    if _wazna_o is not None:
-        _wazna, _pozostalo = _wazna_o, _dni_o
-    else:
-        _wazna, _pozostalo = demo_status()   # nigdy nie bylo kontaktu z serwerem
+    # --- Kontrola sesji W TLE --------------------------------------------
+    # online_synchronizuj() to synchroniczne zapytanie do backendu (przy
+    # zimnym starcie Apps Script potrafi trwać kilka sekund). Wcześniej
+    # blokowało start MIĘDZY zalogowaniem a pokazaniem okna — użytkownik
+    # patrzył w pustkę. Teraz okno z intro otwiera się od razu, a werdykt
+    # sesji przychodzi z wątku; nieważna sesja zamyka program tym samym
+    # komunikatem co dotąd.
+    _sesja_wynik = {}
+
+    def _sesja_w_tle():
+        try:
+            w, d, _im = online_status_sesji()
+            if w is None or w is False:
+                online_synchronizuj()
+                w, d, _im = online_status_sesji()
+            if w is None:
+                w, d = demo_status()   # nigdy nie było kontaktu z serwerem
+            _sesja_wynik["gotowe"] = (bool(w), d)
+        except Exception:
+            try:
+                w, d = demo_status()
+                _sesja_wynik["gotowe"] = (bool(w), d)
+            except Exception:
+                _sesja_wynik["gotowe"] = (True, 0)
+
+    threading.Thread(target=_sesja_w_tle, daemon=True).start()
 
     online_synchronizuj_w_tle()
     online_petla_synchronizacji()
@@ -14818,20 +17814,6 @@ if __name__ == "__main__":
         except Exception:
             pass
     atexit.register(_pmt_zamkniecie)
-    if not _wazna:
-        from PyQt6.QtWidgets import QMessageBox
-        _mb = QMessageBox()
-        _ico = znajdz_ikone()
-        if _ico: _mb.setWindowIcon(QIcon(_ico))
-        _mb.setWindowTitle("PMT Planer — wersja DEMO")
-        _mb.setIcon(QMessageBox.Icon.Warning)
-        _mb.setText("Sesja dobiegła końca.")
-        _mb.setInformativeText("Dziękujemy za przetestowanie PMT Planer.\n"
-                               "Aby przedłużyć dostęp, skontaktuj się z administratorem — po przedłużeniu wystarczy ponownie uruchomić program (przy dostępie do internetu).")
-        _mb.setStandardButtons(QMessageBox.StandardButton.Ok)
-        _mb.exec()
-        sys.exit(0)
-
     try:
         window = App()
     except Exception:
@@ -14858,6 +17840,31 @@ if __name__ == "__main__":
         _mb.setDetailedText(_opis)
         _mb.exec()
         sys.exit(1)
-    window._demo_pozostalo = _pozostalo    # do ewentualnego pokazania w UI
+    _dziennik_animacji("okno programu zbudowane")
+    window._demo_pozostalo = None          # ustali werdykt sesji z tła
+    window.pokaz_intro(_imie_zal if "_imie_zal" in dir() else "")
     window.show()
+
+    def _werdykt_sesji():
+        if "gotowe" not in _sesja_wynik:
+            QTimer.singleShot(250, _werdykt_sesji)
+            return
+        _wazna, _pozostalo = _sesja_wynik["gotowe"]
+        window._demo_pozostalo = _pozostalo
+        if not _wazna:
+            from PyQt6.QtWidgets import QMessageBox
+            _mb = QMessageBox(window)
+            _ico = znajdz_ikone()
+            if _ico: _mb.setWindowIcon(QIcon(_ico))
+            _mb.setWindowTitle("PMT Planer — wersja DEMO")
+            _mb.setIcon(QMessageBox.Icon.Warning)
+            _mb.setText("Sesja dobiegła końca.")
+            _mb.setInformativeText("Dziękujemy za przetestowanie PMT Planer.\n"
+                                   "Aby przedłużyć dostęp, skontaktuj się z administratorem — po przedłużeniu wystarczy ponownie uruchomić program (przy dostępie do internetu).")
+            _mb.setStandardButtons(QMessageBox.StandardButton.Ok)
+            _mb.exec()
+            window.close()
+            QApplication.instance().exit(0)
+
+    QTimer.singleShot(300, _werdykt_sesji)
     sys.exit(app.exec())

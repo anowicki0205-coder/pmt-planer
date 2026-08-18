@@ -1,4 +1,4 @@
-JAK ZBUDOWAC PROGRAM OD ZERA (3.20.3)
+JAK ZBUDOWAC PROGRAM OD ZERA (3.20.43)
 =====================================
 
 1. Rozpakuj CALA paczke do jednego, pustego folderu (np. C:\PMT\build).
@@ -6,18 +6,25 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.20.3)
    (opcjonalnie takze pmt_logo.ico / pmt_logo.png, jesli ich uzywasz).
 
 2. Kliknij dwukrotnie buduj.bat.
-   Skrypt sam: sprawdzi, ze to wersja 3.20.3, sprawdzi biblioteki,
+   Skrypt sam: sprawdzi, ze to wersja 3.20.43, sprawdzi biblioteki,
    USUNIE stare buildy (build/, dist/, .spec) i zbuduje program od zera.
 
 3. Swiezy program: dist\PMT_Planer\PMT_Planer.exe
    (skrypt na koncu zapyta, czy go od razu uruchomic - wpisz T).
 
 4. Publikacja jak dotychczas: spakuj folder dist\PMT_Planer do zip,
-   wystaw jako release na GitHub i podmien w repo wersja.txt na 3.20.3.
+   wystaw jako release na GitHub i podmien w repo wersja.txt na 3.20.43.
 
 JAK ODCZYTAC WYNIK URUCHOMIENIA:
   * rusza animacja (smuga na drodze)          -> wszystko dziala;
-  * okno "PMT Planer 3.20.3 - blad startu"    -> nowy kod dziala, ale cos
+  * okno "PMT Planer 3.20.43 - blad startu"    -> nowy kod dziala, ale cos
     innego zawiodlo: przeslij plik C:\Users\TWOJA_NAZWA\.pmt_start_blad.txt;
   * goly traceback w czarnej konsoli          -> uruchomil sie STARY plik
     (nie ten swiezo zbudowany) - uruchom dokladnie dist\PMT_Planer\PMT_Planer.exe.
+
+GDY BUDOWA KRZYCZY "Odmowa dostepu" (WinError 5):
+  Poprzedni PMT_Planer.exe najpewniej wciaz dziala i trzyma swoje pliki.
+  Skrypt od tej wersji sam go zamyka przed budowa; jesli mimo to blad
+  wroci - zamknij okna Eksploratora otwarte w dist\PMT_Planer i odpal
+  buduj.bat jeszcze raz. Pulpit synchronizowany przez OneDrive potrafi
+  blokowac swieze pliki - wtedy najpewniej zadziala budowa w C:\PMT\build.

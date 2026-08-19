@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.49"
+WERSJA_PROGRAMU = "3.20.50"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -5355,6 +5355,78 @@ class PlanerWizytThread(QThread):
             self.blad.emit(str(e))
 
 
+def dni_delegacji_z_planu(plan: dict, pracownik: DanePracownika, stawka: float,
+                          postep_cb=None) -> dict:
+    """MOST plan -> delegacja (3.20.50): z wczytanego z Excela i ulozonego
+    PLANU WIZYT buduje realne dni delegacji: baza -> sklepy w kolejnosci
+    planu -> baza, z faktycznymi kilometrami DROGOWYMI (OSRM + cache,
+    offline fallback). ZERO skalowania do kwoty - kwota kazdego etapu to
+    realny dystans x stawka. Zwraca {(rok, mies): [DzienTrasy]}."""
+    ust = ustawienia_planowania()
+    predk = max(10.0, float(ust.get("predkosc") or PLAN_SREDNIA_PREDKOSC_KMH))
+    czas_w = float(ust.get("czas_wizyty") or PLAN_CZAS_WIZYTY_MIN)
+    dni_zrodlo = [d for d in (plan or {}).get("dni", []) if getattr(d, "wizyty", None)]
+    grupy = {}
+    ost4 = str(getattr(pracownik, "pesel", "") or "")[-4:]
+    rng_g = random.Random(int(ost4) if ost4.isdigit() else 7)
+
+    def _mce(p):
+        m = (getattr(p, "miasto", "") or "").strip()
+        if m:
+            return m
+        n = (getattr(p, "nazwa", "") or getattr(p, "adres", "") or "?").strip()
+        return n.split(",")[0][:24]
+
+    for nr, d in enumerate(dni_zrodlo):
+        if postep_cb:
+            postep_cb("Realne kilometry: dzien %d/%d..." % (nr + 1, len(dni_zrodlo)),
+                      0.10 + 0.60 * (nr + 1) / max(1, len(dni_zrodlo)))
+        wiz = [p for p in d.wizyty if p.lat is not None and p.lng is not None]
+        if not wiz:
+            continue
+        data_str = d.data.strftime("%d.%m.%Y")
+        et = []
+        sk_naz, sk_lat, sk_lng = pracownik.baza_miasto, pracownik.baza_lat, pracownik.baza_lng
+        cele = [( _mce(p), p.lat, p.lng ) for p in wiz]
+        cele.append((pracownik.baza_miasto, pracownik.baza_lat, pracownik.baza_lng))
+        for ci, (c_naz, c_lat, c_lng) in enumerate(cele):
+            try:
+                km = dystans_drogowy(sk_lat, sk_lng, c_lat, c_lng)
+            except Exception:
+                km = oblicz_dystans(sk_lat, sk_lng, c_lat, c_lng) * 1.3
+            ostatni = (ci == len(cele) - 1)
+            et.append(RawEtap(skad=sk_naz, dokad=c_naz, data_str=data_str,
+                              d_line=max(float(km or 0.0), 0.1),
+                              czas_w_sklepie=(0.0 if ostatni else czas_w),
+                              dokad_woj=pracownik.wojewodztwo,
+                              skad_lat=sk_lat, skad_lng=sk_lng,
+                              dokad_lat=c_lat, dokad_lng=c_lng))
+            sk_naz, sk_lat, sk_lng = c_naz, c_lat, c_lng
+        for e in et:
+            e.dystans_rzeczywisty = e.d_line
+            e.kwota = max(round(e.d_line * float(stawka), 2), 0.0)
+            e.czas_jazdy_minuty = (e.d_line / predk) * 60.0
+        dz = DzienTrasy(data=d.data, etapy_surowe=et)
+        czas_akt = rng_g.randint(7 * 60, 8 * 60)
+        polowa = len(et) // 2
+        for idx, e in enumerate(et):
+            godz_wyj = "%02d:%02d" % (int(czas_akt // 60) % 24, int(czas_akt % 60))
+            czas_akt += e.czas_jazdy_minuty
+            godz_przyj = "%02d:%02d" % (int(czas_akt // 60) % 24, int(czas_akt % 60))
+            dz.etapy.append(Etap(skad=e.skad, dokad=e.dokad, data=e.data_str,
+                                 godz_wyj=godz_wyj, godz_przyj=godz_przyj,
+                                 kwota=e.kwota, dokad_woj=e.dokad_woj))
+            czas_akt += e.czas_w_sklepie
+            if idx == polowa:
+                czas_akt += PRZERWA_JEDZENIE_MIN
+        grupy.setdefault((d.data.year, d.data.month), []).append(dz)
+    try:
+        _zapisz_road_cache()
+    except Exception:
+        pass
+    return grupy
+
+
 class GeneratorThread(QThread):
     postep = pyqtSignal(str, float)
     sukces = pyqtSignal(list, object, str)
@@ -5391,6 +5463,63 @@ class GeneratorThread(QThread):
             self.sukces.emit(finalne_dni, pracownik, folder)
         except Exception as e:
             log_error(e); self.blad.emit(str(e))
+
+class DelegacjaZPlanuThread(QThread):
+    """JEDNO KLIKNIECIE: caly plan wizyt -> komplet dokumentow delegacji.
+    Kilometry sa realne (z tras planu), kwota wynika z kilometrow."""
+    postep = pyqtSignal(str, float)
+    sukces = pyqtSignal(list, float, int)   # foldery, suma_kwot, liczba_dni
+    blad = pyqtSignal(str)
+
+    def __init__(self, plan: dict, params: dict):
+        super().__init__()
+        self.plan = plan
+        self.params = params
+
+    def run(self):
+        try:
+            p = self.params
+            self.postep.emit("Lokalizowanie bazy...", 0.05)
+            adres_do_geo = p.get('adres_geo', p['adres_caly'])
+            baza_lat, baza_lng = pobierz_coords(adres_do_geo, p['baza_miasto'], p['woj'])
+            pracownik = DanePracownika(imie=p['imie'], pesel=p['pesel'],
+                                       adres=p['adres_caly'], stanowisko=p['stanowisko'],
+                                       kod_pocztowy=p['kod_pocztowy'],
+                                       baza_miasto=p['baza_miasto'], baza_lat=baza_lat,
+                                       baza_lng=baza_lng, wojewodztwo=p['woj'])
+
+            def cb(t_, v_):
+                self.postep.emit(t_, v_)
+
+            grupy = dni_delegacji_z_planu(self.plan, pracownik,
+                                          p.get('stawka', STAWKA_ZA_KM), cb)
+            if not grupy:
+                raise ValueError("Plan nie zawiera dni ze zgeokodowanymi punktami.\n"
+                                 "Sprawdz w Planie Wizyt liste 'bez pozycji'.")
+            foldery = []
+            suma = 0.0
+            ile = 0
+            n_g = len(grupy)
+            for gi, ((rok, mies), dni) in enumerate(sorted(grupy.items()), 1):
+                ms = MIESIACE_PL[mies - 1]
+                folder = os.path.join(
+                    sciezka_pulpitu(),
+                    "Rozliczenie_z_planu_%s_%s_%dr" % (
+                        pracownik.imie.replace(' ', '_'), ms, rok))
+                self.postep.emit("Dokumenty PDF: %s %d (%d/%d)..." % (ms, rok, gi, n_g),
+                                 0.72 + 0.20 * gi / n_g)
+                generuj_pdfy(dni, pracownik, mies, rok, folder,
+                             p.get('stawka', STAWKA_ZA_KM), cb)
+                generuj_mape_html(dni, pracownik, ms, rok, folder,
+                                  p.get('is_dark', True))
+                foldery.append(folder)
+                suma += sum(d.suma for d in dni)
+                ile += len(dni)
+            self.sukces.emit(foldery, round(suma, 2), ile)
+        except Exception as e:
+            log_error(e)
+            self.blad.emit(str(e))
+
 
 def znajdz_logo() -> Optional[str]:
     """Szuka pliku logo w kolejności: nowe nazwy pmt_logo.*, potem stare pmt.*.
@@ -11982,12 +12111,13 @@ class PlanWizytOverlay(QFrame):
     _MIES_PL = ["","styczeń","luty","marzec","kwiecień","maj","czerwiec","lipiec",
                 "sierpień","wrzesień","październik","listopad","grudzień"]
 
-    def __init__(self, parent=None, on_mapa=None):
+    def __init__(self, parent=None, on_mapa=None, on_delegacja=None):
         super().__init__(parent); self.hide()
         self.is_dark = True
         self._plan = None
         self._widok = "dzien"          # dzien | tydzien | miesiac
         self._on_mapa = on_mapa
+        self._on_delegacja = on_delegacja
         self._dzien_idx = 0            # który dzień pokazujemy w widoku dziennym
         self._tydzien_idx = 0
         self._swiezo_odhaczona = None  # klucz wizyty do animacji pieczątki
@@ -12029,6 +12159,15 @@ class PlanWizytOverlay(QFrame):
         self.btn_tryb_trasy.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_tryb_trasy.clicked.connect(self._klik_tryb_trasy)
         gora.addWidget(self.btn_tryb_trasy)
+        # DELEGACJA Z PLANU: jedno klikniecie zamienia caly wczytany plan
+        # w komplet dokumentow rozliczeniowych (realne trasy i kilometry)
+        self.btn_delegacja = QPushButton("🧾  Delegacja z planu")
+        self.btn_delegacja.setFixedHeight(38)
+        self.btn_delegacja.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_delegacja.setToolTip("Wygeneruj dokumenty delegacji z tego planu \u2014 "
+                                      "realne kilometry z tras, jeden klik")
+        self.btn_delegacja.clicked.connect(self._klik_delegacja)
+        gora.addWidget(self.btn_delegacja)
         # eksport — Excel (plan + dziennik) albo PDF (drukowalny wykaz)
         self.btn_eksport = QPushButton("⬇  Eksportuj"); self.btn_eksport.setFixedHeight(38)
         self.btn_eksport.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -12842,6 +12981,12 @@ class PlanWizytOverlay(QFrame):
                 self._ustaw_widok_bez_skoku("dzien")
                 return
 
+    def _klik_delegacja(self):
+        if not self._plan or not self._plan.get("dni"):
+            return
+        if callable(self._on_delegacja):
+            self._on_delegacja(self._plan)
+
     def _klik_mapa(self):
         if self._on_mapa and self._plan and self._plan.get("dni"):
             self._on_mapa(self._plan)
@@ -12885,6 +13030,11 @@ class PlanWizytOverlay(QFrame):
             f"QPushButton {{ color:#04121A; font-weight:800; border:none; border-radius:10px; padding:0 16px; "
             f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {zielony_tt}, stop:1 {akc}); }} "
             f"QPushButton:hover {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {akc}, stop:1 {zielony_tt}); }}")
+        self.btn_delegacja.setStyleSheet(
+            f"QPushButton {{ color:#04121A; font-weight:800; border:none; border-radius:10px; padding:0 16px; "
+            f"background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {akc}, stop:1 {zielony_tt}); }} "
+            f"QPushButton:hover {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {zielony_tt}, stop:1 {akc}); }} "
+            f"QPushButton:disabled {{ color:{txt_mut}; background:{seg_bg}; border:1px solid {seg_br}; }}")
         self.btn_eksport.setStyleSheet(
             f"QPushButton {{ color:{txt}; background:{seg_bg}; border:1px solid {seg_br}; border-radius:10px; "
             f"padding:0 16px; font-family:'Segoe UI'; font-size:12px; font-weight:700; }} "
@@ -16220,7 +16370,8 @@ class App(QMainWindow):
         self.overlay_planer.btn_ostatni.setVisible(self._gotowy_plan is not None)
 
         # Plan Wizyt — nakładka nowego silnika planera (dzień/tydzień/miesiąc)
-        self.overlay_plan = PlanWizytOverlay(self.main_container, on_mapa=self._pokaz_mape_planu)
+        self.overlay_plan = PlanWizytOverlay(self.main_container, on_mapa=self._pokaz_mape_planu,
+                                             on_delegacja=self._delegacja_z_planu)
         self.overlay_plan._on_przenies = self._przenies_zalegle
         self.overlay_plan._on_tryb_trasy = self._otworz_tryb_trasy
         self.overlay_plan._on_toast = lambda t, o, ok=True: self.toast.show_toast(t, o, success=ok)
@@ -16791,6 +16942,91 @@ class App(QMainWindow):
             f"{n} {'wizyta' if n==1 else ('wizyty' if 2<=n<=4 else 'wizyt')} przeniesiono na kolejne dni robocze.\n"
             f"Historia odhaczonych wizyt pozostała nietknięta.",
             success=True)
+
+    def _delegacja_z_planu(self, plan=None):
+        """JEDNO KLIKNIECIE: plan wizyt (z wgranego Excela) -> komplet
+        dokumentow delegacji na Pulpicie. Dane pracownika bierzemy z
+        formularza Nowej Wyprawy; kwoty NIE podajesz - wynika z realnych
+        kilometrow tras planu."""
+        plan = plan or self._gotowy_plan or wczytaj_plan()
+        if not plan or not plan.get("dni"):
+            self.toast.show_toast("Brak planu",
+                                  "Najpierw wczytaj punkty z Excela i wygeneruj plan wizyt.",
+                                  success=False)
+            return
+        if getattr(self, "_del_plan_thread", None) and self._del_plan_thread.isRunning():
+            return
+        imie = ' '.join(w.capitalize() for w in self.e_imie.text().split())
+        pesel = self.e_pesel.text().strip()
+        adres = self.e_adres.text().strip()
+        if not imie or not waliduj_pesel(pesel) or not adres:
+            self.toast.show_toast("Uzupelnij dane pracownika",
+                                  "Delegacja potrzebuje imienia, PESEL-u i adresu bazy.\n"
+                                  "Uzupelnij je w \u201eNowej Wyprawie\u201d i kliknij ponownie.",
+                                  success=False)
+            try:
+                self._fokus_kokpit()
+            except Exception:
+                pass
+            return
+        try:
+            adres_d = waliduj_adres(adres)
+            if adres_d.get('niejednoznaczne'):
+                nazwa_q = adres_d.get('nazwa_do_pytania', '')
+                dlg = DialogWyboru(self, "DOPRECYZUJ ADRES",
+                                   f"\u201e{nazwa_q}\u201d \u2014 to nazwa ulicy czy miejscowosci?",
+                                   "", "To ulica", "To miejscowosc", is_dark=self.is_dark)
+                wynik = dlg.exec_wybor()
+                adres_d = waliduj_adres(adres,
+                                        wymus_typ=('ulica' if wynik == 'a' else 'wies'))
+            woj = rozpoznaj_wojewodztwo(adres_d['kod_pocztowy'])
+        except Exception as e:
+            self.toast.show_toast("Adres do poprawy", str(e), success=False)
+            return
+        stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
+        params = {'imie': imie, 'pesel': pesel, 'adres_caly': adres_d['adres_caly'],
+                  'adres_geo': adres_d.get('adres_geo', adres_d['adres_caly']),
+                  'kod_pocztowy': adres_d['kod_pocztowy'],
+                  'baza_miasto': adres_d['baza_miasto'],
+                  'stanowisko': self.c_stan.currentText(), 'woj': woj,
+                  'stawka': stawka, 'is_dark': self.is_dark}
+        bd = getattr(self.overlay_plan, "btn_delegacja", None)
+        if bd:
+            bd.setEnabled(False)
+            bd.setText("Generuj\u0119\u2026")
+
+        def _przywroc():
+            if bd:
+                bd.setEnabled(True)
+                bd.setText("🧾  Delegacja z planu")
+
+        def _post(txt, v):
+            if bd:
+                bd.setText("Generuj\u0119\u2026 %d%%" % int(max(0.0, min(1.0, v)) * 100))
+
+        def _ok(foldery, suma, ile):
+            _przywroc()
+            koncowka = "folderze" if len(foldery) == 1 else "folderach"
+            self.toast.show_toast(
+                "Delegacja gotowa",
+                "Dokumenty dla %d dni tras (suma %.2f zl) czekaja w %d %s na Pulpicie."
+                % (ile, suma, len(foldery), koncowka),
+                success=True)
+            try:
+                if foldery:
+                    os.startfile(foldery[0])
+            except Exception:
+                pass
+
+        def _bl(opis):
+            _przywroc()
+            self.toast.show_toast("Nie udalo sie wygenerowac", str(opis), success=False)
+
+        self._del_plan_thread = DelegacjaZPlanuThread(plan, params)
+        self._del_plan_thread.postep.connect(_post)
+        self._del_plan_thread.sukces.connect(_ok)
+        self._del_plan_thread.blad.connect(_bl)
+        self._del_plan_thread.start()
 
     def _pokaz_mape_planu(self, plan):
         """Generuje HTML mapy planu i otwiera w przeglądarce."""

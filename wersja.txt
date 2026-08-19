@@ -1,1 +1,2 @@
-3.20.43
+3.20.50
+Nowa animacja startowa, jasny motyw w kolorach logo, samodzielny reset hasła i delegacje z planu jednym kliknięciem.

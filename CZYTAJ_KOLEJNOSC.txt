@@ -1,0 +1,15 @@
+KOLEJNOSC (2 kroki):
+
+1) TERAZ: w repo GitHub otworz plik wersja.txt -> olowek (Edit)
+   -> wklej zawartosc pliku "wersja.txt" z tego kompletu -> Commit.
+   Dymek aktualizacji natychmiast przestanie proponowac 3.20.43,
+   a flota na 3.20.3 zacznie pobierac wydany release 3.20.50.
+
+2) POZNIEJ (dopiero gdy zbudujesz 3.20.51 i opublikujesz release
+   v3.20.51 z plikiem PMT_Planer_windows.zip): podmien zawartosc
+   wersja.txt w repo na tresc z pliku
+   "wersja_PO_WYDANIU_v3.20.51.txt". Do opisu release'u mozesz
+   wkleic OPIS_RELEASE_3.20.51.txt.
+
+ZASADA: wersja.txt edytuj RECZNIE w repo, nigdy masowym
+"Upload files" - lokalna kopia nadpisze repo stara wartoscia.

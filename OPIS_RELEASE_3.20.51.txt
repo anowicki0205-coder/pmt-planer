@@ -1,0 +1,19 @@
+PMT Planer 3.20.51
+
+NOWOSCI DLA UZYTKOWNIKOW (wzgledem 3.20.3)
+- Delegacja z planu jednym kliknieciem: w Planie Wizyt przycisk
+  "Delegacja z planu" zamienia trasy z wgranego Excela w komplet
+  dokumentow PDF (realne kilometry, godziny, mapa) - per miesiac,
+  prosto na Pulpit.
+- "Nie pamietam hasla" w oknie logowania: samodzielny reset
+  po weryfikacji numerem telefonu z kartoteki - bez administratora.
+- Nowa animacja startowa "Zywa mapa delegacji" (spokojne tempo,
+  mniejszy puls przy zaliczaniu punktow).
+- Jasny motyw w pelnych kolorach logo (logowanie, tunel, droga).
+- Wybrany motyw zapamietywany na stale (przezyje aktualizacje).
+- Ostre logo wszedzie: intro, moneta, ikona programu.
+
+DLA ADMINISTRATORA
+- Reset hasla wymaga backendu z akcja reset_hasla (apps_script.gs
+  z repo); po wklejeniu skryptu: Deploy -> Manage deployments ->
+  Edit -> New version (adres /exec bez zmian).

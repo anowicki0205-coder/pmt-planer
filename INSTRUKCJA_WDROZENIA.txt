@@ -1,0 +1,67 @@
+PMT PLANER — WDROŻENIE I PORZĄDKI (stan: 3.20.52, trzy systemy)
+================================================================
+
+TRZY SYSTEMY RÓWNOLEGLE
+Program jest rozwijany jednocześnie dla Windows, Linuksa i macOS —
+każde wydanie zawiera trzy buildy i każda zmiana ma działać wszędzie
+tak samo. Poniższa instrukcja jest wspólna dla wszystkich trzech.
+
+STATUS PLATFORM (po audycie kodu, wersja 3.20.52)
+- Windows — pełna funkcjonalność, auto-aktualizacja przez updater.bat
+  i updater_folder.bat.
+- Linux — pełna funkcjonalność; start do okna logowania potwierdzony
+  na Ubuntu 24. Auto-aktualizacja: updater.sh. Czcionki PDF:
+  Liberation lub DejaVu (pełne polskie znaki).
+- macOS — pełna funkcjonalność w kodzie; build gotowy, czeka na
+  test na komputerze z Makiem. Auto-aktualizacja: updater.sh.
+  Czcionki PDF: systemowy Arial.
+Żadnych znanych ograniczeń specyficznych dla systemu. Otwieranie
+folderów, ścieżka Pulpitu (także polski „Pulpit" na Linuksie),
+czcionki i aktualizacja mają osobne ścieżki dla każdego systemu.
+
+KROK 1 — WYDANIE
+  a) Zbuduj wersję dla każdego systemu i przetestuj start.
+  b) Releases → Draft a new release → tag v3.20.52 → w polu
+     „Attach binaries" (na dole formularza, limit 2 GB) dołącz trzy
+     archiwa: Windows, Linux, macOS. Nazwa archiwum Windows musi
+     zawierać słowo „windows", linuksowego „linux", macowego „mac" —
+     po tym program rozpoznaje właściwy plik dla swojego systemu.
+  c) W opisie wydania podaj status platform (sekcja wyżej).
+  d) Publish release.
+
+KROK 2 — DOPIERO TERAZ wersja.txt
+  Repo → wersja.txt → ołówek (Edit) → linia 1: numer wersji,
+  linia 2: opis widoczny w oknie aktualizacji → Commit.
+  To jest spust aktualizacji dla całej floty — zawsze na końcu,
+  ręcznie, nigdy przez masowe „Upload files".
+
+KROK 3 — PORZĄDKI W REPOZYTORIUM
+  Program czyta z repozytorium tylko: wersja.txt, updater.bat,
+  updater_folder.bat, updater.sh oraz pliki z wydania. Reszta go
+  nie dotyczy, ale bałagan grozi pomyłką człowieka.
+  a) USUŃ apps_script_POPRAWIONY_v2.gs — ma inną treść niż właściwy
+     apps_script.gs; wklejenie go do Apps Script cofnęłoby backend.
+  b) Usuń zużyte jednorazówki: CZYTAJ_KOLEJNOSC.txt,
+     OPIS_RELEASE_3.20.51.txt, wersja_PO_WYDANIU_v3.20.51.txt.
+  c) Materiały poglądowe (preview.png, podgląd ekranu, PDF-y, pliki
+     .md) przenieś do folderu docs/.
+  d) Usuń prehistoryczne wydania v3.12.3, v3.13.4, v3.13.5, v3.13.9
+     oraz ich tagi (zakładka Tags). Trzymaj dwa wydania: bieżące
+     i poprzednie jako punkt powrotu.
+  e) ZOSTAW w korzeniu: PMT_Delegacje.py, buduj.bat, build.yml,
+     PMT_Planer.spec, wersja_info.txt (metadane wpisywane do pliku
+     programu przy budowaniu), wersja.txt, apps_script.gs, updatery,
+     logo i tła, pliki aplikacji internetowej.
+  f) Nagłówek README wciąż podaje v3.13.2 — warto zaktualizować.
+
+KROK 4 — WERYFIKACJA
+  a) Surowy wersja.txt pokazuje nowy numer w pierwszej linii.
+  b) releases/latest przekierowuje na nowy tag z trzema archiwami.
+  c) Windows: komputer ze starszą wersją → okno aktualizacji →
+     „Zaktualizuj teraz" → program wstaje w nowej wersji.
+  d) macOS (dla osoby z Makiem): rozpakuj archiwum, zdejmij
+     kwarantannę systemu — w Terminalu „xattr -cr" na folderze
+     programu albo prawy klik na pliku programu → Otwórz → Otwórz.
+     Następnie: logowanie, animacja startowa, jedna delegacja
+     testowa (sprawdź polskie znaki w PDF).
+  e) Linux: rozpakuj i uruchom „./PMT_Planer" w terminalu.

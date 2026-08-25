@@ -1,2 +1,2 @@
-3.20.53
-Świetlny korytarz aktualizacji, delegacje z planu jednym kliknięciem i naprawione logowanie hasłem.
+3.20.54
+Korytarz aktualizacji po animacji startowej, ostrzejsza ikona programu i naprawione logowanie hasłem.

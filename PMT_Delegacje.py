@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.50"
+WERSJA_PROGRAMU = "3.20.52"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -8485,8 +8485,12 @@ class OknoAktualizacji(QDialog):
     Zamiast dyskretnej ikonki: pełne, efektowne okno, które od razu proponuje
     jedno kliknięcie („Zaktualizuj teraz”) i samo podmienia plik programu."""
     def __init__(self, parent=None, wersja_stara="", wersja_nowa="", opis="",
-                 is_dark=True, on_instaluj=None):
+                 is_dark=True, on_instaluj=None, start_rect=None):
         super().__init__(parent)
+        # animacja wjazdu: okno "wyrasta" z malego logo PMT (moneta przy
+        # lewym menu) — start_rect to globalny prostokat tej monety
+        self._anim_start = QRect(start_rect) if start_rect is not None else None
+        self._anim_uzyta = False
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(True)
@@ -8603,6 +8607,53 @@ class OknoAktualizacji(QDialog):
         bl.addLayout(akcje)
 
     # ---- instalacja ----
+    def showEvent(self, e):
+        super().showEvent(e)
+        if self._anim_start is None or self._anim_uzyta:
+            return
+        self._anim_uzyta = True
+        try:
+            # Technika "ducha": layout okna wymusza rozmiar minimalny, wiec
+            # samej geometrii nie da sie animowac od 56 px. Zamiast tego
+            # okno staje w miejscu docelowym (niewidoczne), a z monety-logo
+            # wyrasta jego ZRZUT jako skalowany obrazek; na koncu duch
+            # znika i odslania prawdziwe, ostre okno.
+            cel = self.geometry()
+            rodz = self.parent().window() if self.parent() is not None else None
+            if rodz is not None:
+                cel.moveCenter(rodz.frameGeometry().center())
+            self.setGeometry(cel)
+            self.setWindowOpacity(0.0)
+            pix = self.grab()
+            duch = QLabel(None)
+            duch.setWindowFlags(Qt.WindowType.FramelessWindowHint
+                                | Qt.WindowType.Tool
+                                | Qt.WindowType.WindowStaysOnTopHint)
+            duch.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            duch.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            duch.setPixmap(pix)
+            duch.setScaledContents(True)
+            duch.setGeometry(QRect(self._anim_start))
+            duch.show()
+            self._duch = duch
+            self._an_geo = QPropertyAnimation(duch, b"geometry", self)
+            self._an_geo.setDuration(560)
+            self._an_geo.setStartValue(QRect(self._anim_start))
+            self._an_geo.setEndValue(QRect(cel))
+            self._an_geo.setEasingCurve(QEasingCurve.Type.OutCubic)
+            def _po_animacji():
+                self.setWindowOpacity(1.0)
+                try:
+                    duch.close()
+                    duch.deleteLater()
+                except Exception:
+                    pass
+                self._duch = None
+            self._an_geo.finished.connect(_po_animacji)
+            self._an_geo.start()
+        except Exception:
+            self.setWindowOpacity(1.0)
+
     def _instaluj(self):
         if not czy_zamrozony():
             # wersja uruchomiona ze źródeł — nie ma czego podmieniać
@@ -14605,11 +14656,12 @@ class AnimacjaStartowa(QWidget):
                     p.drawEllipse(QPointF(x, y), mn * rr, mn * rr)
                 if 0.0 <= pp < 1.0:
                     a1_, a2_ = (0.55, 0.30) if self.is_dark else (0.78, 0.46)
-                    for rk, aa in ((0.030 + 0.030 * pp, a1_ * (1 - pp)),
-                                   (0.044 + 0.038 * pp, a2_ * (1 - pp))):
+                    # puls zaliczenia wezla: POLOWA dawnej srednicy (3.20.51)
+                    for rk, aa in ((0.015 + 0.015 * pp, a1_ * (1 - pp)),
+                                   (0.022 + 0.019 * pp, a2_ * (1 - pp))):
                         ko = QColor(self._akc1)
                         ko.setAlphaF(aa * alfa)
-                        p.setPen(QPen(ko, max(1.6, mn * 0.0038)))
+                        p.setPen(QPen(ko, max(1.2, mn * 0.0028)))
                         p.drawEllipse(QPointF(x, y), mn * rk, mn * rk)
                 rd = QColor(228, 255, 249) if self.is_dark else QColor(255, 255, 255)
                 rd.setAlphaF(min(1.0, alfa))
@@ -16488,10 +16540,24 @@ class App(QMainWindow):
         QTimer.singleShot(900, self._pokaz_okno_aktualizacji)
 
     def _pokaz_okno_aktualizacji(self):
+        # okno aktualizacji "wyjezdza" z monety-logo przy lewym menu:
+        # ekran powitalny zapisuje jej pozycje w _ost_logo przy kazdym
+        # rysowaniu, wiec mamy dokladny prostokat startu animacji
+        start_rect = None
+        try:
+            ep = getattr(self, "ekran_powitalny", None)
+            ost = getattr(ep, "_ost_logo", None)
+            if ep is not None and ost:
+                cx, cy, r = ost
+                r = max(18.0, float(r))
+                g = ep.mapToGlobal(QPoint(int(cx - r), int(cy - r)))
+                start_rect = QRect(g.x(), g.y(), int(2 * r), int(2 * r))
+        except Exception:
+            start_rect = None
         dlg = OknoAktualizacji(
             self, wersja_stara=WERSJA_PROGRAMU, wersja_nowa=self._nowa_wersja,
             opis=self._nowa_opis, is_dark=self.is_dark,
-            on_instaluj=self._zainstaluj_aktualizacje)
+            on_instaluj=self._zainstaluj_aktualizacje, start_rect=start_rect)
         dlg.exec()
 
     def _zainstaluj_aktualizacje(self, pobrany_plik):
@@ -17014,7 +17080,7 @@ class App(QMainWindow):
                 success=True)
             try:
                 if foldery:
-                    os.startfile(foldery[0])
+                    otworz_w_systemie(foldery[0])
             except Exception:
                 pass
 

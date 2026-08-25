@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 echo ============================================
-echo  PMT Planer - budowa exe od zera (3.20.50)
+echo  PMT Planer - budowa exe od zera (3.20.52)
 echo ============================================
 echo.
 
@@ -11,13 +11,13 @@ if not exist "PMT_Delegacje.py" (
   echo [BLAD] Brak pliku PMT_Delegacje.py w tym folderze.
   pause & exit /b 1
 )
-findstr /C:"WERSJA_PROGRAMU = \"3.20.50\"" PMT_Delegacje.py >nul
+findstr /C:"WERSJA_PROGRAMU = \"3.20.52\"" PMT_Delegacje.py >nul
 if errorlevel 1 (
-  echo [BLAD] PMT_Delegacje.py w tym folderze to NIE wersja 3.20.50.
+  echo [BLAD] PMT_Delegacje.py w tym folderze to NIE wersja 3.20.52.
   echo        Podmien plik na ten z paczki i uruchom ponownie.
   pause & exit /b 1
 )
-echo [OK] Zrodlo: PMT_Delegacje.py w wersji 3.20.50
+echo [OK] Zrodlo: PMT_Delegacje.py w wersji 3.20.52
 if not exist "ciemny.png" ( echo [BLAD] Brak ciemny.png obok skryptu. & pause & exit /b 1 )
 if not exist "jasny.png"  ( echo [BLAD] Brak jasny.png obok skryptu.  & pause & exit /b 1 )
 echo [OK] Tla: ciemny.png, jasny.png
@@ -62,7 +62,7 @@ python -m PyInstaller --noconfirm --clean --onedir --windowed --name PMT_Planer 
 if errorlevel 1 ( echo [BLAD] Budowa nie powiodla sie - szczegoly powyzej. & pause & exit /b 1 )
 
 rem --- 6) znacznik wersji (chroni ten build przed czyszczarka starszych kopii 3.20.3+) ---
->"dist\PMT_Planer\pmt_wersja.txt" echo 3.20.50
+>"dist\PMT_Planer\pmt_wersja.txt" echo 3.20.52
 
 echo.
 echo [OK] Gotowe. Swiezy program:

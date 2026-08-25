@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.52"
+WERSJA_PROGRAMU = "3.20.53"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -8480,6 +8480,121 @@ class AureolaAktualizacji(QWidget):
             p.drawEllipse(QPointF(it["x"] * W, it["y"] * H), it["r"], it["r"])
 
 
+class KorytarzAktualizacji(QWidget):
+    """KORYTARZ (3.20.53): z malego logo PMT w topbarze rozrasta sie
+    swietlny tunel — ten sam jezyk wizualny co prolog intra — i dopiero
+    z jego glebi wychodzi okno nowej wersji. Nakladka na oknie glownym,
+    przezroczysta dla myszy, sama sie usuwa po zakonczeniu."""
+    CZAS_MS = 1150
+
+    def __init__(self, rodzic, srodek: QPoint, is_dark=True, po_zakonczeniu=None):
+        super().__init__(rodzic)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.is_dark = bool(is_dark)
+        self._cx, self._cy = float(srodek.x()), float(srodek.y())
+        self._po = po_zakonczeniu
+        self._t0 = time.time()
+        self._wywolane = False
+        self.setGeometry(rodzic.rect())
+        self._tik = QTimer(self)
+        self._tik.timeout.connect(self._krok)
+        self._tik.start(16)
+        self.show()
+        self.raise_()
+
+    def _krok(self):
+        k = (time.time() - self._t0) * 1000.0 / self.CZAS_MS
+        # okno wychodzi z glebi korytarza, zanim tunel zgasnie
+        if (not self._wywolane) and k >= 0.62:
+            self._wywolane = True
+            if callable(self._po):
+                try:
+                    self._po()
+                except Exception:
+                    pass
+        if k >= 1.0:
+            self._tik.stop()
+            self.hide()
+            self.deleteLater()
+            return
+        self.update()
+
+    def paintEvent(self, e):
+        k = min(1.0, max(0.0, (time.time() - self._t0) * 1000.0 / self.CZAS_MS))
+        W, H = float(self.width()), float(self.height())
+        if W < 2 or H < 2:
+            return
+        mn = min(W, H)
+        akc1 = QColor(16, 220, 200) if self.is_dark else QColor(5, 150, 105)
+        akc2 = QColor(0, 240, 255) if self.is_dark else QColor(6, 120, 104)
+        rdzen = QColor(255, 255, 255) if self.is_dark else QColor(6, 95, 80)
+        # obwiednia: narasta szybko, gasnie pod koniec (nic nie zostaje na ekranie)
+        widz = self._plynnie(k / 0.30) * (1.0 - self._plynnie((k - 0.72) / 0.28))
+        if widz <= 0.01:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        cx, cy = self._cx, self._cy
+        zasieg = math.hypot(max(cx, W - cx), max(cy, H - cy)) * 1.05
+        czolo = zasieg * self._plynnie(k / 0.78)          # czolo korytarza
+        # 1) SMUGI — 84 promienie o wlasnych fazach zycia (jezyk prologu)
+        for j in range(84):
+            fj = ((j * 40503) % 977) / 977.0
+            kat = (j * 137.508 + k * 26.0 + fj * 40.0) * math.pi / 180.0
+            rj = 0.45 + fj * 0.55
+            pj = (fj + k * (1.15 + 0.85 * rj)) % 1.0
+            zycie = math.sin(pj * math.pi)
+            if zycie <= 0.02:
+                continue
+            r_od = czolo * (0.10 + 0.72 * pj)
+            r_do = min(zasieg, r_od + czolo * (0.16 + 0.22 * rj))
+            if r_do <= r_od:
+                continue
+            ca, sa = math.cos(kat), math.sin(kat)
+            kol = QColor(akc2 if (j % 3) else akc1)
+            kol.setAlphaF(min(1.0, (0.10 + 0.42 * rj) * zycie * widz))
+            p.setPen(QPen(kol, max(1.2, mn * (0.0016 + 0.0042 * rj * zycie)),
+                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(cx + ca * r_od, cy + sa * r_od),
+                       QPointF(cx + ca * r_do, cy + sa * r_do))
+        # 2) FALE — trzy pierscienie wybiegajace z logo
+        for fz in (0.0, 0.20, 0.42):
+            kf = (k - fz) / 0.66
+            if kf <= 0.0 or kf >= 1.0:
+                continue
+            r = zasieg * self._plynnie(kf) * 0.96
+            zan = (1.0 - kf) * widz
+            halo = QColor(akc1)
+            halo.setAlphaF(0.26 * zan)
+            p.setPen(QPen(halo, max(3.0, mn * 0.016 * (1.0 - kf * 0.6))))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            rd = QColor(rdzen)
+            rd.setAlphaF(0.55 * zan)
+            p.setPen(QPen(rd, max(1.2, mn * 0.0028)))
+            p.drawEllipse(QPointF(cx, cy), r, r)
+        # 3) ZRODLO — rozblysk w samym logo, gasnacy gdy korytarz sie otwiera
+        bl = (1.0 - self._plynnie(k / 0.55)) * widz
+        if bl > 0.01:
+            r_bl = mn * (0.020 + 0.075 * self._plynnie(k / 0.55))
+            grad = QRadialGradient(QPointF(cx, cy), r_bl)
+            g0 = QColor(rdzen); g0.setAlphaF(0.85 * bl)
+            g1 = QColor(akc1);  g1.setAlphaF(0.0)
+            grad.setColorAt(0.0, g0)
+            grad.setColorAt(1.0, g1)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(grad)
+            p.drawEllipse(QPointF(cx, cy), r_bl, r_bl)
+        p.end()
+
+    @staticmethod
+    def _plynnie(x):
+        x = min(1.0, max(0.0, float(x)))
+        return x * x * (3.0 - 2.0 * x)
+
+
 class OknoAktualizacji(QDialog):
     """Powitanie nowej wersji — pokazywane PRZY STARCIE, gdy jest aktualizacja.
     Zamiast dyskretnej ikonki: pełne, efektowne okno, które od razu proponuje
@@ -8613,44 +8728,32 @@ class OknoAktualizacji(QDialog):
             return
         self._anim_uzyta = True
         try:
-            # Technika "ducha": layout okna wymusza rozmiar minimalny, wiec
-            # samej geometrii nie da sie animowac od 56 px. Zamiast tego
-            # okno staje w miejscu docelowym (niewidoczne), a z monety-logo
-            # wyrasta jego ZRZUT jako skalowany obrazek; na koncu duch
-            # znika i odslania prawdziwe, ostre okno.
-            cel = self.geometry()
+            # Okno WYCHODZI Z GLEBI korytarza: rusza z niewielkiego
+            # prostokata w miejscu logo (skala ~0.72) i dochodzi do
+            # docelowej geometrii, jednoczesnie sie rozjasniajac.
+            cel = QRect(self.geometry())
             rodz = self.parent().window() if self.parent() is not None else None
             if rodz is not None:
                 cel.moveCenter(rodz.frameGeometry().center())
-            self.setGeometry(cel)
+                self.setGeometry(cel)
+            sc = 0.72
+            startowy = QRect(0, 0, max(60, int(cel.width() * sc)),
+                             max(60, int(cel.height() * sc)))
+            startowy.moveCenter(self._anim_start.center()
+                                if self._anim_start is not None else cel.center())
+            self.setGeometry(startowy)
             self.setWindowOpacity(0.0)
-            pix = self.grab()
-            duch = QLabel(None)
-            duch.setWindowFlags(Qt.WindowType.FramelessWindowHint
-                                | Qt.WindowType.Tool
-                                | Qt.WindowType.WindowStaysOnTopHint)
-            duch.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            duch.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            duch.setPixmap(pix)
-            duch.setScaledContents(True)
-            duch.setGeometry(QRect(self._anim_start))
-            duch.show()
-            self._duch = duch
-            self._an_geo = QPropertyAnimation(duch, b"geometry", self)
-            self._an_geo.setDuration(560)
-            self._an_geo.setStartValue(QRect(self._anim_start))
-            self._an_geo.setEndValue(QRect(cel))
+            self._an_geo = QPropertyAnimation(self, b"geometry", self)
+            self._an_geo.setDuration(430)
+            self._an_geo.setStartValue(startowy)
+            self._an_geo.setEndValue(cel)
             self._an_geo.setEasingCurve(QEasingCurve.Type.OutCubic)
-            def _po_animacji():
-                self.setWindowOpacity(1.0)
-                try:
-                    duch.close()
-                    duch.deleteLater()
-                except Exception:
-                    pass
-                self._duch = None
-            self._an_geo.finished.connect(_po_animacji)
+            self._an_op = QPropertyAnimation(self, b"windowOpacity", self)
+            self._an_op.setDuration(380)
+            self._an_op.setStartValue(0.0)
+            self._an_op.setEndValue(1.0)
             self._an_geo.start()
+            self._an_op.start()
         except Exception:
             self.setWindowOpacity(1.0)
 
@@ -16543,22 +16646,35 @@ class App(QMainWindow):
         # okno aktualizacji "wyjezdza" z monety-logo przy lewym menu:
         # ekran powitalny zapisuje jej pozycje w _ost_logo przy kazdym
         # rysowaniu, wiec mamy dokladny prostokat startu animacji
-        start_rect = None
+        # punkt startu = MALE LOGO PMT w topbarze (nad menu po lewej)
+        srodek_lok, start_rect = None, None
         try:
-            ep = getattr(self, "ekran_powitalny", None)
-            ost = getattr(ep, "_ost_logo", None)
-            if ep is not None and ost:
-                cx, cy, r = ost
-                r = max(18.0, float(r))
-                g = ep.mapToGlobal(QPoint(int(cx - r), int(cy - r)))
-                start_rect = QRect(g.x(), g.y(), int(2 * r), int(2 * r))
+            lbl = getattr(self, "logo_lbl", None)
+            if lbl is not None and lbl.isVisible():
+                sr = lbl.rect().center()
+                srodek_lok = lbl.mapTo(self.main_container, sr)
+                g = lbl.mapToGlobal(sr)
+                start_rect = QRect(g.x() - 40, g.y() - 40, 80, 80)
         except Exception:
-            start_rect = None
-        dlg = OknoAktualizacji(
-            self, wersja_stara=WERSJA_PROGRAMU, wersja_nowa=self._nowa_wersja,
-            opis=self._nowa_opis, is_dark=self.is_dark,
-            on_instaluj=self._zainstaluj_aktualizacje, start_rect=start_rect)
-        dlg.exec()
+            srodek_lok, start_rect = None, None
+
+        def _pokaz_dialog():
+            dlg = OknoAktualizacji(
+                self, wersja_stara=WERSJA_PROGRAMU, wersja_nowa=self._nowa_wersja,
+                opis=self._nowa_opis, is_dark=self.is_dark,
+                on_instaluj=self._zainstaluj_aktualizacje, start_rect=start_rect)
+            dlg.exec()
+
+        if srodek_lok is not None:
+            try:
+                # najpierw KORYTARZ z logo, okno wychodzi z jego glebi
+                self._korytarz_akt = KorytarzAktualizacji(
+                    self.main_container, srodek_lok, is_dark=self.is_dark,
+                    po_zakonczeniu=_pokaz_dialog)
+                return
+            except Exception:
+                pass
+        _pokaz_dialog()
 
     def _zainstaluj_aktualizacje(self, pobrany_plik):
         """Uruchamia skrypt podmiany i TWARDO kończy proces.

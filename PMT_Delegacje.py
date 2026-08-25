@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.53"
+WERSJA_PROGRAMU = "3.20.54"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -16643,9 +16643,16 @@ class App(QMainWindow):
         QTimer.singleShot(900, self._pokaz_okno_aktualizacji)
 
     def _pokaz_okno_aktualizacji(self):
-        # okno aktualizacji "wyjezdza" z monety-logo przy lewym menu:
-        # ekran powitalny zapisuje jej pozycje w _ost_logo przy kazdym
-        # rysowaniu, wiec mamy dokladny prostokat startu animacji
+        # Intro trwa ~25 s i CHOWA male logo w topbarze (wraca dopiero
+        # w _intro_koniec). Dialog aktualizacji startowal ~0,9 s po
+        # starcie — W TRAKCIE intro: logo bylo niewidoczne, wiec korytarz
+        # szedl w fallback, a i tak ginalby pod nakladka intro. Dlatego
+        # CZEKAMY, az intro zejdzie ze sceny; dopiero wtedy korytarz
+        # rusza z widocznego logo przy bocznym menu.
+        intro = getattr(self, "_intro", None)
+        if intro is not None and intro.isVisible():
+            QTimer.singleShot(700, self._pokaz_okno_aktualizacji)
+            return
         # punkt startu = MALE LOGO PMT w topbarze (nad menu po lewej)
         srodek_lok, start_rect = None, None
         try:

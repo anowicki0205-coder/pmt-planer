@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.54"
+WERSJA_PROGRAMU = "3.20.55"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -8485,7 +8485,7 @@ class KorytarzAktualizacji(QWidget):
     swietlny tunel — ten sam jezyk wizualny co prolog intra — i dopiero
     z jego glebi wychodzi okno nowej wersji. Nakladka na oknie glownym,
     przezroczysta dla myszy, sama sie usuwa po zakonczeniu."""
-    CZAS_MS = 1150
+    CZAS_MS = 1400
 
     def __init__(self, rodzic, srodek: QPoint, is_dark=True, po_zakonczeniu=None):
         super().__init__(rodzic)
@@ -8506,7 +8506,7 @@ class KorytarzAktualizacji(QWidget):
     def _krok(self):
         k = (time.time() - self._t0) * 1000.0 / self.CZAS_MS
         # okno wychodzi z glebi korytarza, zanim tunel zgasnie
-        if (not self._wywolane) and k >= 0.62:
+        if (not self._wywolane) and k >= 0.66:
             self._wywolane = True
             if callable(self._po):
                 try:
@@ -8535,7 +8535,11 @@ class KorytarzAktualizacji(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        # Tryb swiecenia (Plus) dziala tylko na ciemnym tle — na jasnym
+        # motywie dodawanie kolorow do bieli GINIE. W jasnym rysujemy
+        # zwyczajnie (SourceOver) ciemnymi zieleniami loga, jak w prologu.
+        if self.is_dark:
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
         cx, cy = self._cx, self._cy
         zasieg = math.hypot(max(cx, W - cx), max(cy, H - cy)) * 1.05
         czolo = zasieg * self._plynnie(k / 0.78)          # czolo korytarza
@@ -8554,8 +8558,9 @@ class KorytarzAktualizacji(QWidget):
                 continue
             ca, sa = math.cos(kat), math.sin(kat)
             kol = QColor(akc2 if (j % 3) else akc1)
-            kol.setAlphaF(min(1.0, (0.10 + 0.42 * rj) * zycie * widz))
-            p.setPen(QPen(kol, max(1.2, mn * (0.0016 + 0.0042 * rj * zycie)),
+            baza_a = (0.10 + 0.42 * rj) if self.is_dark else (0.22 + 0.50 * rj)
+            kol.setAlphaF(min(1.0, baza_a * zycie * widz))
+            p.setPen(QPen(kol, max(1.4, mn * (0.0021 + 0.0056 * rj * zycie)),
                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawLine(QPointF(cx + ca * r_od, cy + sa * r_od),
                        QPointF(cx + ca * r_do, cy + sa * r_do))

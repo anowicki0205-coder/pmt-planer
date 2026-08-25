@@ -1,13 +1,13 @@
 @echo off
 setlocal enabledelayedexpansion
 rem ============================================================
-rem  PMT Planer — aktualizacja wersji FOLDEROWEJ
+rem  PMT Planer ??? aktualizacja wersji FOLDEROWEJ
 rem
 rem  Program nie jest juz jednym plikiem .exe, tylko folderem:
 rem      PMT_Planer\PMT_Planer.exe
 rem      PMT_Planer\_internal\...   (biblioteki)
 rem
-rem  Dzieki temu nic sie nie rozpakowuje przy starcie — znika blad
+rem  Dzieki temu nic sie nie rozpakowuje przy starcie ??? znika blad
 rem  "Failed to load Python DLL", ktory towarzyszyl nam przy wersji
 rem  jednoplikowej. Ten skrypt podmienia CALY folder.
 rem
@@ -26,7 +26,7 @@ set "KOPIA=%FOLDER_CEL%_poprzednia"
 
 rem KLUCZOWE: przechodzimy do katalogu tymczasowego. Jesli skrypt "stoi"
 rem w folderze programu, Windows nie pozwoli go przeniesc ani usunac
-rem (komunikat "Odmowa dostepu") — i cala aktualizacja pada.
+rem (komunikat "Odmowa dostepu") ??? i cala aktualizacja pada.
 cd /d "%TEMP%"
 
 title Aktualizacja PMT Planer
@@ -86,12 +86,24 @@ echo [4] Uruchamiam nowa wersje... >> "%LOG%"
 cd /d "%FOLDER_CEL%"
 start "" "%CEL_EXE%"
 
-rem --- 5) weryfikacja: czy nowa wersja zglosila gotowosc ---
+rem --- 5) weryfikacja: flaga zycia LUB zyjacy proces (fallback) ---
 set "WYSTARTOWALA=0"
+set "ZYWY=0"
 for /l %%i in (1,1,15) do (
     ping -n 2 127.0.0.1 >nul
     if exist "%FLAGA%" (
         set "WYSTARTOWALA=1"
+        goto po_weryfikacji
+    )
+    tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
+    if not errorlevel 1 (
+        set /a ZYWY+=1
+    ) else (
+        set "ZYWY=0"
+    )
+    if !ZYWY! geq 6 (
+        set "WYSTARTOWALA=1"
+        echo [5] Flagi brak, ale proces zyje - uznaje sukces. >> "%LOG%"
         goto po_weryfikacji
     )
 )

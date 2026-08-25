@@ -1,0 +1,35 @@
+WNIOSEK DO DZIAŁU IT — dopuszczenie aplikacji PMT Planer
+=========================================================
+
+Dzień dobry,
+
+proszę o dodanie reguły zezwalającej w polityce Device Guard / WDAC
+dla wewnętrznej aplikacji firmowej PMT Planer, używanej przez zespół
+merchandisingu do rozliczania delegacji i planowania wizyt.
+
+Objaw: przy automatycznej aktualizacji nowy plik programu jest
+blokowany komunikatem:
+  "...\PMT_Planer\PMT_Planer.exe' was blocked by your organization's
+   Device Guard policy."
+
+Dane aplikacji:
+- nazwa pliku:  PMT_Planer.exe
+- lokalizacja:  C:\Users\<użytkownik>\Desktop\PMT\dist\PMT_Planer\
+- źródło aktualizacji: wydania w repozytorium
+  https://github.com/anowicki0205-coder/pmt-planer/releases
+- aplikacja nie jest obecnie podpisana cyfrowo (brak certyfikatu
+  wydawcy); aktualizacje pojawiają się regularnie, więc reguła
+  oparta o skrót (hash) pojedynczego pliku będzie nieskuteczna.
+
+Proponowane rozwiązania (do wyboru przez Państwa):
+1) Reguła ścieżkowa (FilePath) dla katalogu programu:
+   C:\Users\*\Desktop\PMT\dist\PMT_Planer\*
+2) Jeżeli wymagany jest podpis wydawcy — proszę o informację,
+   jaki certyfikat będzie honorowany (wewnętrzny CA firmy /
+   komercyjny certyfikat code signing); dostosujemy proces
+   budowania i podpiszemy wydania.
+
+W razie pytań technicznych chętnie przekażę szczegóły
+(sposób budowania, sumy kontrolne wydań).
+
+Z góry dziękuję

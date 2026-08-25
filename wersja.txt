@@ -1,2 +1,2 @@
-3.20.51
-Mniejszy puls na mapie startowej oraz wszystkie nowości: reset hasła i delegacje z planu jednym kliknięciem.
+3.20.53
+Świetlny korytarz aktualizacji, delegacje z planu jednym kliknięciem i naprawione logowanie hasłem.

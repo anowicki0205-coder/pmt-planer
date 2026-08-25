@@ -122,6 +122,11 @@ if exist "%KOPIA%" (
     echo.
     echo   Nowa wersja nie uruchomila sie poprawnie.
     echo   Przywrocilem poprzednia - powinna sie wlasnie otworzyc.
+    echo.
+    echo   Jesli wyzej widac komunikat o "Device Guard" - to FIRMOWA
+    echo   blokada uruchamiania nowych programow na tym komputerze.
+    echo   Aktualizacja wymaga zgody dzialu IT - regula dla PMT_Planer -
+    echo   albo zbudowania programu lokalnie przez buduj.bat.
 ) else (
     echo.
     echo   Aktualizacja nie powiodla sie. Pobierz program recznie ze strony wydania.

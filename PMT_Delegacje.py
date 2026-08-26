@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.56"
+WERSJA_PROGRAMU = "3.20.57"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -16594,6 +16594,8 @@ class App(QMainWindow):
 
         # Sprawdź aktualizacje w tle (2s po starcie, żeby nie opóźniać okna)
         self._nowa_wersja = ""
+        self._akt_rozstrzygniete = False   # watek sprawdzania juz odpowiedzial
+        self._dialog_akt_byl = False       # okno aktualizacji pokazane raz
         self._nowa_opis = ""
         QTimer.singleShot(2000, self._start_sprawdzania_aktualizacji)
 
@@ -16649,6 +16651,7 @@ class App(QMainWindow):
     def _aktualizacja_wynik(self, jest_nowsza, wersja, opis):
         """Jest nowa wersja → pokazujemy pełne okno powitania (nie ikonkę).
         Chwila zwłoki, żeby nie nachodzić na ekran powitalny."""
+        self._akt_rozstrzygniete = True
         if not jest_nowsza:
             return
         self._nowa_wersja = wersja
@@ -16656,6 +16659,8 @@ class App(QMainWindow):
         QTimer.singleShot(900, self._pokaz_okno_aktualizacji)
 
     def _pokaz_okno_aktualizacji(self):
+        if getattr(self, "_dialog_akt_byl", False):
+            return
         # Intro trwa ~25 s i CHOWA male logo w topbarze (wraca dopiero
         # w _intro_koniec). Dialog aktualizacji startowal ~0,9 s po
         # starcie — W TRAKCIE intro: logo bylo niewidoczne, wiec korytarz
@@ -16685,6 +16690,7 @@ class App(QMainWindow):
                 on_instaluj=self._zainstaluj_aktualizacje, start_rect=start_rect)
             dlg.exec()
 
+        self._dialog_akt_byl = True
         if srodek_lok is not None:
             try:
                 # najpierw KORYTARZ z logo, okno wychodzi z jego glebi
@@ -17720,6 +17726,58 @@ class App(QMainWindow):
                not self.btn_dzwonek.rect().contains(pt_btn):
                 self.panel_powiadomien.hide()
 
+    def intro_po_sprawdzeniu(self, imie: str = "", limit_ms: int = 2600):
+        """NOWA KOLEJNOSC (3.20.57): najpierw werdykt sprawdzania wersji,
+        POTEM intro. Czekamy krotko na watek aktualizacji (limit_ms);
+        jesli jest nowsza — okno aktualizacji (z korytarzem z widocznego
+        logo) gra PRZED intro. Wolna siec = intro rusza normalnie,
+        a spozniona odpowiedz pojdzie dotychczasowa sciezka po intro.
+        Na czas oczekiwania scena pod topbarem jest przykryta kurtyna
+        w kolorze prologu — bez blysku "golego" interfejsu."""
+        kurtyna = QWidget(self.main_container)
+        kurtyna.setStyleSheet("background: %s;" %
+                              ("#050A12" if self.is_dark else "#EEF6F2"))
+        y0 = 0
+        try:
+            y0 = int(self.topbar.height())
+        except Exception:
+            pass
+        kurtyna.setGeometry(0, y0, self.main_container.width(),
+                            max(1, self.main_container.height() - y0))
+        kurtyna.show()
+        kurtyna.raise_()
+        self._kurtyna_start = kurtyna
+
+        start_ms = time.time() * 1000.0
+
+        def _dalej_intro():
+            try:
+                kurtyna.hide()
+                kurtyna.deleteLater()
+            except Exception:
+                pass
+            self._kurtyna_start = None
+            self.pokaz_intro(imie)
+
+        def _krok_czekania():
+            if self._nowa_wersja:
+                # dialog modalny (exec) — po zamknieciu jedziemy z intro
+                try:
+                    self._pokaz_okno_aktualizacji()
+                except Exception:
+                    pass
+                _dalej_intro()
+                return
+            if self._akt_rozstrzygniete:
+                _dalej_intro()
+                return
+            if (time.time() * 1000.0 - start_ms) >= limit_ms:
+                _dalej_intro()
+                return
+            QTimer.singleShot(150, _krok_czekania)
+
+        QTimer.singleShot(0, _krok_czekania)
+
     def pokaz_intro(self, imie: str = ""):
         """Animacja startowa jako NAKŁADKA wewnątrz okna programu.
         Okno programu wyświetla się u każdego (to zwykłe okno), więc
@@ -18280,8 +18338,8 @@ if __name__ == "__main__":
         sys.exit(1)
     _dziennik_animacji("okno programu zbudowane")
     window._demo_pozostalo = None          # ustali werdykt sesji z tła
-    window.pokaz_intro(_imie_zal if "_imie_zal" in dir() else "")
     window.show()
+    window.intro_po_sprawdzeniu(_imie_zal if "_imie_zal" in dir() else "")
 
     def _werdykt_sesji():
         if "gotowe" not in _sesja_wynik:

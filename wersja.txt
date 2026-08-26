@@ -1,2 +1,2 @@
-3.20.55
-Wyraźny korytarz aktualizacji także w jasnym motywie i ikona programu przycięta do koła.
+3.20.56
+Węższy szlak, dłuższa trasa z dziesięcioma sklepami i wyraźna obwódka logo.

@@ -1482,7 +1482,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.55"
+WERSJA_PROGRAMU = "3.20.56"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -13374,14 +13374,15 @@ class AnimacjaStartowa(QWidget):
         # wyjazd z DOMU (pinezka), objazd sceny z nawrotem i powrót do DOMU —
         # oba końce dociąga do pinezki magnes (start i finisz w tym samym miejscu)
         self._trasa_ekranu = self._wygladz(
-            [(0.796, 0.760), (0.868, 0.664), (0.813, 0.400), (0.706, 0.211),
-             (0.594, 0.239), (0.519, 0.133), (0.450, 0.333), (0.363, 0.322),
-             (0.263, 0.244), (0.169, 0.456), (0.113, 0.622), (0.225, 0.722),
-             (0.356, 0.844), (0.519, 0.656), (0.650, 0.778), (0.744, 0.716)],
+            [(0.796, 0.760), (0.868, 0.664), (0.902, 0.520), (0.813, 0.400),
+             (0.706, 0.211), (0.594, 0.239), (0.519, 0.133), (0.482, 0.072),
+             (0.450, 0.333), (0.363, 0.322), (0.263, 0.244), (0.169, 0.456),
+             (0.082, 0.386), (0.113, 0.622), (0.225, 0.722), (0.356, 0.844),
+             (0.438, 0.905), (0.519, 0.656), (0.650, 0.778), (0.744, 0.716)],
             seg=10)
         self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=6)
         self._trasa_ekranu = self._slalom(self._trasa_ekranu,
-                                          amp0=0.024, amp1=0.0, prop=1.78)
+                                          amp0=0.034, amp1=0.0, prop=1.78)
         # kanapka: krzywa -> równe odcinki -> krzywa -> równe odcinki.
         # Wygładzanie na RÓWNOMIERNEJ siatce węzłów daje zakręty po okręgu
         # (Catmull zachowuje się jednorodnie), a finalny resampling — stałą,
@@ -13389,7 +13390,7 @@ class AnimacjaStartowa(QWidget):
         self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=6)
         self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 900)
         self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=3)
-        self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 2600)
+        self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 3000)
         # losowe zacięcia głowicy druku (poziomy postępu, przy których staje)
         self._zaciecia = sorted((random.uniform(0.22, 0.42),
                                  random.uniform(0.58, 0.82)))
@@ -14135,16 +14136,16 @@ class AnimacjaStartowa(QWidget):
         if len(og) < 2:
             return
         if self.is_dark:
-            warstwy = ((0.095, self._akc2, 0.28),
-                       (0.048, self._akc1, 0.62),
-                       (0.014, QColor(205, 255, 244), 0.85))
+            warstwy = ((0.071, self._akc2, 0.28),
+                       (0.036, self._akc1, 0.62),
+                       (0.011, QColor(205, 255, 244), 0.85))
         else:
             # jasny motyw: bialy podklad-papier pod wstega + soczyste
             # zielenie loga — droga ma sie odcinac od fotorealnej trawy
-            warstwy = ((0.120, QColor(255, 255, 255), 0.50),
-                       (0.094, QColor(16, 185, 129), 0.55),
-                       (0.049, QColor(13, 148, 136), 0.90),
-                       (0.015, QColor(5, 58, 48), 1.00))
+            warstwy = ((0.090, QColor(255, 255, 255), 0.50),
+                       (0.070, QColor(16, 185, 129), 0.55),
+                       (0.037, QColor(13, 148, 136), 0.90),
+                       (0.011, QColor(5, 58, 48), 1.00))
         mn_w = min(self.width(), self.height())
         for szer, kol, moc in warstwy:
             for i in range(1, len(og)):
@@ -14183,9 +14184,11 @@ class AnimacjaStartowa(QWidget):
     # drzewa, wieś z kościółkiem, pola, rzeka z mostem i wiatraki.
     # Przyszła część mapy pozostaje pusta, aż głowa tam dotrze.
 
-    _SIECI_CELE = (("BIEDRONKA", 0.813, 0.367), ("DINO", 0.594, 0.239),
-                   ("EUROCASH", 0.363, 0.322), ("STOKROTKA", 0.113, 0.622),
-                   ("\u017bABKA", 0.356, 0.844), ("SPO\u0141EM", 0.650, 0.778))
+    _SIECI_CELE = (("BIEDRONKA", 0.813, 0.367), ("\u017bABKA", 0.902, 0.520),
+                   ("DINO", 0.594, 0.239), ("DINO", 0.482, 0.072),
+                   ("EUROCASH", 0.363, 0.322), ("BIEDRONKA", 0.082, 0.386),
+                   ("STOKROTKA", 0.113, 0.622), ("\u017bABKA", 0.356, 0.844),
+                   ("STOKROTKA", 0.438, 0.905), ("SPO\u0141EM", 0.650, 0.778))
 
     def _zbuduj_swiat(self):
         """Jednorazowo: frakcje węzłów-sieci na pętli, harmonogram meldunków
@@ -14217,11 +14220,14 @@ class AnimacjaStartowa(QWidget):
                     hi = sr
             return 0.25 + 4.0 * (lo + hi) / 2
 
-        km_tot = 214
+        km_tot = 236
         zdarz = [(0.45, "Wyjazd: DOM 06:12")]
+        _meldowane = set()
         for i, (nz, f) in enumerate(sieci):
             tn = t_od_u(f)
-            zdarz.append((tn, "W\u0119ze\u0142 %s potwierdzony \u2713" % nz))
+            if nz not in _meldowane:
+                _meldowane.add(nz)
+                zdarz.append((tn, "W\u0119ze\u0142 %s potwierdzony \u2713" % nz))
             nast = sieci[i + 1] if i + 1 < len(sieci) else ("DOM", 1.0)
             t_nast = t_od_u(nast[1]) if i + 1 < len(sieci) else 4.28
             if t_nast - tn > 0.85:
@@ -14247,7 +14253,9 @@ class AnimacjaStartowa(QWidget):
             (7.52, "Znak gotowy \u2713"))))
         self._sw_km = km_tot
 
-        f_by = dict(sieci)
+        f_by = {}
+        for _nz, _f in sieci:
+            f_by.setdefault(_nz, _f)
         f_bie = f_by.get("BIEDRONKA", 0.16)
         f_din = f_by.get("DINO", 0.30)
         f_eur = f_by.get("EUROCASH", 0.46)
@@ -16014,8 +16022,8 @@ class AnimacjaStartowa(QWidget):
             p.drawPixmap(QPointF(-skalowane.width() / (2 * _dpr),
                                  -skalowane.height() / (2 * _dpr)), skalowane)
             p.restore()
-            obw = QColor(0, 228, 161, 150) if self.is_dark else QColor(13, 148, 136, 190)
-            p.setPen(QPen(obw, max(1.5, r * 0.035)))
+            obw = QColor(0, 240, 190, 235) if self.is_dark else QColor(11, 128, 118, 235)
+            p.setPen(QPen(obw, max(2.2, r * 0.055)))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
         else:

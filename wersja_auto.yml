@@ -1,7 +1,7 @@
 name: Podbij wersja.txt po wydaniu
 
 # Po opublikowaniu wydania (Publish release) ten automat sam wpisuje
-# numer z tagu do wersja.txt - ostatni krok wydania przestaje byc reczny.
+# numer z tagu do wersja.txt - ostatni reczny krok wydania znika.
 # Opis w dymku aktualizacji = pierwsza niepusta linia opisu wydania.
 
 on:

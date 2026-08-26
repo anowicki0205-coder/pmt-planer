@@ -1,2 +1,2 @@
-3.20.54
-Korytarz aktualizacji po animacji startowej, ostrzejsza ikona programu i naprawione logowanie hasłem.
+3.20.55
+Wyraźny korytarz aktualizacji także w jasnym motywie i ikona programu przycięta do koła.

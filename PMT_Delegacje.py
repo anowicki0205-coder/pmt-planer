@@ -519,7 +519,20 @@ def _katalogi_towarzyszace():
 
 def _pierwsza_linia_pliku(sciezka) -> str:
     """Pierwsza niepusta linia pliku tekstowego. Radzi sobie z BOM-em,
-    CRLF-em i plikiem zapisanym w Notatniku jako ANSI (cp1250)."""
+    CRLF-em, plikiem zapisanym w Notatniku jako ANSI (cp1250) oraz jako
+    „Unicode" (UTF-16 — Notatnik potrafi tak zapisać bez pytania)."""
+    try:
+        with open(sciezka, "rb") as f:
+            poczatek = f.read(4)
+        if poczatek[:2] in (b"\xff\xfe", b"\xfe\xff"):
+            with open(sciezka, encoding="utf-16") as f:
+                for linia in f:
+                    linia = linia.strip()
+                    if linia:
+                        return linia
+            return ""
+    except Exception:
+        pass
     for kodowanie in ("utf-8-sig", "cp1250", "latin-2"):
         try:
             with open(sciezka, encoding=kodowanie) as f:
@@ -548,7 +561,7 @@ def _menedzer() -> str:
             return str(w).strip()
     except Exception:
         pass
-    for kat in _katalogi_towarzyszace():
+    for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
         try:
             sc = os.path.join(kat, "menedzer.txt")
             if os.path.exists(sc):
@@ -558,6 +571,23 @@ def _menedzer() -> str:
         except Exception:
             continue
     return ""
+
+
+def _menedzer_zrodlo() -> str:
+    """Skąd program wziął nazwisko przełożonego — do dziennika diagnostycznego.
+    Puste = nie znalazł nigdzie (i wtedy wypisuje, GDZIE szukał)."""
+    try:
+        if str((_wczytaj_ustawienia() or {}).get("menedzer", "")).strip():
+            return "ustawienia programu"
+    except Exception:
+        pass
+    szukane = []
+    for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
+        sc = os.path.join(kat, "menedzer.txt")
+        szukane.append(sc)
+        if os.path.exists(sc) and _pierwsza_linia_pliku(sc):
+            return sc
+    return "BRAK — szukano: " + " | ".join(szukane)
 
 
 def _podpisz_zadanie(dane: dict) -> dict:
@@ -1758,7 +1788,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.21.1"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
+WERSJA_PROGRAMU = "3.21.2"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -10482,12 +10512,9 @@ class EkranPowitalny(QFrame):
         if not getattr(self, "_logo_diag", False):
             self._logo_diag = True
             try:
-                sc = znajdz_logo() or "?"
-                with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])),
-                                       "PMT_diagnostyka_animacji.txt"),
-                          "a", encoding="utf-8") as f:
-                    f.write("LOGO ZRODLO: %dx%d px  <-  %s\n"
-                            % (self._logo_pix.width(), self._logo_pix.height(), sc))
+                _dziennik_animacji("LOGO ZRODLO (ekran powitalny): %dx%d px  <-  %s"
+                                   % (self._logo_pix.width(), self._logo_pix.height(),
+                                      znajdz_logo() or "?"))
             except Exception:
                 pass
         klucz = (int(srednica), self.is_dark)
@@ -18572,6 +18599,10 @@ class App(QMainWindow):
             # PyQt6-Multimedia, pliku MP4) wracamy bez szkody do starej
             # animacji poniżej. Pliki: intro_zmierzch.mp4 / intro_zloty.mp4
             # obok programu albo w podkatalogu zasoby.
+            self._intro_zakonczone = False
+            # Klasyczne intro trwa ~20–25 s, wideo ~21 s. Po 50 s bez
+            # zgłoszenia końca strażnik sam pokazuje program.
+            QTimer.singleShot(50000, self._intro_straznik)
             try:
                 from intro_wideo import sprobuj_intro_wideo
                 _kat_prog = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -18612,6 +18643,7 @@ class App(QMainWindow):
 
     def _intro_koniec(self):
         self._intro_gra = False
+        self._intro_zakonczone = True
         try:
             if hasattr(self, "logo_lbl"):
                 self.logo_lbl.setVisible(True)
@@ -18625,10 +18657,55 @@ class App(QMainWindow):
         try:
             intro = getattr(self, "_intro", None)
             if intro is not None:
-                intro._zapisz_diag()
+                try:
+                    intro._zapisz_diag()
+                except Exception:
+                    pass          # dziennik to dodatek — nakładka MUSI zejść
                 intro.hide()
                 intro.deleteLater()
                 self._intro = None
+        except Exception:
+            pass
+        _dziennik_animacji("intro zakończone — ekran powitalny")
+        # Cokolwiek jeszcze zasłania CAŁE okno (np. nakładka intro wideo),
+        # ma zejść — pod spodem czeka gotowy program.
+        self._zdejmij_nakladki_pelnoekranowe()
+
+    def _zdejmij_nakladki_pelnoekranowe(self):
+        """Chowa każdy widżet-dziecko, który przykrywa całe okno i nie jest
+        główną sceną. Tylko po takich zostaje „czarny ekran"."""
+        try:
+            for dziecko in self.findChildren(QWidget):
+                try:
+                    if dziecko.parent() is not self or not dziecko.isVisible():
+                        continue
+                    if dziecko is getattr(self, "main_container", None):
+                        continue
+                    if dziecko is getattr(self, "bg", None):
+                        continue
+                    g = dziecko.geometry()
+                    if g.width() >= self.width() - 2 and g.height() >= self.height() - 2 \
+                            and type(dziecko).__name__ not in ("ImageBackgroundWidget",):
+                        _dziennik_animacji("zdejmuję nakładkę pełnoekranową: %s"
+                                           % type(dziecko).__name__)
+                        dziecko.hide()
+                        dziecko.deleteLater()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def _intro_straznik(self):
+        """BEZPIECZNIK: gdyby intro (klasyczne albo wideo) z jakiegokolwiek
+        powodu nie zgłosiło końca, po upływie czasu z zapasem wymuszamy
+        przejście do programu. Ciemny ekran po intro nie ma prawa zostać."""
+        try:
+            gra = getattr(self, "_intro_gra", False)
+            intro = getattr(self, "_intro", None)
+            if not gra and intro is None and getattr(self, "_intro_zakonczone", False):
+                return
+            _dziennik_animacji("STRAŻNIK: intro nie zgłosiło końca w terminie — wymuszam")
+            self._intro_koniec()
         except Exception:
             pass
 
@@ -18886,6 +18963,11 @@ class App(QMainWindow):
             # widać dopiero po otwarciu PDF-a. Mówimy o tym PRZED generowaniem,
             # bo to jedyny moment, w którym da się to poprawić bez powtarzania
             # całej pracy. Nie blokujemy — czasem dokument ma wyjść bez nazwiska.
+            try:
+                _dziennik_animacji("MENEDZER na dokumencie: %r  (zrodlo: %s)"
+                                   % (_menedzer(), _menedzer_zrodlo()))
+            except Exception:
+                pass
             if not _menedzer():
                 _dalej = _okno_pmt(
                     self, "Rubryka PRZEŁOŻONY jest pusta",

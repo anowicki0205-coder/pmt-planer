@@ -22,15 +22,17 @@ KATALOG = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 
 WYMAGANE = ["PMT_Delegacje.py", "intro_wideo.py"]
-# UWAGA: menedzer.txt CELOWO nie ma na tej liście. Nazwisko przełożonego
-# to dane osobowe — nie wolno go wkompilowywać w plik rozsyłany do całego
-# zespołu. Plik ma leżeć OBOK programu u konkretnej osoby (albo być wpisany
-# w oknie programu, w polu Przelozony).
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
 # tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
 # intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
+#
+# menedzer.txt: nazwisko przełożonego to wartość WSPÓLNA dla całego zespołu
+# (drukowana na każdej delegacji), więc pakujemy ją do paczki — inaczej każda
+# z 65 osób musiałaby ręcznie dokładać plik obok programu. W 3.21.0-3.21.1
+# plik był wyrzucony z paczki i rubryka wychodziła pusta. Do repozytorium
+# plik NIE trafia (.gitignore) — i tylko to było realnym problemem.
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
-        "pmt_logo_retro.png"]
+        "pmt_logo_retro.png", "menedzer.txt"]
 UKRYTE = ["intro_wideo", "winsound"]
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
@@ -206,10 +208,17 @@ def main():
         pisz("        zastępcze. Jeśli chcesz oryginalne, skopiuj te dwa pliki")
         pisz("        z folderu starego programu tutaj (albo do zasoby\\).")
     if os.path.exists(os.path.join(KATALOG, "menedzer.txt")):
-        pisz("[UWAGA] W folderze leży menedzer.txt — NIE zostanie wbudowany")
-        pisz("        w program (to dane osobowe). Skopiuj go ręcznie obok")
-        pisz("        gotowego pliku PMT_Planer.exe u siebie, albo wpisz")
-        pisz("        nazwisko w oknie programu, w polu Przelozony.")
+        try:
+            with open(os.path.join(KATALOG, "menedzer.txt"), "rb") as f:
+                _ile = len(f.read(200))
+            pisz("Przełożony: menedzer.txt (%d bajtów) trafi do paczki" % _ile)
+        except Exception:
+            pass
+    else:
+        pisz("[UWAGA] Brak menedzer.txt w tym folderze - rubryka PRZELOZONY na")
+        pisz("        delegacjach bedzie pusta, chyba ze kazdy wpisze nazwisko")
+        pisz("        w oknie programu. Utworz plik menedzer.txt (jedna linia)")
+        pisz("        obok zbuduj.py i zbuduj ponownie.")
     py = sys.executable
     if not przygotuj_biblioteki(py):
         return 1

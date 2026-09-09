@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.21.0 — WERSJA STABILNA
+  PMT PLANER 3.21.2 — WERSJA STABILNA
   baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
 ═══════════════════════════════════════════════════════════════════════
 
@@ -25,11 +25,23 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
     położony OBOK PMT_Planer.exe. Program czyta go z katalogu programu,
     z podkatalogu _internal i z katalogu roboczego, w kodowaniu UTF-8,
     UTF-8 z BOM albo ANSI (cp1250) — czyli tak, jak zapisze go Notatnik.
-  · menedzer.txt NIE jest wbudowywany w plik .exe. Skrypt budowania
-    ostrzeże, jeśli zostawisz go w folderze budowania. Wcześniej trafiał
-    do środka programu rozsyłanego do 65 osób — to były dane osobowe
-    w każdej kopii.
+  · NAJPROŚCIEJ DLA ZESPOŁU: menedzer.txt kładziesz obok zbuduj.py PRZED
+    budowaniem — trafia do paczki i każdy dostaje wypełnioną rubrykę bez
+    żadnej roboty. Przy budowaniu na GitHubie to samo załatwia sekret
+    repozytorium PMT_MENEDZER (Settings → Secrets and variables → Actions
+    → New repository secret; wartość = imię i nazwisko).
+    W 3.21.0–3.21.1 plik był z paczki wyrzucony (w imię prywatności) i przez
+    to rubryka wychodziła pusta — cofnięte w 3.21.2. Nazwisko drukowane na
+    każdej delegacji nie jest tajemnicą; problemem było wyłącznie to, że
+    leżało w publicznym repozytorium.
+  · Program szuka pliku po kolei: ustawienia programu (pole w oknie),
+    obok PMT_Planer.exe, w _internal (paczka), w katalogu roboczym,
+    w Twoim katalogu użytkownika (C:\Users\TY\menedzer.txt). Czyta UTF-8,
+    UTF-8 z BOM, ANSI (cp1250) i UTF-16 — każdy zapis z Notatnika.
   · Plik .gitignore pilnuje, żeby menedzer.txt nigdy nie trafił na GitHub.
+  · Gdyby rubryka MIMO TO wyszła pusta: w katalogu użytkownika jest plik
+    PMT_diagnostyka_animacji.txt — linia „MENEDZER na dokumencie" mówi,
+    co poszło na PDF i GDZIE program szukał. Wyślij tę linię.
 
   UWAGA, KTÓREJ NIE DA SIĘ OBEJŚĆ KODEM: nazwisko wciąż istnieje
   w HISTORII repozytorium (starsze commity) i wewnątrz wydań ≤ 3.20.57
@@ -135,6 +147,11 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
   aplikacji" i firmowe zabezpieczenia. Program robił rzeczy, które
   wyglądają dokładnie jak zachowanie złośliwego oprogramowania:
 
+  · BEZPIECZNIK PO INTRO (3.21.2): gdyby animacja startowa — klasyczna
+    albo wideo — z jakiegokolwiek powodu nie zgłosiła końca, po 50 s
+    program sam zdejmuje nakładkę i pokazuje ekran powitalny. Ciemny
+    ekran po intro nie ma prawa zostać. Co się działo, zapisuje
+    PMT_diagnostyka_animacji.txt w katalogu użytkownika.
   · przy KAŻDYM starcie przeszukiwał pulpit, Pobrane, Dokumenty, OneDrive
     i kasował znalezione pliki .exe oraz foldery — bez pytania. Masowe
     czytanie profilu użytkownika plus kasowanie plików wykonywalnych to

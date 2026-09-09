@@ -169,6 +169,61 @@ if not _bylo:
 
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("2b. Przełożony w układzie ZBUDOWANEGO programu (_internal)")
+
+# Udajemy program zbudowany PyInstallerem: PMT_Planer.exe + podkatalog
+# _internal z dołączonymi plikami. Tak wygląda paczka u każdego użytkownika.
+_udawany = os.path.join(_TMP_HOME, "PMT_Planer")
+os.makedirs(os.path.join(_udawany, "_internal"), exist_ok=True)
+_bylo_frozen = getattr(sys, "frozen", None)
+_bylo_exe = sys.executable
+_bylo_meipass = getattr(sys, "_MEIPASS", None)
+try:
+    sys.frozen = True
+    sys.executable = os.path.join(_udawany, "PMT_Planer.exe")
+    sys._MEIPASS = os.path.join(_udawany, "_internal")
+    P._ustawienia_reset()
+
+    with open(os.path.join(_udawany, "_internal", "menedzer.txt"), "w", encoding="utf-8") as f:
+        f.write("Anna Zbudowana\n")
+    sprawdz("menedzer.txt dołączony do paczki (_internal) jest znajdowany",
+            P._menedzer() == "Anna Zbudowana", repr(P._menedzer()))
+    os.remove(os.path.join(_udawany, "_internal", "menedzer.txt"))
+
+    with open(os.path.join(_udawany, "menedzer.txt"), "w", encoding="utf-8") as f:
+        f.write("Anna Obok\n")
+    sprawdz("menedzer.txt obok pliku .exe jest znajdowany",
+            P._menedzer() == "Anna Obok", repr(P._menedzer()))
+    os.remove(os.path.join(_udawany, "menedzer.txt"))
+
+    with open(os.path.join(_TMP_HOME, "menedzer.txt"), "w", encoding="utf-16") as f:
+        f.write("Anna Domowa\n")
+    sprawdz("menedzer.txt w katalogu użytkownika, zapisany jako UTF-16, jest czytany",
+            P._menedzer() == "Anna Domowa", repr(P._menedzer()))
+    os.remove(os.path.join(_TMP_HOME, "menedzer.txt"))
+
+    sprawdz("bez żadnego pliku — puste, a źródło mówi, gdzie szukano",
+            P._menedzer() == "" and "BRAK" in P._menedzer_zrodlo(), P._menedzer_zrodlo()[:80])
+
+    # tła i logo w tym samym układzie
+    with open(os.path.join(_udawany, "_internal", "ciemny.png"), "wb") as f:
+        f.write(b"x")
+    sprawdz("zasob_sciezka() znajduje tło w _internal",
+            P.zasob_sciezka("ciemny.png") == os.path.join(_udawany, "_internal", "ciemny.png"),
+            P.zasob_sciezka("ciemny.png"))
+finally:
+    if _bylo_frozen is None:
+        del sys.frozen
+    else:
+        sys.frozen = _bylo_frozen
+    sys.executable = _bylo_exe
+    if _bylo_meipass is None:
+        del sys._MEIPASS
+    else:
+        sys._MEIPASS = _bylo_meipass
+    P._ustawienia_reset()
+
+# ══════════════════════════════════════════════════════════════════
 sekcja("3. Obowiązkowa aktualizacja (min= / blokada=)")
 
 

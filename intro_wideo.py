@@ -297,7 +297,11 @@ def sprobuj_intro_wideo(rodzic, motyw="ciemny", postep_ladowania=None,
                     print("intro_wideo: błąd po_zakonczeniu:", e)
 
         def _start_rozpadu(self):
-            pix = self.grab()
+            try:
+                pix = self.grab()
+            except Exception:
+                self._koniec(True)
+                return
             if po_zakonczeniu and not self._po_wywolane:
                 self._po_wywolane = True
                 try:
@@ -331,6 +335,12 @@ def sprobuj_intro_wideo(rodzic, motyw="ciemny", postep_ladowania=None,
             self._rt = QTimer(self)
             self._rt.timeout.connect(self.nakladka.update)
             self._rt.start(16)
+            # BEZPIECZNIK: koniec rozpadu jest wykrywany w paintEvent. Jeśli
+            # malowanie z jakiegoś powodu stanie (np. okno przykryte,
+            # kompozytor), nakładka zostałaby na ekranie na zawsze — jako
+            # jednolity ciemny prostokąt na całe okno. Po czasie rozpadu
+            # z zapasem chowamy ją bezwarunkowo.
+            QTimer.singleShot(int(0.75 * 1000) + 600, lambda: self._koniec(True))
 
         # ── rysowanie nakładki ──
         def _maluj(self, ev):

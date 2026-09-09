@@ -1758,7 +1758,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.21.0"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
+WERSJA_PROGRAMU = "3.21.1"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -5725,13 +5725,21 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
         # START = baza (dom). Etykieta pokazuje miasto, ale URL używa pełnego adresu.
         punkty_wyswietlane = [f"🏠 {pracownik.baza_miasto}"]
         punkty_url = [urllib.parse.quote(baza_punkt)]
-        for e in dzien.etapy:
-            if e.dokad == pracownik.baza_miasto:
+        _ostatni_indeks = len(dzien.etapy) - 1
+        for _i, e in enumerate(dzien.etapy):
+            # PEŁNY ADRES DOMOWY WYŁĄCZNIE NA POCZĄTKU I NA KOŃCU TRASY.
+            # Wcześniej wystarczyło, że przystanek leżał w TYM SAMYM MIEŚCIE
+            # co baza (a pierwszy sklep zwykle leży), żeby w środek trasy
+            # wskoczył pełny adres zamieszkania — z ulicą i numerem mieszkania.
+            # Na mapie wyglądało to jak zbędny wjazd do domu w połowie dnia,
+            # a przy okazji rozwoziło adres domowy po linkach.
+            if e.dokad == pracownik.baza_miasto and _i == _ostatni_indeks:
                 punkty_wyswietlane.append(f"🏠 {pracownik.baza_miasto}")
                 punkty_url.append(urllib.parse.quote(baza_punkt))
             else:
                 punkty_wyswietlane.append(f"{e.dokad}")
-                punkty_url.append(urllib.parse.quote(f"{e.dokad}, {e.dokad_woj}, Polska"))
+                _cel = f"{e.dokad}, {e.dokad_woj}, Polska" if e.dokad_woj else f"{e.dokad}, Polska"
+                punkty_url.append(urllib.parse.quote(_cel))
         html_content += f"""
             <div class="day-card">
                 <div class="day-title">Data: {dzien.data.strftime("%d.%m.%Y")}</div>
@@ -6187,7 +6195,11 @@ def znajdz_logo() -> Optional[str]:
     """Szuka pliku logo w kolejności: nowe nazwy pmt_logo.*, potem stare pmt.*.
     Przeszukuje: wnętrze .exe (_MEIPASS), katalog obok programu, Pulpit oraz
     folder PMT na Pulpicie (tam użytkownik trzyma pliki źródłowe)."""
-    nazwy = ["pmt_logo.png", "pmt_logo.jpg", "pmt_logo.ico",
+    # pmt_logo_retro.png jako PIERWSZE: kto chce logo retro-futurystyczne,
+    # kładzie ten plik obok programu (generuje go logo_retro.py). Kto nie
+    # chce — po prostu go nie ma i wszystko wygląda jak dotąd.
+    nazwy = ["pmt_logo_retro.png",
+             "pmt_logo.png", "pmt_logo.jpg", "pmt_logo.ico",
              "pmt.png", "pmt.jpg", "PMT.jpg"]
     # KOLEJNOŚĆ MA ZNACZENIE: plik OBOK PROGRAMU (podmienialny przez
     # administratora) wygrywa z kopią zapakowaną do środka przy budowie
@@ -6208,6 +6220,13 @@ def znajdz_logo() -> Optional[str]:
                     kandydaci.append(ap)
     if not kandydaci:
         return None
+    # WYBÓR ŚWIADOMY WYGRYWA Z HEURYSTYKĄ. Jeśli obok programu leży
+    # pmt_logo_retro.png, to znaczy, że ktoś je tam położył celowo —
+    # bierzemy je bez patrzenia na rozmiar (inaczej większe pmt_logo.png
+    # zawsze by wygrywało i podmiana logo nic by nie dawała).
+    for ap in kandydaci:
+        if os.path.basename(ap).lower() == "pmt_logo_retro.png":
+            return ap
     # NAJLEPSZY kandydat: bierzemy plik o NAJWIĘKSZEJ szerokości obrazu —
     # mała ikonka obok exe nie może wygrać z dużą grafiką w innym katalogu.
     # Remisy rozstrzyga kolejność listy (obok exe przed _internal, png przed ico).
@@ -18862,6 +18881,22 @@ class App(QMainWindow):
                     f"Zmniejsz kwotę lub wybierz miesiąc z większą liczbą dni.")
 
             stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
+
+            # PUSTY PRZEŁOŻONY = pusta rubryka na KAŻDYM dokumencie, i to
+            # widać dopiero po otwarciu PDF-a. Mówimy o tym PRZED generowaniem,
+            # bo to jedyny moment, w którym da się to poprawić bez powtarzania
+            # całej pracy. Nie blokujemy — czasem dokument ma wyjść bez nazwiska.
+            if not _menedzer():
+                _dalej = _okno_pmt(
+                    self, "Rubryka PRZEŁOŻONY jest pusta",
+                    "Na wszystkich delegacjach i w rozliczeniu pole MENEDŻER "
+                    "wyjdzie puste.\n\n"
+                    "Uzupełnij pole \u201ePrzełożony (na delegacji)\u201d "
+                    "w karcie danych pracownika i kliknij Anuluj, żeby wrócić.\n\n"
+                    "OK = generuję mimo to, z pustą rubryką.")
+                if _dalej is not True:
+                    self.reset_ui()
+                    return
 
             # Zapamiętaj profil pracownika (prywatny, kluczowany nazwisko+PESEL)
             zapisz_profil(imie, pesel, adres_d['adres_caly'], self.c_stan.currentText(), self.c_silnik.currentIndex())

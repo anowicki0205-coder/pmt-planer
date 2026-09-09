@@ -58,7 +58,7 @@ jobs:
           # Dolaczamy KAZDY zasob, ktory jest w repo (tla, czcionki, ikony).
           # Brak pliku nie przerywa budowania — program ma tlo zastepcze.
           DODAJ=""
-          for Z in pmt_logo.png pmt_logo.ico ciemny.png jasny.png pmt.jpg PMT.jpg \
+          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png ciemny.png jasny.png pmt.jpg PMT.jpg \
                    DejaVuSans.ttf DejaVuSans-Bold.ttf; do
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z;."; echo "dolaczam: $Z";
             else echo "POMIJAM (brak w repo): $Z"; fi
@@ -156,7 +156,7 @@ jobs:
         shell: bash
         run: |
           DODAJ=""
-          for Z in pmt_logo.png pmt_logo.ico ciemny.png jasny.png pmt.jpg PMT.jpg \
+          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png ciemny.png jasny.png pmt.jpg PMT.jpg \
                    DejaVuSans.ttf DejaVuSans-Bold.ttf; do
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z:."; fi
           done

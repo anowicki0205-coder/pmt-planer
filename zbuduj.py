@@ -29,7 +29,8 @@ WYMAGANE = ["PMT_Delegacje.py", "intro_wideo.py"]
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
 # tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
 # intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
-DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico"]
+DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
+        "pmt_logo_retro.png"]
 UKRYTE = ["intro_wideo", "winsound"]
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą

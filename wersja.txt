@@ -1,4 +1,4 @@
-3.21.0
-Pełne rozpisanie zamówionej kwoty, mniej dokumentów i poprawki bezpieczeństwa.
+3.21.1
+Przełożony w oknie programu, mapy bez adresu domowego w środku trasy, nowe logo.
 min=3.21.0
 blokada=2026-09-23

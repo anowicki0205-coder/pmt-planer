@@ -4862,7 +4862,7 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     adresów niejednoznacznych. Gdy typ jest niejednoznaczny i nie podano
     wymus_typ, zwracamy flagę 'niejednoznaczne'=True, żeby formularz zapytał."""
     # PRZEDROSTEK JEST OPCJONALNY. Adresy wiejskie zapisuje się bez "ul." —
-    # np. "Sarnowa Góra 42, 06-430 Sońsk". Wcześniej taki adres był odrzucany,
+    # np. "Dębowa Wola 12, 26-660 Jedlińsk". Wcześniej taki adres był odrzucany,
     # a użytkownik był zmuszany dopisywać "ul." przed nazwą wsi.
     m = re.match(
         r"^(?:(ul\.|al\.|pl\.|ulica|aleja|plac|os\.|osiedle)\s+)?"   # opcjonalny przedrostek
@@ -4875,7 +4875,7 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
             "Błędny format adresu!\n\nPodaj adres wg jednego ze wzorów:\n"
             "  Kowalczyka 12, 03-193 Warszawa\n"
             "  ul. Kowalczyka 12, 03-193 Warszawa\n"
-            "  Sarnowa Góra 42, 06-430 Sońsk        (adres wiejski)\n\n"
+            "  Dębowa Wola 12, 26-660 Jedlińsk        (adres wiejski)\n\n"
             "Wymagany jest numer domu, kod pocztowy i miejscowość.")
     prefiks_raw = (m.group(1) or "").lower()
     # ujednolicamy zapis przedrostka; brak przedrostka = pusty napis
@@ -6090,7 +6090,7 @@ class GeneratorThread(QThread):
             p = self.params
             self.postep.emit("Pobieranie współrzędnych GPS...", 0.10)
             # Do geocodingu używamy 'adres_geo' — dla wsi to sama miejscowość
-            # (np. "Sarnowa Góra, 06-430 Sońsk"), nie fałszywa "ul." — dzięki
+            # (np. "Dębowa Wola, 26-660 Jedlińsk"), nie fałszywa "ul." — dzięki
             # temu baza trafia we właściwe miejsce, a nie w siedzibę gminy.
             adres_do_geo = p.get('adres_geo', p['adres_caly'])
             baza_lat, baza_lng = pobierz_coords(adres_do_geo, p['baza_miasto'], p['woj'])
@@ -17623,9 +17623,16 @@ class App(QMainWindow):
             self.assistant.set_gotowy(False, "Uzupełnij: " + ", ".join(brakuje) if brakuje else "Uzupełnij dane…")
 
     def _podpowiedz_profil(self):
-        """Po wpisaniu imienia — jeśli znamy tę osobę, podpowiada resztę danych."""
+        """Po wpisaniu imienia — jeśli znamy tę osobę, podpowiada resztę danych.
+
+        PODPOWIADAMY WYŁĄCZNIE DANE ZALOGOWANEJ OSOBY. Magazyn profili jest
+        wspólny dla komputera, więc dopasowanie po samym nazwisku pozwalało
+        wpisać nazwisko kolegi i dostać jego PESEL oraz adres domowy."""
         imie = self.e_imie.text().strip()
         if not imie or imie == self._profil_zaproponowany:
+            return
+        _konto = (online_imie_uzytkownika() or "").strip()
+        if _konto and imie.lower() != _konto.lower():
             return
         prof = szukaj_profilu_po_nazwisku(imie)
         if prof and not self.e_pesel.text().strip():

@@ -59,6 +59,9 @@ DOKĄD go wgrać.
    Adres: `https://<login>.github.io/<repo>/pmt_wizyty.html`
 6. **Wydanie programu**: Releases → Draft a new release → tag `v3.13.2` →
    Publish. GitHub zbuduje Windows/macOS/Linux i dołączy trzy pliki .zip.
+   Gdy paczka Windows jest już w wydaniu, ten sam automat sam podbija
+   `wersja.txt` (zachowując `min=`/`blokada=`) — także gdy wydanie powstało
+   przez edycję starego wpisu. `wersja.txt` nie podbijaj ręcznie.
 
 ---
 

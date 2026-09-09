@@ -16,7 +16,7 @@ if not exist "PMT_Delegacje.py" goto :brak_plikow
 echo Pobieram zmiany z serwera...
 git pull
 echo(
-rem Lista plikow, ktore FAKTYCZNIE sklada sie na wersje 3.21.0.
+rem Lista plikow, ktore FAKTYCZNIE skladaja sie na program.
 rem Wczesniej byly tu nazwy z innej, nigdy niewydanej paczki
 rem (intro_zywa_mapa.py, karta_testera.py, wyglad_3d.py) - przez to skrypt
 rem zawsze konczyl sie komunikatem "brakuje plikow" i nie dalo sie go uzyc.
@@ -41,20 +41,20 @@ git add INSTRUKCJA_BUDOWY.txt .gitignore
 git add ZBUDUJ_EXE.bat ZBUDUJ_EXE_FOLDER.bat SPRAWDZ_WERSJE.bat URUCHOM_PROGRAM.bat
 git add UTWORZ_SKROT.bat PODPISZ_EXE.bat DODAJ_WYJATEK_WINDOWS.bat URUCHOM_PMT.bat
 git add updater.bat updater_folder.bat updater.sh
-git add .github/workflows/build.yml .github/workflows/wersja_auto.yml
+git add .github/workflows/build.yml .github/workflows/testy.yml
 if exist "pmt_logo.png" git add pmt_logo.png
 if exist "pmt_logo.ico" git add pmt_logo.ico
 if exist "ciemny.png" git add ciemny.png
 if exist "jasny.png" git add jasny.png
 echo(
-echo UWAGA: wersja.txt NIE jest wysylany - zrobisz to po opublikowaniu wydania.
+echo UWAGA: wersja.txt NIE jest wysylany - po zbudowaniu wydania GitHub podbije go SAM.
 echo(
-git commit -m "3.21.0: menedzer poza kodem, dane per konto, obowiazkowa aktualizacja, mniej zapalnikow dla Windows"
+git commit -m "PMT: aktualizacja zrodel"
 git push
 if errorlevel 1 goto :zle
 echo(
-echo GOTOWE. Teraz opublikuj wydanie v3.21.0 z plikiem ZIP,
-echo a dopiero potem wyslij wersja.txt.
+echo GOTOWE. Teraz opublikuj wydanie z tagiem vX.Y.Z (nic nie przeciagaj).
+echo GitHub zbuduje paczki i po paczce Windows sam podbije wersja.txt.
 goto :stop
 
 :zle
@@ -73,7 +73,7 @@ goto :stop
 echo [STOP] W folderze lezy menedzer.txt, a nie jest ignorowany przez git.
 echo        To dane osobowe - nie moga trafic do repozytorium.
 echo        Sprawdz, czy w folderze jest plik .gitignore z wpisem menedzer.txt
-echo        (jest w paczce 3.21.0), albo usun menedzer.txt z tego folderu.
+echo        (jest w paczce), albo usun menedzer.txt z tego folderu.
 goto :stop
 
 :brak_plikow

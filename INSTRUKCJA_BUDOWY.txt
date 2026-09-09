@@ -28,6 +28,11 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.21.0)
 BUDOWANIE NA GITHUBIE (to samo, automatycznie)
   Opublikowanie wydania z tagiem "v3.21.0" uruchamia .github/workflows/
   build.yml. Buduje na Windows, macOS i Linux i dolacza paczki do wydania.
+  Gdy paczka Windows jest juz w wydaniu, ten sam automat SAM podbija
+  wersja.txt (numer ze zrodla + pierwsza linia opisu wydania; wiersze
+  min= i blokada= zostaja). Dziala tez wtedy, gdy wydanie tworzysz przez
+  edycje starego wpisu w Releases. Recznie wersja.txt NIE podbijaj -
+  numer bez gotowej paczki kaze starym wersjom pobierac ja w kolko.
   Wersja z CI jest budowana z tymi samymi ustawieniami co lokalna:
   --onedir, --noupx, --version-file wersja_exe.txt, ikona, znacznik wersji.
 

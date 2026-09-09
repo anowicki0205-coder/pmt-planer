@@ -1,4 +1,4 @@
-3.21.2
-Przełożony w paczce i na dokumentach, bezpiecznik po intro, mapy bez adresu domowego w środku trasy, logo retro.
+3.21.1
+Pusty przełożony nie przejdzie po cichu, mapa bez adresu domowego w środku trasy, logo retro.
 min=3.21.0
 blokada=2026-09-23

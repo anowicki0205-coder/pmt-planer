@@ -17,6 +17,9 @@
 #  (pozostałe czekają przez "needs"), więc kolejność wysyłki też się zgadza.
 #  Nowsze wersje (3.13.2+) i tak szukają nazwy zawierającej "windows".
 #
+#  3. Gdy paczka Windows jest już w wydaniu, ostatni krok (job „wersja")
+#     sam wpisuje numer do wersja.txt — patrz komentarz przy tym jobie.
+#
 #  GDZIE WGRAĆ TEN PLIK: .github/workflows/build.yml
 #
 #  UWAGA: budujemy na Pythonie 3.13 (nie 3.14) — celowo, patrz problem
@@ -194,3 +197,66 @@ jobs:
           files: PMT_Planer_${{ matrix.nazwa }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------- 3) wersja.txt — DOPIERO gdy paczka Windows jest w wydaniu ----------
+  # Do 3.21.2 numer podbijał osobny automat (wersja_auto.yml) reagujący na
+  # zdarzenie „Publish release". Dwie wady, obie zaliczone w praktyce:
+  #  · wydanie utworzone przez EDYCJĘ starego wpisu w Releases (zmiana tagu
+  #    i tytułu) nie wysyła „published" — automat nie uruchomił się ani razu
+  #    przy 3.21.0 i 3.21.1;
+  #  · przy prawdziwym „Publish" podbijał wersja.txt NATYCHMIAST, kilka minut
+  #    PRZED dołączeniem paczki — program u ludzi pobierał wtedy poprzednią
+  #    paczkę i widział aktualizację od nowa, w kółko.
+  # Teraz numer trafia do wersja.txt tu: po zbudowaniu i wysłaniu paczki
+  # Windows, na każdy tag — niezależnie od tego, jak powstało wydanie.
+  wersja:
+    needs: [windows, pozostale]
+    if: always() && needs.windows.result == 'success' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pobierz main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Podbij wersja.txt
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          git fetch --no-tags origin "+refs/tags/$TAG:refs/tags/$TAG"
+          # Numer bierzemy ze ZRODLA na tagu — to on siedzi w zbudowanej paczce
+          # i to z nim program porownuje wersja.txt. Tag jest tylko zapasem.
+          NUMER=$(git show "refs/tags/$TAG:PMT_Delegacje.py" | tr -d '\r' \
+                  | grep -m1 -E '^WERSJA_PROGRAMU *= *"' | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          if [ -z "$NUMER" ]; then NUMER="${TAG#v}"; fi
+          if [ "$NUMER" != "${TAG#v}" ]; then
+            echo "UWAGA: tag $TAG, a w zrodle WERSJA_PROGRAMU=$NUMER - do wersja.txt idzie numer ze zrodla."
+          fi
+          OBECNA=$(head -n1 wersja.txt 2>/dev/null | tr -d '\r' || true)
+          # Nie cofamy: przebudowanie starszego tagu nie moze obnizyc numeru.
+          if [ -n "$OBECNA" ] && [ "$(printf '%s\n%s\n' "$OBECNA" "$NUMER" | sort -V | tail -n1)" != "$NUMER" ]; then
+            echo "wersja.txt ma juz nowszy numer ($OBECNA > $NUMER) - zostawiam."
+            exit 0
+          fi
+          OPIS=$(gh release view "$TAG" --json body -q .body 2>/dev/null | tr -d '\r' | grep -m1 . || true)
+          OPIS=${OPIS:-"Nowa wersja programu."}
+          OPIS=${OPIS:0:160}
+          # Wiersze min= i blokada= steruja OBOWIAZKOWA AKTUALIZACJA - zostaja.
+          MIN=$(grep -m1 '^min=' wersja.txt 2>/dev/null | tr -d '\r' || true)
+          BLOKADA=$(grep -m1 '^blokada=' wersja.txt 2>/dev/null | tr -d '\r' || true)
+          printf '%s\r\n%s\r\n' "$NUMER" "$OPIS" > wersja.txt
+          if [ -n "$MIN" ]; then printf '%s\r\n' "$MIN" >> wersja.txt; fi
+          if [ -n "$BLOKADA" ]; then printf '%s\r\n' "$BLOKADA" >> wersja.txt; fi
+          echo "--- wersja.txt po zapisie ---"; cat wersja.txt
+          git config user.name "pmt-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add wersja.txt
+          git commit -m "wersja.txt -> $NUMER [skip ci]" || { echo "bez zmian"; exit 0; }
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1

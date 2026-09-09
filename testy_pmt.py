@@ -69,8 +69,11 @@ try:
 except Exception as e:
     print("   (nie udało się wczytać wersja.txt: %s)" % e)
 
-sprawdz("wersja.txt zgadza się ze źródłem",
-        _wersja_txt == P.WERSJA_PROGRAMU,
+# wersja.txt podbija się SAMO po zbudowaniu paczki (job „wersja" w build.yml),
+# więc może być O KROK ZA źródłem — ale nigdy PRZED nim: numer bez gotowej
+# paczki to pętla „pobierz–zainstaluj–znów jest aktualizacja" u użytkowników.
+sprawdz("wersja.txt nie wyprzedza źródła (numer bez paczki = pętla aktualizacji)",
+        P._wersja_na_liczbe(_wersja_txt) <= P._wersja_na_liczbe(P.WERSJA_PROGRAMU),
         "wersja.txt=%s, źródło=%s" % (_wersja_txt, P.WERSJA_PROGRAMU))
 
 _exe_txt = ""
@@ -602,6 +605,24 @@ if not SZYBKO:
             "%.2f vs %.2f" % (sum(x["kwota"] for x in _pods), sum(d.suma for d in _dni)))
 
     sekcja("7b. Aktualizacja: użytkownik zawsze ma wybór")
+
+    # bezpiecznik pętli aktualizacji: paczka z serwera musi być NOWSZA od programu
+    _pk = os.path.join(_TMP_HOME, "paczka_test")
+    os.makedirs(os.path.join(_pk, "_internal"), exist_ok=True)
+    sprawdz("paczka bez znacznika wersji (wydanie sprzed 3.21.0) — instalujemy",
+            P._paczka_nie_nowsza(_pk, "3.21.1") == "", repr(P._paczka_nie_nowsza(_pk, "3.21.1")))
+    for _w, _oczek, _opis in (("3.21.1", False, "w tej samej wersji — STOP (koniec pętli aktualizacji)"),
+                              ("3.9.9", False, "starsza — STOP"),
+                              ("3.21.2", True, "nowsza — instalujemy"),
+                              ("3.22.0\r\n", True, "nowsza, znacznik z CRLF — instalujemy")):
+        with open(os.path.join(_pk, "pmt_wersja.txt"), "w", encoding="utf-8") as f:
+            f.write(_w)
+        _kom = P._paczka_nie_nowsza(_pk, "3.21.1")
+        sprawdz("paczka %s" % _opis, (_kom == "") == _oczek, repr(_kom))
+    sprawdz("komunikat o starej paczce mówi, która wersja leży na serwerze i którą masz",
+            "3.22.0" in P._paczka_nie_nowsza(_pk, "3.22.5") and "3.22.5" in P._paczka_nie_nowsza(_pk, "3.22.5"),
+            repr(P._paczka_nie_nowsza(_pk, "3.22.5")))
+    shutil.rmtree(_pk, ignore_errors=True)
 
     try:
         from PyQt6.QtWidgets import QApplication as _QA

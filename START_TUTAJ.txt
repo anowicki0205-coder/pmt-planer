@@ -219,10 +219,12 @@ KROK PO KROKU — WYDANIE 3.21.0
      Skopiuj ze starego katalogu ciemny.png i jasny.png, jeśli ich nie ma.
 
   2. SPRAWDŹ WERSJE
-     Dwuklik SPRAWDZ_WERSJE.bat — w źródle i w wersja.txt ma być 3.21.0.
+     Dwuklik SPRAWDZ_WERSJE.bat — w źródle (PMT_Delegacje.py, wersja_exe.txt)
+     ma być nowy numer. wersja.txt może jeszcze pokazywać poprzedni — to
+     normalne, podbije się samo po zbudowaniu wydania (krok 6c).
 
   3. PRZETESTUJ
-     python testy_pmt.py — ma wyjść 91/91.
+     python testy_pmt.py — wszystkie testy mają przejść (obecnie 131).
 
   4. ZBUDUJ
      Dwuklik ZBUDUJ_EXE_FOLDER.bat. Wynik: dist\PMT_Planer\
@@ -239,8 +241,9 @@ KROK PO KROKU — WYDANIE 3.21.0
      · wyloguj się i zaloguj ponownie — plan i adres mają być Twoje.
 
   6. GITHUB — KOLEJNOŚĆ JEST WAŻNA
-     a) wyślij źródła (WYSLIJ_NA_GITHUB.bat), wersja.txt zostaw na koniec,
-     b) opublikuj wydanie z tagiem v3.21.0 i NIC do niego nie przeciągaj.
+     a) wyślij źródła (WYSLIJ_NA_GITHUB.bat). Pliku wersja.txt NIE ruszaj
+        (poza wierszami min= i blokada=) — numer wpisze się sam, patrz c).
+     b) opublikuj wydanie z tagiem v3.21.2 i NIC do niego nie przeciągaj.
         GitHub sam zbuduje paczki (Windows, macOS, Linux) i dołączy je
         do tego wydania — z tymi samymi ustawieniami co budowa lokalna.
         Poczekaj, aż zakładka Actions pokaże zielony znaczek.
@@ -250,14 +253,21 @@ KROK PO KROKU — WYDANIE 3.21.0
         które trzeba. Ręczną paczkę dokładaj tylko wtedy, gdy budowanie
         na GitHubie się nie powiodło — i wtedy jako jedyną.
 
-     c) dopiero teraz wyślij wersja.txt:
-            git add wersja.txt && git commit -m "wersja 3.21.0" && git push
+     c) wersja.txt podbija się SAMO. Gdy paczka Windows jest już w wydaniu,
+        ostatni krok build.yml (job „wersja") wpisuje do wersja.txt numer ze
+        źródła i pierwszą linię opisu wydania, zachowując min= i blokada=.
+        Działa także wtedy, gdy wydanie tworzysz przez EDYCJĘ starego wpisu
+        w Releases (poprzedni automat reagował tylko na „Publish" — przy
+        Twoich wydaniach 3.21.0 i 3.21.1 nie uruchomił się ani razu).
         Od tej chwili wszyscy widzą aktualizację, a po dacie z wiersza
         blokada= stare wersje przestają się uruchamiać.
 
-        UWAGA: automat, który podbija wersja.txt po opublikowaniu wydania,
-        zachowuje teraz wiersze min= i blokada=. Sprawdź jednak po wszystkim,
-        czy plik w repozytorium nadal ma cztery linie.
+        DLACZEGO NIE RĘCZNIE I NIE WCZEŚNIEJ: wersja.txt z numerem, dla
+        którego nie ma jeszcze paczki, każe starym wersjom pobierać w kółko
+        tę samą paczkę (pobierz → zainstaluj → „jest aktualizacja" → …).
+        Program od 3.21.2 sam się przed tym broni — sprawdza znacznik wersji
+        w pobranej paczce — ale 3.21.0 i 3.21.1 nie.
+        Po wszystkim zerknij, czy wersja.txt w repozytorium ma cztery linie.
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu

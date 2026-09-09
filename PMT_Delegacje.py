@@ -2891,6 +2891,46 @@ def _wersja_na_liczbe(txt):
         czesci.append(0)
     return tuple(czesci[:3])
 
+def _wersja_w_paczce(folder: str) -> str:
+    """Numer wersji zapisany w rozpakowanej paczce (znacznik pmt_wersja.txt,
+    dokładany przy budowaniu od 3.21.0). Pusty tekst = paczka bez znacznika."""
+    for sc in (os.path.join(folder, "pmt_wersja.txt"),
+               os.path.join(folder, "PMT_Planer", "pmt_wersja.txt"),
+               os.path.join(folder, "_internal", "pmt_wersja.txt")):
+        try:
+            if os.path.exists(sc):
+                w = _pierwsza_linia_pliku(sc)
+                if w:
+                    return w
+        except Exception:
+            continue
+    return ""
+
+
+def _paczka_nie_nowsza(folder: str, biezaca=None) -> str:
+    """Komunikat błędu, gdy pobrana paczka NIE jest nowsza od uruchomionego
+    programu — albo pusty tekst, gdy można ją instalować.
+
+    Skąd ten bezpiecznik: wersja.txt w repozytorium potrafi ogłosić nową
+    wersję, zanim GitHub skończy budować paczkę (albo zanim wydanie w ogóle
+    powstanie). Bez tej kontroli program pobierał „najnowsze wydanie", które
+    było TĄ SAMĄ wersją, instalował je, startował i znów widział
+    aktualizację — w kółko, przy każdym uruchomieniu."""
+    if biezaca is None:
+        biezaca = WERSJA_PROGRAMU
+    w = _wersja_w_paczce(folder)
+    if not w:
+        return ""                  # stara paczka bez znacznika — nie blokujemy
+    try:
+        if _wersja_na_liczbe(w) > _wersja_na_liczbe(biezaca):
+            return ""
+    except Exception:
+        return ""
+    return ("Na serwerze leży jeszcze poprzednia paczka (wersja %s, a masz %s).\n"
+            "Nowe wydanie buduje się kilka minut — spróbuj ponownie za chwilę."
+            % (w, biezaca))
+
+
 def sprawdz_aktualizacje():
     """Zwraca (jest_nowsza, nowa_wersja, opis) albo (False, '', '').
     Działa cicho: każdy błąd (brak sieci, zły URL) = po prostu nic nie pokazujemy.
@@ -9057,6 +9097,11 @@ class PobieranieAktualizacjiThread(QThread):
                 # Najpierw sprawdzamy, czy to nowe wydanie FOLDEROWE.
                 folder_nowej = self._rozpakuj_folder(pobrany)
                 if folder_nowej:
+                    _stop = _paczka_nie_nowsza(folder_nowej)
+                    if _stop:
+                        shutil.rmtree(folder_nowej, ignore_errors=True)
+                        self.blad.emit(_stop)
+                        return
                     self.sukces.emit(folder_nowej)
                     return
                 cel = self._rozpakuj_exe(pobrany)

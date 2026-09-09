@@ -1,0 +1,90 @@
+═══════════════════════════════════════════════════════════════════════
+  PMT PLANER 3.21.0 — WERSJA STABILNA
+  baza: sprawdzona 3.20.57  ·  wyłącznie konieczne poprawki
+═══════════════════════════════════════════════════════════════════════
+
+CO JEST W TEJ WERSJI — I CZEGO CELOWO NIE MA
+
+  ZMIENIONE (cztery obszary, każdy przetestowany):
+   1. Nazwisko przełożonego USUNIĘTE Z KODU. Program bierze je z pliku
+      menedzer.txt (jedna linia) albo z ustawień. Bez pliku pole na
+      delegacji zostaje puste — nic się nie psuje.
+   2. Bezpieczeństwo: nowy sekret aplikacji, numer wersji w każdym
+      zapytaniu do backendu, a plan wizyt i adres bazy przypisane do
+      KONTA (dotąd były wspólne dla komputera — nowe konto widziało
+      dane poprzedniej osoby).
+   3. Obowiązkowa aktualizacja: wiersze „min=" i „blokada=" w pliku
+      wersja.txt. Starsza wersja ostrzega przez 14 dni, potem odmawia
+      uruchomienia i kieruje do pobrania.
+   4. Silnik delegacji: pełne osiąganie zamówionej kwoty, dokument do
+      986,34 zł i 30 etapów (mniej PDF-ów), żaden przystanek bliżej
+      niż 12 km od domu, start i powrót z adresu z FORMULARZA delegacji.
+
+  NIEZMIENIONE (świadomie): wygląd programu, animacja startowa, układ
+  okien, planer wizyt, mapy, historia, PDF-y. To jest ta sama wersja,
+  która działa u Ciebie dzisiaj — bez nowego intra, efektów 3D i karty
+  testera. Te rzeczy można dołożyć później, osobno i po testach.
+
+WYNIKI TESTÓW (wykonane na tym pliku, nie na wcześniejszym)
+  · 12 scenariuszy generowania (4 bazy × 3 kwoty): wszystkie 100,0 %
+    zamówionej kwoty, żaden dzień nie przekracza 8 godzin, najbliższy
+    przystanek 12,1–18,3 km od domu.
+  · 4 700 zł → 6 dokumentów PDF, każdy poniżej 986,34 zł i każdy
+    mieszczący się na jednej stronie A4.
+  · Trasa zaczyna się i kończy adresem z formularza delegacji, nawet
+    gdy w planerze ustawiony jest inny adres.
+  · Konta rozdzielone: nowy użytkownik nie widzi planu ani adresu
+    poprzedniego, a pierwszy zalogowany zachowuje swoje dane.
+  · Blokada wersji: 14 dni przed terminem ostrzega, po terminie
+    zatrzymuje program; aktualna wersja działa bez przeszkód.
+  · Pełna budowa programu wykonana od początku do końca.
+
+───────────────────────────────────────────────────────────────────────
+KROK 1 — PRZYGOTUJ FOLDER
+  1. Utwórz nowy, pusty folder, np. C:\PMT_3.21.0
+  2. Rozpakuj do niego CAŁĄ zawartość tego archiwum.
+  3. Skopiuj ze starego katalogu programu:
+       · folder zasoby  (albo same pliki ciemny.png i jasny.png)
+       · pmt_logo.ico oraz pmt_logo.png, jeśli masz własne
+  4. Utwórz plik menedzer.txt z jedną linią — imię i nazwisko
+     przełożonego, np.:
+       Jan Kowalski
+     Ten plik ZOSTAJE u Ciebie: nie wysyłamy go na GitHub i nie
+     wchodzi do budowanej paczki. Bez niego pole MENEDŻER na
+     delegacji będzie puste (można je też wpisać w programie:
+     Ustawienia → Przełożony).
+
+KROK 2 — SPRAWDŹ, ZANIM ZBUDUJESZ
+  Dwuklik: SPRAWDZ_WERSJE.bat
+  Musi pokazać 3.21.0 w źródle i w wersja.txt.
+
+KROK 3 — ZBUDUJ PROGRAM
+  Dwuklik: ZBUDUJ_EXE_FOLDER.bat
+  Skrypt sam sprawdzi pliki, wyczyści ślady po poprzednich budowach,
+  zbuduje program i potwierdzi wersję. Wynik: dist\PMT_Planer\
+  Spakuj CAŁY ten folder do PMT_Planer_3.21.0.zip
+
+KROK 4 — SPRAWDŹ NA SOBIE (10 minut, zanim wyślesz komukolwiek)
+  · uruchom program, zaloguj się,
+  · wygeneruj delegację na 4 700 zł — suma musi się zgadzać co do grosza,
+  · otwórz jeden PDF: dane, trasa, MENEDŻER,
+  · otwórz mapę tras: pierwszy i ostatni punkt to Twój adres,
+  · zajrzyj do pliku .pmt_silnik_diag.txt w katalogu użytkownika —
+    ostatnia linia pokazuje 100 %.
+
+KROK 5 — GITHUB (kolejność jest ważna)
+  a) Wyślij źródła: WYSLIJ_NA_GITHUB.bat  (wersja.txt zostaje na później)
+  b) Opublikuj wydanie v3.21.0 i PRZECIĄGNIJ do niego PMT_Planer_3.21.0.zip
+  c) Dopiero teraz wyślij wersja.txt:
+        git add wersja.txt && git commit -m "wersja 3.21.0" && git push
+     Od tej chwili wszyscy widzą aktualizację, a po 14 dniach stare
+     wersje przestają działać.
+
+KROK 6 — BACKEND (Apps Script)
+  Patrz BACKEND_APPS_SCRIPT.txt. Blokadę starych wersji możesz włączyć
+  od razu; SEKRET zmień dopiero po 14 dniach, gdy zespół się zaktualizuje.
+
+───────────────────────────────────────────────────────────────────────
+ŻEBY WINDOWS NIE ZABLOKOWAŁ PROGRAMU — czytaj przed rozsyłaniem
+  Patrz osobny plik: BEZ_BLOKADY_WINDOWS.txt
+═══════════════════════════════════════════════════════════════════════

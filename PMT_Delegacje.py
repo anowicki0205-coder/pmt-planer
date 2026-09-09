@@ -81,8 +81,68 @@ class ThickCaretStyle(QProxyStyle):
 STAWKA_ZA_KM        = 0.60 
 SREDNIA_PREDKOSC    = 65.0 
 LIMIT_CZASU_MINUTY  = 8 * 60   # sufit dnia; ustaw_tryb_pracy() zmienia go w trybie wieczornym
-MAX_KWOTA_DELEGACJI = 587.19 
+# ── SUFITY KWOTOWE ──────────────────────────────────────────────────
+# MAX_KWOTA_DOKUMENTU — maksymalna kwota JEDNEJ delegacji (jednego PDF).
+# MAX_ETAPOW_DOKUMENTU — ile wierszy mieści strona A4 (zmierzone: 33,
+#   przyjęte 30 z zapasem na długie nazwy).
+# MAX_KWOTA_DNIA — ile realnie da się wyjeździć w ciągu dnia przy 8 h.
+#   To ona decyduje o liczbie potrzebnych dni; sufit dokumentu decyduje
+#   wyłącznie o tym, ile dni zmieści się na jednym PDF-ie.
+MAX_KWOTA_DOKUMENTU  = 986.34
+MAX_ETAPOW_DOKUMENTU = 30
+MAX_KWOTA_DNIA       = 587.19
+MAX_KWOTA_DELEGACJI  = MAX_KWOTA_DOKUMENTU   # zgodność ze starą nazwą
 MIN_KWOTA           = 50.0 
+# Żaden przystanek nie może leżeć praktycznie pod domem — pusty adres
+# kilka kilometrów od bazy nie jest podróżą służbową.
+MIN_ODLEGLOSC_OD_BAZY = 12.0   # km w linii prostej
+
+# ── OBOWIĄZKOWA AKTUALIZACJA ───────────────────────────────────────────
+# Wersja wymagana i termin blokady przychodzą z pliku wersja.txt
+# (wiersze „min=" i „blokada="). Program starszy niż wymagany ostrzega,
+# a po terminie odmawia uruchomienia. Wymagania zapisujemy lokalnie,
+# żeby odłączenie internetu nie omijało blokady.
+WERSJA_WYMAGANA = ""
+TERMIN_BLOKADY = ""
+PLIK_WYMAGAN = os.path.join(os.path.expanduser("~"), ".pmt_wymagania.json")
+
+
+def _zapisz_wymagania():
+    try:
+        if WERSJA_WYMAGANA:
+            with open(PLIK_WYMAGAN, "w", encoding="utf-8") as f:
+                json.dump({"min": WERSJA_WYMAGANA, "blokada": TERMIN_BLOKADY}, f)
+    except Exception:
+        pass
+
+
+def _wczytaj_wymagania():
+    global WERSJA_WYMAGANA, TERMIN_BLOKADY
+    try:
+        if os.path.exists(PLIK_WYMAGAN):
+            with open(PLIK_WYMAGAN, encoding="utf-8") as f:
+                d = json.load(f)
+            WERSJA_WYMAGANA = WERSJA_WYMAGANA or d.get("min", "")
+            TERMIN_BLOKADY = TERMIN_BLOKADY or d.get("blokada", "")
+    except Exception:
+        pass
+
+
+def wersja_zablokowana():
+    """(czy_zablokowana, ile_dni_zostalo)."""
+    import datetime as _dt
+    if not WERSJA_WYMAGANA:
+        return (False, None)
+    if _wersja_na_liczbe(WERSJA_PROGRAMU) >= _wersja_na_liczbe(WERSJA_WYMAGANA):
+        return (False, None)
+    if not TERMIN_BLOKADY:
+        return (True, 0)
+    try:
+        termin = _dt.date.fromisoformat(TERMIN_BLOKADY)
+    except Exception:
+        return (True, 0)
+    zostalo = (termin - _dt.date.today()).days
+    return (zostalo <= 0, max(0, zostalo))
 
 PROCENT_WLASNE    = 0.50 
 PROCENT_SASIEDNIE = 0.50 
@@ -319,7 +379,31 @@ def _rozgrzej_backend():
 # Wspólny sekret aplikacji — TEN SAM wpisz w Apps Script (weryfikujPodpis).
 # Podpisujemy każde zapytanie do backendu: boty i skanery trafiające na
 # publiczny adres /exec zostaną odrzucone, zanim czegokolwiek dotkną.
-SEKRET_APLIKACJI = "PMT-2026-a7Kq9mZr4tXw"
+SEKRET_APLIKACJI = "PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS"
+
+
+def _menedzer() -> str:
+    """Nazwisko przełożonego drukowane na delegacji — trzymane POZA kodem.
+    Kolejność: ustawienie programu, potem plik menedzer.txt obok programu.
+    Dzięki temu dane osobowe nie krążą w repozytorium, a zmiana
+    przełożonego nie wymaga wydawania nowej wersji."""
+    try:
+        w = (_wczytaj_ustawienia() or {}).get("menedzer", "")
+        if w:
+            return str(w)
+    except Exception:
+        pass
+    for kat in (os.path.dirname(os.path.abspath(sys.argv[0])), os.getcwd()):
+        try:
+            sc = os.path.join(kat, "menedzer.txt")
+            if os.path.exists(sc):
+                with open(sc, encoding="utf-8") as f:
+                    w = f.read().strip().splitlines()[0].strip()
+                if w:
+                    return w
+        except Exception:
+            continue
+    return ""
 
 
 def _podpisz_zadanie(dane: dict) -> dict:
@@ -330,6 +414,7 @@ def _podpisz_zadanie(dane: dict) -> dict:
         czas = str(int(time.time()))
         baza = "%s|%s|%s" % (dane.get("kod", ""), dane.get("akcja", ""), czas)
         dane["klucz_czas"] = czas
+        dane["wersja"] = WERSJA_PROGRAMU
         dane["podpis"] = hmac.new(SEKRET_APLIKACJI.encode("utf-8"),
                                   baza.encode("utf-8"),
                                   hashlib.sha256).hexdigest()
@@ -1482,7 +1567,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.20.57"
+WERSJA_PROGRAMU = "3.21.0"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -2563,6 +2648,15 @@ def sprawdz_aktualizacje():
             return (False, "", "")
         nowa = linie[0]
         opis = linie[1] if len(linie) > 1 else "Dostępna jest nowsza wersja programu."
+        # dodatkowe wiersze: min=3.21.0 oraz blokada=2026-09-22
+        global WERSJA_WYMAGANA, TERMIN_BLOKADY
+        for _l in linie[2:]:
+            _m = _l.lower().replace(" ", "")
+            if _m.startswith("min="):
+                WERSJA_WYMAGANA = _l.split("=", 1)[1].strip()
+            elif _m.startswith("blokada="):
+                TERMIN_BLOKADY = _l.split("=", 1)[1].strip()
+        _zapisz_wymagania()
         if _wersja_na_liczbe(nowa) > _wersja_na_liczbe(WERSJA_PROGRAMU):
             return (True, nowa, opis)
     except Exception:
@@ -2697,6 +2791,54 @@ def wczytaj_punkty():
 
 PLAN_STORE = os.path.join(os.path.expanduser("~"), ".pmt_plan.json")
 
+# ── DANE OSOBOWE NALEŻĄ DO KONTA, NIE DO KOMPUTERA ─────────────────────
+# Plan wizyt i adres bazy trzymane były wspólnie dla całego komputera —
+# nowe konto widziało trasy i adres poprzedniej osoby. Przy adresach to
+# wyciek danych osobowych. Od teraz wszystko jest podpisane kluczem konta.
+AKTYWNY_UZYTKOWNIK = ""
+
+
+def ustaw_uzytkownika_planu(imie: str, pesel_lub_kod: str) -> None:
+    global AKTYWNY_UZYTKOWNIK
+    try:
+        AKTYWNY_UZYTKOWNIK = _klucz_uzytkownika(imie or "", pesel_lub_kod or "")
+    except Exception:
+        AKTYWNY_UZYTKOWNIK = ""
+    _przenies_stary_plan()
+
+
+def _plik_planu() -> str:
+    if not AKTYWNY_UZYTKOWNIK:
+        return PLAN_STORE
+    return os.path.join(os.path.expanduser("~"),
+                        ".pmt_plan_%s.json" % AKTYWNY_UZYTKOWNIK)
+
+
+def _przenies_stary_plan() -> None:
+    """Jednorazowe przeniesienie wspólnego planu do pliku PIERWSZEJ osoby
+    logującej się po aktualizacji — żeby nikt nie stracił pracy. Kolejne
+    konta zaczynają z czystą kartą."""
+    try:
+        if not AKTYWNY_UZYTKOWNIK:
+            return
+        wlasny = _plik_planu()
+        if os.path.exists(wlasny) or not os.path.exists(PLAN_STORE):
+            return
+        with open(PLAN_STORE, "r", encoding="utf-8") as f:
+            dane = json.load(f)
+        if dane.get("wlasciciel") not in (None, "", AKTYWNY_UZYTKOWNIK):
+            return
+        if not dane.get("miesiace"):
+            return
+        dane["wlasciciel"] = AKTYWNY_UZYTKOWNIK
+        with open(wlasny, "w", encoding="utf-8") as f:
+            json.dump(dane, f, ensure_ascii=False)
+        with open(PLAN_STORE, "w", encoding="utf-8") as f:
+            json.dump({"wlasciciel": AKTYWNY_UZYTKOWNIK, "przeniesiony": True},
+                      f, ensure_ascii=False)
+    except Exception:
+        pass
+
 # --- USTAWIENIA użytkownika (adres startowy itp.) --------------------------
 USTAWIENIA_STORE = os.path.join(os.path.expanduser("~"), ".pmt_ustawienia.json")
 _ustawienia = None
@@ -2729,6 +2871,37 @@ def _wczytaj_ustawienia():
 
 def ustawienie(klucz, domyslne=""):
     return _wczytaj_ustawienia().get(klucz, domyslne)
+
+
+def _klucz_osobisty(klucz: str) -> str:
+    return "%s__%s" % (klucz, AKTYWNY_UZYTKOWNIK) if AKTYWNY_UZYTKOWNIK else klucz
+
+
+def ustawienie_osobiste(klucz, domyslne=""):
+    """Ustawienie należące do zalogowanej osoby (np. adres bazy planera).
+    Gdy konto go jeszcze nie ma, sięgamy po adres z JEGO profilu — nigdy
+    po wartość wspólną, bo ta może należeć do kogoś innego."""
+    u = _wczytaj_ustawienia()
+    w = u.get(_klucz_osobisty(klucz), "")
+    if w:
+        return w
+    if not AKTYWNY_UZYTKOWNIK:
+        return u.get(klucz, domyslne)
+    if klucz == "adres_bazy":
+        try:
+            for wpis in (_wczytaj_store() or {}).values():
+                pr = (wpis or {}).get("profil") or {}
+                if _klucz_uzytkownika(pr.get("imie", ""),
+                                      pr.get("pesel", "")) == AKTYWNY_UZYTKOWNIK:
+                    if pr.get("adres"):
+                        return pr["adres"]
+        except Exception:
+            pass
+    return domyslne
+
+
+def zapisz_ustawienie_osobiste(klucz, wartosc):
+    zapisz_ustawienie(_klucz_osobisty(klucz), wartosc)
 
 def _ustawienia_reset():
     """Wymusza ponowny odczyt ustawień z dysku (po zmianie w dialogu)."""
@@ -2778,7 +2951,7 @@ def zapisz_plan(plan: dict):
                                for w in d.wizyty],
                 } for d in m["dni"]],
             })
-        with open(PLAN_STORE, "w", encoding="utf-8") as f:
+        with open(_plik_planu(), "w", encoding="utf-8") as f:
             json.dump(dane, f, ensure_ascii=False)
     except Exception:
         pass
@@ -2786,9 +2959,10 @@ def zapisz_plan(plan: dict):
 def wczytaj_plan():
     """Odtwarza zapisany plan z dysku albo zwraca None."""
     try:
-        if not os.path.exists(PLAN_STORE):
+        _sc = _plik_planu()
+        if not os.path.exists(_sc):
             return None
-        with open(PLAN_STORE, "r", encoding="utf-8") as f:
+        with open(_sc, "r", encoding="utf-8") as f:
             dane = json.load(f)
         miesiace = []; wszystkie_dni = []
         for m in dane.get("miesiace", []):
@@ -4519,7 +4693,7 @@ def szacuj_delegacje(kwota: float, stawka: float, dni_robocze: int) -> dict:
     dni_wyjazdowe = max(1, min(dni_robocze, round(km_real / sredni_dzien_km)))
     km_dzien = km_real / dni_wyjazdowe if dni_wyjazdowe else 0
     # dokumenty: limit ~597 zł na dokument
-    dokumenty = max(1, math.ceil(kwota / 590.0))
+    dokumenty = max(1, math.ceil(kwota / MAX_KWOTA_DOKUMENTU))
     return {
         "km": round(km_real),
         "dni_wyjazdowe": dni_wyjazdowe,
@@ -4648,7 +4822,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     _km_na_dzien_szac = 90.0
     _dni_z_km = math.ceil(cel_calkowity_dystans / _km_na_dzien_szac)
     # żaden dzień nie może przekroczyć limitu delegacji (~587 zł)
-    _dni_z_limitu = math.ceil((kwota_calkowita / (MAX_KWOTA_DELEGACJI * 0.85)))
+    _dni_z_limitu = math.ceil((kwota_calkowita / (MAX_KWOTA_DNIA * 0.85)))
     _dni_potrzeba = max(3, _dni_z_km, _dni_z_limitu)
     # GÓRNY limit liczby dni: dzień musi udźwignąć co najmniej ~110 zł realnie,
     # inaczej przy zbyt wielu dniach nie da się ścisnąć tras do budżetu (dolny
@@ -4680,9 +4854,25 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # Najpierw preferowane daty (równomierny rozkład), potem cała reszta jako zapas.
     kolejnosc_dni = [d for d in dni_wybrane] + [i for i in range(len(dni_robocze)) if i not in dni_wybrane_set]
 
+    # POJEMNOŚĆ ZAMIAST SZTYWNEJ LICZBY DNI: gdy realne trasy wyjdą krótsze
+    # od szacunku, dokładamy kolejne dni, aż pokryją zamówioną kwotę.
+    _pojemnosc_km = 0.0
+    _dni_nieudane = 0
+    _dni_awaryjne = 0
+    _cel_km_z_zapasem = cel_calkowity_dystans * 1.04
+
+    def _pojemnosc_dnia(etapy):
+        km = sum(e.d_line for e in etapy)
+        postoje = sum((e.czas_w_sklepie or 0) for e in etapy) + PRZERWA_JEDZENIE_MIN
+        wolne = LIMIT_CZASU_MINUTY - postoje
+        if wolne <= 0 or km <= 0:
+            return 0.0
+        return min((wolne / 60.0) * SREDNIA_PREDKOSC, km * 4.0)
+
     for _poz, numer_dnia in enumerate(kolejnosc_dni):
-        if len(finalne_dni) >= _dni_potrzeba:
-            break            # zebraliśmy tyle dni, ile potrzeba na budżet
+        if (len(finalne_dni) >= _dni_potrzeba
+                and _pojemnosc_km >= _cel_km_z_zapasem):
+            break            # dość dni ORAZ pojemności na całą kwotę
         data = dni_robocze[numer_dnia]
         if postep_cb: postep_cb(f"Klastrowanie GPS (Dzień {len(finalne_dni)+1}/{_dni_potrzeba})...", 0.30 + (_poz / max(len(kolejnosc_dni),1)) * 0.40)
 
@@ -4695,6 +4885,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             dostepne = []
             for m in pula:
                 if m.n.lower() == baza_nazwa.lower() or m.sieci < MIN_SIECI: continue
+                if oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) < MIN_ODLEGLOSC_OD_BAZY:
+                    continue          # nic „pod domem"
                 if wymus_ucieczke and not _rzadki_rejon and not odsuwa_sie_od_stolicy(baza_lat, baza_lng, m.lat, m.lng, woj): continue
                 if not _rzadki_rejon and miasto_w_obcej_aglomeracji(baza_lat, baza_lng, m.lat, m.lng): continue
                 if spr_cooldown and m.n in ostatnie_uzycie and (data - ostatnie_uzycie[m.n]).days < cooldown_dni: continue
@@ -4782,7 +4974,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         udana_trasa = False
         ostateczne_etapy_dnia = []
 
-        for proba in range(15):
+        for proba in range(40):
+            # każda nieudana próba i każdy przepadły dzień rozluźniają reguły
+            _luz = (1.0 + min(proba, 25) * 0.06) * (1.0 + min(_dni_nieudane, 12) * 0.06)
+            _bez_ograniczen_typu = (proba >= 15) or (_dni_nieudane >= 2)
             punkt_startowy = rng.choices(kandydaci, weights=wagi, k=1)[0]
             ile_celow = rng.randint(cele_min, cele_max)
 
@@ -4792,19 +4987,19 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             # zależy od TYPU dnia (gniazdo = ciasno, po drodze = luźniej).
             wybrane = [punkt_startowy]
             uzyte_nazwy = {punkt_startowy.n}
-            max_skok = skok_dnia if promien_petli <= 70 else min(skok_dnia * (promien_petli/70.0), 60.0)
+            max_skok = (skok_dnia if promien_petli <= 70 else min(skok_dnia * (promien_petli/70.0), 60.0)) * _luz
             while len(wybrane) < ile_celow:
                 ostatni = wybrane[-1]
                 najlepszy = None
                 najlepszy_d = max_skok
                 for m in kandydaci:
                     if m.n in uzyte_nazwy: continue
-                    if m.typ != 'gmina' and len(wybrane) > 1: continue
+                    if (not _bez_ograniczen_typu) and m.typ != 'gmina' and len(wybrane) > 1: continue
                     d_skok = oblicz_dystans(ostatni.lat, ostatni.lng, m.lat, m.lng)
                     if d_skok < 4.0: continue                    # to praktycznie ten sam punkt
                     if d_skok >= najlepszy_d: continue           # dalej niż obecny najlepszy
                     if oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) > promien_petli: continue
-                    if przecina_aglomeracje(ostatni.lat, ostatni.lng, m.lat, m.lng, baza_lat, baza_lng): continue
+                    if (not _bez_ograniczen_typu) and przecina_aglomeracje(ostatni.lat, ostatni.lng, m.lat, m.lng, baza_lat, baza_lng): continue
                     najlepszy = m; najlepszy_d = d_skok
                 if najlepszy is None: break
                 wybrane.append(najlepszy); uzyte_nazwy.add(najlepszy.n)
@@ -4842,7 +5037,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 obecny_lat, obecny_lng, obecna_nazwa = cel.lat, cel.lng, cel.n
 
             # Dzień ważny tylko z min. 3 postojami "po drodze".
-            if len(etapy_test) < 3:
+            _min_postojow = 2 if _dni_nieudane >= 4 else 3
+            if len(etapy_test) < _min_postojow:
                 continue
 
             # powrót do domu — dodajemy i liczymy PEŁNY czas dnia
@@ -4867,7 +5063,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 czas_pelny = czas_akt_test + t_powrot
 
             # po obcięciu dzień nadal musi mieć min. 3 postoje — inaczej pomijamy
-            if len(etapy_test) < 3:
+            _min_postojow = 2 if _dni_nieudane >= 4 else 3
+            if len(etapy_test) < _min_postojow:
                 continue
             # ostateczna kontrola — jeśli wciąż ponad limit, ten dzień odrzucamy
             if czas_pelny > LIMIT_CZASU_MINUTY:
@@ -4883,13 +5080,65 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             ostateczne_etapy_dnia = etapy_test
             break
 
-        if not udana_trasa: continue  
+        if not udana_trasa:
+            # Czterdzieści prób nie ułożyło dnia (bywa w rejonach, gdzie
+            # filtry kierunkowe wycinają prawie wszystko). Zamiast tracić
+            # dzień — a z nim część kwoty — budujemy trasę pewną: kolejne
+            # najbliższe miejscowości od bazy, bez filtrów uznaniowych,
+            # w granicach ośmiu godzin i nie bliżej niż MIN_ODLEGLOSC_OD_BAZY.
+            try:
+                _pula = sorted(kandydaci,
+                               key=lambda _mm: oblicz_dystans(baza_lat, baza_lng, _mm.lat, _mm.lng))
+                _etapy = []
+                _ob_lat, _ob_lng, _ob_naz = baza_lat, baza_lng, baza_nazwa
+                _czas = PRZERWA_JEDZENIE_MIN
+                _uzyte = set()
+                for _cel in _pula:
+                    if len(_etapy) >= 7:
+                        break
+                    if _cel.n in _uzyte or _cel.n.lower() == baza_nazwa.lower():
+                        continue
+                    if oblicz_dystans(baza_lat, baza_lng, _cel.lat, _cel.lng) < MIN_ODLEGLOSC_OD_BAZY:
+                        continue
+                    _d = oblicz_dystans(_ob_lat, _ob_lng, _cel.lat, _cel.lng)
+                    if _d < 4.0:
+                        continue
+                    _t_dr = (_d * TEST_MNOZNIK_TRASY / SREDNIA_PREDKOSC) * 60
+                    _t_sh = rng.randint(POSTOJ_MIN_MIN, POSTOJ_MAX_MIN)
+                    _d_ret = oblicz_dystans(_cel.lat, _cel.lng, baza_lat, baza_lng)
+                    _t_ret = (_d_ret * TEST_MNOZNIK_TRASY / SREDNIA_PREDKOSC) * 60
+                    if _czas + _t_dr + _t_sh + _t_ret > LIMIT_CZASU_MINUTY:
+                        continue
+                    _etapy.append(RawEtap(
+                        skad=_ob_naz, dokad=_cel.n, data_str=data.strftime("%d.%m.%Y") + "r",
+                        d_line=_d, czas_w_sklepie=_t_sh, dokad_woj=_cel.woj,
+                        skad_lat=_ob_lat, skad_lng=_ob_lng,
+                        dokad_lat=_cel.lat, dokad_lng=_cel.lng))
+                    _uzyte.add(_cel.n)
+                    _czas += _t_dr + _t_sh
+                    _ob_lat, _ob_lng, _ob_naz = _cel.lat, _cel.lng, _cel.n
+                if len(_etapy) >= 2:
+                    _d_pow = oblicz_dystans(_ob_lat, _ob_lng, baza_lat, baza_lng)
+                    _etapy.append(RawEtap(
+                        skad=_ob_naz, dokad=baza_nazwa, data_str=data.strftime("%d.%m.%Y") + "r",
+                        d_line=_d_pow, czas_w_sklepie=0, dokad_woj="",
+                        skad_lat=_ob_lat, skad_lng=_ob_lng,
+                        dokad_lat=baza_lat, dokad_lng=baza_lng))
+                    udana_trasa = True
+                    ostateczne_etapy_dnia = _etapy
+                    _dni_awaryjne += 1
+            except Exception:
+                pass
+        if not udana_trasa:
+            _dni_nieudane += 1
+            continue
 
         for e in ostateczne_etapy_dnia[:-1]:
             ostatnie_uzycie[e.dokad] = data
             aktualny_dystans_linii += e.d_line
             
         aktualny_dystans_linii += ostateczne_etapy_dnia[-1].d_line
+        _pojemnosc_km += _pojemnosc_dnia(ostateczne_etapy_dnia)
         finalne_dni.append(DzienTrasy(data=data, etapy_surowe=ostateczne_etapy_dnia))
 
     # Dni mogły powstać w innej kolejności niż kalendarzowa (gdy sięgaliśmy po
@@ -4934,32 +5183,60 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             czas += (e.czas_w_sklepie or 0)                       # postój w miejscowości
         return czas
 
-    max_mnoznik_globalny = rzeczywisty_mnoznik
-    for dzien in finalne_dni:
-        # jaki mnożnik sprawia, że ten dzień dobija DOKŁADNIE do 8h?
+    # MNOŻNIK LICZONY OSOBNO DLA KAŻDEGO DNIA.
+    # Wspólny mnożnik miał wadę: najciaśniejszy dzień — ten z największą
+    # liczbą postojów — przycinał skalowanie CAŁEGO miesiąca, przez co
+    # suma zatrzymywała się poniżej zamówionej kwoty, choć pozostałe dni
+    # miały jeszcze wolne godziny. Teraz każdy dzień rozciąga się do
+    # WŁASNEGO sufitu ośmiu godzin, a brakujące kilometry dolewamy tam,
+    # gdzie został zapas.
+    def _mnoznik_max_dnia(dzien):
         baza_km = sum(e.d_line for e in dzien.etapy_surowe)
         postoje = sum((e.czas_w_sklepie or 0) for e in dzien.etapy_surowe) + PRZERWA_JEDZENIE_MIN
-        dostepne_min_na_jazde = LIMIT_CZASU_MINUTY - postoje
-        if dostepne_min_na_jazde <= 0 or baza_km <= 0:
-            continue
-        max_km_dnia = (dostepne_min_na_jazde / 60) * SREDNIA_PREDKOSC
-        mn_dnia = max_km_dnia / baza_km
-        max_mnoznik_globalny = min(max_mnoznik_globalny, mn_dnia)
+        dostepne = LIMIT_CZASU_MINUTY - postoje
+        if dostepne <= 0 or baza_km <= 0:
+            return 0.3, baza_km
+        return max(0.3, (dostepne / 60) * SREDNIA_PREDKOSC / baza_km), baza_km
 
-    # mnożnik finalny: nie większy niż limit 8h. Dolny próg 0.3 (nie 0.5) pozwala
-    # ścisnąć trasy dla małych kwot w rzadkich rejonach, gdzie minimalne 3 dni i
-    # tak generują sporo kilometrów — bez tego suma wychodziłaby za wysoka.
-    rzeczywisty_mnoznik = max(0.3, min(rzeczywisty_mnoznik, max_mnoznik_globalny))
+    _dane_dni = []
+    for dzien in finalne_dni:
+        mn_max, baza_km = _mnoznik_max_dnia(dzien)
+        _dane_dni.append({"dzien": dzien, "max": mn_max, "km": baza_km, "mn": 0.3})
+
+    _suma_km_bazowa = max(sum(x["km"] for x in _dane_dni), 1.0)
+    _cel = wymagany_dystans_calkowity
+    _mn_start = max(0.3, _cel / _suma_km_bazowa)
+    for x in _dane_dni:
+        x["mn"] = max(0.3, min(_mn_start, x["max"]))
+    for _ in range(24):
+        _osiagniete = sum(x["km"] * x["mn"] for x in _dane_dni)
+        _brak = _cel - _osiagniete
+        if _brak <= 0.5:
+            break
+        _zapas = [x for x in _dane_dni if x["max"] - x["mn"] > 1e-6 and x["km"] > 0]
+        if not _zapas:
+            break
+        _poj = sum((x["max"] - x["mn"]) * x["km"] for x in _zapas)
+        if _poj <= 0:
+            break
+        _udzial = min(1.0, _brak / _poj)
+        for x in _zapas:
+            x["mn"] += (x["max"] - x["mn"]) * _udzial
+
+    for x in _dane_dni:
+        for e in x["dzien"].etapy_surowe:
+            e._mnoznik_dnia = x["mn"]
 
     wszystkie_surowe = [e for dzien in finalne_dni for e in dzien.etapy_surowe]
     suma_linii = max(sum(e.d_line for e in wszystkie_surowe), 1.0)
-    rzeczywisty_mnoznik = max(0.3, min(wymagany_dystans_calkowity / suma_linii, max_mnoznik_globalny))
+    _osiagniete = sum(e.d_line * getattr(e, "_mnoznik_dnia", 1.0) for e in wszystkie_surowe)
+    rzeczywisty_mnoznik = _osiagniete / suma_linii      # tylko do statystyk
 
     # Koszt każdego etapu = jego REALNY dystans (km × mnożnik) × stawka.
     # Nic nie dopisujemy. Dzięki dobraniu mnożnika suma wychodzi z natury
     # bardzo blisko celu (różnica to zwykle kilka GROSZY z zaokrągleń).
     for e in wszystkie_surowe:
-        e.dystans_rzeczywisty = e.d_line * rzeczywisty_mnoznik
+        e.dystans_rzeczywisty = e.d_line * getattr(e, "_mnoznik_dnia", rzeczywisty_mnoznik)
         e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
         e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
 
@@ -4982,6 +5259,22 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             e.kwota = max(round(e.kwota * skala, 2), 0.0)
             e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
         reszta = round(kwota_calkowita - sum(e.kwota for e in wszystkie_surowe), 2)
+
+    # dziennik silnika — komplet liczb do diagnozy, gdyby kwota nie dobiła
+    try:
+        _osi = sum(e.kwota for e in wszystkie_surowe)
+        with open(os.path.join(os.path.expanduser("~"), ".pmt_silnik_diag.txt"),
+                  "a", encoding="utf-8") as _f:
+            _f.write("%s | kwota %.2f | stawka %.2f | cel %.0f km | dni robocze %d | "
+                     "potrzeba %d | zbudowane %d | awaryjne %d | nieudane %d | "
+                     "limit dnia %d min | pojemnosc %.0f km | osiagnieto %.2f (%.1f%%)\n"
+                     % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        kwota_calkowita, stawka, cel_calkowity_dystans, len(dni_robocze),
+                        _dni_potrzeba, len(finalne_dni), _dni_awaryjne, _dni_nieudane,
+                        LIMIT_CZASU_MINUTY, _pojemnosc_km, _osi,
+                        100.0 * _osi / max(kwota_calkowita, 1e-9)))
+    except Exception:
+        pass
 
     LIMIT_KOREKTY_GROSZY = max(len(wszystkie_surowe), 20)  # max ~1 gr/etap
     if 0.01 <= abs(reszta) <= LIMIT_KOREKTY_GROSZY * 0.01 and wszystkie_surowe:
@@ -5064,6 +5357,9 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
     # adres pracownika — jest dokładny (ulica+kod), więc Google nie podstawi
     # sąsiedniego budynku, a jednocześnie czytelnie pokazuje punkt startu/powrotu.
     # Fallback na współrzędne, gdyby adres był pusty.
+    # START i POWRÓT KAŻDEJ DELEGACJI to adres z FORMULARZA DELEGACJI
+    # (pole „Adres zamieszkania"). Nigdy adres bazy planera ani ustawienie
+    # wspólne — dokument musi zgadzać się z tym, co podano do rozliczenia.
     adres_bazy = (pracownik.adres or "").strip()
     if adres_bazy:
         baza_punkt = adres_bazy
@@ -5130,7 +5426,8 @@ def _podziel_na_dokumenty(dni: List[DzienTrasy]) -> List[List[DzienTrasy]]:
     docs, obecny, koszt, etapy = [], [], 0.0, 0
     for d in dni:
         e = len(d.etapy)
-        if (koszt + d.suma > MAX_KWOTA_DELEGACJI or etapy + e > 16) and obecny:
+        if (koszt + d.suma > MAX_KWOTA_DOKUMENTU
+                or etapy + e > MAX_ETAPOW_DOKUMENTU) and obecny:
             docs.append(obecny); obecny, koszt, etapy = [d], d.suma, e
         else: obecny.append(d); koszt += d.suma; etapy += e
     if obecny: docs.append(obecny)
@@ -5163,7 +5460,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf.set_font("Arial",'B',9); pdf.cell(95,5,f"{pracownik.imie} {pracownik.pesel}",border=1,align='C')
         pdf.cell(95,5,pracownik.stanowisko,border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"imię i nazwisko oraz PESEL",border=0,align='C'); pdf.cell(95,3,"stanowisko",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
-        pdf.set_font("Arial",'B',9); pdf.cell(95,5,pracownik.adres,border=1,align='C'); pdf.cell(95,5,"Małgorzata Murawska",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
+        pdf.set_font("Arial",'B',9); pdf.cell(95,5,pracownik.adres,border=1,align='C'); pdf.cell(95,5,_menedzer(),border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"adres zamieszkania",border=0,align='C'); pdf.cell(95,3,"przełożony",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'B',8); pdf.cell(95,5,"projekt: Biedronka, Dino, Eurocash, Społem, Stokrotka, Żabka",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"cel wyjazdu - Projekt",border=0,new_x="LMARGIN",new_y="NEXT",align='C'); pdf.ln(3)
@@ -5207,7 +5504,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf.set_font("Arial",'B',10); pdf.cell(0,5,firma_nazwa,new_x="LMARGIN",new_y="NEXT")
     pdf.set_font("Arial",'',10); pdf.cell(0,5,"ul. Ptasia 10, 60-319 Poznań",new_x="LMARGIN",new_y="NEXT"); pdf.cell(0,5,nip_krotki,new_x="LMARGIN",new_y="NEXT"); pdf.ln(5)
     pdf.set_font("Arial",'B',12); pdf.cell(0,8,f"Rozliczenie wydatków za miesiąc: {ms} {rok}r.",new_x="LMARGIN",new_y="NEXT"); pdf.ln(2)
-    for lbl,val in [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:","Małgorzata Murawska"),("Liczba dokumentów:",str(len(podsumowanie)))]:
+    for lbl,val in [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie)))]:
         pdf.set_font("Arial",'B',9); pdf.cell(50,6,lbl,border=0); pdf.set_font("Arial",'',9); pdf.cell(140,6,val,border=0,new_x="LMARGIN",new_y="NEXT")
     pdf.ln(5); pdf.set_font("Arial",'B',9)
     for sz,t in [(10,"Lp."),(80,"Dokument"),(70,"Opis"),(30,"Kwota brutto")]: pdf.cell(sz,8,t,border=1,align='C')
@@ -7392,7 +7689,7 @@ class PlanerOverlay(QFrame):
         self.pole_baza = GrubyKursorEdit()
         self.pole_baza.setPlaceholderText("np. ul. Kwiatowa 5, Radom")
         self.pole_baza.setFixedHeight(34)
-        self.pole_baza.setText(ustawienie("adres_bazy", ""))
+        self.pole_baza.setText(ustawienie_osobiste("adres_bazy", ""))
         self.pole_baza.editingFinished.connect(self._zapisz_baze)
         poo.addWidget(self.pole_baza)
 
@@ -7946,7 +8243,7 @@ class PlanerOverlay(QFrame):
         return sorted(s, key=lambda x: x.lower())
 
     def _zapisz_baze(self):
-        zapisz_ustawienie("adres_bazy", self.pole_baza.text().strip())
+        zapisz_ustawienie_osobiste("adres_bazy", self.pole_baza.text().strip())
 
     def _odswiez_skrot_opcji(self):
         """Skrót aktualnych parametrów planowania (pod przyciskiem ustawień)."""
@@ -17034,9 +17331,9 @@ class App(QMainWindow):
         except Exception:
             pass
         if not adres_bazy:
-            adres_bazy = ustawienie("adres_bazy", "")
+            adres_bazy = ustawienie_osobiste("adres_bazy", "")
         else:
-            zapisz_ustawienie("adres_bazy", adres_bazy)
+            zapisz_ustawienie_osobiste("adres_bazy", adres_bazy)
 
         # cykliczność — czytamy stan wprost z planera
         cykliczny = False
@@ -17126,7 +17423,7 @@ class App(QMainWindow):
             return
         # baza (adres domowy) — żeby przeplanowane trasy też startowały z domu
         baza = None
-        adres_b = ustawienie("adres_bazy", "").strip()
+        adres_b = ustawienie_osobiste("adres_bazy", "").strip()
         if adres_b:
             klucz_b = adres_b.lower().strip()
             lat_b = lng_b = None
@@ -17784,6 +18081,30 @@ class App(QMainWindow):
         nakładka też — koniec problemów z osobnym oknem pełnoekranowym."""
         try:
             _dziennik_animacji("start intro w wersji %s" % WERSJA_PROGRAMU)
+            # ── INTRO WIDEO (prerender z Blendera, pmt_intro_geo.py) ──
+            # Próba nowego intro; przy JAKIMKOLWIEK braku (modułu,
+            # PyQt6-Multimedia, pliku MP4) wracamy bez szkody do starej
+            # animacji poniżej. Pliki: intro_zmierzch.mp4 / intro_zloty.mp4
+            # obok programu albo w podkatalogu zasoby.
+            try:
+                from intro_wideo import sprobuj_intro_wideo
+                _kat_prog = os.path.dirname(os.path.abspath(sys.argv[0]))
+                self._intro = None   # _intro_koniec ma co bezpiecznie pominąć
+                if sprobuj_intro_wideo(self,
+                                       motyw=("ciemny" if self.is_dark else "jasny"),
+                                       postep_ladowania=None,
+                                       po_zakonczeniu=self._intro_koniec,
+                                       katalog_zasobow=_kat_prog):
+                    _dziennik_animacji("intro WIDEO uruchomione (zasoby: %s)" % _kat_prog)
+                    return
+                _dziennik_animacji("intro wideo niedostępne — stara animacja")
+            except Exception:
+                try:
+                    import traceback
+                    _dziennik_animacji("intro wideo BŁĄD — stara animacja:\n"
+                                       + traceback.format_exc())
+                except Exception:
+                    pass
             self._intro = AnimacjaStartowa(imie, is_dark=self.is_dark, parent=self)
             self._intro.zakonczony.connect(self._intro_koniec)
             self._intro.setGeometry(self.rect())
@@ -18058,12 +18379,12 @@ class App(QMainWindow):
                                      "Odznacz przynajmniej jeden dzień.")
             # Każdy dzień pracy = maksymalnie jeden limit delegacji (~587 zł).
             # Górna granica kwoty to liczba dni roboczych × limit delegacji.
-            _max_kwota = len(dni) * MAX_KWOTA_DELEGACJI
+            _max_kwota = len(dni) * MAX_KWOTA_DNIA
             if kwota > _max_kwota:
                 raise ValueError(
                     f"Kwota za wysoka na ten miesiąc.\n\n"
                     f"Przy {len(dni)} dniach roboczych maksymalna kwota to "
-                    f"{_max_kwota:,.0f} zł (limit {MAX_KWOTA_DELEGACJI:.0f} zł na dzień).\n"
+                    f"{_max_kwota:,.0f} zł (limit {MAX_KWOTA_DNIA:.2f} zł na dzień).\n"
                     f"Zmniejsz kwotę lub wybierz miesiąc z większą liczbą dni.")
 
             stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
@@ -18164,7 +18485,7 @@ class App(QMainWindow):
                 "woj_wizyty": woj_wizyty,              # WSZYSTKIE odwiedzone regiony
                 "baza": p.get('baza_miasto', '') or '', # miejscowość bazowa
                 "miejsc_wizyty": miejsc_wizyty,        # odwiedzane miejscowości (bez bazy)
-                "dokumenty": math.ceil(suma / 590.0) if suma else 0,
+                "dokumenty": math.ceil(suma / MAX_KWOTA_DOKUMENTU) if suma else 0,
                 "km": round(km_total),
                 "miesiac": p['miesiac'],
                 "rok": p['rok'],
@@ -18223,6 +18544,38 @@ if __name__ == "__main__":
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
 
+    # ── OBOWIĄZKOWA AKTUALIZACJA — sprawdzenie przed wejściem ──────
+    try:
+        _wczytaj_wymagania()
+        try:
+            sprawdz_aktualizacje()
+        except Exception:
+            pass
+        _zabl, _dni = wersja_zablokowana()
+        if _zabl:
+            _okno_pmt(None, "Wymagana aktualizacja",
+                      "Ta wersja programu (%s) nie jest już obsługiwana.\n\n"
+                      "Wymagana jest wersja %s lub nowsza — zawiera poprawki "
+                      "wpływające na poprawność dokumentów delegacyjnych.\n\n"
+                      "Pobierz nową wersję:\n%s"
+                      % (WERSJA_PROGRAMU, WERSJA_WYMAGANA or "nowsza", URL_POBIERANIA),
+                      tylko_ok=True)
+            try:
+                webbrowser.open(URL_POBIERANIA)
+            except Exception:
+                pass
+            sys.exit(0)
+        elif _dni is not None and _dni <= 14:
+            _okno_pmt(None, "Aktualizacja wymagana",
+                      "Ta wersja przestanie działać za %d dni.\n\n"
+                      "Zaktualizuj program do wersji %s — nowe wydanie zawiera "
+                      "poprawki wpływające na poprawność rozliczeń."
+                      % (_dni, WERSJA_WYMAGANA), tylko_ok=True)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+
     odblokuj_wlasny_folder()   # zdejmij blokade "plik z internetu" (raz)
     sprzataj_stare_wersje()    # usun kopie po ostatniej aktualizacji
 
@@ -18260,6 +18613,11 @@ if __name__ == "__main__":
     if not _kod:
         sys.exit(0)
     online_zapisz_kod(_kod)
+    # od tej chwili plan i adres bazy należą do zalogowanej osoby
+    try:
+        ustaw_uzytkownika_planu(_imie_zal or "", _kod or "")
+    except Exception:
+        pass
 
     # Animacja startowa gra teraz WEWNĄTRZ okna programu (window.pokaz_intro
     # poniżej) — osobne pełnoekranowe okno bywało niewidoczne na części

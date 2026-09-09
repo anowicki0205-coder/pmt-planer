@@ -1,2 +1,4 @@
-3.20.56
-Węższy szlak, dłuższa trasa z dziesięcioma sklepami i wyraźna obwódka logo.
+3.21.0
+Pełne rozpisanie zamówionej kwoty, mniej dokumentów i poprawki bezpieczeństwa.
+min=3.21.0
+blokada=2026-09-23

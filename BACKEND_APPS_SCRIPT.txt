@@ -1,0 +1,53 @@
+═══════════════════════════════════════════════════════════════════════
+  BACKEND (APPS SCRIPT) — dwie zmiany do wprowadzenia teraz
+═══════════════════════════════════════════════════════════════════════
+
+1. NOWY SEKRET (obowiązkowo, stary jest publiczny)
+   W kodzie Apps Script znajdź stałą z sekretem używaną przy weryfikacji
+   podpisu i zamień jej wartość na:
+
+       PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS
+
+   Zapisz, a następnie: Wdróż → Zarządzaj wdrożeniami → ołówek →
+   Wersja: Nowa wersja → Wdróż.  ADRES POZOSTAJE TEN SAM.
+
+   WAŻNA KOLEJNOŚĆ: sekret zmieniamy DOPIERO wtedy, gdy zespół ma już
+   nową wersję programu. Zmiana wcześniej odetnie wszystkich od razu.
+   Zalecany plan: publikacja 3.21.0 → 14 dni na aktualizację →
+   zmiana sekretu (wtedy stare wersje i tak przestają działać).
+
+2. ODCINANIE STARYCH WERSJI (opcjonalne, ale zalecane)
+   Program wysyła teraz w każdym zapytaniu pole "wersja". Na początku
+   funkcji obsługującej żądanie dopisz:
+
+       var WYMAGANA = "3.21.0";
+
+       function wersjaZaStara(w) {
+         if (!w) return true;                       // stare wersje nie wysyłają pola
+         var a = String(w).split(".").map(Number);
+         var b = WYMAGANA.split(".").map(Number);
+         for (var i = 0; i < 3; i++) {
+           var x = a[i] || 0, y = b[i] || 0;
+           if (x > y) return false;
+           if (x < y) return true;
+         }
+         return false;
+       }
+
+       // w doPost, zaraz po odczytaniu danych:
+       if (wersjaZaStara(dane.wersja)) {
+         return ContentService.createTextOutput(JSON.stringify({
+           status: "blad",
+           komunikat: "Ta wersja programu nie jest już obsługiwana. Pobierz nową wersję."
+         })).setMimeType(ContentService.MimeType.JSON);
+       }
+
+   Efekt: nawet ktoś, kto ominie blokadę w programie, nie połączy się
+   z backendem starą wersją.
+
+3. CO WARTO ZROBIĆ PÓŹNIEJ (nie blokuje dzisiejszego wydania)
+   · sprawdzanie kodu i hasła przy KAŻDEJ operacji, nie tylko przy logowaniu,
+   · zwracanie wyłącznie danych zalogowanej osoby (nigdy listy wszystkich),
+   · ograniczenie liczby zapytań z jednego adresu,
+   · odrzucanie żądań ze znacznikiem czasu starszym niż kilka minut.
+═══════════════════════════════════════════════════════════════════════

@@ -1,0 +1,59 @@
+═══════════════════════════════════════════════════════════════════════
+  ŻEBY WINDOWS NIE ZABLOKOWAŁ PROGRAMU
+  co zrobiłem po swojej stronie i co musisz zrobić Ty
+═══════════════════════════════════════════════════════════════════════
+
+PRAWDA, KTÓREJ NIE DA SIĘ OBEJŚĆ KODEM
+  „Inteligentna kontrola aplikacji" (Smart App Control) w Windows 11
+  blokuje KAŻDY program bez podpisu cyfrowego uznawanego przez Microsoft.
+  Nie ma znaczenia, co jest w środku ani jak został zbudowany. Żadna
+  zmiana w kodzie tego nie zdejmie — potrzebny jest certyfikat albo
+  wyłączenie tej funkcji.
+
+CO ZROBIŁEM, ŻEBY BYŁO JAK NAJLEPIEJ
+  · budowa FOLDEROWA zamiast jednoplikowej — program nie rozpakowuje się
+    sam do katalogu tymczasowego, więc heurystyki traktują go łagodniej,
+  · brak kompresji UPX (to ona najczęściej wywołuje fałszywe alarmy),
+  · pełne metadane pliku: nazwa, producent, wersja 3.21.0,
+  · ikona programu,
+  · to samo nazewnictwo co dotąd: PMT_Planer.exe.
+  Więcej po stronie kodu zrobić się nie da.
+
+TRZY DROGI — WYBIERZ PRZED ROZSYŁANIEM
+
+  DROGA A: PODPIS CYFROWY (jedyne trwałe rozwiązanie)
+    Po podpisaniu program przechodzi bez pytania u wszystkich.
+    · Azure Trusted Signing — subskrypcja miesięczna, kilkadziesiąt zł,
+      akceptowana przez Smart App Control,
+    · Certum / Sectigo / DigiCert — certyfikat roczny; wersja EV działa
+      od pierwszego dnia, OV potrzebuje trochę czasu na reputację.
+    Po zakupie: dwuklik PODPISZ_EXE.bat — skrypt znajdzie zbudowany
+    program i podpisze go ze znacznikiem czasu.
+    KOSZT TO ARGUMENT NA ROZMOWĘ Z ZARZĄDEM: bez certyfikatu narzędzie
+    nie może działać na firmowych komputerach.
+
+  DROGA B: WYJĄTEK W FIRMOWEJ POLITYCE (rozwiązanie na już)
+    Dział IT może dodać folder programu do wykluczeń Microsoft Defender
+    (Zabezpieczenia Windows → Ochrona przed wirusami → Wykluczenia)
+    albo rozesłać program przez politykę grupową jako zaufany.
+    Przy 65 osobach to jedno zgłoszenie do IT zamiast 65 telefonów.
+
+  DROGA C: BEZ PLIKU EXE (działa natychmiast, dobre na testy)
+    Dwuklik UTWORZ_SKROT.bat tworzy skrót „PMT Planer" na pulpicie,
+    uruchamiający program przez Pythona. Python jest podpisany przez
+    Python Software Foundation, więc Windows go nie blokuje.
+    Wymaga Pythona na komputerze — świetne dla Ciebie i testerów,
+    niepraktyczne dla całego zespołu.
+
+CO POWIEDZIEĆ ZESPOŁOWI, GDY MIMO WSZYSTKO ZOBACZĄ OSTRZEŻENIE
+  „Kliknij Więcej informacji, potem Uruchom mimo to."
+  Zadziała, jeżeli blokuje SmartScreen (zwykłe ostrzeżenie o nieznanym
+  wydawcy). Jeżeli blokuje Inteligentna kontrola aplikacji, ta opcja się
+  nie pojawi — wtedy zostaje droga A albo B.
+
+MOJA REKOMENDACJA NA DZIŚ
+  Zbuduj wersję folderową, przetestuj u siebie i u dwóch–trzech osób.
+  Równolegle zgłoś do IT prośbę o wyjątek (droga B) — to zajmuje im
+  kilka minut. Certyfikat (droga A) załatw spokojnie w ciągu tygodnia;
+  do tego czasu wyjątek wystarczy.
+═══════════════════════════════════════════════════════════════════════

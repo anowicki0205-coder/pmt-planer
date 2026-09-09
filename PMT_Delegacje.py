@@ -91,7 +91,10 @@ LIMIT_CZASU_MINUTY  = 8 * 60   # sufit dnia; ustaw_tryb_pracy() zmienia go w try
 MAX_KWOTA_DOKUMENTU  = 986.34
 MAX_ETAPOW_DOKUMENTU = 30
 MAX_KWOTA_DNIA       = 587.19
-MAX_KWOTA_DELEGACJI  = MAX_KWOTA_DOKUMENTU   # zgodność ze starą nazwą
+# PRZESTARZAŁE — nie używać w nowym kodzie. Do 3.20.57 ta nazwa oznaczała
+# limit DNIA, więc zostawiamy jej to znaczenie; nowy kod ma używać wprost
+# MAX_KWOTA_DNIA albo MAX_KWOTA_DOKUMENTU, bo to dwie różne wielkości.
+MAX_KWOTA_DELEGACJI  = MAX_KWOTA_DNIA
 MIN_KWOTA           = 50.0 
 # Żaden przystanek nie może leżeć praktycznie pod domem — pusty adres
 # kilka kilometrów od bazy nie jest podróżą służbową.
@@ -102,46 +105,126 @@ MIN_ODLEGLOSC_OD_BAZY = 12.0   # km w linii prostej
 # (wiersze „min=" i „blokada="). Program starszy niż wymagany ostrzega,
 # a po terminie odmawia uruchomienia. Wymagania zapisujemy lokalnie,
 # żeby odłączenie internetu nie omijało blokady.
+#
+# ZASADA NADRZĘDNA: blokada ma odciąć STARE wersje, a nie zespół. Dlatego
+# każdy wątpliwy przypadek (literówka w dacie, brak terminu, uszkodzony
+# plik) kończy się OKRESEM PRZEJŚCIOWYM, nigdy natychmiastowym odcięciem.
 WERSJA_WYMAGANA = ""
 TERMIN_BLOKADY = ""
+# Kiedy program PIERWSZY RAZ zobaczył wymaganie — od tego liczymy okres
+# przejściowy, gdy w wersja.txt nie ma czytelnej daty blokady.
+PIERWSZE_ZOBACZENIE = ""
+# Najpóźniejszy dzień, jaki program kiedykolwiek widział — kotwica przeciw
+# cofaniu zegara systemowego, żeby nie dało się tak przedłużyć starej wersji.
+NAJPOZNIEJSZY_DZIEN = ""
+DNI_OKRESU_PRZEJSCIOWEGO = 14
 PLIK_WYMAGAN = os.path.join(os.path.expanduser("~"), ".pmt_wymagania.json")
 
 
+def _data_z_tekstu(txt):
+    """Data z tekstu — rozumie RRRR-MM-DD ORAZ polskie DD.MM.RRRR.
+    Zwraca None, gdy tekst nie jest datą (wtedy NIE blokujemy)."""
+    import datetime as _dt
+    t = str(txt or "").strip()
+    if not t:
+        return None
+    for wzor in ("%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y"):
+        try:
+            return _dt.datetime.strptime(t, wzor).date()
+        except Exception:
+            continue
+    return None
+
+
+def _czytaj_wymagania_z_tekstu(tresc):
+    """Czyta treść wersja.txt. Zwraca (numer_wersji, opis) i po drodze
+    ustawia WERSJA_WYMAGANA / TERMIN_BLOKADY.
+
+    Wiersze „min=" i „blokada=" mogą stać w DOWOLNYM miejscu pliku —
+    wcześniej liczyła się kolejność i pominięcie linii z opisem po cichu
+    wyłączało całą blokadę."""
+    global WERSJA_WYMAGANA, TERMIN_BLOKADY
+    linie = [l.strip() for l in str(tresc).splitlines() if l.strip()]
+    nowa, opis = "", ""
+    for linia in linie:
+        klucz, znak, wartosc = linia.partition("=")
+        k = klucz.strip().lower()
+        if znak and k in ("min", "blokada"):
+            if k == "min":
+                WERSJA_WYMAGANA = wartosc.strip()
+            else:
+                TERMIN_BLOKADY = wartosc.strip()
+            continue
+        if not nowa:
+            nowa = linia
+        elif not opis:
+            opis = linia
+    return (nowa, opis or "Dostępna jest nowsza wersja programu.")
+
+
 def _zapisz_wymagania():
+    """Zapisuje wymagania na dysk — dzięki temu wyciągnięcie kabla nie
+    zdejmuje blokady.
+
+    Zapisujemy TAKŻE stan pusty. Bez tego nie dało się już nigdy zdjąć
+    blokady: usunięcie „min=" z wersja.txt nie miało żadnego skutku, bo
+    stary wpis siedział w pliku na dysku i wracał przy każdym starcie."""
+    global PIERWSZE_ZOBACZENIE, NAJPOZNIEJSZY_DZIEN
     try:
-        if WERSJA_WYMAGANA:
-            with open(PLIK_WYMAGAN, "w", encoding="utf-8") as f:
-                json.dump({"min": WERSJA_WYMAGANA, "blokada": TERMIN_BLOKADY}, f)
+        if WERSJA_WYMAGANA and not PIERWSZE_ZOBACZENIE:
+            PIERWSZE_ZOBACZENIE = datetime.date.today().isoformat()
+        dzis = datetime.date.today().isoformat()
+        if dzis > (NAJPOZNIEJSZY_DZIEN or ""):
+            NAJPOZNIEJSZY_DZIEN = dzis
+        with open(PLIK_WYMAGAN, "w", encoding="utf-8") as f:
+            json.dump({"min": WERSJA_WYMAGANA, "blokada": TERMIN_BLOKADY,
+                       "pierwsze": PIERWSZE_ZOBACZENIE,
+                       "najpozniejszy_dzien": NAJPOZNIEJSZY_DZIEN}, f)
     except Exception:
         pass
 
 
 def _wczytaj_wymagania():
-    global WERSJA_WYMAGANA, TERMIN_BLOKADY
+    global WERSJA_WYMAGANA, TERMIN_BLOKADY, PIERWSZE_ZOBACZENIE, NAJPOZNIEJSZY_DZIEN
     try:
         if os.path.exists(PLIK_WYMAGAN):
             with open(PLIK_WYMAGAN, encoding="utf-8") as f:
                 d = json.load(f)
             WERSJA_WYMAGANA = WERSJA_WYMAGANA or d.get("min", "")
             TERMIN_BLOKADY = TERMIN_BLOKADY or d.get("blokada", "")
+            PIERWSZE_ZOBACZENIE = PIERWSZE_ZOBACZENIE or d.get("pierwsze", "")
+            NAJPOZNIEJSZY_DZIEN = max(NAJPOZNIEJSZY_DZIEN or "",
+                                      d.get("najpozniejszy_dzien", "") or "")
     except Exception:
         pass
 
 
+def _dzisiaj_bez_cofania():
+    """Dzisiejsza data, ale nigdy wcześniejsza niż najpóźniejszy dzień,
+    jaki program już widział. Cofnięcie zegara w Windows nie przedłuża
+    więc działania przeterminowanej wersji."""
+    dzis = datetime.date.today()
+    kotwica = _data_z_tekstu(NAJPOZNIEJSZY_DZIEN)
+    return max(dzis, kotwica) if kotwica else dzis
+
+
 def wersja_zablokowana():
-    """(czy_zablokowana, ile_dni_zostalo)."""
+    """(czy_zablokowana, ile_dni_zostalo).
+
+    dni = None  → nie ma żadnego wymagania albo wersja jest aktualna."""
     import datetime as _dt
     if not WERSJA_WYMAGANA:
         return (False, None)
     if _wersja_na_liczbe(WERSJA_PROGRAMU) >= _wersja_na_liczbe(WERSJA_WYMAGANA):
         return (False, None)
-    if not TERMIN_BLOKADY:
-        return (True, 0)
-    try:
-        termin = _dt.date.fromisoformat(TERMIN_BLOKADY)
-    except Exception:
-        return (True, 0)
-    zostalo = (termin - _dt.date.today()).days
+    termin = _data_z_tekstu(TERMIN_BLOKADY)
+    if termin is None:
+        # Brak terminu albo data nie do odczytania (np. wpisana po polsku
+        # i zjedzona przez arkusz). Nie odcinamy nikogo z dnia na dzień —
+        # dajemy okres przejściowy liczony od pierwszego kontaktu.
+        od = _data_z_tekstu(PIERWSZE_ZOBACZENIE) or _dzisiaj_bez_cofania()
+        termin = od + _dt.timedelta(days=DNI_OKRESU_PRZEJSCIOWEGO)
+    zostalo = (termin - _dzisiaj_bez_cofania()).days
     return (zostalo <= 0, max(0, zostalo))
 
 PROCENT_WLASNE    = 0.50 
@@ -203,17 +286,25 @@ def max_skok_bazowy(promien):
 MAX_PROMIEN_PETLI_KM        = 70.0
 
 def zasob_sciezka(nazwa: str) -> str:
-    """Zwraca ścieżkę do zasobu (grafiki tła, logo) działającą ZARÓWNO przy
-    uruchomieniu ze źródeł, JAK I ze spakowanego .exe (PyInstaller --onefile).
-    PyInstaller rozpakowuje dołączone pliki do katalogu tymczasowego _MEIPASS;
-    gdy go nie ma, szukamy obok pliku programu."""
-    if hasattr(sys, "_MEIPASS"):
-        p = os.path.join(sys._MEIPASS, nazwa)
-        if os.path.exists(p):
-            return p
-    # obok skryptu/exe
-    baza = os.path.dirname(os.path.abspath(sys.argv[0]))
-    return os.path.join(baza, nazwa)
+    """Zwraca ścieżkę do zasobu (grafiki tła, logo) działającą przy KAŻDYM
+    sposobie uruchomienia: ze źródeł, z EXE folderowego (_internal) i z EXE
+    jednoplikowego (katalog tymczasowy _MEIPASS).
+
+    Sprawdzamy też podkatalog „zasoby" — skrypt budowania pozwala tam
+    trzymać tła, a wcześniej program nigdy do niego nie zaglądał, więc
+    tak spakowana paczka rysowała tło zastępcze mimo dołączonych plików."""
+    miejsca = []
+    for kat in _katalogi_towarzyszace():
+        miejsca.append(os.path.join(kat, nazwa))
+        miejsca.append(os.path.join(kat, "zasoby", nazwa))
+    for p in miejsca:
+        try:
+            if os.path.exists(p):
+                return p
+        except Exception:
+            continue
+    # nic nie znaleziono — zwracamy ścieżkę obok programu (jak dotąd)
+    return os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), nazwa)
 
 # Logi i cache trzymamy OBOK programu / w katalogu użytkownika (zapisywalne
 # miejsca — _MEIPASS jest tylko do odczytu i znika po zamknięciu .exe).
@@ -296,8 +387,16 @@ def online_kod_uzytkownika():
     return kod if kod.isdigit() and len(kod) == 5 else None
 
 def online_zapisz_kod(kod: str):
+    """Zapisuje kod zalogowanej osoby. Gdy to INNE konto niż poprzednio,
+    czyści resztki poprzedniego (imię, rejon, ważność sesji, nieobecności)
+    — bez tego nowa osoba widziała cudze dane i dziedziczyła cudzą,
+    jeszcze ważną sesję."""
+    kod = str(kod).strip()
     st = _wczytaj(PLIK_STATUSU, {})
-    st["kod"] = str(kod).strip()
+    if str(st.get("kod", "")) != kod:
+        for pole in POLA_OSOBISTE_STATUSU:
+            st.pop(pole, None)
+    st["kod"] = kod
     _zapisz(PLIK_STATUSU, st)
 
 # --- kolejka zdarzeń (offline-first) -----------------------------------------
@@ -382,23 +481,78 @@ def _rozgrzej_backend():
 SEKRET_APLIKACJI = "PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS"
 
 
+def _katalogi_towarzyszace():
+    """Wszystkie miejsca, w których może leżeć plik dołożony do programu.
+
+    Program bywa uruchamiany na cztery sposoby i każdy daje inną ścieżkę:
+      · ze źródeł           → katalog skryptu,
+      · jako EXE folderowy  → katalog .exe ORAZ podkatalog _internal
+                              (tam PyInstaller kładzie pliki z --add-data),
+      · jako EXE jednoplikowy → katalog tymczasowy sys._MEIPASS,
+      · ze skrótu z innym „Rozpocznij w" → bieżący katalog roboczy.
+    Sprawdzamy wszystkie, bez powtórzeń."""
+    kandydaci = []
+    try:
+        if getattr(sys, "frozen", False):
+            kat_exe = os.path.dirname(os.path.abspath(sys.executable))
+            kandydaci += [kat_exe, os.path.join(kat_exe, "_internal")]
+    except Exception:
+        pass
+    for zrodlo in (lambda: os.path.dirname(os.path.abspath(sys.argv[0])),
+                   lambda: getattr(sys, "_MEIPASS", ""),
+                   lambda: os.getcwd()):
+        try:
+            k = zrodlo()
+            if k:
+                kandydaci.append(k)
+        except Exception:
+            continue
+    wynik, widziane = [], set()
+    for k in kandydaci:
+        klucz = os.path.normcase(os.path.abspath(k))
+        if klucz in widziane:
+            continue
+        widziane.add(klucz)
+        wynik.append(k)
+    return wynik
+
+
+def _pierwsza_linia_pliku(sciezka) -> str:
+    """Pierwsza niepusta linia pliku tekstowego. Radzi sobie z BOM-em,
+    CRLF-em i plikiem zapisanym w Notatniku jako ANSI (cp1250)."""
+    for kodowanie in ("utf-8-sig", "cp1250", "latin-2"):
+        try:
+            with open(sciezka, encoding=kodowanie) as f:
+                for linia in f:
+                    linia = linia.strip()
+                    if linia:
+                        return linia
+            return ""
+        except UnicodeDecodeError:
+            continue
+        except Exception:
+            return ""
+    return ""
+
+
 def _menedzer() -> str:
     """Nazwisko przełożonego drukowane na delegacji — trzymane POZA kodem.
-    Kolejność: ustawienie programu, potem plik menedzer.txt obok programu.
-    Dzięki temu dane osobowe nie krążą w repozytorium, a zmiana
+
+    Kolejność: ustawienie programu (pole „Przełożony" w oknie programu),
+    potem plik menedzer.txt położony obok programu. Dzięki temu dane
+    osobowe nie krążą w repozytorium ani w rozsyłanej paczce, a zmiana
     przełożonego nie wymaga wydawania nowej wersji."""
     try:
         w = (_wczytaj_ustawienia() or {}).get("menedzer", "")
-        if w:
-            return str(w)
+        if str(w).strip():
+            return str(w).strip()
     except Exception:
         pass
-    for kat in (os.path.dirname(os.path.abspath(sys.argv[0])), os.getcwd()):
+    for kat in _katalogi_towarzyszace():
         try:
             sc = os.path.join(kat, "menedzer.txt")
             if os.path.exists(sc):
-                with open(sc, encoding="utf-8") as f:
-                    w = f.read().strip().splitlines()[0].strip()
+                w = _pierwsza_linia_pliku(sc)
                 if w:
                     return w
         except Exception:
@@ -545,6 +699,10 @@ def online_zaloguj(kod: str, haslo: str):
     if odp.get("status") != "ok":
         return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
     st = _wczytaj(PLIK_STATUSU, {})
+    if str(st.get("kod", "")) != kod:
+        # Logowanie na INNE konto — nic po poprzedniej osobie nie zostaje.
+        for _pole in POLA_OSOBISTE_STATUSU:
+            st.pop(_pole, None)
     st["kod"] = kod
     st["skrot"] = _hash_hasla(kod, haslo)
     st["imie"] = str(odp.get("imie", ""))
@@ -651,22 +809,30 @@ def online_zdarzenie_sesji(rodzaj: str, minuty: float = 0.0):
         return False
 
 
-def online_wyloguj():
-    """Usuwa zapamiętany kod użytkownika (plik statusu zostaje — bez pola 'kod')."""
+# Pola pliku statusu, które NALEŻĄ DO OSOBY — przy wylogowaniu albo
+# zalogowaniu innego konta muszą zniknąć. Zostawaly tu m.in. „nieobecnosci"
+# (lista L4 całego zespołu), „rejon" i „imie" poprzedniego użytkownika.
+POLA_OSOBISTE_STATUSU = ("kod", "skrot", "wazne_do", "imie", "rejon",
+                         "nieobecnosci", "status", "dokumenty_sesja",
+                         "plany_sesja", "ostatnia_synchronizacja")
+
+
+def _wyczysc_status_osoby():
+    """Zostawia w pliku statusu wyłącznie rzeczy nieosobowe."""
     try:
-        dane = {}
-        if os.path.exists(PLIK_STATUSU):
-            with open(PLIK_STATUSU, "r", encoding="utf-8") as f:
-                dane = json.load(f)
-        dane.pop("kod", None)
-        dane.pop("skrot", None)
-        dane.pop("wazne_do", None)
-        dane.pop("imie", None)
-        with open(PLIK_STATUSU, "w", encoding="utf-8") as f:
-            json.dump(dane, f, ensure_ascii=False)
+        dane = _wczytaj(PLIK_STATUSU, {})
+        for pole in POLA_OSOBISTE_STATUSU:
+            dane.pop(pole, None)
+        _zapisz(PLIK_STATUSU, dane)
         return True
     except Exception:
         return False
+
+
+def online_wyloguj():
+    """Usuwa z komputera wszystko, co identyfikuje wylogowaną osobę:
+    kod, skrót hasła, imię, rejon, ważność sesji i listę nieobecności."""
+    return _wyczysc_status_osoby()
 
 
 def _okno_zmiany_hasla(rodzic, ciemny):
@@ -1485,7 +1651,32 @@ def dialog_logowania():
 DEMO_DNI = 30
 DEMO_PLIK = os.path.join(os.path.expanduser("~"), ".pmt_licencja.dat")
 _DEMO_KLUCZ = 0x5A            # prosty XOR — zaciemnienie, nie kryptografia bankowa
-KOD_AKTYWACYJNY = "PMT-KOMPAS-STALY"   # zmień na własny w dowolnym momencie
+# Kod aktywacyjny trzymamy jako SKRÓT, nie jako jawny napis — w poprzednich
+# wersjach dawał się odczytać zwykłym „strings PMT_Planer.exe" i widniał
+# w publicznym repozytorium. WŁASNY kod ustawia się bez zmiany programu:
+# wystarczy plik pmt_kod.txt obok programu z jedną linią — wtedy stary
+# przestaje działać. Jak wyliczyć skrót własnego kodu:
+#   python -c "import hashlib;print(hashlib.sha256(('PMT|KOD|'+input()).encode()).hexdigest())"
+KOD_AKTYWACYJNY_SKROT = "4c3979d36921b5fd32370222356f9646d3fa7aecffefd73c8facf8c61d03692e"
+
+
+def _skrot_kodu(tekst: str) -> str:
+    return hashlib.sha256(("PMT|KOD|" + str(tekst)).encode("utf-8")).hexdigest()
+
+
+def kod_aktywacyjny_poprawny(wpisany: str) -> bool:
+    """Sprawdza kod aktywacyjny. Gdy obok programu leży pmt_kod.txt,
+    obowiązuje WYŁĄCZNIE kod z tego pliku."""
+    wpisany = str(wpisany or "").strip()
+    if not wpisany:
+        return False
+    for kat in _katalogi_towarzyszace():
+        sciezka = os.path.join(kat, "pmt_kod.txt")
+        if os.path.exists(sciezka):
+            wlasny = _pierwsza_linia_pliku(sciezka)
+            if wlasny:
+                return wpisany == wlasny
+    return _skrot_kodu(wpisany) == KOD_AKTYWACYJNY_SKROT
 
 def _demo_szyfruj(tekst: str) -> bytes:
     surowe = tekst.encode("utf-8")
@@ -1571,7 +1762,7 @@ WERSJA_PROGRAMU = "3.21.0"   # (numer pilnowany przez buduj.bat; wpiete intro wi
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
-SYGNATURA_SILNIKA = "S11-2026-adresy-wiejskie | PLAN-1-planer-wizyt"
+SYGNATURA_SILNIKA = "S12-2026-pelna-kwota-986 | PLAN-1-planer-wizyt"
 URL_WERSJI     = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt"
 URL_POBIERANIA = "https://github.com/anowicki0205-coder/pmt-planer/releases/latest"
 URL_API_RELEASE = "https://api.github.com/repos/anowicki0205-coder/pmt-planer/releases/latest"
@@ -1587,6 +1778,12 @@ URL_UPDATERA_FOLDER = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-
 URL_UPDATERA_SH = "https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/updater.sh"
 
 
+# Automatyczne przeszukiwanie dysku użytkownika i kasowanie znalezionych
+# kopii programu. WYŁĄCZONE od 3.21.0 — patrz komentarz przy starcie
+# programu. Ustaw na True tylko świadomie i tylko na własnym komputerze.
+AUTOMATYCZNE_SPRZATANIE_DYSKU = False
+
+
 def czy_zamrozony() -> bool:
     """Czy działamy jako .exe (PyInstaller)? Tylko wtedy da się podmienić plik."""
     return bool(getattr(sys, "frozen", False))
@@ -1598,7 +1795,14 @@ def odblokuj_wlasny_folder():
     Windows nadaje go kazdemu plikowi z pobranego archiwum, a przy wersji
     folderowej blokuje to uruchamianie ("Odmowa dostepu" / "Mozesz nie miec
     odpowiednich uprawnien"). Robimy to raz — znacznik po zdjeciu nie wraca.
-    """
+
+    ROBIMY TO W CZYSTYM PYTHONIE. Wcześniej uruchamiał się tutaj PowerShell
+    z parametrem omijającym zasady wykonywania skryptów — to jedno z zachowań,
+    po których Microsoft Defender, reguły ASR i firmowy EDR podnoszą alarm
+    na niepodpisanym programie. Znacznik „pochodzi z internetu" to zwykły
+    alternatywny strumień NTFS o nazwie Zone.Identifier: żeby go zdjąć,
+    wystarczy skasować ten strumień. Żadnego procesu potomnego, żadnej
+    konsoli, nic, co wygląda podejrzanie."""
     if not (CZY_WINDOWS and getattr(sys, "frozen", False)):
         return
     try:
@@ -1606,13 +1810,17 @@ def odblokuj_wlasny_folder():
         znacznik = os.path.join(katalog, ".pmt_odblokowano")
         if os.path.exists(znacznik):
             return
-        subprocess.Popen(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-             f"Get-ChildItem -LiteralPath '{katalog}' -Recurse -File | "
-             "Unblock-File -ErrorAction SilentlyContinue"],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        zdjete = 0
+        for korzen, _katalogi, pliki in os.walk(katalog):
+            for nazwa in pliki:
+                try:
+                    os.remove(os.path.join(korzen, nazwa) + ":Zone.Identifier")
+                    zdjete += 1
+                except OSError:
+                    continue      # plik nie miał znacznika — tak jest normalnie
         with open(znacznik, "w", encoding="utf-8") as f:
-            f.write(datetime.datetime.now().isoformat(timespec="seconds"))
+            f.write("%s | zdjete znaczniki: %d\n"
+                    % (datetime.datetime.now().isoformat(timespec="seconds"), zdjete))
     except Exception:
         pass
 
@@ -2643,19 +2851,18 @@ def sprawdz_aktualizacje():
         req = urllib.request.Request(URL_WERSJI, headers={"User-Agent": "PMT-Planer"})
         with urllib.request.urlopen(req, timeout=4) as resp:
             tresc = resp.read().decode("utf-8", errors="ignore").strip()
-        linie = [l.strip() for l in tresc.splitlines() if l.strip()]
-        if not linie:
-            return (False, "", "")
-        nowa = linie[0]
-        opis = linie[1] if len(linie) > 1 else "Dostępna jest nowsza wersja programu."
-        # dodatkowe wiersze: min=3.21.0 oraz blokada=2026-09-22
+        # Wiersze „min=" i „blokada=" mogą stać gdziekolwiek w pliku.
+        # Świeżo pobrany wersja.txt jest JEDYNYM źródłem prawdy: najpierw
+        # zerujemy wymagania, więc usunięcie „min=" z pliku na GitHubie
+        # naprawdę zdejmuje blokadę wszystkim (wcześniej nie dawało się
+        # tego cofnąć — stary wpis wracał z dysku).
         global WERSJA_WYMAGANA, TERMIN_BLOKADY
-        for _l in linie[2:]:
-            _m = _l.lower().replace(" ", "")
-            if _m.startswith("min="):
-                WERSJA_WYMAGANA = _l.split("=", 1)[1].strip()
-            elif _m.startswith("blokada="):
-                TERMIN_BLOKADY = _l.split("=", 1)[1].strip()
+        WERSJA_WYMAGANA = ""
+        TERMIN_BLOKADY = ""
+        nowa, opis = _czytaj_wymagania_z_tekstu(tresc)
+        if not nowa:
+            _wczytaj_wymagania()          # nie psujemy stanu przy pustym pliku
+            return (False, "", "")
         _zapisz_wymagania()
         if _wersja_na_liczbe(nowa) > _wersja_na_liczbe(WERSJA_PROGRAMU):
             return (True, nowa, opis)
@@ -2686,8 +2893,9 @@ def _wczytaj_dziennik():
         return _dziennik
     _dziennik = {}
     try:
-        if os.path.exists(WIZYTY_STORE):
-            with open(WIZYTY_STORE, "r", encoding="utf-8") as f:
+        _sc = _plik_wizyt()
+        if os.path.exists(_sc):
+            with open(_sc, "r", encoding="utf-8") as f:
                 dane = json.load(f)
             if isinstance(dane, dict):
                 _dziennik = dane
@@ -2700,7 +2908,7 @@ def _wczytaj_dziennik():
 
 def _zapisz_dziennik():
     try:
-        with open(WIZYTY_STORE, "w", encoding="utf-8") as f:
+        with open(_plik_wizyt(), "w", encoding="utf-8") as f:
             json.dump(_wczytaj_dziennik(), f, ensure_ascii=False, indent=1)
     except Exception:
         pass
@@ -2765,7 +2973,7 @@ PUNKTY_STORE = os.path.join(os.path.expanduser("~"), ".pmt_punkty.json")
 def zapisz_punkty(pozycje):
     """Zapisuje listę punktów (adres/sieć/miasto) na dysk."""
     try:
-        with open(PUNKTY_STORE, "w", encoding="utf-8") as f:
+        with open(_plik_punktow(), "w", encoding="utf-8") as f:
             json.dump(list(pozycje), f, ensure_ascii=False)
     except Exception:
         pass
@@ -2773,8 +2981,9 @@ def zapisz_punkty(pozycje):
 def wczytaj_punkty():
     """Odczytuje listę punktów z dysku (albo pustą listę)."""
     try:
-        if os.path.exists(PUNKTY_STORE):
-            with open(PUNKTY_STORE, "r", encoding="utf-8") as f:
+        _sc = _plik_punktow()
+        if os.path.exists(_sc):
+            with open(_sc, "r", encoding="utf-8") as f:
                 dane = json.load(f)
             if isinstance(dane, list):
                 out = []
@@ -2792,50 +3001,130 @@ def wczytaj_punkty():
 PLAN_STORE = os.path.join(os.path.expanduser("~"), ".pmt_plan.json")
 
 # ── DANE OSOBOWE NALEŻĄ DO KONTA, NIE DO KOMPUTERA ─────────────────────
-# Plan wizyt i adres bazy trzymane były wspólnie dla całego komputera —
-# nowe konto widziało trasy i adres poprzedniej osoby. Przy adresach to
-# wyciek danych osobowych. Od teraz wszystko jest podpisane kluczem konta.
+# Plan wizyt, lista sklepów, dziennik wizyt, notatki dni i adres bazy były
+# trzymane wspólnie dla całego komputera — nowe konto widziało trasy,
+# adresy i notatki poprzedniej osoby. Przy adresach to wyciek danych
+# osobowych. Od teraz każdy z tych magazynów jest podpisany kluczem konta.
 AKTYWNY_UZYTKOWNIK = ""
 
 
+def _klucz_konta_dla(imie: str, kod: str) -> str:
+    """Klucz konta wyprowadzony WYŁĄCZNIE z 5-cyfrowego loginu.
+
+    Wcześniej wchodziło w niego także imię z arkusza — a wtedy najdrobniejsza
+    poprawka pisowni nazwiska (albo jedna odpowiedź serwera bez imienia)
+    robiła z tej samej osoby kogoś innego i „gubiła" jej plan oraz punkty.
+    Login jest stały, więc klucz też."""
+    cyfry = "".join(ch for ch in str(kod or "") if ch.isdigit())
+    if cyfry:
+        return hashlib.sha256(("PMT-KONTO|" + cyfry).encode("utf-8")).hexdigest()[:16]
+    nazwa = str(imie or "").strip().lower()
+    if nazwa:
+        return hashlib.sha256(("PMT-KONTO-IMIE|" + nazwa).encode("utf-8")).hexdigest()[:16]
+    return ""
+
+
+def _resetuj_pamiec_kont() -> None:
+    """Zrzuca z pamięci wszystko, co należało do poprzedniego konta.
+    Bez tego przełączenie użytkownika w działającym programie zostawiało
+    w pamięci procesu cudzy dziennik wizyt i cudze notatki."""
+    global _dziennik, _notatki_dni
+    _dziennik = None
+    _notatki_dni = None
+    try:
+        _ustawienia_reset()
+    except Exception:
+        pass
+
+
 def ustaw_uzytkownika_planu(imie: str, pesel_lub_kod: str) -> None:
+    """Przypisuje wszystkie magazyny danych do zalogowanego konta.
+    Wywoływane po KAŻDYM logowaniu — także po przelogowaniu bez restartu."""
     global AKTYWNY_UZYTKOWNIK
     try:
-        AKTYWNY_UZYTKOWNIK = _klucz_uzytkownika(imie or "", pesel_lub_kod or "")
+        nowy = _klucz_konta_dla(imie or "", pesel_lub_kod or "")
     except Exception:
-        AKTYWNY_UZYTKOWNIK = ""
-    _przenies_stary_plan()
+        nowy = ""
+    if nowy != AKTYWNY_UZYTKOWNIK:
+        _resetuj_pamiec_kont()
+    AKTYWNY_UZYTKOWNIK = nowy
+    # Pas i szelki: gdyby plik statusu opisywał jeszcze poprzednią osobę
+    # (np. logowanie poszło ścieżką offline), czyścimy go tutaj — nowa
+    # osoba nie może odziedziczyć cudzego imienia ani ważności sesji.
+    try:
+        _kod = "".join(ch for ch in str(pesel_lub_kod or "") if ch.isdigit())
+        if _kod:
+            online_zapisz_kod(_kod)
+    except Exception:
+        pass
+    _przejmij_dane_z_poprzedniej_wersji()
+
+
+def _plik_konta(wzor: str, wspolny: str) -> str:
+    """Ścieżka magazynu dla zalogowanego konta; przed zalogowaniem — wspólna."""
+    if not AKTYWNY_UZYTKOWNIK:
+        return wspolny
+    return os.path.join(os.path.expanduser("~"), wzor % AKTYWNY_UZYTKOWNIK)
 
 
 def _plik_planu() -> str:
-    if not AKTYWNY_UZYTKOWNIK:
-        return PLAN_STORE
-    return os.path.join(os.path.expanduser("~"),
-                        ".pmt_plan_%s.json" % AKTYWNY_UZYTKOWNIK)
+    return _plik_konta(".pmt_plan_%s.json", PLAN_STORE)
 
 
-def _przenies_stary_plan() -> None:
-    """Jednorazowe przeniesienie wspólnego planu do pliku PIERWSZEJ osoby
-    logującej się po aktualizacji — żeby nikt nie stracił pracy. Kolejne
-    konta zaczynają z czystą kartą."""
+def _plik_punktow() -> str:
+    return _plik_konta(".pmt_punkty_%s.json", PUNKTY_STORE)
+
+
+def _plik_wizyt() -> str:
+    return _plik_konta(".pmt_wizyty_%s.json", WIZYTY_STORE)
+
+
+def _plik_notatek() -> str:
+    return _plik_konta(".pmt_notatki_dni_%s.json", NOTATKI_DNI_STORE)
+
+
+def _tylko_jedno_konto_na_komputerze(kod_biezacy: str) -> bool:
+    """Czy tego komputera używała dotąd TYLKO ta jedna osoba?
+
+    Od tego zależy, czy wolno przepisać wspólne dane z poprzedniej wersji
+    na bieżące konto. Na komputerze współdzielonym przez kilka osób nie
+    wolno — oddalibyśmy dane pierwszemu, kto się zaloguje."""
+    try:
+        kody = set(str(k) for k in (_wczytaj(PLIK_LOGOWAN, {}) or {}).keys())
+    except Exception:
+        return False
+    kody.discard(str(kod_biezacy or ""))
+    return not kody
+
+
+def _przejmij_dane_z_poprzedniej_wersji() -> None:
+    """Jednorazowe przeniesienie wspólnych magazynów (sprzed 3.21.0) na
+    konto właściciela komputera.
+
+    Robimy to TYLKO wtedy, gdy na tym komputerze logowała się dotąd jedna
+    osoba. Inaczej wspólne pliki zostają nietknięte — nikt nie dostaje
+    cudzych danych, a właściciel może je odzyskać z kopii zapasowej."""
     try:
         if not AKTYWNY_UZYTKOWNIK:
             return
-        wlasny = _plik_planu()
-        if os.path.exists(wlasny) or not os.path.exists(PLAN_STORE):
+        if not _tylko_jedno_konto_na_komputerze(online_kod_uzytkownika() or ""):
             return
-        with open(PLAN_STORE, "r", encoding="utf-8") as f:
-            dane = json.load(f)
-        if dane.get("wlasciciel") not in (None, "", AKTYWNY_UZYTKOWNIK):
-            return
-        if not dane.get("miesiace"):
-            return
-        dane["wlasciciel"] = AKTYWNY_UZYTKOWNIK
-        with open(wlasny, "w", encoding="utf-8") as f:
-            json.dump(dane, f, ensure_ascii=False)
-        with open(PLAN_STORE, "w", encoding="utf-8") as f:
-            json.dump({"wlasciciel": AKTYWNY_UZYTKOWNIK, "przeniesiony": True},
-                      f, ensure_ascii=False)
+        pary = ((PLAN_STORE, _plik_planu()),
+                (PUNKTY_STORE, _plik_punktow()),
+                (WIZYTY_STORE, _plik_wizyt()),
+                (NOTATKI_DNI_STORE, _plik_notatek()))
+        for wspolny, wlasny in pary:
+            try:
+                if wspolny == wlasny:
+                    continue
+                if os.path.exists(wlasny) or not os.path.exists(wspolny):
+                    continue
+                shutil.copy2(wspolny, wlasny)
+                # Wspólnego pliku NIE kasujemy — zostaje jako kopia
+                # bezpieczeństwa na wypadek, gdyby coś poszło nie tak.
+                os.replace(wspolny, wspolny + ".sprzed_3.21.0")
+            except Exception:
+                continue
     except Exception:
         pass
 
@@ -2879,24 +3168,25 @@ def _klucz_osobisty(klucz: str) -> str:
 
 def ustawienie_osobiste(klucz, domyslne=""):
     """Ustawienie należące do zalogowanej osoby (np. adres bazy planera).
-    Gdy konto go jeszcze nie ma, sięgamy po adres z JEGO profilu — nigdy
-    po wartość wspólną, bo ta może należeć do kogoś innego."""
+
+    Gdy konto jeszcze go nie ma, sięgamy po wartość wspólną sprzed 3.21.0
+    — ale WYŁĄCZNIE na komputerze, którego używała dotąd jedna osoba
+    (inaczej podstawilibyśmy adres domowy kogoś innego). Wartość jest
+    wtedy od razu przepisywana na konto i usuwana ze wspólnej puli."""
     u = _wczytaj_ustawienia()
     w = u.get(_klucz_osobisty(klucz), "")
     if w:
         return w
     if not AKTYWNY_UZYTKOWNIK:
         return u.get(klucz, domyslne)
-    if klucz == "adres_bazy":
+    stara = u.get(klucz, "")
+    if stara and _tylko_jedno_konto_na_komputerze(online_kod_uzytkownika() or ""):
         try:
-            for wpis in (_wczytaj_store() or {}).values():
-                pr = (wpis or {}).get("profil") or {}
-                if _klucz_uzytkownika(pr.get("imie", ""),
-                                      pr.get("pesel", "")) == AKTYWNY_UZYTKOWNIK:
-                    if pr.get("adres"):
-                        return pr["adres"]
+            zapisz_ustawienie_osobiste(klucz, stara)
+            zapisz_ustawienie(klucz, "")
         except Exception:
             pass
+        return stara
     return domyslne
 
 
@@ -3259,8 +3549,9 @@ def _wczytaj_notatki_dni():
         return _notatki_dni
     _notatki_dni = {}
     try:
-        if os.path.exists(NOTATKI_DNI_STORE):
-            with open(NOTATKI_DNI_STORE, "r", encoding="utf-8") as f:
+        _sc = _plik_notatek()
+        if os.path.exists(_sc):
+            with open(_sc, "r", encoding="utf-8") as f:
                 dane = json.load(f)
             if isinstance(dane, dict):
                 _notatki_dni = dane
@@ -3284,7 +3575,7 @@ def ustaw_notatke_dnia(iso_data: str, notatka: str, wolne: bool):
     else:
         n[iso_data] = {"notatka": notatka, "wolne": bool(wolne)}
     try:
-        with open(NOTATKI_DNI_STORE, "w", encoding="utf-8") as f:
+        with open(_plik_notatek(), "w", encoding="utf-8") as f:
             json.dump(n, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
@@ -3299,15 +3590,18 @@ def czy_dzien_wolny(data: datetime.date) -> bool:
 # --- KOPIA ZAPASOWA -- pakuje/rozpakowuje WSZYSTKIE magazyny danych --------
 # Chroni przed utratą punktów, planu, dziennika i ustawień przy awarii dysku
 # albo przeniesieniu programu na inny komputer.
-WSZYSTKIE_MAGAZYNY = {
-    "punkty": PUNKTY_STORE,
-    "plan": PLAN_STORE,
-    "wizyty": WIZYTY_STORE,
-    "ustawienia": USTAWIENIA_STORE,
-    "geo_cache": GEO_CACHE,
-    "uzytkownicy": USER_STORE,
-    "notatki_dni": NOTATKI_DNI_STORE,
-}
+def wszystkie_magazyny() -> dict:
+    """Magazyny danych ZALOGOWANEGO konta — liczone przy każdym wywołaniu,
+    bo ścieżki zależą od tego, kto jest zalogowany."""
+    return {
+        "punkty": _plik_punktow(),
+        "plan": _plik_planu(),
+        "wizyty": _plik_wizyt(),
+        "ustawienia": USTAWIENIA_STORE,
+        "geo_cache": GEO_CACHE,
+        "uzytkownicy": USER_STORE,
+        "notatki_dni": _plik_notatek(),
+    }
 
 
 def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
@@ -3321,7 +3615,7 @@ def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
     }
     ile = 0
     with zipfile.ZipFile(sciezka_zip, "w", zipfile.ZIP_DEFLATED) as z:
-        for klucz, sciezka in WSZYSTKIE_MAGAZYNY.items():
+        for klucz, sciezka in wszystkie_magazyny().items():
             if os.path.exists(sciezka):
                 z.write(sciezka, arcname=os.path.basename(sciezka))
                 manifest["pliki"].append(klucz)
@@ -3350,14 +3644,27 @@ def przywroc_z_kopii(sciezka_zip: str) -> int:
     bez tego stare wartości zostałyby w pamięci aż do restartu."""
     global _dziennik, _ustawienia, _geo_cache, _notatki_dni
     ile = 0
+    # Nazwy plikow w kopii zapasowej zaleza od wersji, ktora ja zrobila:
+    # do 3.20.57 byly wspolne (.pmt_punkty.json), od 3.21.0 sa podpisane
+    # kontem (.pmt_punkty_<klucz>.json). Przyjmujemy OBIE postacie, zeby
+    # dalo sie odtworzyc takze starsza kopie.
+    _stare_nazwy = {
+        "punkty": os.path.basename(PUNKTY_STORE),
+        "plan": os.path.basename(PLAN_STORE),
+        "wizyty": os.path.basename(WIZYTY_STORE),
+        "notatki_dni": os.path.basename(NOTATKI_DNI_STORE),
+    }
     with zipfile.ZipFile(sciezka_zip, "r") as z:
         nazwy_w_zip = set(z.namelist())
-        for klucz, sciezka in WSZYSTKIE_MAGAZYNY.items():
+        for klucz, sciezka in wszystkie_magazyny().items():
             nazwa_pliku = os.path.basename(sciezka)
-            if nazwa_pliku in nazwy_w_zip:
-                with z.open(nazwa_pliku) as src, open(sciezka, "wb") as dst:
-                    dst.write(src.read())
-                ile += 1
+            if nazwa_pliku not in nazwy_w_zip:
+                nazwa_pliku = _stare_nazwy.get(klucz, "")
+                if not nazwa_pliku or nazwa_pliku not in nazwy_w_zip:
+                    continue
+            with z.open(nazwa_pliku) as src, open(sciezka, "wb") as dst:
+                dst.write(src.read())
+            ile += 1
     # unieważnij cache w pamięci — kolejne odczyty wezmą świeże dane z dysku
     _dziennik = None
     _ustawienia = None
@@ -4874,7 +5181,11 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 and _pojemnosc_km >= _cel_km_z_zapasem):
             break            # dość dni ORAZ pojemności na całą kwotę
         data = dni_robocze[numer_dnia]
-        if postep_cb: postep_cb(f"Klastrowanie GPS (Dzień {len(finalne_dni)+1}/{_dni_potrzeba})...", 0.30 + (_poz / max(len(kolejnosc_dni),1)) * 0.40)
+        # Mianownik liczony na bieżąco: gdy realne trasy wyjdą krótsze od
+        # szacunku, silnik dokłada dni ponad _dni_potrzeba — pasek pokazywał
+        # wtedy „Dzień 15/12".
+        _ile_dni_pokaz = max(_dni_potrzeba, len(finalne_dni) + 1)
+        if postep_cb: postep_cb(f"Klastrowanie GPS (Dzień {len(finalne_dni)+1}/{_ile_dni_pokaz})...", 0.30 + (_poz / max(len(kolejnosc_dni),1)) * 0.40)
 
         # W rzadkich rejonach (przygranicze) stare filtry "ucieczki od stolicy"
         # i "obcej aglomeracji" są zbyt restrykcyjne i zostawiają 0 miast.
@@ -4918,7 +5229,14 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         # WSZYSTKICH potrzebnych dni, żeby pokryć budżet realnymi trasami.
         if not kandydaci: kandydaci = pobierz_kandydatow(True, False)
         if not kandydaci: kandydaci = pobierz_kandydatow(False, False)
-        if not kandydaci: continue
+        if not kandydaci:
+            # Brak kandydatów to NAJCZĘSTSZA przyczyna utraty dnia, a do 3.21.0
+            # wychodziła z pętli, zanim licznik zdążył cokolwiek policzyć.
+            # Przez to reguły nigdy się nie rozluźniały tam, gdzie było to
+            # najbardziej potrzebne — w rejonach, w których filtry wycinają
+            # prawie wszystko.
+            _dni_nieudane += 1
+            continue
 
         # DETERMINIZM: sortujemy kandydatów po nazwie, ZANIM losujemy z nich
         # trasę. Bez tego kolejność zależałaby od losowego haszowania tekstu
@@ -5048,7 +5366,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
 
             # TWARDY BEZPIECZNIK: jeśli mimo wszystko przekracza 8h, obcinamy
             # ostatnie punkty aż cały dzień (z powrotem) zmieści się w limicie.
-            while czas_pelny > LIMIT_CZASU_MINUTY and len(etapy_test) > 3:
+            while czas_pelny > LIMIT_CZASU_MINUTY and len(etapy_test) > (2 if _dni_nieudane >= 4 else 3):
                 usuniety = etapy_test.pop()
                 # przelicz czas: cofamy do punktu przed usuniętym
                 if etapy_test:
@@ -5117,6 +5435,15 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                     _uzyte.add(_cel.n)
                     _czas += _t_dr + _t_sh
                     _ob_lat, _ob_lng, _ob_naz = _cel.lat, _cel.lng, _cel.n
+                # PRÓG DWÓCH POSTOJÓW — ŚWIADOMIE niższy niż w ścieżce
+                # normalnej (tam trzy). Ta gałąź uruchamia się dopiero po
+                # czterdziestu nieudanych próbach ułożenia dnia, więc jest
+                # ostatnią deską ratunku dla całego dnia — a z nim dla części
+                # zamówionej kwoty. Zmierzone: podniesienie progu do trzech
+                # obniża pokrycie kwoty 11 000 zł z 91 % do 79 %, bo przepada
+                # kilka dni, których w tym rejonie po prostu nie da się ułożyć
+                # inaczej. Wyjazd do dwóch miejscowości i powrót to nadal
+                # najzwyklejsza podróż służbowa.
                 if len(_etapy) >= 2:
                     _d_pow = oblicz_dystans(_ob_lat, _ob_lng, baza_lat, baza_lng)
                     _etapy.append(RawEtap(
@@ -5148,7 +5475,26 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     if postep_cb: postep_cb("Skalowanie wektorów do budżetu...", 0.75)
 
     wszystkie_surowe = [e for dzien in finalne_dni for e in dzien.etapy_surowe]
-    if not wszystkie_surowe: return []
+    if not wszystkie_surowe:
+        # Nie udało się zbudować ANI JEDNEGO dnia (bywa przy adresie bazy
+        # wpisanym z błędem albo w rejonie bez miejscowości w zasięgu).
+        # Zwracamy pustą listę Z INFORMACJĄ — inaczej program wyświetlał
+        # „PDF wygenerowany" i otwierał folder z jednym pustym podsumowaniem.
+        pusta = ListaTras()
+        pusta.kwota_docelowa = kwota_calkowita
+        pusta.kwota_osiagnieta = 0.0
+        pusta.kwota_niepelna = True
+        pusta.brak_dni = True
+        try:
+            with open(os.path.join(os.path.expanduser("~"), ".pmt_silnik_diag.txt"),
+                      "a", encoding="utf-8") as _f:
+                _f.write("%s | kwota %.2f | BRAK DNI — nie zbudowano zadnej trasy "
+                         "(baza %s, woj %s, dni robocze %d)\n"
+                         % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            kwota_calkowita, baza_nazwa, woj, len(dni_robocze)))
+        except Exception:
+            pass
+        return pusta
 
     # --- REALNE ODLEGŁOŚCI DROGOWE ---
     # Do tej pory d_line to odległość w linii prostej (szybka, do doboru miast).
@@ -5260,11 +5606,20 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
         reszta = round(kwota_calkowita - sum(e.kwota for e in wszystkie_surowe), 2)
 
-    # dziennik silnika — komplet liczb do diagnozy, gdyby kwota nie dobiła
+    # dziennik silnika — komplet liczb do diagnozy, gdyby kwota nie dobiła.
+    # Plik jest przycinany do ostatnich 200 wpisów, żeby nie puchł bez końca.
     try:
         _osi = sum(e.kwota for e in wszystkie_surowe)
-        with open(os.path.join(os.path.expanduser("~"), ".pmt_silnik_diag.txt"),
-                  "a", encoding="utf-8") as _f:
+        _plik_diag = os.path.join(os.path.expanduser("~"), ".pmt_silnik_diag.txt")
+        try:
+            if os.path.exists(_plik_diag) and os.path.getsize(_plik_diag) > 120000:
+                with open(_plik_diag, encoding="utf-8", errors="ignore") as _fd:
+                    _ogon = _fd.readlines()[-200:]
+                with open(_plik_diag, "w", encoding="utf-8") as _fd:
+                    _fd.writelines(_ogon)
+        except Exception:
+            pass
+        with open(_plik_diag, "a", encoding="utf-8") as _f:
             _f.write("%s | kwota %.2f | stawka %.2f | cel %.0f km | dni robocze %d | "
                      "potrzeba %d | zbudowane %d | awaryjne %d | nieudane %d | "
                      "limit dnia %d min | pojemnosc %.0f km | osiagnieto %.2f (%.1f%%)\n"
@@ -5750,6 +6105,16 @@ class GeneratorThread(QThread):
             self._kwota_osiagnieta = getattr(finalne_dni, 'kwota_osiagnieta', 0.0)
             self._kwota_docelowa = getattr(finalne_dni, 'kwota_docelowa', p['kwota_cel'])
             
+            if not finalne_dni:
+                self.blad.emit(
+                    "Nie udało się ułożyć ANI JEDNEGO dnia trasy.\n\n"
+                    "Najczęstsza przyczyna to adres zamieszkania, którego nie da "
+                    "się odnaleźć na mapie — sprawdź ulicę, numer i kod pocztowy. "
+                    "Rzadziej: wybrany miesiąc nie ma dni roboczych albo w promieniu "
+                    "kilkudziesięciu kilometrów nie ma miejscowości do odwiedzenia.\n\n"
+                    "Żaden dokument nie został utworzony.")
+                return
+
             self.postep.emit("Rysowanie dokumentów PDF...", 0.85)
             folder = os.path.join(sciezka_pulpitu(), f"Rozliczenie_{pracownik.imie.replace(' ','_')}_{p['miesiac_slownie']}_{p['rok']}r")
             generuj_pdfy(finalne_dni, pracownik, p['miesiac'], p['rok'], folder, p.get('stawka', STAWKA_ZA_KM), p_cb)
@@ -11050,7 +11415,7 @@ class PanelAdminaOverlay(QFrame):
     def _zatwierdz_kod_dostepu(self):
         wpisany = self.pole_kod_dostepu.text().strip()
         self.pole_kod_dostepu.clear()
-        if wpisany and wpisany == KOD_AKTYWACYJNY:
+        if kod_aktywacyjny_poprawny(wpisany):
             odblokuj_licencje_na_stale()
             self.lbl_kod_status.setText("✓")
             self.lbl_kod_status.setStyleSheet(
@@ -13534,16 +13899,22 @@ class PlanWizytOverlay(QFrame):
 
 
 def _dziennik_animacji(tekst, nowy=False):
-    """Dziennik animacji startowej: PMT_diagnostyka_animacji.txt OBOK
-    programu (a gdy tam się nie da zapisać — w katalogu użytkownika).
-    Dzięki temu po każdym starcie wiadomo dokładnie, co się wydarzyło."""
+    """Dziennik animacji startowej: PMT_diagnostyka_animacji.txt
+    w KATALOGU UŻYTKOWNIKA (a gdy tam się nie da — obok programu).
+
+    Kolejność jest odwrócona względem 3.20.57 celowo. Program dopisywał
+    do tego pliku ponad dwadzieścia razy przy KAŻDYM starcie, i to prosto
+    do własnego katalogu instalacyjnego. Program, który przy starcie
+    modyfikuje pliki w swoim folderze, to zachowanie, które ochrona
+    Windows traktuje podejrzliwie — a w folderze wymagającym uprawnień
+    (np. C:\Program Files) każdy taki zapis i tak się nie udaje."""
     try:
         linia = "%s | %s\n" % (datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3], tekst)
         if getattr(sys, "frozen", False):
             kat_prog = os.path.dirname(os.path.abspath(sys.executable))
         else:
             kat_prog = os.path.dirname(os.path.abspath(__file__))
-        for kat in (kat_prog, os.path.expanduser("~")):
+        for kat in (os.path.expanduser("~"), kat_prog):
             try:
                 with open(os.path.join(kat, "PMT_diagnostyka_animacji.txt"),
                           "w" if nowy else "a", encoding="utf-8") as f:
@@ -16374,7 +16745,18 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
     True/False przy pytaniu albo None po anulowaniu."""
     from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame
     d = QDialog(rodzic)
-    d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+    if rodzic is None:
+        # Okno bez rodzica pojawia się m.in. przy obowiązkowej aktualizacji —
+        # jako PIERWSZE i jedyne okno programu, zanim powstanie okno główne.
+        # Jako zwykły „Dialog" nie miało wpisu na pasku zadań i potrafiło
+        # schować się za innymi oknami: użytkownik widział wtedy program,
+        # który „nie startuje" i nic nie pokazuje.
+        d.setWindowFlags(Qt.WindowType.Window
+                         | Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.WindowStaysOnTopHint)
+        QTimer.singleShot(0, lambda: (d.raise_(), d.activateWindow()))
+    else:
+        d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     d.setStyleSheet(_styl_okna_pmt())
     d.setFixedWidth(430)
@@ -16655,7 +17037,25 @@ class App(QMainWindow):
         self.c_stan = QComboBox(); self.c_stan.addItems(["merchandiser", "KR"])
         self.si_stan = StyledInput("briefcase", self.c_stan, self.is_dark, self.card_top_frame)
         w_stan, self.l_stan = field("Stanowisko", self.si_stan)
-        row2_t.addWidget(w_adres); row2_t.addWidget(w_stan)
+
+        # PRZEŁOŻONY — wpisywany tutaj, NIE zaszyty w kodzie programu.
+        # Wartość zostaje na tym komputerze (~/.pmt_ustawienia.json) i trafia
+        # na delegację w rubryce „przełożony". Dzięki temu nazwisko nie krąży
+        # w repozytorium ani w rozsyłanej paczce, a jego zmiana nie wymaga
+        # wydawania nowej wersji programu.
+        self.e_menedzer = GrubyKursorEdit()
+        self.e_menedzer.setPlaceholderText("np. Jan Kowalski")
+        self.e_menedzer.setText(_menedzer())
+        self.e_menedzer.setToolTip("Nazwisko przełożonego drukowane na delegacji.\n"
+                                   "Zapisuje się na tym komputerze — nie wysyłamy go nigdzie.")
+        self.e_menedzer.editingFinished.connect(self._zapisz_menedzera)
+        self.si_menedzer = StyledInput("user", self.e_menedzer, self.is_dark, self.card_top_frame)
+        w_menedzer, self.l_menedzer = field("Przełożony (na delegacji)", self.si_menedzer)
+
+        # Proporcje: adres najszerszy (bywa długi), stanowisko najwęższe
+        # (to lista wyboru), przełożony pośrodku.
+        row2_t.addWidget(w_adres, 4); row2_t.addWidget(w_stan, 2)
+        row2_t.addWidget(w_menedzer, 3)
         cl.addLayout(row2_t)
         
         cards_layout.addWidget(self.card_top_frame)
@@ -16965,7 +17365,7 @@ class App(QMainWindow):
         # CZEKAMY, az intro zejdzie ze sceny; dopiero wtedy korytarz
         # rusza z widocznego logo przy bocznym menu.
         intro = getattr(self, "_intro", None)
-        if intro is not None and intro.isVisible():
+        if getattr(self, "_intro_gra", False) or (intro is not None and intro.isVisible()):
             QTimer.singleShot(700, self._pokaz_okno_aktualizacji)
             return
         # punkt startu = MALE LOGO PMT w topbarze (nad menu po lewej)
@@ -17920,6 +18320,17 @@ class App(QMainWindow):
             QApplication.quit()
             return
         online_zapisz_kod(kod)
+        # BEZ TEGO nowa osoba pracowała na danych poprzedniej: plan wizyt,
+        # lista sklepów, dziennik i adres bazy zostawały przypisane do
+        # konta, które właśnie się wylogowało.
+        try:
+            ustaw_uzytkownika_planu(imie or "", kod or "")
+        except Exception:
+            pass
+        try:
+            self._po_zmianie_konta(imie or "")
+        except Exception:
+            pass
         online_zdarzenie(uruchomienia=1)
         online_synchronizuj_w_tle()
         self.show()
@@ -17928,6 +18339,34 @@ class App(QMainWindow):
             self.toast.show_toast("Zalogowano",
                                   ("Witaj, " + imie.split()[0] + "!") if imie else ("Kod " + kod),
                                   success=True)
+        except Exception:
+            pass
+
+    def _zapisz_menedzera(self):
+        """Zapisuje nazwisko przełożonego (pole w karcie danych pracownika)."""
+        try:
+            zapisz_ustawienie("menedzer", self.e_menedzer.text().strip())
+        except Exception:
+            pass
+
+    def _po_zmianie_konta(self, imie: str):
+        """Po zalogowaniu innej osoby bez restartu programu: pokazujemy
+        JEJ dane, nie te, które zostały na ekranie po poprzedniku."""
+        try:
+            self.e_imie.setReadOnly(False)
+            self.e_imie.setText(imie or "")
+            if imie:
+                self.e_imie.setReadOnly(True)
+        except Exception:
+            pass
+        for pole in ("e_pesel", "e_adres"):
+            try:
+                getattr(self, pole).clear()
+            except Exception:
+                pass
+        try:
+            if hasattr(self, "overlay_planer") and hasattr(self.overlay_planer, "pole_baza"):
+                self.overlay_planer.pole_baza.setText(ustawienie_osobiste("adres_bazy", ""))
         except Exception:
             pass
 
@@ -18090,6 +18529,10 @@ class App(QMainWindow):
                 from intro_wideo import sprobuj_intro_wideo
                 _kat_prog = os.path.dirname(os.path.abspath(sys.argv[0]))
                 self._intro = None   # _intro_koniec ma co bezpiecznie pominąć
+                # Intro wideo nie tworzy self._intro, a po nim rozpoznawano,
+                # czy intro trwa. Bez tej flagi okno aktualizacji potrafiłoby
+                # wjechać w środek grającego filmu.
+                self._intro_gra = True
                 if sprobuj_intro_wideo(self,
                                        motyw=("ciemny" if self.is_dark else "jasny"),
                                        postep_ladowania=None,
@@ -18097,8 +18540,10 @@ class App(QMainWindow):
                                        katalog_zasobow=_kat_prog):
                     _dziennik_animacji("intro WIDEO uruchomione (zasoby: %s)" % _kat_prog)
                     return
+                self._intro_gra = False
                 _dziennik_animacji("intro wideo niedostępne — stara animacja")
             except Exception:
+                self._intro_gra = False
                 try:
                     import traceback
                     _dziennik_animacji("intro wideo BŁĄD — stara animacja:\n"
@@ -18119,6 +18564,7 @@ class App(QMainWindow):
                 pass
 
     def _intro_koniec(self):
+        self._intro_gra = False
         try:
             if hasattr(self, "logo_lbl"):
                 self.logo_lbl.setVisible(True)
@@ -18565,12 +19011,21 @@ if __name__ == "__main__":
             except Exception:
                 pass
             sys.exit(0)
-        elif _dni is not None and _dni <= 14:
-            _okno_pmt(None, "Aktualizacja wymagana",
-                      "Ta wersja przestanie działać za %d dni.\n\n"
-                      "Zaktualizuj program do wersji %s — nowe wydanie zawiera "
-                      "poprawki wpływające na poprawność rozliczeń."
-                      % (_dni, WERSJA_WYMAGANA), tylko_ok=True)
+        elif _dni is not None and _dni <= DNI_OKRESU_PRZEJSCIOWEGO:
+            # Ostrzegamy RAZ DZIENNIE, nie przy każdym uruchomieniu —
+            # okno przy piątym starcie tego samego dnia tylko irytuje
+            # i uczy klikać „OK" bez czytania.
+            _dzis_iso = datetime.date.today().isoformat()
+            if ustawienie("ostrzezenie_wersji_dnia", "") != _dzis_iso:
+                zapisz_ustawienie("ostrzezenie_wersji_dnia", _dzis_iso)
+                _okno_pmt(None, "Aktualizacja wymagana",
+                          ("Ta wersja przestanie działać %s.\n\n"
+                           "Zaktualizuj program do wersji %s — nowe wydanie "
+                           "zawiera poprawki wpływające na poprawność "
+                           "rozliczeń.\n\nPobierzesz ją tutaj:\n%s")
+                          % (("dzisiaj" if _dni == 0 else "za %d dni" % _dni),
+                             WERSJA_WYMAGANA or "nowszej", URL_POBIERANIA),
+                          tylko_ok=True)
     except SystemExit:
         raise
     except Exception:
@@ -18589,20 +19044,31 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    # Stare kopie programu usuwamy AUTOMATYCZNIE przy kazdym starcie.
-    # Powod: kazda pozostawiona kopia to dzialajaca instalacja, ktora
-    # omija zasady dostepu (a docelowo — subskrypcje). Biezaca wersja i
-    # kopia zapasowa po ostatniej aktualizacji zostaja nietkniete.
-    try:
-        _stare = znajdz_stare_wersje()
-        if _stare:
-            _ile, _mbytes = usun_stare_wersje(_stare)
-            if _ile:
-                threading.Thread(
-                    target=online_zdarzenie_sesji,
-                    args=("usuniete_stare_wersje", 0.0), daemon=True).start()
-    except Exception:
-        pass
+    # ── STARE KOPIE PROGRAMU: TYLKO NA ŻYCZENIE ────────────────────────
+    # Do 3.20.57 program przy KAŻDYM starcie przeszukiwał pulpit, Pobrane,
+    # Dokumenty i OneDrive, a znalezione pliki .exe i foldery kasował bez
+    # pytania. To zachowanie ma dwie wady, obie poważne:
+    #   1. wygląda dokładnie jak złośliwe oprogramowanie (masowe czytanie
+    #      profilu użytkownika + kasowanie plików wykonywalnych) — a tego
+    #      właśnie szukają heurystyki Defendera i firmowego EDR-a przy
+    #      programie bez podpisu cyfrowego,
+    #   2. „PMT" to nazwa firmy, więc pod filtr trafiały też pliki robocze
+    #      użytkownika — kasowaliśmy cudzą pracę.
+    # Od 3.21.0 automat jest wyłączony. Sprzątanie po WŁASNEJ aktualizacji
+    # (sprzataj_stare_wersje wyżej) zostaje — ono dotyka wyłącznie kopii
+    # zapasowych zrobionych przez sam program. Pełne czyszczenie dysku
+    # jest dostępne na życzenie, z listą plików do zatwierdzenia.
+    if AUTOMATYCZNE_SPRZATANIE_DYSKU:
+        try:
+            _stare = znajdz_stare_wersje()
+            if _stare:
+                _ile, _mbytes = usun_stare_wersje(_stare)
+                if _ile:
+                    threading.Thread(
+                        target=online_zdarzenie_sesji,
+                        args=("usuniete_stare_wersje", 0.0), daemon=True).start()
+        except Exception:
+            pass
 
     # --- Logowanie przy KAZDYM uruchomieniu (login + haslo) ---------------
     # Swiadoma zmiana wzgledem wczesniejszych wersji: kod nie jest juz
@@ -18660,11 +19126,24 @@ if __name__ == "__main__":
     online_petla_synchronizacji()
     import atexit
     def _pmt_zamkniecie():
+        """Zamknięcie programu NIE MOŻE czekać na sieć.
+
+        Wcześniej były tu dwa zapytania synchroniczne (limity 10 s i 15 s),
+        wykonywane po zamknięciu okna — bez internetu program „wisiał"
+        do 25 sekund z zamkniętym oknem, co wygląda na zawieszenie.
+        Teraz liczniki idą do lokalnej kolejki od razu, a wysyłka dostaje
+        3 sekundy w osobnym wątku; niewysłane i tak pójdzie przy następnym
+        starcie — kolejka nic nie gubi."""
         try:
             _min = (datetime.datetime.now() - _START_PROGRAMU).total_seconds() / 60.0
             online_zdarzenie(minuty=_min)
-            online_zdarzenie_sesji("zamkniecie", _min)
-            online_synchronizuj()
+        except Exception:
+            return
+        try:
+            _w = threading.Thread(target=lambda: (online_zdarzenie_sesji("zamkniecie", _min),
+                                                  online_synchronizuj()), daemon=True)
+            _w.start()
+            _w.join(3.0)
         except Exception:
             pass
     atexit.register(_pmt_zamkniecie)

@@ -1,0 +1,51 @@
+name: Testy
+
+# Uruchamia testy_pmt.py przy kazdej zmianie kodu i przed wydaniem.
+# Cel jest prosty: zeby do wydania nie trafila wersja, ktora nie przechodzi
+# wlasnych testow. Trwa okolo trzech minut.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "PMT_Delegacje.py"
+      - "intro_wideo.py"
+      - "zbuduj.py"
+      - "wersja_pomocnik.py"
+      - "testy_pmt.py"
+      - "wersja.txt"
+      - "wersja_exe.txt"
+      - "requirements.txt"
+      - ".github/workflows/testy.yml"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  testy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj Pythona 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Biblioteki systemowe dla Qt (tryb bez ekranu)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl1 libgl1 libxkbcommon0 libdbus-1-3 \
+                                      libfontconfig1 libxcb-cursor0 libxcb-icccm4 \
+                                      libxcb-keysyms1 libxcb-shape0 libxcb-render-util0 \
+                                      libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
+
+      - name: Zainstaluj zaleznosci programu
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Uruchom testy
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python testy_pmt.py

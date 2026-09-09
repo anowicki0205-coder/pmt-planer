@@ -79,7 +79,9 @@ if not exist "%CEL_EXE%" goto porazka
 echo [3] Podmieniono pomyslnie. >> "%LOG%"
 
 rem --- 4) zdejmujemy blokade "plik z internetu" i uruchamiamy ---
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%FOLDER_CEL%' -Recurse | Unblock-File" >nul 2>&1
+rem Znacznik "plik z internetu" zdejmujemy bez PowerShella - to zwykly
+rem dodatkowy strumien NTFS. Mniej powodow do alarmu dla antywirusa.
+for /r "%FOLDER_CEL%" %%F in (*) do del "%%~fF:Zone.Identifier" >nul 2>&1
 set "FLAGA=%TEMP%\pmt_zyje.flag"
 if exist "%FLAGA%" del /q "%FLAGA%" >nul 2>&1
 echo [4] Uruchamiam nowa wersje... >> "%LOG%"

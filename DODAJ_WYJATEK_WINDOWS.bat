@@ -10,12 +10,37 @@ pause
 exit /b 1
 
 :admin
-echo Dodaje wyjatek dla folderu: %~dp0
-powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '%~dp0'"
+rem Wykluczamy KATALOG PROGRAMU, nigdy katalogu, w ktorym akurat lezy ten
+rem plik. Wczesniej wystarczylo uruchomic go z Pobranych albo z Pulpitu,
+rem zeby TRWALE wylaczyc skanowanie calego tego folderu - to powazna dziura,
+rem a komunikat i tak melodowal sukces.
+set "CEL=%~dp0dist\PMT_Planer"
+if exist "%CEL%\PMT_Planer.exe" goto :mam_cel
+set "CEL=%~dp0dist"
+if exist "%CEL%\PMT_Planer.exe" goto :mam_cel
+echo [BLAD] Nie znalazlem zbudowanego programu w podfolderze dist.
+echo        Najpierw zbuduj program (ZBUDUJ_EXE_FOLDER.bat), potem
+echo        uruchom ten plik ponownie.
+goto :stop
+
+:mam_cel
+echo "%CEL%" | find /i "\Downloads\" >nul && goto :niebezpieczne
+echo "%CEL%" | find /i "\Pobrane\"  >nul && goto :niebezpieczne
+echo "%CEL%" | find /i "\Desktop\"  >nul && goto :niebezpieczne
+echo "%CEL%" | find /i "\Pulpit\"   >nul && goto :niebezpieczne
+echo Dodaje wyjatek dla folderu programu: %CEL%
+powershell -NoProfile -Command "Add-MpPreference -ExclusionPath '%CEL%'"
 if errorlevel 1 goto :zle
 echo(
-echo GOTOWE. Folder jest teraz pomijany przez skaner Windows.
-echo Zbuduj EXE ponownie i sprobuj uruchomic.
+echo GOTOWE. Folder programu jest teraz pomijany przez skaner Windows.
+echo Sprawdzenie: Zabezpieczenia Windows - Ochrona przed wirusami -
+echo Zarzadzaj ustawieniami - Wykluczenia. Na liscie ma byc powyzsza sciezka.
+goto :stop
+
+:niebezpieczne
+echo [ODMOWA] Program lezy w Pobranych, na Pulpicie albo w Dokumentach.
+echo          Wykluczenie objeloby CALY ten folder - to za duzo.
+echo          Przenies folder programu np. do C:\PMT i uruchom ponownie.
 goto :stop
 
 :zle

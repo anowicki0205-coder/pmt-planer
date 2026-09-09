@@ -109,6 +109,18 @@ def _znajdz_wideo(katalog_zasobow, motyw):
 
 
 # ═══════════════════════════════════════════════════════════════════
+def _slad(tekst):
+    """Zapisuje powód pominięcia intro do pliku w katalogu użytkownika.
+    Nie używamy print() — w programie zbudowanym z opcją --windowed nie ma
+    konsoli, a wypisywanie na nieistniejące wyjście tylko miesza."""
+    try:
+        with open(os.path.join(os.path.expanduser("~"), ".pmt_intro.txt"),
+                  "a", encoding="utf-8") as f:
+            f.write("intro_wideo: %s\n" % tekst)
+    except Exception:
+        pass
+
+
 def sprobuj_intro_wideo(rodzic, motyw="ciemny", postep_ladowania=None,
                         po_zakonczeniu=None, katalog_zasobow=None,
                         pomijalne=True):
@@ -127,12 +139,12 @@ def sprobuj_intro_wideo(rodzic, motyw="ciemny", postep_ladowania=None,
         from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
         from PyQt6.QtMultimediaWidgets import QVideoWidget
     except Exception as e:
-        print("intro_wideo: brak PyQt6/Multimedia →", e)
+        _slad("brak PyQt6/Multimedia: %s" % e)
         return False
 
     plik = _znajdz_wideo(katalog_zasobow, motyw)
     if not plik:
-        print("intro_wideo: nie znaleziono intro_zmierzch/zloty.mp4")
+        _slad("nie znaleziono pliku intro_zmierzch/zloty.mp4")
         return False
     pal = MOTYWY.get(motyw, MOTYWY["ciemny"])
     meldunki = zbuduj_meldunki()

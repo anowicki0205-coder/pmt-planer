@@ -22,11 +22,31 @@ KATALOG = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 
 WYMAGANE = ["PMT_Delegacje.py", "intro_wideo.py"]
-DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "logo_zabka.png", "logo_biedronka.png",
-        "logo_groszek.png", "logo_stokrotka.png", "logo_abc.png",
-        "logo_lewiatan.png", "intro_muzyka.mp3", "menedzer.txt"]
+# UWAGA: menedzer.txt CELOWO nie ma na tej liście. Nazwisko przełożonego
+# to dane osobowe — nie wolno go wkompilowywać w plik rozsyłany do całego
+# zespołu. Plik ma leżeć OBOK programu u konkretnej osoby (albo być wpisany
+# w oknie programu, w polu Przelozony).
+# Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
+# tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
+# intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
+DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico"]
 UKRYTE = ["intro_wideo", "winsound"]
-BIBLIOTEKI = ["PyQt6", "openpyxl", "fpdf2", "pyinstaller"]
+# Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
+# korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
+# się rozjechać (tak zniknęło openpyxl z wydań budowanych w CI).
+def _biblioteki():
+    try:
+        with open(os.path.join(KATALOG, "requirements.txt"), encoding="utf-8") as f:
+            lista = [l.strip() for l in f
+                     if l.strip() and not l.strip().startswith("#")]
+        if lista:
+            return lista
+    except Exception:
+        pass
+    return ["PyQt6", "openpyxl", "fpdf2", "pillow", "pyinstaller"]
+
+
+BIBLIOTEKI = None      # ustalane przy pierwszym użyciu (patrz przygotuj_biblioteki)
 
 
 def pisz(txt):
@@ -63,8 +83,10 @@ def przygotuj_biblioteki(py):
     except Exception:
         pass
     pisz("  doinstalowuję (jednorazowo, potrwa chwilę)…")
+    biblioteki = _biblioteki()
+    pisz("  z requirements.txt: " + ", ".join(biblioteki))
     for dodatkowe in ([], ["--user"], ["--break-system-packages"]):
-        w = subprocess.run([py, "-m", "pip", "install"] + dodatkowe + BIBLIOTEKI,
+        w = subprocess.run([py, "-m", "pip", "install"] + dodatkowe + biblioteki,
                            capture_output=True, text=True)
         try:
             with open(LOG, "a", encoding="utf-8") as f:
@@ -182,6 +204,11 @@ def main():
         pisz("        Program zbuduje się i będzie działał — narysuje tło")
         pisz("        zastępcze. Jeśli chcesz oryginalne, skopiuj te dwa pliki")
         pisz("        z folderu starego programu tutaj (albo do zasoby\\).")
+    if os.path.exists(os.path.join(KATALOG, "menedzer.txt")):
+        pisz("[UWAGA] W folderze leży menedzer.txt — NIE zostanie wbudowany")
+        pisz("        w program (to dane osobowe). Skopiuj go ręcznie obok")
+        pisz("        gotowego pliku PMT_Planer.exe u siebie, albo wpisz")
+        pisz("        nazwisko w oknie programu, w polu Przelozony.")
     py = sys.executable
     if not przygotuj_biblioteki(py):
         return 1

@@ -21,7 +21,6 @@ set "NOWY=%~1"
 set "CEL=%~2"
 set "PID=%~3"
 set "LOG=%TEMP%\pmt_aktualizacja.log"
-set "PS1=%TEMP%\pmt_copy_elevated.ps1"
 set "KOPIA=%CEL%.poprzednia"
 for %%F in ("%CEL%") do set "NAZWA_EXE=%%~nxF"
 
@@ -83,17 +82,16 @@ for /l %%i in (1,1,15) do (
 )
 echo [3] Zwykla kopia nie powiodla sie. >> "%LOG%"
 
-rem === 3b) Proba z podniesionymi uprawnieniami - rozwiazuje przypadek        ===
-rem === instalacji w C:\Program Files, gdzie zwykly zapis jest zablokowany.   ===
-rem === Sciezki wstawiamy do OSOBNEGO pliku .ps1 (juz podstawione, jako      ===
-rem === zwykly tekst) - bez tego trzeba by przenosic cudzyslowy przez trzy   ===
-rem === warstwy (cmd -> powershell -> cmd), co jest bardzo podatne na blad.  ===
-echo [3b] Probuje z uprawnieniami administratora - moze pojawic sie okno UAC... >> "%LOG%"
-> "%PS1%" echo Copy-Item -LiteralPath '%NOWY%' -Destination '%CEL%' -Force
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','%PS1%') -Verb RunAs -Wait -PassThru | ForEach-Object { exit $_.ExitCode }" >> "%LOG%" 2>&1
-del /q "%PS1%" >nul 2>&1
-if not errorlevel 1 goto podmieniono
-echo [3b] Podniesione uprawnienia rowniez nie pomogly - albo uzytkownik odmowil UAC. >> "%LOG%"
+rem === 3b) USUNIETE w 3.21.0.                                               ===
+rem === Byla tu proba kopiowania z uprawnieniami administratora: ukryty      ===
+rem === PowerShell z omijaniem zasad wykonywania skryptow uruchamial przez   ===
+rem === UAC drugi ukryty PowerShell na pliku .ps1 zapisanym do %TEMP%.       ===
+rem === To jeden z najczesciej wykrywanych wzorcow zachowania zlosliwego     ===
+rem === oprogramowania - przy niepodpisanym programie potrafil zatrzymac     ===
+rem === cala aktualizacje i wywolac alarm u dzialu IT.                       ===
+rem === Przypadek, ktory obslugiwal (program w C:\Program Files), i tak      ===
+rem === konczyl sie komunikatem ponizej. Teraz pokazujemy go od razu.        ===
+echo [3b] Pominieto probe z uprawnieniami administratora (usunieta w 3.21.0). >> "%LOG%"
 
 echo.
 echo   ================================================================
@@ -189,7 +187,7 @@ rem === Plik pobrany z sieci dostaje ukryty znacznik strefy. Windows     ===
 rem === potrafi wtedy CICHO zablokowac uruchomienie z poziomu skryptu -  ===
 rem === bez zadnego komunikatu. To najczestsza przyczyna "nie wystartowal". ===
 del "%CEL%:Zone.Identifier" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath '%CEL%'" >nul 2>&1
+del "%CEL%:Zone.Identifier" >nul 2>&1
 echo [4] Zdjeto blokade pliku z internetu - jesli byla. >> "%LOG%"
 
 rem === 5d OneDrive/chmura: swiezo zapisany plik bywa przez chwile zajety   ===
@@ -242,8 +240,8 @@ for /l %%i in (1,1,20) do (
         rem wczesniej dwie proby wchodzily sobie w droge i konczyly sie dwoma
         rem oknami bledu ladowania bibliotek.
         if "!PROBA_2!"=="0" if %%i GEQ 8 (
-            echo [4] Sposob 2: uruchomienie przez PowerShell po odczekaniu... >> "%LOG%"
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CEL%' -WorkingDirectory '%KATALOG%'" >nul 2>&1
+            echo [4] Sposob 2: uruchomienie przez cmd po odczekaniu... >> "%LOG%"
+            start "" /D "%KATALOG%" "%CEL%"
             set "PROBA_2=1"
         ) else (
             if "!PROBA_3!"=="0" if %%i GEQ 16 (

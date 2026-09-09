@@ -27,7 +27,19 @@ jobs:
           OPIS=$(printf '%s' "$BODY" | tr -d '\r' | grep -m1 . || true)
           OPIS=${OPIS:-"Nowa wersja programu."}
           OPIS=${OPIS:0:160}
+          # Wiersze min= i blokada= sterują OBOWIĄZKOWĄ AKTUALIZACJĄ.
+          # Przed poprawką ten krok nadpisywał plik dwiema liniami i po
+          # cichu kasował oba wiersze — cały mechanizm wyłączał się sam
+          # przy pierwszym wydaniu. Teraz je odczytujemy i przywracamy.
+          MIN=$(grep -m1 '^min=' wersja.txt 2>/dev/null | tr -d '\r' || true)
+          BLOKADA=$(grep -m1 '^blokada=' wersja.txt 2>/dev/null | tr -d '\r' || true)
           printf '%s\r\n%s\r\n' "$NUMER" "$OPIS" > wersja.txt
+          # UWAGA: pełne "if", nie "[ ... ] &&" — GitHub uruchamia ten
+          # skrypt przez "bash -e", więc fałszywy warunek przerwałby krok.
+          if [ -n "$MIN" ]; then printf '%s\r\n' "$MIN" >> wersja.txt; fi
+          if [ -n "$BLOKADA" ]; then printf '%s\r\n' "$BLOKADA" >> wersja.txt; fi
+          echo "--- wersja.txt po zapisie ---"
+          cat wersja.txt
           git config user.name "pmt-bot"
           git config user.email "actions@users.noreply.github.com"
           git add wersja.txt

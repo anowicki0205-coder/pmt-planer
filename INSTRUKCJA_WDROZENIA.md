@@ -1,3 +1,8 @@
+> **NIEAKTUALNE — dotyczy wersji 3.13.4.**
+> Dla wersji 3.21.0 obowiązuje `START_TUTAJ.txt` (wydanie i testy)
+> oraz `BACKEND_APPS_SCRIPT.txt` (zmiany w arkuszu).
+> Ten plik zostaje jako zapis historyczny.
+
 # PMT — instrukcja wdrożenia wersji 3.13.4
 
 Stan sprawdzony na serwerze przed napisaniem tej instrukcji:

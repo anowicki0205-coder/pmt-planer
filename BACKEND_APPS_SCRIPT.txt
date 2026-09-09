@@ -1,53 +1,212 @@
 ═══════════════════════════════════════════════════════════════════════
-  BACKEND (APPS SCRIPT) — dwie zmiany do wprowadzenia teraz
+  BACKEND (GOOGLE APPS SCRIPT) — CO ZROBIĆ PRZY WYDANIU 3.21.0
+  wersja instrukcji: 3.21.0
 ═══════════════════════════════════════════════════════════════════════
 
-1. NOWY SEKRET (obowiązkowo, stary jest publiczny)
-   W kodzie Apps Script znajdź stałą z sekretem używaną przy weryfikacji
-   podpisu i zamień jej wartość na:
+KTÓRY PLIK .GS JEST TEN WŁAŚCIWY
 
-       PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS
+  W repozytorium leżą trzy warianty. NAJNOWSZY jest
+  apps_script_POPRAWIONY_v2.gs (866 linii) — i to on odpowiada temu,
+  co masz wdrożone (inaczej nikt z hasłem literowym nie mógłby się
+  zalogować).
 
-   Zapisz, a następnie: Wdróż → Zarządzaj wdrożeniami → ołówek →
-   Wersja: Nowa wersja → Wdróż.  ADRES POZOSTAJE TEN SAM.
+  NIE WKLEJAJ z powrotem apps_script.gs (847 linii). To wariant sprzed
+  poprawki logowania: w linii 434 odrzuca żądanie komunikatem „Podaj
+  9-cyfrowy numer telefonu", ZANIM w ogóle spojrzy na hasło. Program
+  wysyła hasło również w polu „telefon", więc każde hasło literowe
+  wywala się na tej bramce. Wklejenie tego pliku odetnie od systemu
+  wszystkich, którzy mają ustawione własne hasło.
 
-   WAŻNA KOLEJNOŚĆ: sekret zmieniamy DOPIERO wtedy, gdy zespół ma już
-   nową wersję programu. Zmiana wcześniej odetnie wszystkich od razu.
-   Zalecany plan: publikacja 3.21.0 → 14 dni na aktualizację →
-   zmiana sekretu (wtedy stare wersje i tak przestają działać).
+  Zmiany opisane niżej rób na apps_script_POPRAWIONY_v2.gs.
 
-2. ODCINANIE STARYCH WERSJI (opcjonalne, ale zalecane)
-   Program wysyła teraz w każdym zapytaniu pole "wersja". Na początku
-   funkcji obsługującej żądanie dopisz:
+NAJWAŻNIEJSZE OSTRZEŻENIE — PRZECZYTAJ, ZANIM COKOLWIEK ZMIENISZ
 
-       var WYMAGANA = "3.21.0";
+  Pod tym samym adresem /exec siedzą DWA programy:
+    · PMT Planer (komputer)  — podpisuje każde zapytanie (HMAC),
+    · pmt_wizyty.html (telefon, PWA) — NIE podpisuje niczego.
 
-       function wersjaZaStara(w) {
-         if (!w) return true;                       // stare wersje nie wysyłają pola
-         var a = String(w).split(".").map(Number);
-         var b = WYMAGANA.split(".").map(Number);
-         for (var i = 0; i < 3; i++) {
-           var x = a[i] || 0, y = b[i] || 0;
-           if (x > y) return false;
-           if (x < y) return true;
-         }
-         return false;
-       }
+  Dlatego NIE WOLNO włączyć twardego wymogu podpisu dla wszystkich akcji
+  (WYMAGAJ_PODPISU = true w starej instrukcji ZABEZPIECZENIA_BACKEND.txt).
+  Zrobienie tego odetnie natychmiast całą aplikację na telefonie.
+  Poniżej jest wersja, która tego nie robi: podpis jest wymagany tylko
+  tam, gdzie obie strony go wysyłają, a reszta jest chroniona kodem
+  użytkownika.
 
-       // w doPost, zaraz po odczytaniu danych:
-       if (wersjaZaStara(dane.wersja)) {
-         return ContentService.createTextOutput(JSON.stringify({
-           status: "blad",
-           komunikat: "Ta wersja programu nie jest już obsługiwana. Pobierz nową wersję."
-         })).setMimeType(ContentService.MimeType.JSON);
-       }
+  Druga pułapka: stara instrukcja podawała sekret 'PMT-2026-a7Kq9mZr4tXw',
+  a program 3.21.0 podpisuje już nowym. Kod poniżej akceptuje OBA naraz,
+  więc podczas przechodzenia zespołu na nową wersję nikt nie wypada.
 
-   Efekt: nawet ktoś, kto ominie blokadę w programie, nie połączy się
-   z backendem starą wersją.
+───────────────────────────────────────────────────────────────────────
+KROK 0 — USUŃ STARY BLOK, JEŚLI JUŻ TAM JEST (30 sekund, obowiązkowo)
+───────────────────────────────────────────────────────────────────────
+  W Code.gs naciśnij Ctrl+F i poszukaj po kolei:
+        weryfikujPodpis        SEKRET_PMT        WYMAGAJ_PODPISU
+  Jeśli którekolwiek z tych słów jest w pliku — pochodzi ze starszej
+  instrukcji (ZABEZPIECZENIA_BACKEND.txt) i USUŃ CAŁY tamten blok, zanim
+  wkleisz nowy.
 
-3. CO WARTO ZROBIĆ PÓŹNIEJ (nie blokuje dzisiejszego wydania)
-   · sprawdzanie kodu i hasła przy KAŻDEJ operacji, nie tylko przy logowaniu,
-   · zwracanie wyłącznie danych zalogowanej osoby (nigdy listy wszystkich),
-   · ograniczenie liczby zapytań z jednego adresu,
-   · odrzucanie żądań ze znacznikiem czasu starszym niż kilka minut.
+  DLACZEGO TO WAŻNE: w JavaScripcie druga definicja funkcji o tej samej
+  nazwie po cichu zastępuje pierwszą. Zostawiając oba bloki dostaniesz
+  weryfikację ze STARYM sekretem — czyli dokładnie to, czego chcemy
+  uniknąć: program 3.21.0 podpisuje nowym i dostaje „odmowa".
+
+───────────────────────────────────────────────────────────────────────
+KROK 1 — WKLEJ TEN BLOK NA POCZĄTEK PLIKU Code.gs
+───────────────────────────────────────────────────────────────────────
+
+/* ═══ PMT 3.21.0 — podpis, wersja, limity ════════════════════════ */
+
+// Dwa sekrety naraz: nowy (3.21.0+) i stary (3.20.x).
+// Stary USUŃ z tej listy, gdy cały zespół zaktualizuje program.
+var SEKRETY_PMT = [
+  'PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS',
+  'PMT-2026-a7Kq9mZr4tXw'
+];
+
+// Akcje wysyłane WYŁĄCZNIE przez program na komputerze — tylko one mogą
+// wymagać podpisu. Aplikacja na telefonie ich nie używa (sprawdzone:
+// pmt_wizyty.html wysyła analiza_polki, logowanie, moje_sklepy,
+// ostatnia_wizyta, produkty, zapisz_planogram, zapisz_produkt,
+// zapisz_wizyte, zgloszenie, zmien_haslo — i żadnej z poniższych).
+// reset_hasla jest tu najważniejsze: po tej zmianie hasła nie da się
+// wyzerować z przeglądarki, tylko z podpisanego programu.
+var AKCJE_PODPISANE = ['puls', 'sesja', 'reset_hasla'];
+
+// Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
+// Wpisz '3.21.0' dopiero wtedy, gdy zespół ma już nową wersję
+// (zalecane: 14 dni po publikacji wydania).
+var WYMAGANA_WERSJA = '';
+
+function _pmtHex(sig) {
+  return sig.map(function (b) {
+    return ('0' + (b & 255).toString(16)).slice(-2);
+  }).join('');
+}
+
+function weryfikujPodpis(d) {
+  try {
+    var czas = Number(d.klucz_czas || 0);
+    if (!czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
+    var baza = String(d.kod || '') + '|' + String(d.akcja || '') + '|' + czas;
+    var podany = String(d.podpis || '');
+    for (var i = 0; i < SEKRETY_PMT.length; i++) {
+      var sig = Utilities.computeHmacSha256Signature(baza, SEKRETY_PMT[i]);
+      if (_pmtHex(sig) === podany) return true;
+    }
+    return false;
+  } catch (e) { return false; }
+}
+
+function wersjaZaStara(w) {
+  if (!WYMAGANA_WERSJA) return false;        // odcinanie wyłączone
+  // BRAK POLA „wersja" = NIE ODCINAMY. Aplikacja na telefonie
+  // (pmt_wizyty.html) nigdy go nie wysyła — zwracanie tu „true"
+  // wyłączyłoby ją w całości. Stare wersje programu na komputerze
+  // odcinamy inaczej: przez MINIMALNA_WERSJA w logowanie() (KROK 4),
+  // gdzie warunek obejmuje wyłącznie żądania z zrodlo="program".
+  if (!w) return false;
+  var a = String(w).split('.'), b = WYMAGANA_WERSJA.split('.');
+  for (var i = 0; i < 3; i++) {
+    var x = Number(a[i] || 0), y = Number(b[i] || 0);
+    if (x > y) return false;
+    if (x < y) return true;
+  }
+  return false;
+}
+
+───────────────────────────────────────────────────────────────────────
+KROK 2 — DOPISZ TRZY LINIE W doPost
+───────────────────────────────────────────────────────────────────────
+
+  Znajdź funkcję doPost — UWAGA: w pliku są DWIE. Obowiązuje TA DRUGA,
+  z komentarzem "rozszerzony rozdzielacz akcji (podmienia doPost z v1)".
+  Zaraz po linii:
+
+      var dane = JSON.parse(e.postData.contents || "{}");
+
+  wklej:
+
+      if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
+          && !weryfikujPodpis(dane)) {
+        return _json({ status: 'blad', opis: 'odmowa' });
+      }
+      // Kontrola wersji TYLKO dla akcji wysyłanych przez program na
+      // komputerze. Aplikacja na telefonie nie wysyła pola „wersja"
+      // i nie może przez to wypaść z obiegu.
+      if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
+          && wersjaZaStara(dane.wersja)) {
+        return _json({ status: 'blad',
+          opis: 'Ta wersja programu nie jest już obsługiwana. Pobierz nową wersję.' });
+      }
+
+  Potem: Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
+  ADRES /exec POZOSTAJE TEN SAM.
+
+───────────────────────────────────────────────────────────────────────
+KROK 3 — SPRAWDŹ, ŻE NIC SIĘ NIE ZEPSUŁO (5 minut, obowiązkowo)
+───────────────────────────────────────────────────────────────────────
+  1. Zaloguj się w programie na komputerze — musi wejść jak dotąd.
+  2. Otwórz pmt_wizyty.html na telefonie i zaloguj się — musi wejść.
+     (Ten punkt powtórz TAKŻE po KROKU 4 — to jedyna rzecz, którą
+     zmiana progu wersji mogłaby zepsuć.)
+  3. Wygeneruj jedną delegację — w arkuszu ma przybyć puls.
+  Jeśli którykolwiek punkt zawiedzie: cofnij wdrożenie (Zarządzaj
+  wdrożeniami → wybierz poprzednią wersję) i napisz, co się stało.
+
+───────────────────────────────────────────────────────────────────────
+KROK 4 — DOPIERO PO 14 DNIACH (gdy zespół ma 3.21.0)
+───────────────────────────────────────────────────────────────────────
+  To jest NAJSKUTECZNIEJSZA dźwignia w całym mechanizmie obowiązkowej
+  aktualizacji — jedyna, której nie da się obejść ani cofnięciem zegara,
+  ani skasowaniem pliku na własnym komputerze. Kontrola jest już w kodzie
+  i działa od dawna, tylko z niskim progiem:
+
+      var MINIMALNA_WERSJA = "3.16.0";     ← znajdź tę linię
+
+  · zmień ją na:  var MINIMALNA_WERSJA = "3.21.0";
+  · WYMAGANA_WERSJA = '3.21.0';   (blok z KROKU 1 — druga, niezależna bramka)
+  · usuń 'PMT-2026-a7Kq9mZr4tXw' z listy SEKRETY_PMT,
+  · wdróż nową wersję.
+
+  Od tej chwili stara wersja programu nie zaloguje się do arkusza, nawet
+  gdyby ktoś ominął blokadę w samym programie. Uwaga: bramka działa tylko
+  dla żądań z programu na komputerze (pole zrodlo="program"), więc
+  aplikacja na telefonie działa dalej bez zmian.
+
+  ZANIM TO ZROBISZ sprawdź w arkuszu (zakładka Log albo kolumna
+  „Wersja"), czy wszyscy mają już 3.21.0. Kto nie ma — zostanie odcięty
+  tego samego dnia.
+
+───────────────────────────────────────────────────────────────────────
+DZIURY, KTÓRE ZOSTAJĄ W BACKENDZIE — do zrobienia osobno
+───────────────────────────────────────────────────────────────────────
+  Poniższe wynikają z przeglądu apps_script.gs i NIE są naprawione przez
+  kroki 1–2. Każda jest realna i sprawdzalna; żadna nie blokuje wydania
+  3.21.0, ale wszystkie warto zamknąć.
+
+  1. analiza_polki — każdy, kto zna adres /exec, może przez ten backend
+     wykonywać zapytania do API Anthropic NA TWÓJ KLUCZ i Twój rachunek.
+     Funkcja nie sprawdza, kto pyta.
+     → na początku analizaPolki() sprawdzać, czy dane.kod istnieje
+       w zakładce Uzytkownicy i ma nieprzeterminowaną datę „Wazne do".
+
+  2. zgloszenie — zapisuje przysłane zdjęcie na TWOIM Dysku Google
+     i ustawia mu udostępnianie „każdy, kto ma link". Bez sprawdzania,
+     kto przysłał.
+     → ta sama kontrola kodu; nie ustawiać ANYONE_WITH_LINK, wpisywać
+       do arkusza sam identyfikator pliku.
+
+  3. reset_hasla — kasuje hasło konta po samym numerze telefonu, bez
+     limitu prób. Kto zna numer współpracownika, może przejąć konto.
+     → licznik prób w CacheService (np. 5/godz.), wpis do zakładki Log
+       przy każdej próbie, także nieudanej.
+
+  4. puls zwraca listę nieobecności WSZYSTKICH pracowników (z typem,
+     np. „L4") każdemu, kto się odpyta.
+     → zwracać wyłącznie wiersze dotyczące pytającego kodu i kodów,
+       które ten kod zastępuje.
+
+  5. Nieznany kod bywa dopisywany do arkusza jako nowy użytkownik.
+     → zwracać {status:'blad'} zamiast zakładać konto.
+
 ═══════════════════════════════════════════════════════════════════════

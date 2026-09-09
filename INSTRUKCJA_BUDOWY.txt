@@ -1,30 +1,62 @@
-JAK ZBUDOWAC PROGRAM OD ZERA (3.20.43)
+JAK ZBUDOWAC PROGRAM OD ZERA (3.21.0)
 =====================================
 
 1. Rozpakuj CALA paczke do jednego, pustego folderu (np. C:\PMT\build).
-   W folderze maja lezec: PMT_Delegacje.py, ciemny.png, jasny.png, buduj.bat
-   (opcjonalnie takze pmt_logo.ico / pmt_logo.png, jesli ich uzywasz).
+   Musza w nim lezec co najmniej: PMT_Delegacje.py, intro_wideo.py,
+   zbuduj.py, wersja_exe.txt, pmt_logo.ico.
+   Warto dolozyc tla: ciemny.png i jasny.png (bez nich program dziala,
+   tylko rysuje tlo zastepcze).
 
-2. Kliknij dwukrotnie buduj.bat.
-   Skrypt sam: sprawdzi, ze to wersja 3.20.43, sprawdzi biblioteki,
-   USUNIE stare buildy (build/, dist/, .spec) i zbuduje program od zera.
+2. Sprawdz wersje:  dwuklik SPRAWDZ_WERSJE.bat
+   W zrodle i w wersja.txt ma byc ten sam numer.
 
-3. Swiezy program: dist\PMT_Planer\PMT_Planer.exe
-   (skrypt na koncu zapyta, czy go od razu uruchomic - wpisz T).
+3. Przetestuj:  python testy_pmt.py
+   Ma wyjsc 91/91. Jesli cokolwiek nie przechodzi - NIE buduj.
 
-4. Publikacja jak dotychczas: spakuj folder dist\PMT_Planer do zip,
-   wystaw jako release na GitHub i podmien w repo wersja.txt na 3.20.43.
+4. Zbuduj:  dwuklik ZBUDUJ_EXE_FOLDER.bat   (wariant zalecany)
+   Skrypt sam sprawdzi pliki, doinstaluje brakujace biblioteki,
+   wyczysci build/, dist/ i pliki .spec, po czym zbuduje program.
+   Wynik: dist\PMT_Planer\PMT_Planer.exe
 
-JAK ODCZYTAC WYNIK URUCHOMIENIA:
-  * rusza animacja (smuga na drodze)          -> wszystko dziala;
-  * okno "PMT Planer 3.20.43 - blad startu"    -> nowy kod dziala, ale cos
-    innego zawiodlo: przeslij plik C:\Users\TWOJA_NAZWA\.pmt_start_blad.txt;
-  * goly traceback w czarnej konsoli          -> uruchomil sie STARY plik
-    (nie ten swiezo zbudowany) - uruchom dokladnie dist\PMT_Planer\PMT_Planer.exe.
+   ZBUDUJ_EXE.bat (jeden plik) jest do wlasnych testow. Ten wariant
+   rozpakowuje ok. 48 MB do folderu tymczasowego przy kazdym starcie
+   i to on najczesciej obrywa od zabezpieczen Windows. Skrypt zapyta
+   o potwierdzenie.
 
-GDY BUDOWA KRZYCZY "Odmowa dostepu" (WinError 5):
+5. Rozdaj CALY folder dist\PMT_Planer (spakowany do ZIP).
+
+BUDOWANIE NA GITHUBIE (to samo, automatycznie)
+  Opublikowanie wydania z tagiem "v3.21.0" uruchamia .github/workflows/
+  build.yml. Buduje na Windows, macOS i Linux i dolacza paczki do wydania.
+  Wersja z CI jest budowana z tymi samymi ustawieniami co lokalna:
+  --onedir, --noupx, --version-file wersja_exe.txt, ikona, znacznik wersji.
+
+CO NIE POWINNO SIE ZMIENIC
+  * --onedir, nie --onefile   (mniej blokad, brak bledu "Failed to load
+    Python DLL", szybszy start),
+  * --noupx                   (kompresja UPX to najczestsza przyczyna
+    falszywych alarmow antywirusa),
+  * --version-file            (bez metadanych plik .exe wyglada dla
+    SmartScreen jak anonimowy plik z internetu),
+  * Python 3.13, nie 3.14     (blad python314.dll u uzytkownikow).
+
+JAK ODCZYTAC WYNIK URUCHOMIENIA
+  * rusza animacja startowa            -> wszystko dziala;
+  * okno "PMT Planer 3.21.0 - blad startu" -> program wystartowal, ale cos
+    zawiodlo pozniej: przeslij plik .pmt_start_blad.txt z katalogu
+    uzytkownika;
+  * goly traceback w czarnej konsoli   -> uruchomil sie STARY plik,
+    a nie ten swiezo zbudowany. Uruchom dokladnie
+    dist\PMT_Planer\PMT_Planer.exe.
+
+GDY BUDOWA KRZYCZY "Odmowa dostepu" (WinError 5)
   Poprzedni PMT_Planer.exe najpewniej wciaz dziala i trzyma swoje pliki.
-  Skrypt od tej wersji sam go zamyka przed budowa; jesli mimo to blad
-  wroci - zamknij okna Eksploratora otwarte w dist\PMT_Planer i odpal
-  buduj.bat jeszcze raz. Pulpit synchronizowany przez OneDrive potrafi
-  blokowac swieze pliki - wtedy najpewniej zadziala budowa w C:\PMT\build.
+  Zamknij program i okna Eksploratora otwarte w dist\PMT_Planer, po czym
+  zbuduj ponownie. Pulpit synchronizowany przez OneDrive potrafi blokowac
+  swieze pliki - wtedy najpewniej zadziala budowa w C:\PMT\build.
+
+PODPIS CYFROWY
+  Po zbudowaniu: dwuklik PODPISZ_EXE.bat (wymaga wlasnego certyfikatu
+  i narzedzia signtool z Windows SDK). To jedyne trwale rozwiazanie
+  problemu z blokowaniem programu przez Windows - patrz
+  BEZ_BLOKADY_WINDOWS.txt.

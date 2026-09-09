@@ -1,0 +1,10 @@
+# Biblioteki potrzebne do URUCHOMIENIA i ZBUDOWANIA PMT Planera.
+# JEDNO miejsce prawdy: korzystają z tego pliku i .github/workflows/build.yml,
+# i zbuduj.py. Wcześniej listy rozjeżdżały się po cichu — w wydaniach
+# budowanych na GitHubie brakowało openpyxl, więc gotowy program w ogóle
+# nie potrafił wczytać ani zapisać pliku .xlsx.
+PyQt6
+fpdf2
+openpyxl
+pillow
+pyinstaller

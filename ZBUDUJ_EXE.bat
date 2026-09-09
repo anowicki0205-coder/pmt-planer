@@ -15,6 +15,22 @@ echo i zaznacz opcje "Add python.exe to PATH".
 goto :stop
 
 :mam
+echo(
+echo   ============================================================
+echo    UWAGA - wariant JEDNOPLIKOWY (--onefile)
+echo   ============================================================
+echo    Ten wariant przy KAZDYM uruchomieniu rozpakowuje ok. 48 MB
+echo    bibliotek do folderu tymczasowego i stamtad je uruchamia.
+echo    To wlasnie taki sposob dzialania najczesciej zatrzymuje
+echo    Windows ("Inteligentna kontrola aplikacji", reguly ASR)
+echo    i stoi za bledem "Failed to load Python DLL".
+echo(
+echo    DO ROZSYLANIA ZESPOLOWI uzywaj ZBUDUJ_EXE_FOLDER.bat.
+echo    Wariant jednoplikowy ma sens tylko na wlasne testy.
+echo   ============================================================
+echo(
+choice /c TN /n /m "  Budowac mimo to? [T/N] "
+if errorlevel 2 goto :stop
 %PY% zbuduj.py --jeden
 goto :stop
 

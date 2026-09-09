@@ -1,4 +1,25 @@
-# PMT — komplet systemu (stan: sierpień 2026, program v3.13.2)
+# PMT — komplet systemu (program v3.21.0)
+
+> **Zaczynasz od zera? Czytaj `START_TUTAJ.txt`.**
+> Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
+> Blokowanie przez Windows: `BEZ_BLOKADY_WINDOWS.txt`
+> Testy przed wydaniem: `python testy_pmt.py`
+
+## Co zmieniła wersja 3.21.0
+
+| Obszar | Zmiana |
+|---|---|
+| Przełożony | nazwisko poza kodem — pole „Przełożony" w oknie programu albo plik `menedzer.txt` obok programu; nie trafia do paczki ani do repozytorium |
+| Dane osobowe | plan wizyt, lista sklepów, dziennik, notatki dni i adres bazy należą do KONTA, nie do komputera; wylogowanie czyści imię, rejon, ważność sesji i listę nieobecności |
+| Obowiązkowa aktualizacja | wiersze `min=` i `blokada=` w `wersja.txt`; okres przejściowy zamiast natychmiastowego odcięcia przy błędnej dacie; blokadę da się zdjąć zdalnie; automat wydania już jej nie kasuje |
+| Windows | koniec z uruchamianiem PowerShella i z automatycznym kasowaniem plików z pulpitu/Pobranych/Dokumentów; wydania z CI budowane z metadanymi i bez UPX |
+| Silnik | pełne rozpisanie zamówionej kwoty, dokument do 986,34 zł i 30 etapów |
+| Testy | `testy_pmt.py` — 101 kontroli, w tym 12 scenariuszy generowania tras |
+
+Reszta tego pliku opisuje odtworzenie całego systemu od zera i pochodzi
+z wcześniejszej wersji dokumentacji (v3.13.2) — tabela plików i kolejność
+wdrożenia są nadal aktualne.
+
 
 Kopia zapasowa wszystkich elementów systemu. Rozpakuj na komputerze źródłowym
 i trzymaj jako punkt odniesienia — każdy plik opisany jest niżej razem z tym,
@@ -10,7 +31,7 @@ DOKĄD go wgrać.
 
 | Katalog | Plik | Miejsce docelowe |
 |---|---|---|
-| `1_program_desktop` | `PMT_Delegacje.py`, `wersja.txt`, `wersja_info.txt` | repozytorium GitHub (katalog główny) |
+| `1_program_desktop` | `PMT_Delegacje.py`, `wersja.txt`, `wersja_exe.txt` | repozytorium GitHub (katalog główny) |
 | `1_program_desktop` | `updater.bat`, `updater.sh` | repozytorium GitHub (katalog główny) |
 | `2_ikony` | `pmt_logo.ico`, `.icns`, `.png` | repozytorium GitHub (katalog główny) |
 | `3_budowanie_github` | `build.yml` | repozytorium → `.github/workflows/build.yml` |

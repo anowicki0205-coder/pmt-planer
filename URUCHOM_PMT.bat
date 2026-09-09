@@ -19,8 +19,20 @@ echo   Przygotowuje PMT Planer do pierwszego uruchomienia...
 echo.
 
 rem 1) zdejmujemy znacznik "plik z internetu" z wszystkich plikow
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Get-ChildItem -LiteralPath '%~dp0' -Recurse -File | Unblock-File -ErrorAction SilentlyContinue" 2>nul
+rem    BEZ POWERSHELLA. Znacznik to zwykly dodatkowy strumien NTFS o nazwie
+rem    Zone.Identifier - kasujemy go poleceniem del. Wczesniej byl tu
+rem    powershell z omijaniem zasad wykonywania skryptow; to jeden ze
+rem    wzorcow, po ktorych Defender i firmowy EDR podnosza alarm - a byl to
+rem    PIERWSZY krok, jaki uzytkownik wykonywal po rozpakowaniu paczki.
+for /r "%~dp0" %%F in (*) do del "%%~fF:Zone.Identifier" >nul 2>&1
+
+rem    kontrola: czy znacznik faktycznie zszedl z pliku programu
+if exist "%~dp0PMT_Planer.exe:Zone.Identifier" (
+    echo   UWAGA: nie udalo sie zdjac znacznika "plik z internetu".
+    echo   Kliknij PMT_Planer.exe prawym przyciskiem - Wlasciwosci
+    echo   i zaznacz "Odblokuj" na dole okna, potem OK.
+    echo.
+)
 
 rem 2) sprawdzamy, czy program jest na miejscu
 if not exist "%~dp0PMT_Planer.exe" (

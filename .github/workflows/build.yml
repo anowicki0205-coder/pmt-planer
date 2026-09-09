@@ -50,7 +50,7 @@ jobs:
       - name: Zainstaluj zależności
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pyqt6 fpdf2 pillow
+          pip install -r requirements.txt
 
       - name: Zbuduj program
         shell: bash
@@ -72,9 +72,18 @@ jobs:
           # "Failed to load Python DLL": nie ma czego rozpakowywac, wiec nie ma
           # kolizji z antywirusem, chmura ani druga instancja programu.
           # Start jest tez znacznie szybszy (brak wypakowywania 48 MB).
-          pyinstaller --onedir --windowed \
+          # --noupx        : bez kompresji UPX. Spakowany UPX-em plik .exe to
+          #                  jedna z najczestszych przyczyn falszywych alarmow
+          #                  antywirusa — a program i tak nie jest podpisany.
+          # --version-file : metadane pliku (producent, opis, numer wersji).
+          #                  EXE bez metadanych wyglada dla SmartScreen jak
+          #                  anonimowy plik z internetu. Do 3.20.57 wydania
+          #                  z CI budowaly sie BEZ tego pliku, mimo ze lezal
+          #                  w repozytorium.
+          pyinstaller --onedir --windowed --noupx \
             --name PMT_Planer \
             --icon pmt_logo.ico \
+            --version-file wersja_exe.txt \
             $DODAJ \
             PMT_Delegacje.py
 
@@ -92,6 +101,9 @@ jobs:
           # Do paczki dokladamy skrypt pierwszego uruchomienia — zdejmuje on
           # znacznik "plik z internetu", ktory blokuje start programu.
           cp URUCHOM_PMT.bat dist/PMT_Planer/ 2>/dev/null || true
+          # Znacznik wersji W PACZCE. Bez niego zadna kopia programu nie
+          # potrafi rozpoznac, ze znaleziony obok folder jest NOWSZY od niej.
+          python -c "import re,io;t=io.open('PMT_Delegacje.py',encoding='utf-8').read();v=re.search(r'WERSJA_PROGRAMU\s*=\s*\"([^\"]+)\"',t).group(1);io.open('dist/PMT_Planer/pmt_wersja.txt','w',encoding='utf-8').write(v);print('znacznik wersji:',v)"
           cd dist
           7z a ../PMT_Planer.Windows.zip PMT_Planer
           cd ..
@@ -132,7 +144,7 @@ jobs:
       - name: Zainstaluj zależności
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pyqt6 fpdf2 pillow
+          pip install -r requirements.txt
 
       - name: Biblioteki systemowe (tylko Linux)
         if: matrix.nazwa == 'Linux'

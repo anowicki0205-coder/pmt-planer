@@ -16,23 +16,40 @@ if not exist "PMT_Delegacje.py" goto :brak_plikow
 echo Pobieram zmiany z serwera...
 git pull
 echo(
+rem Lista plikow, ktore FAKTYCZNIE sklada sie na wersje 3.21.0.
+rem Wczesniej byly tu nazwy z innej, nigdy niewydanej paczki
+rem (intro_zywa_mapa.py, karta_testera.py, wyglad_3d.py) - przez to skrypt
+rem zawsze konczyl sie komunikatem "brakuje plikow" i nie dalo sie go uzyc.
 set "BRAK="
-for %%F in (intro_zywa_mapa.py karta_testera.py wyglad_3d.py wersja_pomocnik.py) do if not exist "%%F" set "BRAK=%BRAK% %%F"
+for %%F in (PMT_Delegacje.py intro_wideo.py zbuduj.py wersja_pomocnik.py wersja_exe.txt) do if not exist "%%F" set "BRAK=%BRAK% %%F"
 if not defined BRAK goto :dodaj
 echo [UWAGA] W folderze brakuje plikow:%BRAK%
 echo Skopiuj je z paczki i uruchom ponownie.
 goto :stop
 
 :dodaj
+rem Kontrola bezpieczenstwa: menedzer.txt to dane osobowe i NIE MOZE
+rem trafic do repozytorium. Plik .gitignore tego pilnuje, ale sprawdzamy
+rem jeszcze raz - blad w tym miejscu jest nie do cofniecia.
+git check-ignore -q menedzer.txt
+if errorlevel 1 if exist "menedzer.txt" goto :dane_osobowe
+
 echo Dodaje pliki zrodlowe...
-git add PMT_Delegacje.py intro_zywa_mapa.py karta_testera.py wyglad_3d.py wersja_pomocnik.py wersja_exe.txt
+git add PMT_Delegacje.py intro_wideo.py zbuduj.py wersja_pomocnik.py wersja_exe.txt
+git add testy_pmt.py START_TUTAJ.txt BEZ_BLOKADY_WINDOWS.txt BACKEND_APPS_SCRIPT.txt
+git add INSTRUKCJA_BUDOWY.txt .gitignore
+git add ZBUDUJ_EXE.bat ZBUDUJ_EXE_FOLDER.bat SPRAWDZ_WERSJE.bat URUCHOM_PROGRAM.bat
+git add UTWORZ_SKROT.bat PODPISZ_EXE.bat DODAJ_WYJATEK_WINDOWS.bat URUCHOM_PMT.bat
+git add updater.bat updater_folder.bat updater.sh
+git add .github/workflows/build.yml .github/workflows/wersja_auto.yml
 if exist "pmt_logo.png" git add pmt_logo.png
 if exist "pmt_logo.ico" git add pmt_logo.ico
-git add logo_zabka.png logo_biedronka.png logo_groszek.png logo_stokrotka.png logo_abc.png logo_lewiatan.png 2>nul
+if exist "ciemny.png" git add ciemny.png
+if exist "jasny.png" git add jasny.png
 echo(
 echo UWAGA: wersja.txt NIE jest wysylany - zrobisz to po opublikowaniu wydania.
 echo(
-git commit -m "3.21.0: pelna kwota delegacji, mniej dokumentow, nowe intro, karta testera, wyglad 3D"
+git commit -m "3.21.0: menedzer poza kodem, dane per konto, obowiazkowa aktualizacja, mniej zapalnikow dla Windows"
 git push
 if errorlevel 1 goto :zle
 echo(
@@ -50,6 +67,13 @@ goto :stop
 
 :nie_repo
 echo [BLAD] To nie jest folder repozytorium - brak katalogu .git
+goto :stop
+
+:dane_osobowe
+echo [STOP] W folderze lezy menedzer.txt, a nie jest ignorowany przez git.
+echo        To dane osobowe - nie moga trafic do repozytorium.
+echo        Sprawdz, czy w folderze jest plik .gitignore z wpisem menedzer.txt
+echo        (jest w paczce 3.21.0), albo usun menedzer.txt z tego folderu.
 goto :stop
 
 :brak_plikow

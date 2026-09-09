@@ -1,3 +1,10 @@
+UWAGA: TEN PLIK JEST NIEAKTUALNY I W JEDNYM MIEJSCU SZKODLIWY.
+Podaje STARY sekret aplikacji (PMT-2026-a7Kq9mZr4tXw) i kaze ustawic
+WYMAGAJ_PODPISU = true dla WSZYSTKICH akcji - to odcieloby aplikacje
+na telefonie (pmt_wizyty.html nie podpisuje zapytan).
+Dla wersji 3.21.0 obowiazuje BACKEND_APPS_SCRIPT.txt.
+Zostaje jako zapis historyczny - opis dziur w backendzie jest nadal trafny.
+
 ZABEZPIECZENIE BACKENDU (Google Apps Script) — instrukcja krok po kroku
 =======================================================================
 

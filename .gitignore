@@ -1,0 +1,30 @@
+# ── DANE OSOBOWE — NIGDY DO REPOZYTORIUM ──────────────────────────────
+# Nazwisko przełożonego drukowane na delegacji. Ma leżeć obok programu
+# u konkretnej osoby albo być wpisane w oknie programu (pole „Przełożony").
+menedzer.txt
+# Własny kod aktywacyjny panelu administratora.
+pmt_kod.txt
+# Certyfikat do podpisywania programu i jego hasło.
+certyfikat.pfx
+*.pfx
+*.p12
+
+# ── WYNIKI BUDOWANIA ──────────────────────────────────────────────────
+build/
+dist/
+*.spec
+BUDOWANIE_log.txt
+__pycache__/
+*.pyc
+
+# ── PLIKI ROBOCZE PROGRAMU ────────────────────────────────────────────
+.pmt_odblokowano
+pmt_wersja.txt
+PMT_diagnostyka_animacji.txt
+.pmt_*.json
+.pmt_*.txt
+
+# ── SYSTEM ────────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+desktop.ini

@@ -1,90 +1,234 @@
 ═══════════════════════════════════════════════════════════════════════
   PMT PLANER 3.21.0 — WERSJA STABILNA
-  baza: sprawdzona 3.20.57  ·  wyłącznie konieczne poprawki
+  baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
 ═══════════════════════════════════════════════════════════════════════
 
-CO JEST W TEJ WERSJI — I CZEGO CELOWO NIE MA
+W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
 
-  ZMIENIONE (cztery obszary, każdy przetestowany):
-   1. Nazwisko przełożonego USUNIĘTE Z KODU. Program bierze je z pliku
-      menedzer.txt (jedna linia) albo z ustawień. Bez pliku pole na
-      delegacji zostaje puste — nic się nie psuje.
-   2. Bezpieczeństwo: nowy sekret aplikacji, numer wersji w każdym
-      zapytaniu do backendu, a plan wizyt i adres bazy przypisane do
-      KONTA (dotąd były wspólne dla komputera — nowe konto widziało
-      dane poprzedniej osoby).
-   3. Obowiązkowa aktualizacja: wiersze „min=" i „blokada=" w pliku
-      wersja.txt. Starsza wersja ostrzega przez 14 dni, potem odmawia
-      uruchomienia i kieruje do pobrania.
-   4. Silnik delegacji: pełne osiąganie zamówionej kwoty, dokument do
-      986,34 zł i 30 etapów (mniej PDF-ów), żaden przystanek bliżej
-      niż 12 km od domu, start i powrót z adresu z FORMULARZA delegacji.
+  Cztery obszary, o które chodziło: przełożony poza kodem, bezpieczeństwo,
+  obowiązkowa aktualizacja, silnik delegacji. Do tego piąty, który wyszedł
+  przy przeglądzie i był najpilniejszy: zachowania programu, po których
+  Windows uznaje go za podejrzany.
 
-  NIEZMIENIONE (świadomie): wygląd programu, animacja startowa, układ
-  okien, planer wizyt, mapy, historia, PDF-y. To jest ta sama wersja,
-  która działa u Ciebie dzisiaj — bez nowego intra, efektów 3D i karty
-  testera. Te rzeczy można dołożyć później, osobno i po testach.
-
-WYNIKI TESTÓW (wykonane na tym pliku, nie na wcześniejszym)
-  · 12 scenariuszy generowania (4 bazy × 3 kwoty): wszystkie 100,0 %
-    zamówionej kwoty, żaden dzień nie przekracza 8 godzin, najbliższy
-    przystanek 12,1–18,3 km od domu.
-  · 4 700 zł → 6 dokumentów PDF, każdy poniżej 986,34 zł i każdy
-    mieszczący się na jednej stronie A4.
-  · Trasa zaczyna się i kończy adresem z formularza delegacji, nawet
-    gdy w planerze ustawiony jest inny adres.
-  · Konta rozdzielone: nowy użytkownik nie widzi planu ani adresu
-    poprzedniego, a pierwszy zalogowany zachowuje swoje dane.
-  · Blokada wersji: 14 dni przed terminem ostrzega, po terminie
-    zatrzymuje program; aktualna wersja działa bez przeszkód.
-  · Pełna budowa programu wykonana od początku do końca.
+  WYGLĄD I SPOSÓB PRACY PROGRAMU SIĘ NIE ZMIENIŁ. Układ okien, animacja
+  startowa, planer wizyt, mapy, historia, PDF-y — wszystko jak dotąd.
+  Jedyna widoczna nowość to pole „Przełożony (na delegacji)" w karcie
+  danych pracownika.
 
 ───────────────────────────────────────────────────────────────────────
-KROK 1 — PRZYGOTUJ FOLDER
-  1. Utwórz nowy, pusty folder, np. C:\PMT_3.21.0
-  2. Rozpakuj do niego CAŁĄ zawartość tego archiwum.
-  3. Skopiuj ze starego katalogu programu:
-       · folder zasoby  (albo same pliki ciemny.png i jasny.png)
-       · pmt_logo.ico oraz pmt_logo.png, jeśli masz własne
-  4. Utwórz plik menedzer.txt z jedną linią — imię i nazwisko
-     przełożonego, np.:
-       Jan Kowalski
-     Ten plik ZOSTAJE u Ciebie: nie wysyłamy go na GitHub i nie
-     wchodzi do budowanej paczki. Bez niego pole MENEDŻER na
-     delegacji będzie puste (można je też wpisać w programie:
-     Ustawienia → Przełożony).
+1. PRZEŁOŻONY POZA KODEM
+───────────────────────────────────────────────────────────────────────
+  · Nazwiska nie ma już nigdzie w kodzie ani w tej instrukcji.
+  · Wpisujesz je RAZ w oknie programu: karta „DANE PRACOWNIKA",
+    pole „Przełożony (na delegacji)". Zapisuje się na Twoim komputerze.
+  · Alternatywa dla całego zespołu: plik menedzer.txt (jedna linia)
+    położony OBOK PMT_Planer.exe. Program czyta go z katalogu programu,
+    z podkatalogu _internal i z katalogu roboczego, w kodowaniu UTF-8,
+    UTF-8 z BOM albo ANSI (cp1250) — czyli tak, jak zapisze go Notatnik.
+  · menedzer.txt NIE jest wbudowywany w plik .exe. Skrypt budowania
+    ostrzeże, jeśli zostawisz go w folderze budowania. Wcześniej trafiał
+    do środka programu rozsyłanego do 65 osób — to były dane osobowe
+    w każdej kopii.
+  · Plik .gitignore pilnuje, żeby menedzer.txt nigdy nie trafił na GitHub.
 
-KROK 2 — SPRAWDŹ, ZANIM ZBUDUJESZ
-  Dwuklik: SPRAWDZ_WERSJE.bat
-  Musi pokazać 3.21.0 w źródle i w wersja.txt.
-
-KROK 3 — ZBUDUJ PROGRAM
-  Dwuklik: ZBUDUJ_EXE_FOLDER.bat
-  Skrypt sam sprawdzi pliki, wyczyści ślady po poprzednich budowach,
-  zbuduje program i potwierdzi wersję. Wynik: dist\PMT_Planer\
-  Spakuj CAŁY ten folder do PMT_Planer_3.21.0.zip
-
-KROK 4 — SPRAWDŹ NA SOBIE (10 minut, zanim wyślesz komukolwiek)
-  · uruchom program, zaloguj się,
-  · wygeneruj delegację na 4 700 zł — suma musi się zgadzać co do grosza,
-  · otwórz jeden PDF: dane, trasa, MENEDŻER,
-  · otwórz mapę tras: pierwszy i ostatni punkt to Twój adres,
-  · zajrzyj do pliku .pmt_silnik_diag.txt w katalogu użytkownika —
-    ostatnia linia pokazuje 100 %.
-
-KROK 5 — GITHUB (kolejność jest ważna)
-  a) Wyślij źródła: WYSLIJ_NA_GITHUB.bat  (wersja.txt zostaje na później)
-  b) Opublikuj wydanie v3.21.0 i PRZECIĄGNIJ do niego PMT_Planer_3.21.0.zip
-  c) Dopiero teraz wyślij wersja.txt:
-        git add wersja.txt && git commit -m "wersja 3.21.0" && git push
-     Od tej chwili wszyscy widzą aktualizację, a po 14 dniach stare
-     wersje przestają działać.
-
-KROK 6 — BACKEND (Apps Script)
-  Patrz BACKEND_APPS_SCRIPT.txt. Blokadę starych wersji możesz włączyć
-  od razu; SEKRET zmień dopiero po 14 dniach, gdy zespół się zaktualizuje.
+  UWAGA, KTÓREJ NIE DA SIĘ OBEJŚĆ KODEM: nazwisko wciąż istnieje
+  w HISTORII repozytorium (starsze commity) i wewnątrz wydań ≤ 3.20.57
+  opublikowanych na GitHubie. Jeśli ma zniknąć naprawdę, trzeba osobno
+  usunąć/zastąpić starsze wydania i przepisać historię repozytorium.
+  Nowe wydania są już czyste.
 
 ───────────────────────────────────────────────────────────────────────
-ŻEBY WINDOWS NIE ZABLOKOWAŁ PROGRAMU — czytaj przed rozsyłaniem
-  Patrz osobny plik: BEZ_BLOKADY_WINDOWS.txt
+2. BEZPIECZEŃSTWO — DANE NALEŻĄ DO KONTA, NIE DO KOMPUTERA
+───────────────────────────────────────────────────────────────────────
+  Do 3.20.57 wszystko leżało wspólnie: kto zalogował się jako drugi,
+  widział dane pierwszego. Teraz do konta przypisane są:
+  plan wizyt · lista sklepów · dziennik wizyt z notatkami ·
+  notatki dni · adres bazy planera.
+
+  · Klucz konta bierze się WYŁĄCZNIE z 5-cyfrowego loginu. Wcześniej
+    wchodziło w niego imię z arkusza — poprawka pisowni nazwiska robiła
+    z tej samej osoby kogoś innego i „gubiła" jej plan.
+  · Wylogowanie czyści z komputera imię, rejon, ważność sesji i listę
+    nieobecności. Zostawała tam m.in. lista L4 CAŁEGO zespołu, widoczna
+    dla następnej osoby przy tym komputerze.
+  · Przelogowanie bez zamykania programu naprawdę przełącza konto.
+    Wcześniej nowa osoba pracowała dalej na danych poprzedniej — to była
+    najpoważniejsza dziura w całej tej zmianie.
+  · Kod dostępu do panelu administratora nie jest już jawnym napisem
+    w kodzie (dawało się go odczytać z pliku .exe i z GitHuba). Własny
+    kod ustawisz plikiem pmt_kod.txt obok programu — wtedy stary
+    przestaje działać. WARTO TO ZROBIĆ: dotychczasowy wyciekł.
+
+  CO Z DANYMI, KTÓRE JUŻ SĄ NA KOMPUTERACH:
+  · komputer używany przez JEDNĄ osobę — wszystko przechodzi na jej
+    konto automatycznie, nic nie ginie; wspólne pliki zostają jako
+    kopia z końcówką .sprzed_3.21.0,
+  · komputer WSPÓLNY (w historii logowań kilka kont) — nikt nie dostaje
+    cudzych danych, wspólne pliki zostają nietknięte.
+
+  BACKEND: patrz BACKEND_APPS_SCRIPT.txt. Zmiany po stronie arkusza są
+  opisane krok po kroku, z ostrzeżeniem, czego NIE wolno zrobić (włączenie
+  twardego wymogu podpisu odcięłoby aplikację na telefonie).
+
+───────────────────────────────────────────────────────────────────────
+3. OBOWIĄZKOWA AKTUALIZACJA
+───────────────────────────────────────────────────────────────────────
+  Sterują nią dwa wiersze w pliku wersja.txt w repozytorium:
+        min=3.21.0
+        blokada=2026-09-23
+  Program starszy niż „min" ostrzega, a po dacie „blokada" odmawia
+  uruchomienia i kieruje do pobrania. Wymagania zapisują się lokalnie,
+  więc odłączenie internetu blokady nie zdejmuje.
+
+  Co zostało naprawione (każda z tych rzeczy wyłączała mechanizm albo
+  odcinała zespół bez ostrzeżenia):
+  · automat GitHuba przy publikacji wydania nadpisywał wersja.txt dwiema
+    liniami i KASOWAŁ min= oraz blokada= — mechanizm wyłączyłby się sam
+    przy pierwszym wydaniu,
+  · gdy w wersja.txt zabrakło linii z opisem, wiersz min= był po cichu
+    pomijany — blokada nie działała wcale,
+  · data wpisana po polsku (23.09.2026) albo z literówką odcinała
+    NATYCHMIAST wszystkich ze starszą wersją; teraz taki zapis jest
+    rozumiany, a przy niezrozumiałym program daje 14 dni okresu
+    przejściowego zamiast blokować,
+  · brak wiersza blokada= też oznaczał natychmiastowe odcięcie; teraz
+    to również 14 dni,
+  · blokady nie dało się zdjąć: usunięcie min= z wersja.txt nie miało
+    żadnego skutku, bo stary wpis wracał z dysku. Teraz świeżo pobrany
+    wersja.txt jest jedynym źródłem prawdy,
+  · cofnięcie zegara w Windows przedłużało życie starej wersji — teraz
+    program pamięta najpóźniejszy dzień, jaki widział,
+  · ostrzeżenie wyskakiwało przy KAŻDYM uruchomieniu przez 14 dni;
+    teraz raz dziennie.
+
+  NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script.gs
+  jest już gotowa kontrola wersji przy logowaniu:
+        var MINIMALNA_WERSJA = "3.16.0";
+  Podniesienie jej do "3.21.0" (po 14 dniach) odetnie stare wersje
+  niezależnie od tego, co ktoś zrobi na swoim komputerze. Blokada
+  w programie jest uprzedzeniem, ta linijka — egzekucją.
+
+───────────────────────────────────────────────────────────────────────
+4. SILNIK DELEGACJI (bez zmian względem paczki 3.21.0 — sprawdzony)
+───────────────────────────────────────────────────────────────────────
+  · pełne osiąganie zamówionej kwoty (mnożnik liczony osobno dla dnia),
+  · dokument do 986,34 zł i do 30 etapów — mniej PDF-ów,
+  · żaden przystanek bliżej niż 12 km od domu,
+  · start i powrót z adresu z FORMULARZA delegacji.
+
+───────────────────────────────────────────────────────────────────────
+5. ŻEBY WINDOWS PRZESTAŁ KRZYCZEĆ — CO USUNIĘTO Z PROGRAMU
+───────────────────────────────────────────────────────────────────────
+  To jest ta część, która najbardziej wpływa na „inteligentną kontrolę
+  aplikacji" i firmowe zabezpieczenia. Program robił rzeczy, które
+  wyglądają dokładnie jak zachowanie złośliwego oprogramowania:
+
+  · przy KAŻDYM starcie przeszukiwał pulpit, Pobrane, Dokumenty, OneDrive
+    i kasował znalezione pliki .exe oraz foldery — bez pytania. Masowe
+    czytanie profilu użytkownika plus kasowanie plików wykonywalnych to
+    podręcznikowy wzorzec, którego szukają Defender i firmowe EDR-y.
+    Przy okazji „PMT" to nazwa firmy, więc pod filtr trafiały też pliki
+    robocze. TO ZOSTAŁO WYŁĄCZONE. Sprzątanie po własnej aktualizacji
+    (kopie zapasowe zrobione przez sam program) zostaje.
+  · uruchamiał ukryty PowerShell z omijaniem zasad wykonywania skryptów —
+    przy starcie programu, w URUCHOM_PMT.bat rozsyłanym w paczce oraz
+    dwukrotnie w skrypcie aktualizacji. Wszystkie te miejsca robią teraz
+    to samo bez PowerShella (znacznik „plik z internetu" to zwykły
+    strumień NTFS — wystarczy go skasować).
+  · skrypt aktualizacji podnosił uprawnienia przez UAC, uruchamiając
+    ukryty PowerShell na pliku .ps1 zapisanym do katalogu tymczasowego.
+    Krok usunięty — obsługiwał tylko przypadek instalacji w Program Files
+    i tak czy inaczej kończył się komunikatem dla użytkownika.
+  · dopisywał ponad 20 razy przy każdym starcie do pliku w SWOIM katalogu
+    instalacyjnym. Teraz pisze do katalogu użytkownika.
+
+  Poprawione zostało też samo budowanie wydania:
+  · GitHub budował oficjalny plik .exe BEZ metadanych producenta
+    i bez wyłączenia kompresji UPX — czyli dokładnie odwrotnie, niż
+    obiecywał opis. Teraz buduje z --noupx --version-file, więc program
+    ma nazwę, producenta i numer wersji we Właściwościach pliku,
+  · paczka wydania dostaje znacznik wersji (pmt_wersja.txt),
+  · DODAJ_WYJATEK_WINDOWS.bat wykluczał folder, w którym akurat leżał —
+    uruchomiony z Pobranych wyłączał skanowanie CAŁEGO folderu Pobrane.
+    Teraz wyklucza katalog programu i odmawia, gdy program leży
+    w Pobranych, na Pulpicie albo w Dokumentach,
+  · ZBUDUJ_EXE.bat (wariant jednoplikowy) ostrzega i pyta o potwierdzenie
+    — ten wariant rozpakowuje 48 MB do katalogu tymczasowego przy każdym
+    starcie i to on najczęściej obrywa od zabezpieczeń Windows.
+
+  CZEGO KOD NIE ZAŁATWI — powtórzone, bo to nadal prawda:
+  „Inteligentna kontrola aplikacji" blokuje KAŻDY program bez podpisu
+  cyfrowego. Szczegóły i trzy możliwe drogi: BEZ_BLOKADY_WINDOWS.txt.
+
+───────────────────────────────────────────────────────────────────────
+6. TESTY — URUCHOM PRZED KAŻDYM WYDANIEM
+───────────────────────────────────────────────────────────────────────
+  Dwuklik nie wystarczy, to plik Pythona:
+        python testy_pmt.py            (pełny zestaw, ~2 minuty)
+        python testy_pmt.py --szybko   (bez tras i PDF-ów, ~5 sekund)
+
+  Testy pracują na tymczasowym katalogu domowym — nie ruszają Twoich
+  danych i nie wymagają internetu ani konta. Sprawdzają m.in.:
+  zgodność numerów wersji, brak danych osobowych w kodzie, wszystkie
+  źródła nazwiska przełożonego, parser wersja.txt w pięciu układach,
+  blokadę wersji w ośmiu sytuacjach (w tym polska data i cofnięty zegar),
+  rozdzielenie danych między kontami, przejęcie danych sprzed 3.21.0
+  na komputerze jednym i wspólnym, brak PowerShella w kodzie,
+  12 scenariuszy generowania tras (4 bazy × 3 kwoty), sufity dokumentów,
+  jednostronicowość PDF-ów i zbudowanie głównego okna programu.
+
+  Stan na dziś: 91/91 testów przechodzi.
+
+───────────────────────────────────────────────────────────────────────
+KROK PO KROKU — WYDANIE 3.21.0
+───────────────────────────────────────────────────────────────────────
+  1. PRZYGOTUJ FOLDER
+     Nowy, pusty folder (np. C:\PMT_3.21.0), rozpakuj do niego całość.
+     Skopiuj ze starego katalogu ciemny.png i jasny.png, jeśli ich nie ma.
+
+  2. SPRAWDŹ WERSJE
+     Dwuklik SPRAWDZ_WERSJE.bat — w źródle i w wersja.txt ma być 3.21.0.
+
+  3. PRZETESTUJ
+     python testy_pmt.py — ma wyjść 91/91.
+
+  4. ZBUDUJ
+     Dwuklik ZBUDUJ_EXE_FOLDER.bat. Wynik: dist\PMT_Planer\
+     Spakuj CAŁY ten folder do PMT_Planer_3.21.0.zip
+     (albo zdaj się na GitHub Actions — buduje to samo automatycznie
+     po opublikowaniu wydania z tagiem v3.21.0).
+
+  5. SPRAWDŹ NA SOBIE — 10 minut, zanim wyślesz komukolwiek
+     · uruchom program i zaloguj się,
+     · wpisz przełożonego w polu „Przełożony (na delegacji)",
+     · wygeneruj delegację na 4 700 zł — suma co do grosza,
+     · otwórz jeden PDF: dane, trasa, rubryka MENEDŻER wypełniona,
+     · otwórz mapę tras: pierwszy i ostatni punkt to Twój adres,
+     · wyloguj się i zaloguj ponownie — plan i adres mają być Twoje.
+
+  6. GITHUB — KOLEJNOŚĆ JEST WAŻNA
+     a) wyślij źródła (WYSLIJ_NA_GITHUB.bat), wersja.txt zostaw na koniec,
+     b) opublikuj wydanie z tagiem v3.21.0 i NIC do niego nie przeciągaj.
+        GitHub sam zbuduje paczki (Windows, macOS, Linux) i dołączy je
+        do tego wydania — z tymi samymi ustawieniami co budowa lokalna.
+        Poczekaj, aż zakładka Actions pokaże zielony znaczek.
+
+        NIE WGRYWAJ własnego ZIP-a obok. W wydaniu byłyby wtedy DWA
+        archiwa Windows i aktualizator u ludzi mógłby pobrać nie to,
+        które trzeba. Ręczną paczkę dokładaj tylko wtedy, gdy budowanie
+        na GitHubie się nie powiodło — i wtedy jako jedyną.
+
+     c) dopiero teraz wyślij wersja.txt:
+            git add wersja.txt && git commit -m "wersja 3.21.0" && git push
+        Od tej chwili wszyscy widzą aktualizację, a po dacie z wiersza
+        blokada= stare wersje przestają się uruchamiać.
+
+        UWAGA: automat, który podbija wersja.txt po opublikowaniu wydania,
+        zachowuje teraz wiersze min= i blokada=. Sprawdź jednak po wszystkim,
+        czy plik w repozytorium nadal ma cztery linie.
+
+  7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
+     Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu
+     zostaw na czas PO zaktualizowaniu zespołu (zalecane 14 dni).
+
 ═══════════════════════════════════════════════════════════════════════

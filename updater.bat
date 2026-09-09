@@ -187,7 +187,6 @@ rem === Plik pobrany z sieci dostaje ukryty znacznik strefy. Windows     ===
 rem === potrafi wtedy CICHO zablokowac uruchomienie z poziomu skryptu -  ===
 rem === bez zadnego komunikatu. To najczestsza przyczyna "nie wystartowal". ===
 del "%CEL%:Zone.Identifier" >nul 2>&1
-del "%CEL%:Zone.Identifier" >nul 2>&1
 echo [4] Zdjeto blokade pliku z internetu - jesli byla. >> "%LOG%"
 
 rem === 5d OneDrive/chmura: swiezo zapisany plik bywa przez chwile zajety   ===
@@ -240,7 +239,10 @@ for /l %%i in (1,1,20) do (
         rem wczesniej dwie proby wchodzily sobie w droge i konczyly sie dwoma
         rem oknami bledu ladowania bibliotek.
         if "!PROBA_2!"=="0" if %%i GEQ 8 (
-            echo [4] Sposob 2: uruchomienie przez cmd po odczekaniu... >> "%LOG%"
+            rem Ta sama metoda co sposob 1, ale po odczekaniu - najczestsza
+            rem przyczyna nieudanego pierwszego startu to plik jeszcze zajety
+            rem przez skaner antywirusowy albo synchronizacje chmury.
+            echo [4] Sposob 2: ponowna proba startu po odczekaniu... >> "%LOG%"
             start "" /D "%KATALOG%" "%CEL%"
             set "PROBA_2=1"
         ) else (

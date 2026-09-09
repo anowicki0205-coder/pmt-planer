@@ -526,6 +526,37 @@ if not SZYBKO:
             abs(sum(x["kwota"] for x in _pods) - sum(d.suma for d in _dni)) <= 0.02,
             "%.2f vs %.2f" % (sum(x["kwota"] for x in _pods), sum(d.suma for d in _dni)))
 
+    sekcja("7b. Aktualizacja: użytkownik zawsze ma wybór")
+
+    try:
+        from PyQt6.QtWidgets import QApplication as _QA
+        from PyQt6.QtCore import QTimer as _QT
+        _app0 = _QA.instance() or _QA(sys.argv)
+
+        # Okno zwykłej aktualizacji — dwie opcje: zaktualizuj albo później.
+        _d1 = P.OknoAktualizacji(None, wersja_stara="3.21.0", wersja_nowa="3.22.0",
+                                 opis="Nowości.", is_dark=True, on_instaluj=lambda x: None)
+        sprawdz("aktualizacja dobrowolna: jest przycisk instalacji",
+                "Zaktualizuj" in _d1.btn_akt.text(), _d1.btn_akt.text())
+        sprawdz("aktualizacja dobrowolna: da się odłożyć na później",
+                "Przypomnij" in _d1.btn_pozniej.text(), _d1.btn_pozniej.text())
+        _QT.singleShot(150, _d1.reject); _d1.exec()
+
+        # Okno blokady — też z działającą instalacją, nie tylko „OK".
+        _d2 = P.OknoAktualizacji(None, wersja_stara="3.20.57", wersja_nowa="3.21.0",
+                                 opis="Wersja nieobsługiwana.", is_dark=True,
+                                 on_instaluj=lambda x: None, wymagana=True)
+        sprawdz("wymagana aktualizacja: jest przycisk instalacji, nie samo OK",
+                "Zaktualizuj" in _d2.btn_akt.text(), _d2.btn_akt.text())
+        sprawdz("wymagana aktualizacja: druga opcja mówi wprost, co się stanie",
+                "Zamknij" in _d2.btn_pozniej.text(), _d2.btn_pozniej.text())
+        _QT.singleShot(150, _d2.reject); _d2.exec()
+
+        sprawdz("instalator działa też przed zalogowaniem (funkcja modułowa)",
+                callable(getattr(P, "zainstaluj_aktualizacje_i_zamknij", None)))
+    except Exception as _e:
+        sprawdz("okna aktualizacji budują się bez błędu", False, repr(_e))
+
     sekcja("8. Okno programu buduje się i zamyka")
     try:
         from PyQt6.QtWidgets import QApplication

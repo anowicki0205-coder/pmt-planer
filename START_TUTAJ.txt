@@ -101,6 +101,18 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
   · ostrzeżenie wyskakiwało przy KAŻDYM uruchomieniu przez 14 dni;
     teraz raz dziennie.
 
+  CO WIDZI UŻYTKOWNIK — wybór zostaje po jego stronie tak długo, jak to
+  możliwe:
+  · dopóki jest w okresie przejściowym — raz dziennie okno z informacją,
+    ile dni zostało; klika OK i pracuje dalej. Aktualizuje wtedy, kiedy
+    chce: ikoną w programie („Zaktualizuj teraz" albo „Przypomnij przy
+    następnym uruchomieniu"),
+  · po terminie — program pokazuje TO SAMO okno aktualizacji z działającym
+    przyciskiem „Zaktualizuj teraz": jedno kliknięcie pobiera nową wersję
+    i podmienia program. Druga opcja to uczciwe „Zamknij program".
+    Wysyłanie do przeglądarki zostało planem awaryjnym (na wypadek, gdyby
+    pobieranie zawiodło) — bo to właśnie tam SmartScreen straszy najmocniej.
+
   NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script.gs
   jest już gotowa kontrola wersji przy logowaniu:
         var MINIMALNA_WERSJA = "3.16.0";

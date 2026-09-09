@@ -9262,18 +9262,73 @@ class KorytarzAktualizacji(QWidget):
         return x * x * (3.0 - 2.0 * x)
 
 
+def zainstaluj_aktualizacje_i_zamknij(pobrany_plik):
+    """Uruchamia skrypt podmiany i TWARDO kończy proces.
+
+    Zwraca opis błędu (tekst) albo None — gdy zwróci None, program już nie
+    żyje. Funkcja jest MODUŁOWA, a nie metodą okna, bo używamy jej także
+    przed zalogowaniem: okno obowiązkowej aktualizacji pojawia się, zanim
+    powstanie główne okno programu.
+
+    Kluczowe: program musi NAPRAWDĘ się zamknąć, inaczej Windows dalej
+    trzyma zablokowany plik .exe i podmiana się nie uda. QApplication.quit()
+    do tego nie wystarcza — kończy tylko pętlę zdarzeń, a żyjące wątki
+    potrafią utrzymać proces przy życiu. Dlatego wychodzimy przez os._exit().
+
+    Skrypt podmiany pobieramy ŚWIEŻO z GitHuba (przygotuj_skrypt_aktualizacji) —
+    gdyby w jego logice znalazł się kiedyś błąd, poprawka na GitHubie
+    zadziała u wszystkich, bez potrzeby wydawania nowej wersji programu.
+    """
+    try:
+        docelowy = sciezka_programu()
+        bat, args = przygotuj_skrypt_aktualizacji(pobrany_plik, docelowy, os.getpid())
+        # DETACHED/NEW_CONSOLE — skrypt ma przeżyć śmierć programu. Widoczne
+        # okno jest celowe: gdy coś pójdzie nie tak, użytkownik zobaczy
+        # komunikat zamiast mignięcia CMD.
+        if CZY_WINDOWS:
+            subprocess.Popen(["cmd", "/c", bat] + args,
+                             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                             close_fds=True)
+        else:
+            subprocess.Popen(["/bin/bash", bat] + args,
+                             start_new_session=True, close_fds=True)
+    except Exception as e:
+        return str(e)
+    try:
+        QApplication.processEvents()
+        QApplication.quit()
+    except Exception:
+        pass
+    os._exit(0)          # bez tego proces potrafi zostać i blokować plik
+
+
 class OknoAktualizacji(QDialog):
     """Powitanie nowej wersji — pokazywane PRZY STARCIE, gdy jest aktualizacja.
     Zamiast dyskretnej ikonki: pełne, efektowne okno, które od razu proponuje
     jedno kliknięcie („Zaktualizuj teraz”) i samo podmienia plik programu."""
     def __init__(self, parent=None, wersja_stara="", wersja_nowa="", opis="",
-                 is_dark=True, on_instaluj=None, start_rect=None):
+                 is_dark=True, on_instaluj=None, start_rect=None, wymagana=False):
         super().__init__(parent)
+        # wymagana=True → to okno pokazuje się PRZED wejściem do programu,
+        # bo bieżąca wersja przestała być obsługiwana. Przycisk „Zaktualizuj
+        # teraz" działa dokładnie tak samo; zmienia się tylko druga opcja:
+        # zamiast „przypomnij później" mamy uczciwe „zamknij program",
+        # bo bez aktualizacji i tak nie da się dalej pracować.
+        self._wymagana = bool(wymagana)
         # animacja wjazdu: okno "wyrasta" z malego logo PMT (moneta przy
         # lewym menu) — start_rect to globalny prostokat tej monety
         self._anim_start = QRect(start_rect) if start_rect is not None else None
         self._anim_uzyta = False
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        if parent is None:
+            # Pokazywane przed powstaniem okna programu — jako zwykły „Dialog"
+            # nie miałoby wpisu na pasku zadań i potrafiłoby schować się za
+            # innymi oknami. Użytkownik widziałby program, który nie startuje.
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint
+                                | Qt.WindowType.Window
+                                | Qt.WindowType.WindowStaysOnTopHint)
+            QTimer.singleShot(0, lambda: (self.raise_(), self.activateWindow()))
+        else:
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(True)
         self._on_instaluj = on_instaluj
@@ -9304,7 +9359,8 @@ class OknoAktualizacji(QDialog):
         bl = QVBoxLayout(self.box); bl.setContentsMargins(34, 30, 34, 28); bl.setSpacing(0)
 
         # --- plakietka „NOWA WERSJA” ---
-        plak = QLabel("✦   NOWA WERSJA JEST GOTOWA   ✦")
+        plak = QLabel("✦   AKTUALIZACJA WYMAGANA   ✦" if wymagana
+                      else "✦   NOWA WERSJA JEST GOTOWA   ✦")
         plak.setAlignment(Qt.AlignmentFlag.AlignCenter)
         plak.setStyleSheet(
             f"color:{akc}; font-family:'Segoe UI'; font-size:11px; font-weight:800; "
@@ -9377,7 +9433,9 @@ class OknoAktualizacji(QDialog):
         self.btn_akt.clicked.connect(self._instaluj)
         akcje.addWidget(self.btn_akt)
 
-        self.btn_pozniej = QPushButton("Przypomnij przy następnym uruchomieniu")
+        self.btn_pozniej = QPushButton(
+            "Zamknij program" if wymagana
+            else "Przypomnij przy następnym uruchomieniu")
         self.btn_pozniej.setFixedHeight(34)
         self.btn_pozniej.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_pozniej.setStyleSheet(
@@ -17400,46 +17458,10 @@ class App(QMainWindow):
         _pokaz_dialog()
 
     def _zainstaluj_aktualizacje(self, pobrany_plik):
-        """Uruchamia skrypt podmiany i TWARDO kończy proces.
-
-        Kluczowe: program musi NAPRAWDĘ się zamknąć, inaczej Windows dalej
-        trzyma zablokowany plik .exe i podmiana się nie uda. QApplication.quit()
-        do tego nie wystarcza — kończy tylko pętlę zdarzeń, a żyjące wątki
-        (pobieranie, sprawdzanie wersji) potrafią utrzymać proces przy życiu.
-        Dlatego zatrzymujemy wątki i wychodzimy przez os._exit().
-
-        Skrypt podmiany pobieramy ŚWIEŻO z GitHuba (przygotuj_skrypt_aktualizacji) —
-        gdyby w jego logice znalazł się kiedyś błąd, poprawka na GitHubie
-        zadziała u wszystkich, bez potrzeby wydawania nowej wersji programu.
-        """
-        try:
-            docelowy = sciezka_programu()
-            bat, args = przygotuj_skrypt_aktualizacji(pobrany_plik, docelowy, os.getpid())
-
-            # DETACHED_PROCESS — skrypt ma przeżyć śmierć programu.
-            # UWAGA: nie łączymy z CREATE_NO_WINDOW (Windows nie pozwala
-            # łączyć tych flag — proces po prostu się nie tworzy).
-            # CREATE_NEW_CONSOLE — skrypt dostaje własne okno i ŻYJE DALEJ
-            # po śmierci programu. Widoczne okno jest celowe: gdy coś pójdzie
-            # nie tak, użytkownik zobaczy komunikat zamiast mignięcia CMD.
-            if CZY_WINDOWS:
-                flagi = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-                subprocess.Popen(["cmd", "/c", bat] + args,
-                                 creationflags=flagi,
-                                 close_fds=True)
-            else:
-                # macOS/Linux: skrypt powłoki odczepiony od procesu programu
-                # (start_new_session — przeżyje zamknięcie przez os._exit)
-                subprocess.Popen(["/bin/bash", bat] + args,
-                                 start_new_session=True,
-                                 close_fds=True)
-        except Exception as e:
-            self.toast.show_toast(
-                "Nie udało się zainstalować",
-                f"{e}\nSpróbuj pobrać ręcznie ze strony wydania.", success=False)
-            return
-
-        # --- twarde zamknięcie: zwalniamy plik .exe ---
+        """Instalacja aktualizacji z poziomu działającego okna programu.
+        Cała robota jest w module (zainstaluj_aktualizacje_i_zamknij), żeby
+        dokładnie ta sama ścieżka działała też przed zalogowaniem — przy
+        oknie obowiązkowej aktualizacji, gdy okna programu jeszcze nie ma."""
         for nazwa in ("_update_thread", "_plan_thread"):
             w = getattr(self, nazwa, None)
             try:
@@ -17448,12 +17470,11 @@ class App(QMainWindow):
                     w.wait(1500)
             except Exception:
                 pass
-        try:
-            QApplication.processEvents()
-            QApplication.quit()
-        except Exception:
-            pass
-        os._exit(0)          # bez tego proces potrafi zostać i blokować plik
+        blad = zainstaluj_aktualizacje_i_zamknij(pobrany_plik)
+        if blad:
+            self.toast.show_toast(
+                "Nie udało się zainstalować",
+                f"{blad}\nSpróbuj pobrać ręcznie ze strony wydania.", success=False)
 
     def toggle_sidebar(self):
         # ⚙️ "przypina" panel otwarty (klik) — hover nadal działa, ale nie zwija przypiętego
@@ -18993,23 +19014,54 @@ if __name__ == "__main__":
     # ── OBOWIĄZKOWA AKTUALIZACJA — sprawdzenie przed wejściem ──────
     try:
         _wczytaj_wymagania()
+        _nowa_wer, _nowy_opis = "", ""
         try:
-            sprawdz_aktualizacje()
+            _jest, _nowa_wer, _nowy_opis = sprawdz_aktualizacje()
         except Exception:
             pass
         _zabl, _dni = wersja_zablokowana()
         if _zabl:
-            _okno_pmt(None, "Wymagana aktualizacja",
-                      "Ta wersja programu (%s) nie jest już obsługiwana.\n\n"
-                      "Wymagana jest wersja %s lub nowsza — zawiera poprawki "
-                      "wpływające na poprawność dokumentów delegacyjnych.\n\n"
-                      "Pobierz nową wersję:\n%s"
-                      % (WERSJA_PROGRAMU, WERSJA_WYMAGANA or "nowsza", URL_POBIERANIA),
-                      tylko_ok=True)
+            # NIE ZOSTAWIAMY UŻYTKOWNIKA Z SAMYM „OK". Pokazujemy to samo
+            # okno aktualizacji co zwykle — z działającym przyciskiem
+            # „Zaktualizuj teraz", który pobiera paczkę i podmienia program
+            # jednym kliknięciem. Wysyłanie człowieka do przeglądarki jest
+            # planem awaryjnym, nie pierwszym krokiem: to właśnie tam
+            # SmartScreen straszy najmocniej, a przy 65 osobach każde
+            # „pobierz ręcznie" kończy się telefonem.
+            _ciemny = bool(ustawienie("ciemny_motyw", True))
+            _okno_pokazane = False
             try:
-                webbrowser.open(URL_POBIERANIA)
+                _dlg = OknoAktualizacji(
+                    None,
+                    wersja_stara=WERSJA_PROGRAMU,
+                    wersja_nowa=(_nowa_wer or WERSJA_WYMAGANA or "nowsza"),
+                    opis=("Ta wersja przestała być obsługiwana i nie uruchomi się "
+                          "dalej. Kliknij przycisk poniżej — program pobierze "
+                          "nową wersję i sam się podmieni.\n\n"
+                          + (_nowy_opis or "")).strip(),
+                    is_dark=_ciemny,
+                    on_instaluj=zainstaluj_aktualizacje_i_zamknij,
+                    wymagana=True)
+                _dlg.exec()          # przy udanej instalacji program tu ginie
+                _okno_pokazane = True
             except Exception:
-                pass
+                _okno_pokazane = False
+            # Poniższe pokazujemy TYLKO wtedy, gdy okna aktualizacji nie dało
+            # się w ogóle otworzyć. Jeśli się otworzyło, użytkownik miał tam
+            # komplet opcji (aktualizacja, strona pobierania, zamknięcie)
+            # i nie ma po co dokładać mu drugiego okna.
+            if not _okno_pokazane:
+                _okno_pmt(None, "Wymagana aktualizacja",
+                          "Ta wersja programu (%s) nie jest już obsługiwana.\n\n"
+                          "Wymagana jest wersja %s lub nowsza — zawiera poprawki "
+                          "wpływające na poprawność dokumentów delegacyjnych.\n\n"
+                          "Pobierz nową wersję:\n%s"
+                          % (WERSJA_PROGRAMU, WERSJA_WYMAGANA or "nowsza", URL_POBIERANIA),
+                          tylko_ok=True)
+                try:
+                    webbrowser.open(URL_POBIERANIA)
+                except Exception:
+                    pass
             sys.exit(0)
         elif _dni is not None and _dni <= DNI_OKRESU_PRZEJSCIOWEGO:
             # Ostrzegamy RAZ DZIENNIE, nie przy każdym uruchomieniu —

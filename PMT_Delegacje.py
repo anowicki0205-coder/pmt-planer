@@ -590,6 +590,26 @@ def _menedzer_zrodlo() -> str:
     return "BRAK — szukano: " + " | ".join(szukane)
 
 
+# Adres, na który trafia „Zgłoś błąd". Do 3.21.2 był zaszyty na sztywno
+# w kodzie — teraz można go podmienić plikiem pmt_kontakt.txt (jedna
+# linia) obok programu, bez wydawania nowej wersji. Brak pliku = adres
+# domyślny, więc zachowanie dotychczasowych instalacji się nie zmienia.
+ADRES_ZGLOSZEN_DOMYSLNY = "anowicki@pmt.com.pl"
+
+
+def _adres_zgloszen() -> str:
+    for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
+        try:
+            sc = os.path.join(kat, "pmt_kontakt.txt")
+            if os.path.exists(sc):
+                w = _pierwsza_linia_pliku(sc)
+                if w and "@" in w and " " not in w:
+                    return w
+        except Exception:
+            continue
+    return ADRES_ZGLOSZEN_DOMYSLNY
+
+
 def _podpisz_zadanie(dane: dict) -> dict:
     """Dokłada znacznik czasu i podpis HMAC-SHA256 do zapytania."""
     try:
@@ -17071,7 +17091,7 @@ class App(QMainWindow):
 
         self.btn_bug = QPushButton("⚠  Zgłoś błąd", self.topbar)
         styl_zglos_blad(self.btn_bug)
-        self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:anowicki@pmt.com.pl"))
+        self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:" + _adres_zgloszen()))
         tb.addWidget(self.btn_bug)
 
         # Wylogowanie zawsze pod ręką — ten sam styl co pozostałe przyciski paska.
@@ -19076,7 +19096,12 @@ class App(QMainWindow):
                 "woj_wizyty": woj_wizyty,              # WSZYSTKIE odwiedzone regiony
                 "baza": p.get('baza_miasto', '') or '', # miejscowość bazowa
                 "miejsc_wizyty": miejsc_wizyty,        # odwiedzane miejscowości (bez bazy)
-                "dokumenty": math.ceil(suma / MAX_KWOTA_DOKUMENTU) if suma else 0,
+                # liczymy PLIKI, które naprawdę powstały — podział na dokumenty
+                # zależy też od limitu 30 etapów, nie tylko od kwoty
+                "dokumenty": (len([_n for _n in os.listdir(folder)
+                                   if _n.lower().startswith("delegacja_") and _n.lower().endswith(".pdf")])
+                              if os.path.isdir(folder) else 0)
+                             or (math.ceil(suma / MAX_KWOTA_DOKUMENTU) if suma else 0),
                 "km": round(km_total),
                 "miesiac": p['miesiac'],
                 "rok": p['rok'],
@@ -19139,10 +19164,25 @@ if __name__ == "__main__":
     try:
         _wczytaj_wymagania()
         _nowa_wer, _nowy_opis = "", ""
-        try:
-            _jest, _nowa_wer, _nowy_opis = sprawdz_aktualizacje()
-        except Exception:
-            pass
+        # Sieć w OSOBNYM wątku z twardym limitem 3 s. Sam timeout urlopen
+        # nie obejmuje rozwiązywania nazwy — przy martwym DNS w firmowej
+        # sieci start potrafił stać kilkanaście sekund bez żadnego okna.
+        # Decyzję o blokadzie i tak mamy z lokalnie zapisanych wymagań;
+        # spóźniona odpowiedź z sieci zapisze się na następny start.
+        _wynik_sieci = {}
+        def _w_tle():
+            try:
+                _wynik_sieci["w"] = sprawdz_aktualizacje()
+            except Exception:
+                pass
+        _wat = threading.Thread(target=_w_tle, daemon=True)
+        _wat.start()
+        _wat.join(3.0)
+        if "w" in _wynik_sieci:
+            try:
+                _jest, _nowa_wer, _nowy_opis = _wynik_sieci["w"]
+            except Exception:
+                pass
         _zabl, _dni = wersja_zablokowana()
         if _zabl:
             # NIE ZOSTAWIAMY UŻYTKOWNIKA Z SAMYM „OK". Pokazujemy to samo
@@ -19199,7 +19239,8 @@ if __name__ == "__main__":
                            "Zaktualizuj program do wersji %s — nowe wydanie "
                            "zawiera poprawki wpływające na poprawność "
                            "rozliczeń.\n\nPobierzesz ją tutaj:\n%s")
-                          % (("dzisiaj" if _dni == 0 else "za %d dni" % _dni),
+                          % (("dzisiaj" if _dni == 0 else
+                              ("jutro" if _dni == 1 else "za %d dni" % _dni)),
                              WERSJA_WYMAGANA or "nowszej", URL_POBIERANIA),
                           tylko_ok=True)
     except SystemExit:

@@ -39,6 +39,9 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
     w Twoim katalogu użytkownika (C:\Users\TY\menedzer.txt). Czyta UTF-8,
     UTF-8 z BOM, ANSI (cp1250) i UTF-16 — każdy zapis z Notatnika.
   · Plik .gitignore pilnuje, żeby menedzer.txt nigdy nie trafił na GitHub.
+  · Tak samo działa pmt_kontakt.txt (jedna linia z adresem e-mail): to
+    adres, na który trafia przycisk „Zgłoś błąd". Bez pliku program używa
+    adresu domyślnego, więc nic nie musisz robić, jeśli ma zostać po staremu.
   · Gdyby rubryka MIMO TO wyszła pusta: w katalogu użytkownika jest plik
     PMT_diagnostyka_animacji.txt — linia „MENEDZER na dokumencie" mówi,
     co poszło na PDF i GDZIE program szukał. Wyślij tę linię.

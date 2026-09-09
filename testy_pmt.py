@@ -167,6 +167,26 @@ if not _bylo:
     except Exception:
         pass
 
+# adres „Zgłoś błąd" — domyślny, gdy brak pliku; z pliku, gdy jest
+_plik_kontakt = os.path.join(KATALOG, "pmt_kontakt.txt")
+if not os.path.exists(_plik_kontakt):
+    sprawdz("_adres_zgloszen() bez pliku zwraca adres domyślny",
+            P._adres_zgloszen() == P.ADRES_ZGLOSZEN_DOMYSLNY, repr(P._adres_zgloszen()))
+    try:
+        with open(_plik_kontakt, "w", encoding="utf-8") as f:
+            f.write(" pomoc@przyklad.pl \n")
+        sprawdz("_adres_zgloszen() czyta pmt_kontakt.txt",
+                P._adres_zgloszen() == "pomoc@przyklad.pl", repr(P._adres_zgloszen()))
+        with open(_plik_kontakt, "w", encoding="utf-8") as f:
+            f.write("to nie jest adres\n")
+        sprawdz("_adres_zgloszen() odrzuca wpis bez @ i wraca do domyślnego",
+                P._adres_zgloszen() == P.ADRES_ZGLOSZEN_DOMYSLNY, repr(P._adres_zgloszen()))
+    finally:
+        try:
+            os.remove(_plik_kontakt)
+        except Exception:
+            pass
+
 
 # ══════════════════════════════════════════════════════════════════
 sekcja("2b. Przełożony w układzie ZBUDOWANEGO programu (_internal)")

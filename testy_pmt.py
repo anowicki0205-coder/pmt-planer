@@ -333,6 +333,56 @@ with open(_pusty, "w") as _f:
 _pelny_ok = P._plik_ma_tresc(_pusty) is True
 os.remove(_pusty)
 sprawdz("_plik_ma_tresc: pusta lista = jak brak pliku, lista z wpisem = treść", _pusty_ok and _pelny_ok)
+# serwer odsyła OK z PUSTYM imieniem (wiersz założony przez puls) — logowanie ma przejść
+class _OdpSerwera:
+    def __init__(self, dane):
+        self._d = json.dumps(dane).encode("utf-8")
+    def read(self):
+        return self._d
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+_ur.urlopen = lambda *a, **k: _OdpSerwera({"status": "ok", "imie": "", "wazne_do": "2099-06-30"})
+try:
+    _ok_p, _imie_p, _kom_p = P.online_zaloguj(_kod_o, _haslo_o)
+finally:
+    _ur.urlopen = _orig_urlopen
+sprawdz("logowanie online z pustym imieniem z serwera przechodzi (bez KeyError)",
+        _ok_p is True and _imie_p in ("", "Jan Testowy") and P._wczytaj(P.PLIK_STATUSU, {}).get("wazne_do") == "2099-06-30",
+        str((_ok_p, _imie_p, _kom_p)))
+# pusta rubryka „Ważne do” w arkuszu = status „wygasla” → program NIE żyje na zapamiętanej dacie
+P._zapamietaj_waznosc_konta(_kod_o, "2099-06-30")
+P._zapamietaj_waznosc_konta(_kod_o, "", z_serwera=True)
+sprawdz("puls z pustą datą kasuje zapamiętaną ważność konta",
+        not (P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o) or {}).get("wazne_do"))
+P._zapisz(P.PLIK_STATUSU, {"kod": _kod_o, "imie": "Jan Testowy", "status": "wygasla",
+                           "skrot": P._hash_hasla(_kod_o, _haslo_o)})
+_w_w, _d_w, _p_w = P._sesja_z_historii_urzadzenia()
+sprawdz("status „wygasla” z serwera = odmowa z powodem (mimo skrótu hasła)",
+        _w_w is False and "wazne_do=" in str(_p_w), str((_w_w, _d_w, _p_w)))
+# historia bez daty ostatniego logowania online = brak podstaw, decyduje zasada demo
+P._zapisz(P.PLIK_STATUSU, {"kod": _kod_o, "imie": "Jan Testowy", "skrot": P._hash_hasla(_kod_o, _haslo_o)})
+_h = P._wczytaj(P.PLIK_LOGOWAN, {}); _h[_kod_o] = {"imie": "Jan Testowy", "skrot": P._hash_hasla(_kod_o, _haslo_o)}
+P._zapisz(P.PLIK_LOGOWAN, _h)
+sprawdz("historia bez daty logowania nie daje bezterminowego dostępu",
+        P._sesja_z_historii_urzadzenia()[0] is None)
+# wspólny komputer: raz zapamiętany kod sprzed aktualizacji decyduje, nie „kto logował się ostatnio”
+P._ustawienia_reset()
+P._zapisz(P.PLIK_LOGOWAN, {"11111": {"imie": "A"}, "22222": {"imie": "B"}})
+P._zapisz(P.PLIK_STATUSU, {"kod": "11111"})
+P._zapamietaj_kod_przed_logowaniem()
+P._zapisz(P.PLIK_STATUSU, {"kod": "22222"})
+_kp = P._zapamietaj_kod_przed_logowaniem()
+sprawdz("kod sprzed aktualizacji zapamiętany na stałe: drugi start nie oddaje danych ostatnio zalogowanemu",
+        _kp == "11111" and P._wolno_przejac_wspolne("11111") and not P._wolno_przejac_wspolne("22222"),
+        str((_kp, P.KOD_PRZED_LOGOWANIEM)))
+P.KOD_PRZED_LOGOWANIEM = ""
+P._ustawienia_reset()
+try:
+    os.remove(P.USTAWIENIA_STORE)
+except Exception:
+    pass
 for _w in (P.PLIK_STATUSU, P.PLIK_LOGOWAN):
     try:
         os.remove(_w)

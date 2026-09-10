@@ -395,7 +395,11 @@ KROK PO KROKU — WYDANIE 3.21.0
           zasada demo (30 dni od instalacji) zamykała program. Od 3.22.0
           logowanie offline zapisuje status, ważność konta jest pamiętana
           PER KONTO w .pmt_logowania.json, a świeże (≤ 45 dni)
-          zweryfikowane logowanie wystarcza do pracy bez serwera.
+          zweryfikowane logowanie wystarcza do pracy bez serwera. Pusta
+          rubryka „Ważne do” w arkuszu oznacza konto WYGASŁE (tak odpowiada
+          backend) — program zamyka się z komunikatem „Dostęp wygasł (brak
+          daty w arkuszu)”, chyba że instalację odblokowano kodem
+          aktywacyjnym. Wpisz daty wszystkim aktywnym użytkownikom.
      Werdykt sesji nazywa powód zamknięcia („Dostęp wygasł DD.MM.RRRR” —
      kolumna Ważne do — albo „nie potwierdził dostępu”) i zapisuje go
      w PMT_diagnostyka_animacji.txt.

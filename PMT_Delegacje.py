@@ -504,7 +504,7 @@ def online_synchronizuj() -> bool:
             "ostatnia_synchronizacja": datetime.date.today().isoformat(),
         })
         _zapisz(PLIK_STATUSU, st)
-    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""), odp.get("imie", ""))
+    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""), odp.get("imie", ""), z_serwera=True)
     return True
 
 def _rozgrzej_backend():
@@ -747,7 +747,7 @@ def _zapisz_logowanie(kod: str, imie: str, skrot: str):
     _zapisz(PLIK_LOGOWAN, dane)
 
 
-def _zapamietaj_waznosc_konta(kod: str, wazne_do: str, imie: str = ""):
+def _zapamietaj_waznosc_konta(kod: str, wazne_do: str, imie: str = "", z_serwera: bool = False):
     """Ważność dostępu (kolumna „Ważne do") zapamiętana PER KONTO w historii
     urządzenia. Dzięki temu po logowaniu bez sieci program zna termin konta,
     zamiast wracać do 30-dniowej zasady demo i zamykać się „bez powodu"."""
@@ -761,6 +761,8 @@ def _zapamietaj_waznosc_konta(kod: str, wazne_do: str, imie: str = ""):
             wpis = {}
         if wazne_do:
             wpis["wazne_do"] = str(wazne_do)
+        elif z_serwera:
+            wpis.pop("wazne_do", None)     # serwer: pusta rubryka = wygasłe
         if imie and not wpis.get("imie"):
             wpis["imie"] = str(imie)
         dane[kod] = wpis
@@ -781,6 +783,8 @@ def _zapisz_status_po_logowaniu(kod: str, skrot: str, imie: str, wazne_do: str =
     st["skrot"] = skrot
     if imie:
         st["imie"] = str(imie)
+    else:
+        st.setdefault("imie", "")       # serwer może odesłać puste imię
     if wazne_do and not st.get("wazne_do"):
         st["wazne_do"] = str(wazne_do)
     st["dokumenty_sesja"] = 0
@@ -799,6 +803,16 @@ def _sesja_z_historii_urzadzenia():
         kod = online_kod_uzytkownika()
         if not kod:
             return None, None, ""
+        st = _wczytaj(PLIK_STATUSU, {}) or {}
+        if str(st.get("status", "") or "") == "wygasla":
+            # serwer powiedział wprost: pusta rubryka „Ważne do" = konto
+            # wygasłe. Wyjątek: instalacja odblokowana kodem aktywacyjnym.
+            try:
+                if _demo_wczytaj()[1]:
+                    return True, DEMO_DNI, ""
+            except Exception:
+                pass
+            return False, 0, "wazne_do=brak daty w arkuszu"
         wpis = (_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}
         if not isinstance(wpis, dict):
             wpis = {}
@@ -809,13 +823,13 @@ def _sesja_z_historii_urzadzenia():
                 return dni >= 0, max(0, dni), ("" if dni >= 0 else "wazne_do=%s" % wd)
             except Exception:
                 pass
-        st = _wczytaj(PLIK_STATUSU, {}) or {}
-        if wpis.get("skrot") or st.get("skrot"):
+        ost = str(wpis.get("ostatnio", "") or "")
+        if wpis.get("skrot") and ost:
+            # bez daty ostatniego logowania online nie ma od czego liczyć —
+            # wtedy decyduje zasada demo, nie bezterminowy zapas
             if _logowanie_offline_dozwolone(wpis):
                 try:
-                    ost = str(wpis.get("ostatnio", "") or "")
-                    d0 = (datetime.datetime.fromisoformat(ost[:19]).date()
-                          if ost else datetime.date.today())
+                    d0 = datetime.datetime.fromisoformat(ost[:19]).date()
                     dni = max(0, OFFLINE_LOGOWANIE_DNI - (datetime.date.today() - d0).days)
                 except Exception:
                     dni = OFFLINE_LOGOWANIE_DNI
@@ -947,7 +961,7 @@ def online_zaloguj(kod: str, haslo: str):
         threading.Thread(target=online_zdarzenie_sesji, args=("logowanie",), daemon=True).start()
     except Exception:
         pass
-    return True, st["imie"], ""
+    return True, str(st.get("imie", "") or ""), ""
 
 
 def czyOnline_program() -> bool:
@@ -1501,7 +1515,16 @@ def dialog_logowania():
             except Exception as e:
                 _wynik_wer["res"] = (False, "", _opisz_blad_sieci(e))
 
-        threading.Thread(target=_w_tle, daemon=True).start()
+        try:
+            threading.Thread(target=_w_tle, daemon=True).start()
+        except Exception as _e:
+            _auto["w_toku"] = False
+            b_ok.setStyleSheet(""); b_ok.setMinimumWidth(0); b_ok.setMaximumWidth(16777215)
+            b_ok.setText("Zaloguj"); b_anuluj.setEnabled(True)
+            pole_kod.setEnabled(True); pole_haslo.setEnabled(True)
+            _sprawdz_pola()
+            blad.setText(_opisz_blad_sieci(_e))
+            return
         _kropki = {"n": 0}
         _zeg = QTimer(d)
 
@@ -1807,6 +1830,10 @@ def dialog_logowania():
                      or "brak jednoznacznej odpowiedzi serwera")
             if nowe_ok is True:
                 pole_kod.setText(kod_r)
+                try:
+                    _auto["proby"].add(str(kod_r) + "|" + str(nowe_r))
+                except Exception:
+                    pass
                 pole_haslo.setText(nowe_r)
                 try:
                     im_ = ""
@@ -3513,10 +3540,12 @@ def _zapamietaj_kod_przed_logowaniem() -> str:
         KOD_PRZED_LOGOWANIEM = ""
     try:
         zapamietany = str(ustawienie("kod_przed_aktualizacja", "") or "")
-        if not zapamietany and KOD_PRZED_LOGOWANIEM:
-            zapisz_ustawienie("kod_przed_aktualizacja", KOD_PRZED_LOGOWANIEM)
-        elif zapamietany and not KOD_PRZED_LOGOWANIEM:
+        if zapamietany:
+            # raz zapamiętany kod decyduje NA STAŁE — „kto logował się
+            # ostatnio" na wspólnym komputerze nie jest właścicielem danych
             KOD_PRZED_LOGOWANIEM = zapamietany
+        elif KOD_PRZED_LOGOWANIEM:
+            zapisz_ustawienie("kod_przed_aktualizacja", KOD_PRZED_LOGOWANIEM)
     except Exception:
         pass
     return KOD_PRZED_LOGOWANIEM
@@ -3531,12 +3560,11 @@ def _wolno_przejac_wspolne(kod_biezacy: str) -> bool:
     k = "".join(ch for ch in str(kod_biezacy or "") if ch.isdigit())
     if not k:
         return False
-    if KOD_PRZED_LOGOWANIEM == k:
-        return True
     try:
-        return str(ustawienie("kod_przed_aktualizacja", "") or "") == k
+        zapamietany = str(ustawienie("kod_przed_aktualizacja", "") or "")
     except Exception:
-        return False
+        zapamietany = ""
+    return (zapamietany or KOD_PRZED_LOGOWANIEM) == k
 
 
 def _plik_ma_tresc(sciezka: str) -> bool:

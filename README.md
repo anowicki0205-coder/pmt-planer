@@ -77,6 +77,10 @@ DOKĄD go wgrać.
   się sam `.exe`, bez `_internal`). Nie paczka, nie antywirus. Instrukcja dla
   użytkownika: START_TUTAJ.txt, krok 6a. Paczka od 3.21.2 zawiera podpowiedź
   `0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt`, a `URUCHOM_PMT.bat` rozpoznaje tę sytuację.
+- **„DLL load failed while importing iup: Zasady kontroli aplikacji zablokowały ten plik”** =
+  Windows zablokował niepodpisany `.pyd` z fontTools (3.21.3). Od 3.21.4 fontTools jest
+  instalowany czysto pythonowo (`--no-binary fonttools` w requirements.txt), CI tego pilnuje,
+  a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: START_TUTAJ.txt, 6b.
 - **Buildy na Pythonie 3.13**, nie 3.14 (błąd `python314.dll` u użytkowników).
 - **Po każdej zmianie skryptu w arkuszu** trzeba wydać **nową wersję wdrożenia**,
   inaczej pod adresem `/exec` działa stary kod.

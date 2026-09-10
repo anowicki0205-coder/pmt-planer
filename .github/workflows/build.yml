@@ -55,6 +55,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Kontrola - fontTools bez modulow natywnych
+        shell: bash
+        run: |
+          # requirements.txt ma "--no-binary fonttools". Gdyby to kiedys
+          # przestalo dzialac, paczka znow niosłaby niepodpisane .pyd, ktore
+          # Windows blokuje ("Zasady kontroli aplikacji", 3.21.3). Wolimy
+          # czerwone budowanie niz czerwone okno u uzytkownika.
+          python - <<'PY'
+          import fontTools, glob, os, sys
+          d = os.path.dirname(fontTools.__file__)
+          nat = glob.glob(d + "/**/*.pyd", recursive=True) + glob.glob(d + "/**/*.so", recursive=True)
+          print("fontTools", fontTools.version, "modulow natywnych:", len(nat))
+          if nat:
+              print("::error::fontTools ma skompilowane moduly:", nat)
+              sys.exit(1)
+          PY
       - name: Przelozony z sekretu repozytorium
         shell: bash
         env:

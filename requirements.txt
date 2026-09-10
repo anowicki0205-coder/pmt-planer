@@ -8,3 +8,10 @@ fpdf2
 openpyxl
 pillow
 pyinstaller
+# fontTools (zależność fpdf2) WYŁĄCZNIE w czystym Pythonie, bez
+# skompilowanych modułów .pyd. Wydanie 3.21.3 u użytkownika: „DLL load
+# failed while importing iup: Zasady kontroli aplikacji zablokowały ten
+# plik" — Windows (Smart App Control / zasady firmowe WDAC) zablokował
+# niepodpisany fontTools\varLib\iup.pyd. Te moduły to tylko przyspieszacze;
+# wersja pythonowa robi dokładnie to samo, a nie ma czego blokować.
+--no-binary fonttools

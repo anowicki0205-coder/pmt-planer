@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.21.3 — WERSJA STABILNA
+  PMT PLANER 3.21.4 — WERSJA STABILNA
   baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
 ═══════════════════════════════════════════════════════════════════════
 
@@ -301,6 +301,42 @@ KROK PO KROKU — WYDANIE 3.21.0
        4. Potem uruchamiaj PMT_Planer.exe (skrót: prawy przycisk → w Windows 11
           „Pokaż więcej opcji” → Wyślij do → Pulpit (utwórz skrót)).
           Nie przenoś samego .exe — musi zostać obok _internal.
+
+  6b. BŁĄD „DLL load failed while importing iup: Zasady kontroli aplikacji
+      zablokowały ten plik" (wydanie 3.21.3)
+     Windows (Smart App Control albo firmowe zasady WDAC) zablokował
+     NIEPODPISANY plik _internal\fontTools\varLib\iup.pyd. Skąd się wziął:
+     fpdf2 (PDF-y) korzysta z fontTools, a fontTools instalowany z PyPI jako
+     gotowa paczka niesie kilka skompilowanych przyspieszaczy (.pyd). Paczki
+     budowane lokalnie miały starszy fontTools bez nich — dlatego 3.21.0
+     działała, a 3.21.3 z GitHuba nie.
+     Od 3.21.4:
+       · requirements.txt ma „--no-binary fonttools” — fontTools w czystym
+         Pythonie, ZERO plików .pyd z tej biblioteki (robią to samo, wolniej
+         o ułamek sekundy); build.yml sprawdza to i przerywa budowanie, gdyby
+         .pyd jednak się pojawił,
+       · program nie pada na imporcie: gdy biblioteka PDF nie wejdzie, planer,
+         mapy i wizyty działają, a przy generowaniu delegacji pojawia się
+         czytelny komunikat z instrukcją,
+       · flaga życia dla updatera (pmt_zyje.flag) powstaje dopiero PO
+         załadowaniu bibliotek — wcześniej updater uznawał taki start za udany
+         i kasował kopię poprzedniej wersji.
+     Jeśli po 3.21.4 Windows zablokuje inny plik (np. z PyQt6): to już decyzja
+     administratora — w WDAC dopuścić folder programu (np. C:\PMT), a Smart
+     App Control nie ma wyjątków (tylko wyłączenie). Trwałe rozwiązanie to
+     podpis cyfrowy (PODPISZ_EXE.bat, wymaga certyfikatu).
+
+  6c. CZY STARSZE WERSJE ZOBACZĄ AKTUALIZACJĘ
+     · 3.21.0–3.21.3: tak — okno dobrowolne po zalogowaniu, a przez min= w
+       wersja.txt ostrzeżenie przed logowaniem i po terminie okno z przyciskiem
+       „Zaktualizuj teraz”.
+     · 3.20.49–3.20.57: tak — czytają pierwszą linię wersja.txt (numer) i drugą
+       (opis); wierszy min=/blokada= nie znają, więc NIE da się ich wymusić —
+       tylko dobrowolne okno. Ich aktualizator zna układ folderowy (_internal),
+       więc podmiana działa.
+     · starsze niż 3.20 (jednoplikowe .exe): zobaczą okno, ale ich aktualizator
+       wyjmuje z ZIP-a SAM plik .exe — w paczce folderowej to nie zadziała
+       („Failed to load Python DLL”). Te osoby instalują ręcznie (krok 6a).
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu

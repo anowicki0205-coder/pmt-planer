@@ -15,14 +15,11 @@ import os
 # błędu ładowania biblioteki" (np. "Failed to load Python DLL" — to okno
 # NIE kończy procesu, tylko czeka na kliknięcie OK). Samo sprawdzenie przez
 # tasklist tego nie odróżnia — proces bootloadera wciąż tam widnieje.
-# Pisane MOŻLIWIE najwcześniej: jeśli ten kod się wykonał, Python na pewno
-# wystartował, niezależnie od tego, co się stanie później w programie.
-try:
-    import tempfile as _tmp_rozruch
-    with open(os.path.join(_tmp_rozruch.gettempdir(), "pmt_zyje.flag"), "w") as _f_rozruch:
-        _f_rozruch.write(str(os.getpid()))
-except Exception:
-    pass
+# Pisane PO imporcie bibliotek (niżej, za blokiem importów), a nie tu:
+# gdy Windows zablokuje jeden z plików bibliotek („Zasady kontroli aplikacji
+# zablokowały ten plik", 3.21.3), program pada na imporcie. Flaga zapisana
+# wcześniej mówiłaby updaterowi „wystartował" — kasowałby kopię poprzedniej
+# wersji i zostawiał człowieka z programem, który nie rusza.
 
 import re
 import json
@@ -44,7 +41,19 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Set
 
-from fpdf import FPDF
+# fpdf2 ciągnie za sobą fontTools, a ten — zainstalowany z modułami
+# natywnymi — plik .pyd, który Windows potrafi zablokować. Program ma wtedy
+# WYSTARTOWAĆ (planer, mapy, wizyty działają) i przy generowaniu delegacji
+# powiedzieć wprost, co jest nie tak — zamiast paść na tej linii.
+FPDF_BLAD = ""
+try:
+    from fpdf import FPDF
+except Exception as _e_fpdf:
+    FPDF_BLAD = "%s: %s" % (type(_e_fpdf).__name__, _e_fpdf)
+
+    class FPDF:                       # atrapa — patrz _opis_bledu_pdf()
+        def __init__(self, *a, **k):
+            raise RuntimeError(_opis_bledu_pdf())
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QFrame,
@@ -61,6 +70,28 @@ from PyQt6.QtGui import (
     QPixmap, QColor, QCursor, QPainter, QPainterPath, QPen, QBrush, 
     QFont, QRadialGradient, QLinearGradient, QConicalGradient, QIcon, QFontMetrics
 )
+
+# Flaga życia dla updatera — dopiero TERAZ, gdy wszystkie biblioteki
+# weszły (patrz komentarz na górze pliku).
+try:
+    import tempfile as _tmp_rozruch
+    with open(os.path.join(_tmp_rozruch.gettempdir(), "pmt_zyje.flag"), "w") as _f_rozruch:
+        _f_rozruch.write(str(os.getpid()))
+except Exception:
+    pass
+
+
+def _opis_bledu_pdf() -> str:
+    """Czytelne wyjaśnienie, gdy biblioteka PDF nie weszła (FPDF_BLAD)."""
+    tekst = ("Biblioteka do tworzenia PDF nie mogła się załadować:\n%s\n\n" % FPDF_BLAD)
+    if "kontroli aplikacji" in FPDF_BLAD.lower() or "app control" in FPDF_BLAD.lower():
+        tekst += ("Windows (Smart App Control albo zasady firmowe) zablokował jeden z plików "
+                  "programu. Zaktualizuj program do wersji 3.21.4 lub nowszej — nie zawiera "
+                  "tego pliku. Jeśli to nie pomoże, poproś administratora o dopuszczenie "
+                  "folderu programu.")
+    else:
+        tekst += "Pobierz program ponownie z aktualnego wydania i rozpakuj CAŁY folder."
+    return tekst
 
 os.environ["QT_ENABLE_HIGHDPI_SCALING"]   = "1"
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
@@ -1808,7 +1839,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.21.3"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
+WERSJA_PROGRAMU = "3.21.4"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -5928,6 +5959,8 @@ def _podziel_na_dokumenty(dni: List[DzienTrasy]) -> List[List[DzienTrasy]]:
     return docs
 
 def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesiac: int, rok: int, folder: str, stawka: float = None, postep_callback=None) -> List[dict]:
+    if FPDF_BLAD:
+        raise ValueError(_opis_bledu_pdf())
     if stawka is None: stawka = STAWKA_ZA_KM
     os.makedirs(folder, exist_ok=True)
     ms = MIESIACE_PL[miesiac - 1]

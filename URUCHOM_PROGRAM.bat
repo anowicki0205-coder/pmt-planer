@@ -29,7 +29,8 @@ echo Python: %PY%
 if not errorlevel 1 goto :start
 echo Doinstalowuje biblioteki - jednorazowo, chwile potrwa...
 %PY% -m pip install --upgrade pip >>"%LOG%" 2>&1
-%PY% -m pip install PyQt6 openpyxl fpdf2 >>"%LOG%" 2>&1
+rem --no-binary fonttools: bez skompilowanych .pyd, ktore Windows potrafi zablokowac
+%PY% -m pip install --no-binary fonttools PyQt6 openpyxl fpdf2 >>"%LOG%" 2>&1
 %PY% -c "import PyQt6, openpyxl, fpdf" >>"%LOG%" 2>&1
 if errorlevel 1 goto :blad_bibliotek
 

@@ -191,6 +191,29 @@ if not os.path.exists(_plik_kontakt):
             pass
 
 
+# biblioteka PDF: weszła, a gdy nie wejdzie — czytelny komunikat, nie wywrotka
+sprawdz("fpdf2 (biblioteka PDF) załadowana bez błędu",
+        P.FPDF_BLAD == "", repr(P.FPDF_BLAD)[:160])
+try:
+    import fontTools as _ft, glob as _glob
+    _d = os.path.dirname(_ft.__file__)
+    _nat = _glob.glob(_d + "/**/*.pyd", recursive=True) + _glob.glob(_d + "/**/*.so", recursive=True)
+    sprawdz("fontTools bez modułów natywnych (requirements: --no-binary fonttools)",
+            not _nat, "; ".join(os.path.relpath(x, _d) for x in _nat)[:200])
+except Exception as e:
+    sprawdz("fontTools bez modułów natywnych (requirements: --no-binary fonttools)", False, str(e))
+_bylo_fpdf_blad = P.FPDF_BLAD
+try:
+    P.FPDF_BLAD = "ImportError: DLL load failed while importing iup: Zasady kontroli aplikacji zablokowały ten plik."
+    try:
+        P.generuj_pdfy([], None, 1, 2026, os.path.join(_TMP_HOME, "pdf_test"))
+        sprawdz("bez biblioteki PDF generowanie zgłasza czytelny błąd", False, "brak wyjątku")
+    except ValueError as e:
+        sprawdz("bez biblioteki PDF generowanie zgłasza czytelny błąd",
+                "Biblioteka do tworzenia PDF" in str(e) and "3.21.4" in str(e), str(e)[:160])
+finally:
+    P.FPDF_BLAD = _bylo_fpdf_blad
+
 # ══════════════════════════════════════════════════════════════════
 sekcja("2b. Przełożony w układzie ZBUDOWANEGO programu (_internal)")
 

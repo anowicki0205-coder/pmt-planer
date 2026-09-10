@@ -39,9 +39,17 @@ UKRYTE = ["intro_wideo", "winsound"]
 # się rozjechać (tak zniknęło openpyxl z wydań budowanych w CI).
 def _biblioteki():
     try:
+        import shlex
+        lista = []
         with open(os.path.join(KATALOG, "requirements.txt"), encoding="utf-8") as f:
-            lista = [l.strip() for l in f
-                     if l.strip() and not l.strip().startswith("#")]
+            for l in f:
+                l = l.strip()
+                if not l or l.startswith("#"):
+                    continue
+                # opcje pip („--no-binary fonttools") idą do argv jako
+                # OSOBNE tokeny — jako jeden „--no-binary fonttools" pip
+                # ich nie rozpozna i całe doinstalowanie padnie
+                lista.extend(shlex.split(l) if l.startswith("-") else [l])
         if lista:
             return lista
     except Exception:
@@ -50,6 +58,33 @@ def _biblioteki():
 
 
 BIBLIOTEKI = None      # ustalane przy pierwszym użyciu (patrz przygotuj_biblioteki)
+
+
+def _fonttools_czysty(py):
+    """fontTools bez skompilowanych .pyd — patrz requirements.txt. Biblioteki
+    „na miejscu" mogły zostać zainstalowane dawniej, z modułami natywnymi;
+    wtedy przeinstalowujemy sam fontTools w wersji czysto pythonowej."""
+    kod = ("import fontTools,glob,os;d=os.path.dirname(fontTools.__file__);"
+           "print(len(glob.glob(d+'/**/*.pyd',recursive=True)+glob.glob(d+'/**/*.so',recursive=True)))")
+    try:
+        w = subprocess.run([py, "-c", kod], capture_output=True, text=True)
+        if w.returncode == 0 and w.stdout.strip() == "0":
+            return True
+    except Exception:
+        return True
+    pisz("  fontTools ma moduły natywne (.pyd) — przeinstalowuję czysto pythonowo…")
+    for dodatkowe in ([], ["--user"], ["--break-system-packages"]):
+        w = subprocess.run([py, "-m", "pip", "install", "--no-binary", "fonttools",
+                            "--force-reinstall", "--no-deps"] + dodatkowe + ["fonttools"],
+                           capture_output=True, text=True)
+        if w.returncode == 0:
+            break
+    w = subprocess.run([py, "-c", kod], capture_output=True, text=True)
+    if w.returncode == 0 and w.stdout.strip() == "0":
+        pisz("  fontTools: czysto pythonowy")
+        return True
+    pisz("  [UWAGA] fontTools nadal ma .pyd — Windows może je blokować (patrz START_TUTAJ 6b)")
+    return False
 
 
 def pisz(txt):
@@ -82,6 +117,7 @@ def przygotuj_biblioteki(py):
         subprocess.run([py, "-c", "import PyQt6, openpyxl, fpdf, PyInstaller"],
                        check=True, capture_output=True)
         pisz("  wszystkie na miejscu")
+        _fonttools_czysty(py)
         return True
     except Exception:
         pass
@@ -101,6 +137,7 @@ def przygotuj_biblioteki(py):
     try:
         subprocess.run([py, "-c", "import PyQt6, openpyxl, fpdf, PyInstaller"],
                        check=True, capture_output=True)
+        _fonttools_czysty(py)
         return True
     except Exception:
         pisz("[BŁĄD] Nie udało się doinstalować bibliotek — zajrzyj do BUDOWANIE_log.txt")

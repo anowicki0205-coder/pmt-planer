@@ -29,3 +29,12 @@ Thumbs.db
 .DS_Store
 desktop.ini
 pmt_kontakt.txt
+
+# nowe moduly (intro, karta testera, glebia): przelaczniki i wyniki testera
+BEZ_INTRA.txt
+BEZ_3D.txt
+INTRO_log.txt
+PMT_intro_diag.txt
+PMT_intro_blad.txt
+raport_testera_*.txt
+certyfikat_testera_*.png

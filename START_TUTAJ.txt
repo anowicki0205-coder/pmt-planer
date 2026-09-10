@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.21.4 — WERSJA STABILNA
+  PMT PLANER 3.22.0 — WERSJA STABILNA
   baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
 ═══════════════════════════════════════════════════════════════════════
 
@@ -337,6 +337,40 @@ KROK PO KROKU — WYDANIE 3.21.0
      · starsze niż 3.20 (jednoplikowe .exe): zobaczą okno, ale ich aktualizator
        wyjmuje z ZIP-a SAM plik .exe — w paczce folderowej to nie zadziała
        („Failed to load Python DLL”). Te osoby instalują ręcznie (krok 6a).
+
+  6d. CO WRÓCIŁO Z LINII PMT_NOWY (3.22.0) I CO DOSZŁO
+     Do repozytorium nigdy nie trafiły trzy moduły z Twojego folderu
+     PMT_NOWY — dlatego paczki 3.21.0–3.21.4 z GitHuba miały stare intro.
+     Od 3.22.0 obok PMT_Delegacje.py MUSZĄ leżeć (zbuduj.py i CI tego
+     pilnują):
+       · intro_zywa_mapa.py — intro „z orbity do trasy”: kula ziemska →
+         Polska → miasto użytkownika → żywa mapa z logotypami sieci
+         (logotypy i kontury są wtopione w moduł, żadnych PNG/MP3),
+       · karta_testera.py — karta testera (gwiazdka ★ w pasku, zaproszenie
+         po intrze najwyżej 3 razy, co 7 dni),
+       · wyglad_3d.py — głębia interfejsu (cienie, wypukłe krawędzie);
+         limit 260 efektów i bez cieni na wielkich panelach — w 3.21.0
+         było ich 991 i to spowalniało intro.
+     Intro gra jako NAKŁADKA w oknie programu (jak dotąd klasyczne), więc
+     strażnik po 50 s i zdejmowanie nakładek działają na nie tak samo.
+     Klik lub klawisz pomija. Wyłączenie: menu ⋯ w pasku („Intro przy
+     starcie”) albo pusty plik BEZ_INTRA.txt obok programu; głębia:
+     to samo menu albo BEZ_3D.txt.
+     Nowe w pasku: 🔑 Hasło (zmiana bez wylogowania), ★ karta testera,
+     ⋯ wygląd. Autologowanie: znane hasło loguje od razu; nieznane — po
+     0,9 s przerwy w pisaniu (każda para kod+hasło próbowana raz, hasło
+     krótsze niż 5 znaków nie wychodzi do serwera).
+     Bezpieczeństwo: logowanie OFFLINE działa tylko 45 dni od ostatniego
+     logowania online (konto zablokowane w arkuszu nie żyje wiecznie na
+     skrócie z dysku).
+     SILNIK: droga nigdy krótsza niż 1,15 × linia prosta (MNOZNIK_MIN).
+     Zamiast ściskać kilometry program usuwa dni (najdłuższe, żeby zostało
+     wiele krótkich rozrzuconych po miesiącu) albo postoje; każdy dzień
+     mieści się w 8 h przy realnej drodze. Dziennik: ~/.pmt_silnik_diag.txt
+     (pola „przyciete dni”, „mnoznik”). Górna granica mnożnika (dziś do
+     ~2,6 przy dużych kwotach) to osobna, większa zmiana silnika.
+     Intro wideo (intro_wideo.py, filmy z Blendera) — projekt porzucony,
+     plik usunięty z repozytorium.
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu

@@ -298,7 +298,17 @@ def ustaw_tryb_pracy(tryb: str = "tydzien", dlugosc_dnia_h: float = None,
         PRZERWA_JEDZENIE_MIN = 30
         NIEDZIELE_HANDLOWE = False
     return TRYB_PRACY, LIMIT_CZASU_MINUTY
-TEST_MNOZNIK_TRASY = 1.28 
+TEST_MNOZNIK_TRASY = 1.28
+# Najmniejszy dopuszczalny stosunek drogi do linii prostej. Prawdziwa trasa
+# po polskich drogach to zwykle 1,2–1,4 linii prostej; poniżej 1,15 dokument
+# opisywałby podróż, której nie da się odbyć. Patrz przycinanie dni w silniku.
+MNOZNIK_MIN = 1.15
+# Dni awaryjne (gdy 40 prób nie ułożyło dnia): rozrzut odległości przy
+# sortowaniu i co ile dni pomijamy pierwszą miejscowość — żeby dni nie były
+# kopiami, a wciąż mieściły jak najwięcej kilometrów.
+AWARIA_ROZRZUT = (0.90, 1.15)
+AWARIA_POMIN_CO = 3
+AWARIA_PROB = 6 
 
 # --- Realia dnia pracy merchandisera (trasa "po drodze", nie nabijanie km) ---
 PRZERWA_JEDZENIE_MIN   = 30      # posiłek/odpoczynek wliczony w 8h
@@ -720,6 +730,28 @@ def _zapisz_logowanie(kod: str, imie: str, skrot: str):
     _zapisz(PLIK_LOGOWAN, dane)
 
 
+# Logowanie bez internetu działa TYLKO przez pewien czas od ostatniego
+# logowania online. Konto zablokowane w arkuszu nie może żyć w nieskończoność
+# na skrócie zapisanym na dysku — po tym oknie program żąda kontaktu z serwerem.
+OFFLINE_LOGOWANIE_DNI = 45
+
+
+def _logowanie_offline_dozwolone(wpis: dict, dzis=None) -> bool:
+    """Czy wpis z historii logowań (pole „ostatnio" = ostatnie logowanie
+    ONLINE) jest wystarczająco świeży na logowanie offline. Brak daty
+    (stare wpisy sprzed tej wersji) = pozwalamy, ale tylko przez ten jeden
+    okres — pierwsze logowanie online dopisze datę."""
+    try:
+        ost = str((wpis or {}).get("ostatnio", "") or "")
+        if not ost:
+            return True
+        d = datetime.datetime.fromisoformat(ost[:19]).date()
+        dzis = dzis or datetime.date.today()
+        return (dzis - d).days <= OFFLINE_LOGOWANIE_DNI
+    except Exception:
+        return True
+
+
 def _hash_hasla(kod: str, haslo: str) -> str:
     """Skrót SHA-256 z solą (kodem). Hasło NIGDY nie jest zapisywane jawnie —
     ani na dysku, ani w arkuszu. Ten sam wzór stosuje backend, więc skróty
@@ -782,9 +814,13 @@ def online_zaloguj(kod: str, haslo: str):
         znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
         st = _wczytaj(PLIK_STATUSU, {})
         skrot = _hash_hasla(kod, haslo)
-        if znane.get("skrot") == skrot:
-            return True, str(znane.get("imie", "")), "offline"
-        if st.get("kod") == kod and st.get("skrot") == skrot:
+        if znane.get("skrot") == skrot or (st.get("kod") == kod and st.get("skrot") == skrot):
+            if not _logowanie_offline_dozwolone(znane):
+                return False, "", ("Minęło ponad %d dni od ostatniego logowania z internetem. "
+                                   "Połącz się z siecią i zaloguj raz online — potem znów "
+                                   "zadziała logowanie bez zasięgu." % OFFLINE_LOGOWANIE_DNI)
+            if znane.get("skrot") == skrot:
+                return True, str(znane.get("imie", "")), "offline"
             return True, str(st.get("imie", "")), "offline"
         # Nie zgadujemy przyczyny: pokazujemy, co DOKŁADNIE zawiodło. Wcześniej
         # każdy błąd wyglądał jak brak internetu — a bywa nim blokada firmowa,
@@ -1380,8 +1416,19 @@ def dialog_logowania():
                 wynik["imie"] = imie
                 d.accept()
             else:
-                blad.setText(komunikat)
-                pole_haslo.selectAll(); pole_haslo.setFocus()
+                if _auto.get("tryb"):
+                    # próba automatyczna: NIE ruszamy tekstu — użytkownik mógł
+                    # jeszcze nie skończyć pisać; podpowiadamy, co dalej
+                    blad.setText("Dokończ wpisywanie hasła albo naciśnij Enter.")
+                    try:
+                        pole_haslo.deselect(); pole_haslo.end(False)
+                    except Exception:
+                        pass
+                    pole_haslo.setFocus()
+                else:
+                    blad.setText(komunikat)
+                    pole_haslo.selectAll(); pole_haslo.setFocus()
+            _auto["tryb"] = False
 
         _zeg.timeout.connect(_tik)
         _zeg.start(150)
@@ -1403,20 +1450,45 @@ def dialog_logowania():
     # udanego logowania na tym komputerze, nie czekamy na Enter ani klik —
     # weryfikacja rusza sama (jak kod w GitHubie). Nietrafione hasło nic nie
     # robi: użytkownik pisze dalej albo zatwierdza po staremu.
-    _auto = {"uzyte": ""}
+    # Dwie drogi: (1) hasło znane z poprzedniego logowania na tym komputerze —
+    # weryfikacja rusza NATYCHMIAST; (2) hasło nieznane (pierwszy raz na tym
+    # sprzęcie) — po chwili bezczynności przy wpisywaniu (AUTO_PAUZA_MS) program
+    # sam próbuje wejść. Każda para kod+hasło sprawdzana jest tylko RAZ, próba
+    # automatyczna nie kasuje wpisanego tekstu przy odmowie, a hasła krótsze niż
+    # 5 znaków nie wychodzą do serwera. Enter i „Zaloguj" działają jak dotąd.
+    AUTO_PAUZA_MS = 900
+    _auto = {"proby": set(), "zegar": None, "tryb": False}
 
-    def _auto_logowanie(_=None):
+    def _auto_probuj(zrodlo="zegar"):
         if not pole_haslo.isEnabled() or not b_ok.isEnabled():
             return
         kod, hs = pole_kod.text().strip(), pole_haslo.text()
-        if _auto["uzyte"] == kod + "|" + hs:
+        if not (kod.isdigit() and len(kod) == 5) or len(hs) < 5:
             return
-        if _haslo_znane_lokalnie(kod, hs):
-            _auto["uzyte"] = kod + "|" + hs
-            _dziennik_animacji("autologowanie — hasło zgodne ze skrótem na tym komputerze", nowy=True)
-            QTimer.singleShot(120, _zatwierdz)
+        klucz = kod + "|" + hs
+        if klucz in _auto["proby"]:
+            return
+        znane = _haslo_znane_lokalnie(kod, hs)
+        if zrodlo == "tekst" and not znane:
+            return                      # nieznane hasło: dopiero po pauzie
+        _auto["proby"].add(klucz)
+        _auto["tryb"] = True
+        _dziennik_animacji("autologowanie (%s)" % ("hasło znane na tym komputerze"
+                                                    if znane else "pauza w pisaniu"), nowy=True)
+        _zatwierdz()
 
-    pole_haslo.textChanged.connect(_auto_logowanie)
+    def _po_zmianie_hasla(_=None):
+        _auto_probuj("tekst")
+        try:
+            if _auto["zegar"] is None:
+                _auto["zegar"] = QTimer(d)
+                _auto["zegar"].setSingleShot(True)
+                _auto["zegar"].timeout.connect(lambda: _auto_probuj("zegar"))
+            _auto["zegar"].start(AUTO_PAUZA_MS)
+        except Exception:
+            pass
+
+    pole_haslo.textChanged.connect(_po_zmianie_hasla)
     def _test():
         b_test.setEnabled(False); b_test.setText("Sprawdzam…")
         blad.setText("Sprawdzam połączenie…")
@@ -1879,7 +1951,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.21.4"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
+WERSJA_PROGRAMU = "3.22.0"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -3259,7 +3331,7 @@ def ustaw_uzytkownika_planu(imie: str, pesel_lub_kod: str) -> None:
             online_zapisz_kod(_kod)
     except Exception:
         pass
-    _przejmij_dane_z_poprzedniej_wersji()
+    _przejmij_dane_z_poprzedniej_wersji(imie or "", pesel_lub_kod or "")
 
 
 def _plik_konta(wzor: str, wspolny: str) -> str:
@@ -3285,6 +3357,45 @@ def _plik_notatek() -> str:
     return _plik_konta(".pmt_notatki_dni_%s.json", NOTATKI_DNI_STORE)
 
 
+# Kod osoby zalogowanej na tym komputerze PRZED bieżącym logowaniem (odczyt
+# ze statusu, zanim okno logowania go nadpisze). Gdy ta sama osoba wraca
+# po aktualizacji, wspólne dane z poprzedniej wersji są jej — nawet jeśli
+# w historii komputera figuruje też ktoś inny.
+KOD_PRZED_LOGOWANIEM = ""
+
+
+def _zapamietaj_kod_przed_logowaniem() -> str:
+    global KOD_PRZED_LOGOWANIEM
+    try:
+        KOD_PRZED_LOGOWANIEM = str((_wczytaj(PLIK_STATUSU, {}) or {}).get("kod", "") or "")
+    except Exception:
+        KOD_PRZED_LOGOWANIEM = ""
+    return KOD_PRZED_LOGOWANIEM
+
+
+def _wolno_przejac_wspolne(kod_biezacy: str) -> bool:
+    """Czy wspólne magazyny sprzed 3.21.0 wolno przepisać na to konto:
+    jedyna osoba na komputerze ALBO ta sama osoba, która była zalogowana
+    przed aktualizacją (to jej dane; zgłoszenie „dane się nie pojawiają")."""
+    if _tylko_jedno_konto_na_komputerze(kod_biezacy):
+        return True
+    k = "".join(ch for ch in str(kod_biezacy or "") if ch.isdigit())
+    return bool(k) and KOD_PRZED_LOGOWANIEM == k
+
+
+def _plan_ma_tresc(sciezka: str) -> bool:
+    """Plik planu z prawdziwymi danymi (a nie „stub" po przeniesieniu
+    z 3.21.0: {"wlasciciel": …, "przeniesiony": true})."""
+    try:
+        if not sciezka or not os.path.exists(sciezka):
+            return False
+        with open(sciezka, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return bool(isinstance(d, dict) and (d.get("miesiace") or d.get("dni")))
+    except Exception:
+        return False
+
+
 def _tylko_jedno_konto_na_komputerze(kod_biezacy: str) -> bool:
     """Czy tego komputera używała dotąd TYLKO ta jedna osoba?
 
@@ -3299,17 +3410,43 @@ def _tylko_jedno_konto_na_komputerze(kod_biezacy: str) -> bool:
     return not kody
 
 
-def _przejmij_dane_z_poprzedniej_wersji() -> None:
-    """Jednorazowe przeniesienie wspólnych magazynów (sprzed 3.21.0) na
-    konto właściciela komputera.
+def _przejmij_dane_z_poprzedniej_wersji(imie: str = "", kod: str = "") -> None:
+    """Jednorazowe przeniesienie danych z poprzednich wersji na konto.
 
-    Robimy to TYLKO wtedy, gdy na tym komputerze logowała się dotąd jedna
-    osoba. Inaczej wspólne pliki zostają nietknięte — nikt nie dostaje
-    cudzych danych, a właściciel może je odzyskać z kopii zapasowej."""
+    1) 3.21.0 (paczka ZIP i linia PMT_NOWY) kluczowała plan i adres bazy
+       przez imię|kod — inny klucz niż dziś (sam kod). Po aktualizacji plan
+       zostawał osierocony pod starym kluczem, a program kopiował pusty
+       „stub" — użytkownik widział czystą kartę. Teraz stary plik jest
+       przejmowany pod nowy klucz.
+    2) Wspólne magazyny sprzed 3.21.0 (plan, punkty, wizyty, notatki)
+       przepisujemy, gdy komputera używała jedna osoba ALBO gdy loguje się
+       ta sama osoba, która była zalogowana przed aktualizacją. Inaczej
+       pliki zostają nietknięte — nikt nie dostaje cudzych danych."""
     try:
         if not AKTYWNY_UZYTKOWNIK:
             return
-        if not _tylko_jedno_konto_na_komputerze(online_kod_uzytkownika() or ""):
+        # 1) klucz z 3.21.0: imię|kod
+        try:
+            _legacy = _klucz_uzytkownika(str(imie or ""), str(kod or "")) if (imie or kod) else ""
+        except Exception:
+            _legacy = ""
+        if _legacy and _legacy != AKTYWNY_UZYTKOWNIK:
+            _stary_plan = os.path.join(os.path.expanduser("~"), ".pmt_plan_%s.json" % _legacy)
+            try:
+                if _plan_ma_tresc(_stary_plan) and not _plan_ma_tresc(_plik_planu()):
+                    shutil.copy2(_stary_plan, _plik_planu())
+                    os.replace(_stary_plan, _stary_plan + ".sprzed_3.22.0")
+            except Exception:
+                pass
+            try:
+                u = _wczytaj_ustawienia()
+                _stary_adres = u.get("adres_bazy__" + _legacy, "")
+                if _stary_adres and not u.get(_klucz_osobisty("adres_bazy"), ""):
+                    zapisz_ustawienie_osobiste("adres_bazy", _stary_adres)
+            except Exception:
+                pass
+        # 2) wspólne magazyny sprzed 3.21.0
+        if not _wolno_przejac_wspolne(online_kod_uzytkownika() or kod or ""):
             return
         pary = ((PLAN_STORE, _plik_planu()),
                 (PUNKTY_STORE, _plik_punktow()),
@@ -3319,7 +3456,16 @@ def _przejmij_dane_z_poprzedniej_wersji() -> None:
             try:
                 if wspolny == wlasny:
                     continue
-                if os.path.exists(wlasny) or not os.path.exists(wspolny):
+                if not os.path.exists(wspolny):
+                    continue
+                if wspolny == PLAN_STORE:
+                    # stub po przeniesieniu w 3.21.0 nie jest planem; własny
+                    # plik będący stubem (skopiowanym przez 3.21.3/4) można nadpisać
+                    if not _plan_ma_tresc(wspolny):
+                        continue
+                    if _plan_ma_tresc(wlasny):
+                        continue
+                elif os.path.exists(wlasny):
                     continue
                 shutil.copy2(wspolny, wlasny)
                 # Wspólnego pliku NIE kasujemy — zostaje jako kopia
@@ -3382,7 +3528,7 @@ def ustawienie_osobiste(klucz, domyslne=""):
     if not AKTYWNY_UZYTKOWNIK:
         return u.get(klucz, domyslne)
     stara = u.get(klucz, "")
-    if stara and _tylko_jedno_konto_na_komputerze(online_kod_uzytkownika() or ""):
+    if stara and _wolno_przejac_wspolne(online_kod_uzytkownika() or ""):
         try:
             zapisz_ustawienie_osobiste(klucz, stara)
             zapisz_ustawienie(klucz, "")
@@ -3515,6 +3661,413 @@ def zapisz_profil(imie, pesel, adres, stanowisko, silnik_idx):
                       "stanowisko": stanowisko, "silnik_idx": silnik_idx}
     store[k] = wpis
     _zapisz_store(store)
+
+# ═══════════════════════════════════════════════════════════════════════
+#  INTRO „Z ORBITY DO TRASY", KARTA TESTERA, GŁĘBIA 3D  (linia PMT_NOWY)
+#  Trzy moduły obok programu: intro_zywa_mapa.py, karta_testera.py,
+#  wyglad_3d.py. Każdy brak kończy się cichym powrotem do dotychczasowego
+#  zachowania — program NIGDY nie pada z ich powodu.
+# ═══════════════════════════════════════════════════════════════════════
+SIECI_Z_LOGO = ("ŻABKA", "BIEDRONKA", "GROSZEK", "STOKROTKA", "ABC", "LEWIATAN")
+
+
+def _siec_ma_logo(nazwa: str) -> bool:
+    """Czy dla tej sieci intro ma gotowy logotyp (wtopiony w intro_zywa_mapa)."""
+    n = (nazwa or "").upper().strip()
+    if not n:
+        return False
+    for z in SIECI_Z_LOGO:
+        if n == z or n.startswith(z + " ") or n.startswith(z):
+            return True
+    return False
+
+
+def _losowa_trasa_pokazowa(miasto="") -> list:
+    """Użytkownik bez historii delegacji: losowa kolejność NASZYCH sieci."""
+    import random as _r
+    ile = _r.randint(4, 6)
+    sieci = list(SIECI_Z_LOGO)
+    _r.shuffle(sieci)
+    wybrane = (sieci * 2)[:ile]
+    km = 0
+    wezly = []
+    for s in wybrane:
+        km += _r.randint(5, 13)
+        wezly.append({"siec": s, "adres": "", "km": km})
+    return wezly
+
+
+def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
+    """Dane dla intra czytane z dysku — bez interfejsu.
+
+    Trasa pochodzi z REALNEJ delegacji poprzedniego miesiąca, ale zostają
+    w niej wyłącznie sieci, których logotypy mamy w programie. Gdy takiej
+    historii nie ma — losowa kolejność naszych sieci. Miasto i współrzędne
+    globusa biorą się z tych wizyt albo z adresu w profilu, więc osoba
+    startująca z Białegostoku nigdy nie zobaczy Warszawy.
+    """
+    import datetime as _dt
+    d = {}
+    try:
+        store = _wczytaj_store()
+        profile = [w.get("profil") for w in store.values()
+                   if isinstance(w, dict) and w.get("profil")]
+        pr = None
+        if imie_zalogowany:
+            szukane = str(imie_zalogowany).strip().lower()
+            for kand in profile:
+                imie_pr = str(kand.get("imie") or "").strip().lower()
+                if imie_pr and (imie_pr == szukane
+                                or imie_pr.startswith(szukane)
+                                or szukane.startswith(imie_pr)):
+                    pr = kand
+                    break
+        if pr is None and profile and not imie_zalogowany:
+            pr = profile[-1]
+        if pr:
+            imie = (pr.get("imie") or "").strip()
+            if imie:
+                d["imie"] = imie.split()[0]
+            adres = (pr.get("adres") or "").strip()
+            miasto = ""
+            if adres:
+                # 1) najpewniej: nazwa tuż po kodzie pocztowym  „03-185 Warszawa"
+                m = re.search(r"\d{2}-\d{3}\s+([^\d,;]+)", adres)
+                if m:
+                    miasto = m.group(1)
+                else:
+                    # 2) inaczej: człon bez oznaczeń ulicy i bez numeru
+                    for c in re.split(r"[,;]", adres):
+                        c = c.strip()
+                        if not c or re.match(r"^(ul\.|al\.|os\.|pl\.)", c, flags=re.I):
+                            continue
+                        if re.search(r"\d", c):
+                            continue
+                        miasto = c
+                        break
+                miasto = re.sub(r"\s+\d+[A-Za-z]?$", "", miasto).strip(" .,")
+            if miasto:
+                d["miasto"] = miasto.upper()
+    except Exception:
+        pass
+    try:
+        plan = wczytaj_plan()
+    except Exception:
+        plan = None
+    try:
+        if plan:
+            dzis = _dt.date.today()
+            pop_r, pop_m = ((dzis.year, dzis.month - 1) if dzis.month > 1
+                            else (dzis.year - 1, 12))
+            dni = []
+            for mm in plan.get("miesiace", []):
+                if (int(mm.get("rok", 0)) == pop_r
+                        and int(mm.get("miesiac", 0)) == pop_m):
+                    dni.extend(mm.get("dni", []))
+            if not dni:
+                dni = list(plan.get("dni", []))
+
+            def _nasze(dz):
+                return [w for w in (getattr(dz, "wizyty", []) or [])
+                        if _siec_ma_logo(getattr(w, "siec", "")
+                                         or getattr(w, "nazwa", ""))]
+
+            dobre = [dz for dz in dni if len(_nasze(dz)) >= 2]
+            if dobre:
+                def ocena(dz):
+                    wz = _nasze(dz)
+                    sieci = {(getattr(w, "siec", "") or "").upper() for w in wz}
+                    return (len(sieci) * 26 + len(wz) * 6
+                            + float(getattr(dz, "km", 0) or 0) * 0.08)
+                naj = max(dobre, key=ocena)
+                wz = _nasze(naj)[:9]
+                km_dnia = float(getattr(naj, "km", 0) or 0)
+                wezly = []
+                for i, w in enumerate(wz, 1):
+                    wezly.append({
+                        "siec": (getattr(w, "siec", "") or getattr(w, "nazwa", "")).upper(),
+                        "adres": (getattr(w, "adres", "") or "")[:34],
+                        "km": int(round(km_dnia * i / max(1, len(wz))))})
+                d["wezly"] = wezly
+                d["km_dzis"] = int(round(km_dnia))
+                wsp = [(w.lat, w.lng) for w in wz
+                       if getattr(w, "lat", None) and getattr(w, "lng", None)]
+                if wsp:
+                    d["lat"] = sum(a for a, _ in wsp) / len(wsp)
+                    d["lon"] = sum(b for _, b in wsp) / len(wsp)
+                miasta = [(getattr(w, "miasto", "") or "") for w in wz
+                          if getattr(w, "miasto", "")]
+                if miasta:
+                    d["miasto"] = max(set(miasta), key=miasta.count).upper()
+            try:
+                wszystkie = list(plan.get("dni", []))
+                d["wizyty"] = sum(len(getattr(x, "wizyty", []) or [])
+                                  for x in wszystkie) or None
+                d["km_rok"] = int(sum(float(getattr(x, "km", 0) or 0)
+                                      for x in wszystkie)) or None
+                daty = [getattr(x, "data", None) for x in wszystkie
+                        if getattr(x, "data", None)]
+                if daty:
+                    d["dni"] = (max(daty) - min(daty)).days + 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if not d.get("wezly"):
+        d["wezly"] = _losowa_trasa_pokazowa(d.get("miasto", ""))
+        d["km_dzis"] = d["wezly"][-1]["km"]
+    # WSPÓŁRZĘDNE MIASTA — kolejno: z wizyt, z pamięci geokodowania,
+    # z bazy miast programu, a na końcu środek Polski. Nigdy Warszawa
+    # „z automatu" — ktoś z Sarnowej Góry ma zobaczyć Sarnową Górę.
+    nazwa = (d.get("miasto") or "").strip().lower()
+    if nazwa and not (d.get("lat") and d.get("lon")):
+        try:
+            for klucz, wart in (_geo_cache or {}).items():
+                if nazwa in str(klucz).lower():
+                    if isinstance(wart, (list, tuple)) and len(wart) >= 2:
+                        d["lat"], d["lon"] = float(wart[0]), float(wart[1])
+                    elif isinstance(wart, dict):
+                        d["lat"] = float(wart.get("lat") or wart.get("latitude"))
+                        d["lon"] = float(wart.get("lng") or wart.get("lon"))
+                    break
+        except Exception:
+            pass
+    if nazwa and not (d.get("lat") and d.get("lon")):
+        try:
+            for woj, lista in MIASTA_RAW.items():
+                for m in lista:
+                    if str(m.get("n", "")).strip().lower() == nazwa:
+                        d["lat"], d["lon"] = float(m["lat"]), float(m["lng"])
+                        break
+                if d.get("lat"):
+                    break
+        except Exception:
+            pass
+    if not (d.get("lat") and d.get("lon")):
+        d["lat"], d["lon"] = 52.03, 19.48       # środek Polski
+    return {k: v for k, v in d.items() if v}
+
+
+def _katalog_programu() -> str:
+    try:
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+    except Exception:
+        return os.getcwd()
+
+
+def uruchom_karte_testera(rodzic=None) -> bool:
+    """Otwiera KARTĘ TESTERA (karta_testera.py) — wbudowaną w program."""
+    try:
+        from karta_testera import pokaz_karte
+        return bool(pokaz_karte(rodzic))
+    except Exception:
+        try:
+            import traceback
+            _dziennik_animacji("karta testera BŁĄD:\n" + traceback.format_exc())
+        except Exception:
+            pass
+        return False
+
+
+ZAPROSZEN_TESTERA_MAX = 3          # łącznie, potem tylko przycisk ★ w pasku
+
+
+def zaproszenie_testera(rodzic=None, imie: str = "", ciemny: bool = True):
+    """Krótkie zaproszenie do testowania — po intrze, najwyżej raz na
+    siedem dni i najwyżej ZAPROSZEN_TESTERA_MAX razy w ogóle; zawsze da
+    się pominąć. Kto chce, ma potem przycisk ★ obok „Zgłoś błąd"."""
+    from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                 QPushButton, QFrame)
+    from PyQt6.QtCore import Qt
+    import datetime as _dt
+    try:
+        store = _wczytaj_store()
+        ost = store.get("_tester_zaproszenie", "")
+        ile = int(store.get("_tester_zaproszenia_ile", 0) or 0)
+        if ile >= ZAPROSZEN_TESTERA_MAX:
+            return False
+        if ost:
+            dni = (_dt.date.today() - _dt.date.fromisoformat(ost)).days
+            if dni < 7:
+                return False
+    except Exception:
+        store, ile = {}, 0
+
+    tlo, ramka, tekst, tekst2, tekst3, akc, akc_t, przyc = (
+        ("#0b2019", "#1e6e50", "#eafaf2", "#c9eedb", "#8fb3a3", "#10b881", "#04140d", "#07231a")
+        if ciemny else
+        ("#FFFFFF", "#BFE3D3", "#0F172A", "#334155", "#64748B", "#0E9F6E", "#FFFFFF", "#EEF6F2"))
+    d = QDialog(rodzic)
+    d.setWindowTitle("PMT Planer")
+    d.setModal(True)
+    d.setFixedWidth(560)
+    d.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+    d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    d.setStyleSheet("QDialog{background:transparent;}")
+    ZEW = QVBoxLayout(d)
+    ZEW.setContentsMargins(0, 0, 0, 0)
+    ramkaZapr = QFrame(d)
+    ramkaZapr.setObjectName("ramkaZapr")
+    ramkaZapr.setStyleSheet(
+        "#ramkaZapr{background:%s;border:1px solid %s;border-radius:18px;}" % (tlo, ramka))
+    ZEW.addWidget(ramkaZapr)
+    L = QVBoxLayout(ramkaZapr)
+    L.setContentsMargins(28, 24, 28, 20)
+    L.setSpacing(10)
+    n1 = QLabel("Pomóż ulepszyć program")
+    n1.setStyleSheet("color:%s;font:700 22px 'Segoe UI';background:transparent;" % tekst)
+    L.addWidget(n1)
+    tresc = ("Szukam osób, które przejdą program punkt po punkcie i powiedzą "
+             "wprost, co działa, a co nie. Karta testera prowadzi krok po kroku, "
+             "podpowiada, co warto sprawdzić — także próby na złość, jak błędny "
+             "PESEL czy bardzo wysoka kwota. Zajmuje pół godziny, postęp zapisuje "
+             "się sam, a na końcu odbierasz imienny certyfikat.")
+    n2 = QLabel(tresc)
+    n2.setWordWrap(True)
+    n2.setStyleSheet("color:%s;font:14px 'Segoe UI';background:transparent;" % tekst2)
+    L.addWidget(n2)
+    n3 = QLabel("Kartę znajdziesz też zawsze pod gwiazdką ★ obok przycisku Zgłoś błąd.")
+    n3.setStyleSheet("color:%s;font:italic 12px 'Segoe UI';background:transparent;" % tekst3)
+    L.addWidget(n3)
+    g = QHBoxLayout()
+    g.addStretch()
+    b2 = QPushButton("Może później")
+    b1 = QPushButton("Otwórz kartę testera")
+    for b, glowny in ((b2, False), (b1, True)):
+        b.setFixedHeight(38)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet(
+            "QPushButton{border-radius:10px;padding:6px 20px;font:600 14px 'Segoe UI';"
+            "background:%s;color:%s;border:1px solid %s;}"
+            "QPushButton:hover{border-color:%s;}"
+            % (akc if glowny else przyc, akc_t if glowny else tekst2, ramka, akc))
+        g.addWidget(b)
+    L.addLayout(g)
+    b2.clicked.connect(d.reject)
+    b1.clicked.connect(d.accept)
+    wynik = d.exec()
+    try:
+        store["_tester_zaproszenie"] = _dt.date.today().isoformat()
+        store["_tester_zaproszenia_ile"] = ile + 1
+        _zapisz_store(store)
+    except Exception:
+        pass
+    if wynik:
+        uruchom_karte_testera(rodzic)
+    return True
+
+
+def glebia_wlaczona() -> bool:
+    """Głębia 3D (wyglad_3d.py): włączona, chyba że użytkownik ją wyłączył
+    w menu Wygląd albo obok programu leży pusty plik BEZ_3D.txt."""
+    try:
+        if not bool(ustawienie("wyglad_3d", True)):
+            return False
+    except Exception:
+        pass
+    for kat in (_katalog_programu(), os.path.expanduser("~")):
+        try:
+            if os.path.exists(os.path.join(kat, "BEZ_3D.txt")):
+                return False
+        except Exception:
+            continue
+    return True
+
+
+def zastosuj_glebie_interfejsu(okno) -> int:
+    """Cienie, wypukłe krawędzie i gradienty (wyglad_3d.zastosuj) na
+    GOTOWYM oknie. Zwraca liczbę elementów; 0 = wyłączone albo brak modułu."""
+    if not glebia_wlaczona():
+        return 0
+    try:
+        from wyglad_3d import zastosuj as _glebia
+        ile = int(_glebia(okno, ciemny=bool(getattr(okno, "is_dark", True)), sila=1.0) or 0)
+        _dziennik_animacji("wygląd 3D: %d elementów" % ile)
+        return ile
+    except Exception:
+        try:
+            import traceback
+            _dziennik_animacji("wygląd 3D BŁĄD:\n" + traceback.format_exc())
+        except Exception:
+            pass
+        return 0
+
+
+def zmien_haslo_w_programie(rodzic, kod: str, ciemny: bool = True):
+    """Zmiana hasła z poziomu programu — BEZ wylogowywania. Ten sam dialog
+    i to samo żądanie („zmien_haslo") co w oknie logowania; po sukcesie
+    aktualizujemy lokalny skrót, żeby logowanie offline i autologowanie
+    znały już nowe hasło."""
+    kod = (kod or "").strip()
+    if not (kod.isdigit() and len(kod) == 5):
+        _okno_pmt(rodzic, "Zmiana hasła",
+                  "Nie znam kodu zalogowanej osoby — wyloguj się i zaloguj ponownie.",
+                  tylko_ok=True)
+        return False
+    try:
+        if not czyOnline_program():
+            _okno_pmt(rodzic, "Brak połączenia",
+                      "Zmiana hasła wymaga internetu — hasła są zapisywane na serwerze. "
+                      "Sprawdź połączenie i spróbuj ponownie.", tylko_ok=True)
+            return False
+    except Exception:
+        pass
+    dane = _okno_zmiany_hasla(rodzic, ciemny)
+    if dane is None:
+        return False
+    stare, nowe = dane
+    wynik = {}
+
+    def _w():
+        odp = {}
+        for proba in (1, 2):
+            try:
+                cialo = json.dumps(_podpisz_zadanie(
+                    {"akcja": "zmien_haslo", "kod": kod,
+                     "stare_haslo": stare, "nowe_haslo": nowe,
+                     "haslo_stare": stare, "haslo_nowe": nowe})).encode("utf-8")
+                req = urllib.request.Request(
+                    URL_BACKENDU, data=cialo,
+                    headers={"Content-Type": "application/json",
+                             "User-Agent": "PMT-Planer"})
+                with urllib.request.urlopen(req, timeout=18) as resp:
+                    odp = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                break
+            except Exception as e:
+                if proba == 2:
+                    odp = {"status": "blad", "opis": _opisz_blad_sieci(e)}
+                else:
+                    time.sleep(0.8)
+        wynik["odp"] = odp
+
+    w = threading.Thread(target=_w, daemon=True)
+    w.start()
+    _t0 = time.time()
+    while w.is_alive() and time.time() - _t0 < 45:
+        QApplication.processEvents()
+        time.sleep(0.03)
+    odp = wynik.get("odp") or {"status": "blad", "opis": "serwer nie odpowiedział"}
+    if odp.get("status") == "ok":
+        try:
+            st = _wczytaj(PLIK_STATUSU, {})
+            if str(st.get("kod", "")) == kod:
+                st["skrot"] = _hash_hasla(kod, nowe)
+                _zapisz(PLIK_STATUSU, st)
+            hist = _wczytaj(PLIK_LOGOWAN, {})
+            im_ = str((hist.get(kod) or {}).get("imie", "") or st.get("imie", ""))
+            _zapisz_logowanie(kod, im_, _hash_hasla(kod, nowe))
+        except Exception:
+            pass
+        _okno_pmt(rodzic, "Gotowe",
+                  "Hasło zostało zmienione. Obowiązuje od następnego logowania.",
+                  tylko_ok=True)
+        return True
+    _okno_pmt(rodzic, "Zmiana nie przeszła",
+              "Serwer nie przyjął nowego hasła: %s\n\nDotychczasowe hasło dalej działa."
+              % (odp.get("opis") or odp.get("komunikat") or "brak odpowiedzi"),
+              tylko_ok=True)
+    return False
+
 
 def wczytaj_profil(imie, pesel) -> Optional[dict]:
     store = _wczytaj_store()
@@ -5607,55 +6160,88 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             # najbliższe miejscowości od bazy, bez filtrów uznaniowych,
             # w granicach ośmiu godzin i nie bliżej niż MIN_ODLEGLOSC_OD_BAZY.
             try:
-                _pula = sorted(kandydaci,
-                               key=lambda _mm: oblicz_dystans(baza_lat, baza_lng, _mm.lat, _mm.lng))
-                _etapy = []
-                _ob_lat, _ob_lng, _ob_naz = baza_lat, baza_lng, baza_nazwa
-                _czas = PRZERWA_JEDZENIE_MIN
-                _uzyte = set()
-                for _cel in _pula:
-                    if len(_etapy) >= 7:
-                        break
-                    if _cel.n in _uzyte or _cel.n.lower() == baza_nazwa.lower():
+                # RÓŻNORODNOŚĆ DNI AWARYJNYCH: sama kolejność „od najbliższej"
+                # dawała co dzień tę samą trasę (kopie w dokumencie). Każda
+                # próba losuje rozrzut odległości i pomija kilka pierwszych
+                # miejscowości; trasę identyczną z już zbudowaną odrzucamy
+                # i próbujemy jeszcze raz (do AWARIA_PROB razy). rng jest
+                # powtarzalny — ten sam plan dla tych samych danych.
+                _slady_aw = set(tuple(_e.dokad for _e in _dz.etapy_surowe) for _dz in finalne_dni)
+                for _proba_aw in range(AWARIA_PROB):
+                    _pula = sorted(kandydaci,
+                                   key=lambda _mm: oblicz_dystans(baza_lat, baza_lng, _mm.lat, _mm.lng)
+                                   * rng.uniform(AWARIA_ROZRZUT[0], AWARIA_ROZRZUT[1]))
+                    _pomin = (_dni_awaryjne + _proba_aw) % AWARIA_POMIN_CO
+                    _etapy = []
+                    _ob_lat, _ob_lng, _ob_naz = baza_lat, baza_lng, baza_nazwa
+                    _czas = PRZERWA_JEDZENIE_MIN
+                    _uzyte = set()
+                    for _cel in _pula:
+                        if len(_etapy) >= 7:
+                            break
+                        if _pomin > 0 and _cel.n.lower() != baza_nazwa.lower():
+                            _pomin -= 1
+                            continue
+                        if _cel.n in _uzyte or _cel.n.lower() == baza_nazwa.lower():
+                            continue
+                        if oblicz_dystans(baza_lat, baza_lng, _cel.lat, _cel.lng) < MIN_ODLEGLOSC_OD_BAZY:
+                            continue
+                        _d = oblicz_dystans(_ob_lat, _ob_lng, _cel.lat, _cel.lng)
+                        if _d < 4.0:
+                            continue
+                        _t_dr = (_d * TEST_MNOZNIK_TRASY / SREDNIA_PREDKOSC) * 60
+                        _t_sh = rng.randint(POSTOJ_MIN_MIN, POSTOJ_MAX_MIN)
+                        _d_ret = oblicz_dystans(_cel.lat, _cel.lng, baza_lat, baza_lng)
+                        _t_ret = (_d_ret * TEST_MNOZNIK_TRASY / SREDNIA_PREDKOSC) * 60
+                        if _czas + _t_dr + _t_sh + _t_ret > LIMIT_CZASU_MINUTY:
+                            continue
+                        _etapy.append(RawEtap(
+                            skad=_ob_naz, dokad=_cel.n, data_str=data.strftime("%d.%m.%Y") + "r",
+                            d_line=_d, czas_w_sklepie=_t_sh, dokad_woj=_cel.woj,
+                            skad_lat=_ob_lat, skad_lng=_ob_lng,
+                            dokad_lat=_cel.lat, dokad_lng=_cel.lng))
+                        _uzyte.add(_cel.n)
+                        _czas += _t_dr + _t_sh
+                        _ob_lat, _ob_lng, _ob_naz = _cel.lat, _cel.lng, _cel.n
+                    # PRÓG DWÓCH POSTOJÓW — ŚWIADOMIE niższy niż w ścieżce
+                    # normalnej (tam trzy): ostatnia deska ratunku dla dnia,
+                    # a z nim dla części kwoty. Wyjazd do dwóch miejscowości
+                    # i powrót to nadal najzwyklejsza podróż służbowa.
+                    if len(_etapy) < 2:
                         continue
-                    if oblicz_dystans(baza_lat, baza_lng, _cel.lat, _cel.lng) < MIN_ODLEGLOSC_OD_BAZY:
-                        continue
-                    _d = oblicz_dystans(_ob_lat, _ob_lng, _cel.lat, _cel.lng)
-                    if _d < 4.0:
-                        continue
-                    _t_dr = (_d * TEST_MNOZNIK_TRASY / SREDNIA_PREDKOSC) * 60
-                    _t_sh = rng.randint(POSTOJ_MIN_MIN, POSTOJ_MAX_MIN)
-                    _d_ret = oblicz_dystans(_cel.lat, _cel.lng, baza_lat, baza_lng)
-                    _t_ret = (_d_ret * TEST_MNOZNIK_TRASY / SREDNIA_PREDKOSC) * 60
-                    if _czas + _t_dr + _t_sh + _t_ret > LIMIT_CZASU_MINUTY:
-                        continue
-                    _etapy.append(RawEtap(
-                        skad=_ob_naz, dokad=_cel.n, data_str=data.strftime("%d.%m.%Y") + "r",
-                        d_line=_d, czas_w_sklepie=_t_sh, dokad_woj=_cel.woj,
-                        skad_lat=_ob_lat, skad_lng=_ob_lng,
-                        dokad_lat=_cel.lat, dokad_lng=_cel.lng))
-                    _uzyte.add(_cel.n)
-                    _czas += _t_dr + _t_sh
-                    _ob_lat, _ob_lng, _ob_naz = _cel.lat, _cel.lng, _cel.n
-                # PRÓG DWÓCH POSTOJÓW — ŚWIADOMIE niższy niż w ścieżce
-                # normalnej (tam trzy). Ta gałąź uruchamia się dopiero po
-                # czterdziestu nieudanych próbach ułożenia dnia, więc jest
-                # ostatnią deską ratunku dla całego dnia — a z nim dla części
-                # zamówionej kwoty. Zmierzone: podniesienie progu do trzech
-                # obniża pokrycie kwoty 11 000 zł z 91 % do 79 %, bo przepada
-                # kilka dni, których w tym rejonie po prostu nie da się ułożyć
-                # inaczej. Wyjazd do dwóch miejscowości i powrót to nadal
-                # najzwyklejsza podróż służbowa.
-                if len(_etapy) >= 2:
                     _d_pow = oblicz_dystans(_ob_lat, _ob_lng, baza_lat, baza_lng)
                     _etapy.append(RawEtap(
                         skad=_ob_naz, dokad=baza_nazwa, data_str=data.strftime("%d.%m.%Y") + "r",
                         d_line=_d_pow, czas_w_sklepie=0, dokad_woj="",
                         skad_lat=_ob_lat, skad_lng=_ob_lng,
                         dokad_lat=baza_lat, dokad_lng=baza_lng))
+                    _slad = tuple(_e.dokad for _e in _etapy)
+                    if _slad in _slady_aw:
+                        # te same miejscowości w ODWROTNEJ kolejności to inny
+                        # dzień (inne odcinki, inne godziny) — i tyle samo km
+                        _post = [(_e.dokad, _e.dokad_lat, _e.dokad_lng, _e.czas_w_sklepie, _e.dokad_woj)
+                                 for _e in _etapy[:-1]][::-1]
+                        _et2 = []
+                        _pl, _pg, _pn = baza_lat, baza_lng, baza_nazwa
+                        for (_n, _la, _lg, _sh, _wj) in _post:
+                            _et2.append(RawEtap(
+                                skad=_pn, dokad=_n, data_str=data.strftime("%d.%m.%Y") + "r",
+                                d_line=oblicz_dystans(_pl, _pg, _la, _lg), czas_w_sklepie=_sh,
+                                dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg))
+                            _pl, _pg, _pn = _la, _lg, _n
+                        _et2.append(RawEtap(
+                            skad=_pn, dokad=baza_nazwa, data_str=data.strftime("%d.%m.%Y") + "r",
+                            d_line=oblicz_dystans(_pl, _pg, baza_lat, baza_lng), czas_w_sklepie=0,
+                            dokad_woj="", skad_lat=_pl, skad_lng=_pg, dokad_lat=baza_lat, dokad_lng=baza_lng))
+                        _slad2 = tuple(_e.dokad for _e in _et2)
+                        if _slad2 not in _slady_aw:
+                            _etapy, _slad = _et2, _slad2
+                    if _slad in _slady_aw and _proba_aw < AWARIA_PROB - 1:
+                        continue                     # kopia — jeszcze raz
                     udana_trasa = True
                     ostateczne_etapy_dnia = _etapy
                     _dni_awaryjne += 1
+                    break
             except Exception:
                 pass
         if not udana_trasa:
@@ -5743,19 +6329,129 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         postoje = sum((e.czas_w_sklepie or 0) for e in dzien.etapy_surowe) + PRZERWA_JEDZENIE_MIN
         dostepne = LIMIT_CZASU_MINUTY - postoje
         if dostepne <= 0 or baza_km <= 0:
-            return 0.3, baza_km
-        return max(0.3, (dostepne / 60) * SREDNIA_PREDKOSC / baza_km), baza_km
+            return MNOZNIK_MIN, baza_km
+        return max(MNOZNIK_MIN, (dostepne / 60) * SREDNIA_PREDKOSC / baza_km), baza_km
+
+    # ── DROGA NIGDY KRÓTSZA NIŻ LINIA PROSTA ─────────────────────────
+    # Dotąd mnożnik mógł spaść do 0,3: przy małej kwocie (albo po prostu
+    # przy zbyt wielu zbudowanych dniach) silnik „ściskał" wszystkie odcinki —
+    # Warszawa→Bolimów wychodziła na 20 km i 18 minut u jednej osoby, a 45 km
+    # u drugiej. Odcinek krótszy niż w linii prostej jest fizycznie
+    # niemożliwy, więc zamiast skracać kilometry:
+    #   0) każdy dzień musi mieścić się w 8 h przy REALNEJ drodze
+    #      (MNOZNIK_MIN) — jeśli nie, zdejmujemy mu ostatnie postoje,
+    #   1) gdy suma dni × MNOZNIK_MIN przekracza cel, USUWAMY DNI — najpierw
+    #      te o najdłuższej trasie, żeby zostało możliwie WIELE krótszych dni
+    #      rozrzuconych po miesiącu,
+    #   2) gdy został jeden dzień i nadal jest za długi — zdejmujemy postoje
+    #      (zostają co najmniej dwa).
+    _dni_przyciete = 0
+    _postoje_przyciete = 0
+
+    def _linia_dnia(dz):
+        return sum(e.d_line for e in dz.etapy_surowe)
+
+    def _linia_wszystkich():
+        return sum(_linia_dnia(dz) for dz in finalne_dni)
+
+    def _sufit_surowy(dz):
+        """Mnożnik, przy którym dzień dobija DOKŁADNIE do limitu godzin
+        (bez dolnej granicy — do decyzji o przycinaniu)."""
+        baza_km = _linia_dnia(dz)
+        postoje = sum((e.czas_w_sklepie or 0) for e in dz.etapy_surowe) + PRZERWA_JEDZENIE_MIN
+        dostepne = LIMIT_CZASU_MINUTY - postoje
+        if dostepne <= 0 or baza_km <= 0:
+            return 0.0
+        return (dostepne / 60) * SREDNIA_PREDKOSC / baza_km
+
+    def _zdejmij_postoj(dz, ktory=None):
+        """etapy: [baza→A, A→B, …, X→baza]. Zdejmuje postój numer `ktory`
+        (0 = pierwszy; None = ostatni) i skleja odcinek z sąsiadami. Dni
+        awaryjne rodzą się z tej samej listy najbliższych miejscowości, więc
+        ucinanie zawsze OSTATNIEGO postoju zamieniałoby je w kopie — dlatego
+        przy limicie godzin wybieramy postój losowo (rng jest powtarzalny).
+        Zwraca False, gdy nie ma czego ciąć (zostają co najmniej 2 postoje)."""
+        n = len(dz.etapy_surowe) - 1            # liczba postojów
+        if n <= 2:
+            return False
+        if ktory is None or not (0 <= ktory < n):
+            ktory = n - 1
+        _do = dz.etapy_surowe[ktory]              # etap kończący się w usuwanym postoju
+        _z = dz.etapy_surowe[ktory + 1]           # etap wychodzący z niego
+        _sklejony = RawEtap(
+            skad=_do.skad, dokad=_z.dokad, data_str=_z.data_str,
+            d_line=oblicz_dystans(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng),
+            czas_w_sklepie=_z.czas_w_sklepie, dokad_woj=_z.dokad_woj,
+            skad_lat=_do.skad_lat, skad_lng=_do.skad_lng,
+            dokad_lat=_z.dokad_lat, dokad_lng=_z.dokad_lng)
+        dz.etapy_surowe = dz.etapy_surowe[:ktory] + [_sklejony] + dz.etapy_surowe[ktory + 2:]
+        return True
+
+    def _zdejmij_ostatni_postoj(dz):
+        return _zdejmij_postoj(dz, None)
+
+    # KOPIE DNI: dwa dni z identyczną kolejnością miejscowości wyglądają
+    # jak dokument przepisany przez kalkę. Drugi egzemplarz jedzie tę samą
+    # pętlę W ODWROTNĄ STRONĘ (inne odcinki i godziny, te same kilometry);
+    # gdy i to jest już zajęte — dzień zostaje, ale to rzadkość.
+    _widziane_slady = set()
+    for _dz in finalne_dni:
+        _s = tuple(e.dokad for e in _dz.etapy_surowe)
+        if _s in _widziane_slady and len(_dz.etapy_surowe) >= 3:
+            _post = [(e.dokad, e.dokad_lat, e.dokad_lng, e.czas_w_sklepie, e.dokad_woj)
+                     for e in _dz.etapy_surowe[:-1]][::-1]
+            _pow = _dz.etapy_surowe[-1]
+            _et2 = []
+            _pl, _pg, _pn = _pow.dokad_lat, _pow.dokad_lng, _pow.dokad
+            _ds = _dz.etapy_surowe[0].data_str
+            for (_n, _la, _lg, _sh, _wj) in _post:
+                _et2.append(RawEtap(skad=_pn, dokad=_n, data_str=_ds,
+                                    d_line=oblicz_dystans(_pl, _pg, _la, _lg), czas_w_sklepie=_sh,
+                                    dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg))
+                _pl, _pg, _pn = _la, _lg, _n
+            _et2.append(RawEtap(skad=_pn, dokad=_pow.dokad, data_str=_ds,
+                                d_line=oblicz_dystans(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng),
+                                czas_w_sklepie=0, dokad_woj=_pow.dokad_woj, skad_lat=_pl, skad_lng=_pg,
+                                dokad_lat=_pow.dokad_lat, dokad_lng=_pow.dokad_lng))
+            _s2 = tuple(e.dokad for e in _et2)
+            if _s2 not in _widziane_slady:
+                _dz.etapy_surowe = _et2
+                _s = _s2
+        _widziane_slady.add(_s)
+
+    # 0) osiem godzin przy realnej drodze — losowy postój (nie pierwszy)
+    for _dz in list(finalne_dni):
+        while _sufit_surowy(_dz) < MNOZNIK_MIN:
+            _n = len(_dz.etapy_surowe) - 1
+            if _n <= 2 or not _zdejmij_postoj(_dz, rng.randint(1, _n - 1)):
+                break
+            _postoje_przyciete += 1
+        if _sufit_surowy(_dz) < MNOZNIK_MIN and len(finalne_dni) > 1:
+            finalne_dni.remove(_dz)              # dwa postoje i nadal za daleko
+            _dni_przyciete += 1
+
+    # 1) za dużo dni na tę kwotę: odpadają najdłuższe
+    while len(finalne_dni) > 1 and _linia_wszystkich() * MNOZNIK_MIN > wymagany_dystans_calkowity + 0.5:
+        _najdluzszy = max(finalne_dni, key=lambda dz: (_linia_dnia(dz), -len(dz.etapy_surowe)))
+        finalne_dni.remove(_najdluzszy)
+        _dni_przyciete += 1
+
+    # 2) jeden dzień i nadal za długi: mniej postojów
+    if len(finalne_dni) == 1:
+        _dz = finalne_dni[0]
+        while _linia_dnia(_dz) * MNOZNIK_MIN > wymagany_dystans_calkowity + 0.5 and _zdejmij_ostatni_postoj(_dz):
+            _postoje_przyciete += 1
 
     _dane_dni = []
     for dzien in finalne_dni:
         mn_max, baza_km = _mnoznik_max_dnia(dzien)
-        _dane_dni.append({"dzien": dzien, "max": mn_max, "km": baza_km, "mn": 0.3})
+        _dane_dni.append({"dzien": dzien, "max": mn_max, "km": baza_km, "mn": MNOZNIK_MIN})
 
     _suma_km_bazowa = max(sum(x["km"] for x in _dane_dni), 1.0)
     _cel = wymagany_dystans_calkowity
-    _mn_start = max(0.3, _cel / _suma_km_bazowa)
+    _mn_start = max(MNOZNIK_MIN, _cel / _suma_km_bazowa)
     for x in _dane_dni:
-        x["mn"] = max(0.3, min(_mn_start, x["max"]))
+        x["mn"] = max(MNOZNIK_MIN, min(_mn_start, x["max"]))
     for _ in range(24):
         _osiagniete = sum(x["km"] * x["mn"] for x in _dane_dni)
         _brak = _cel - _osiagniete
@@ -5822,12 +6518,16 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         except Exception:
             pass
         with open(_plik_diag, "a", encoding="utf-8") as _f:
+            _mnozniki = [x["mn"] for x in _dane_dni] or [0.0]
             _f.write("%s | kwota %.2f | stawka %.2f | cel %.0f km | dni robocze %d | "
                      "potrzeba %d | zbudowane %d | awaryjne %d | nieudane %d | "
+                     "przyciete dni %d postoje %d | linia %.0f km | mnoznik %.2f-%.2f | "
                      "limit dnia %d min | pojemnosc %.0f km | osiagnieto %.2f (%.1f%%)\n"
                      % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                         kwota_calkowita, stawka, cel_calkowity_dystans, len(dni_robocze),
                         _dni_potrzeba, len(finalne_dni), _dni_awaryjne, _dni_nieudane,
+                        _dni_przyciete, _postoje_przyciete, suma_linii,
+                        min(_mnozniki), max(_mnozniki),
                         LIMIT_CZASU_MINUTY, _pojemnosc_km, _osi,
                         100.0 * _osi / max(kwota_calkowita, 1e-9)))
     except Exception:
@@ -17274,6 +17974,31 @@ class App(QMainWindow):
         self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:" + _adres_zgloszen()))
         tb.addWidget(self.btn_bug)
 
+        # KARTA TESTERA tuż obok zgłaszania błędu — kto chce pomóc, ma to
+        # pod ręką w tym samym miejscu, w którym zgłasza usterki.
+        self.btn_tester = OutlineButton("★", self.is_dark, self.topbar)
+        self.btn_tester.setToolTip("Zostań testerem — lista rzeczy do sprawdzenia, "
+                                   "punkty i certyfikat")
+        self.btn_tester.setFixedWidth(44)
+        self.btn_tester.clicked.connect(lambda: uruchom_karte_testera(self))
+        tb.addWidget(self.btn_tester)
+
+        # ZMIANA HASŁA — bez wylogowywania się z programu
+        self.btn_haslo = OutlineButton("🔑 Hasło", self.is_dark, self.topbar)
+        self.btn_haslo.setToolTip("Zmień hasło — obowiązuje od następnego logowania")
+        self.btn_haslo.clicked.connect(
+            lambda: zmien_haslo_w_programie(
+                self, getattr(self, "_kod_uzytkownika", "") or online_kod_uzytkownika(),
+                self.is_dark))
+        tb.addWidget(self.btn_haslo)
+
+        # WYGLĄD — głębia 3D i intro do włączenia/wyłączenia bez grzebania w plikach
+        self.btn_wyglad = OutlineButton("⋯", self.is_dark, self.topbar)
+        self.btn_wyglad.setToolTip("Wygląd: głębia 3D (cienie), intro przy starcie")
+        self.btn_wyglad.setFixedWidth(40)
+        self.btn_wyglad.clicked.connect(self._menu_wygladu)
+        tb.addWidget(self.btn_wyglad)
+
         # Wylogowanie zawsze pod ręką — ten sam styl co pozostałe przyciski paska.
         self.btn_wyloguj = QPushButton("⎋  Wyloguj", self.topbar)
         styl_wyloguj(self.btn_wyloguj, self.is_dark)
@@ -17323,6 +18048,10 @@ class App(QMainWindow):
         if _imie_konta:
             self.e_imie.setText(_imie_konta)
             self.e_imie.setReadOnly(True)
+            # Pole jest zablokowane, więc editingFinished nigdy nie nadejdzie —
+            # a to ono uruchamiało podpowiedź PESEL/adresu z profilu. Bez tego
+            # wywołania użytkownik po aktualizacji widział puste rubryki.
+            QTimer.singleShot(0, self._podpowiedz_profil)
             self.e_imie.setToolTip("Dane z Twojego konta (kod " +
                                    str(online_kod_uzytkownika() or "?") +
                                    ") — nie można ich zmienić.")
@@ -18017,7 +18746,14 @@ class App(QMainWindow):
             pass
         if not adres_bazy:
             adres_bazy = ustawienie_osobiste("adres_bazy", "")
-        else:
+        if not adres_bazy:
+            # ADRES Z FORMULARZA DELEGACJI — to on jest punktem odniesienia
+            # dla rozliczeń; nigdy wartość wspólna dla komputera.
+            try:
+                adres_bazy = (self.e_adres.text() or "").strip()
+            except Exception:
+                pass
+        if adres_bazy:
             zapisz_ustawienie_osobiste("adres_bazy", adres_bazy)
 
         # cykliczność — czytamy stan wprost z planera
@@ -18627,6 +19363,56 @@ class App(QMainWindow):
         except Exception:
             pass
 
+    def _menu_wygladu(self):
+        """Menu pod przyciskiem ⋯: głębia 3D i intro. Zapisuje się na tym
+        komputerze; głębia włącza się od razu, wyłączenie schodzi z przycisków
+        od razu, a z reszty po ponownym uruchomieniu."""
+        try:
+            from PyQt6.QtWidgets import QMenu
+            from PyQt6.QtGui import QAction
+            m = QMenu(self)
+            m.setStyleSheet(
+                "QMenu{background:%s;color:%s;border:1px solid %s;border-radius:8px;padding:6px;}"
+                "QMenu::item{padding:6px 18px;border-radius:5px;}"
+                "QMenu::item:selected{background:%s;}"
+                % (("#0B1F1A", "#E9FDF4", "#1E6E50", "#14523C") if self.is_dark
+                   else ("#FFFFFF", "#0F172A", "#BFE3D3", "#E6F4EE")))
+            a3d = QAction("Głębia 3D (cienie i wypukłe krawędzie)", m)
+            a3d.setCheckable(True); a3d.setChecked(glebia_wlaczona())
+            m.addAction(a3d)
+            aintro = QAction("Intro przy starcie", m)
+            aintro.setCheckable(True); aintro.setChecked(not bool(ustawienie("bez_intra", False)))
+            m.addAction(aintro)
+            m.addSeparator()
+            atester = QAction("★  Karta testera", m)
+            m.addAction(atester)
+            wybor = m.exec(self.btn_wyglad.mapToGlobal(self.btn_wyglad.rect().bottomLeft()))
+            if wybor is a3d:
+                zapisz_ustawienie("wyglad_3d", bool(a3d.isChecked()))
+                if a3d.isChecked():
+                    self._glebia_nalozona = True
+                    zastosuj_glebie_interfejsu(self)
+                else:
+                    for w in self.findChildren(QPushButton):
+                        try:
+                            w.setGraphicsEffect(None)
+                        except Exception:
+                            pass
+                    _okno_pmt(self, "Głębia 3D wyłączona",
+                              "Cienie zeszły z przycisków. Reszta elementów wróci do "
+                              "płaskiego wyglądu po ponownym uruchomieniu programu.",
+                              tylko_ok=True)
+            elif wybor is aintro:
+                zapisz_ustawienie("bez_intra", not bool(aintro.isChecked()))
+            elif wybor is atester:
+                uruchom_karte_testera(self)
+        except Exception:
+            try:
+                import traceback
+                _dziennik_animacji("menu wyglądu BŁĄD:\n" + traceback.format_exc())
+            except Exception:
+                pass
+
     def _zapisz_menedzera(self):
         """Zapisuje nazwisko przełożonego (pole w karcie danych pracownika)."""
         try:
@@ -18649,6 +19435,11 @@ class App(QMainWindow):
                 getattr(self, pole).clear()
             except Exception:
                 pass
+        try:
+            self._profil_zaproponowany = ""
+            self._podpowiedz_profil()          # dane TEJ osoby z profilu na dysku
+        except Exception:
+            pass
         try:
             if hasattr(self, "overlay_planer") and hasattr(self.overlay_planer, "pole_baza"):
                 self.overlay_planer.pole_baza.setText(ustawienie_osobiste("adres_bazy", ""))
@@ -18805,37 +19596,40 @@ class App(QMainWindow):
         nakładka też — koniec problemów z osobnym oknem pełnoekranowym."""
         try:
             _dziennik_animacji("start intro w wersji %s" % WERSJA_PROGRAMU)
-            # ── INTRO WIDEO (prerender z Blendera, pmt_intro_geo.py) ──
-            # Próba nowego intro; przy JAKIMKOLWIEK braku (modułu,
-            # PyQt6-Multimedia, pliku MP4) wracamy bez szkody do starej
-            # animacji poniżej. Pliki: intro_zmierzch.mp4 / intro_zloty.mp4
-            # obok programu albo w podkatalogu zasoby.
             self._intro_zakonczone = False
-            # Klasyczne intro trwa ~20–25 s, wideo ~21 s. Po 50 s bez
+            self._intro = None
+            _kat_prog = _katalog_programu()
+            # Klasyczne intro trwa ~20 s, żywa mapa ~21 s. Po 50 s bez
             # zgłoszenia końca strażnik sam pokazuje program.
             QTimer.singleShot(50000, self._intro_straznik)
+            if bool(ustawienie("bez_intra", False)):
+                _dziennik_animacji("intro wyłączone w menu Wygląd — od razu program")
+                self._intro_gra = False
+                self._intro_koniec()
+                return
+            # ── INTRO „Z ORBITY DO TRASY" (intro_zywa_mapa.py) ────────
+            # Globus → Polska → miasto użytkownika → żywa mapa trasy
+            # z logotypami sieci. Gra jako NAKŁADKA w oknie programu (jak
+            # klasyczna animacja), więc strażnik i zdejmowanie nakładek
+            # działają na nie tak samo. Każdy brak = klasyczna animacja.
             try:
-                from intro_wideo import sprobuj_intro_wideo
-                _kat_prog = os.path.dirname(os.path.abspath(sys.argv[0]))
-                self._intro = None   # _intro_koniec ma co bezpiecznie pominąć
-                # Intro wideo nie tworzy self._intro, a po nim rozpoznawano,
-                # czy intro trwa. Bez tej flagi okno aktualizacji potrafiłoby
-                # wjechać w środek grającego filmu.
+                from intro_zywa_mapa import sprobuj_intro as _intro_mapa
+                _dane = dane_intra_z_dysku(imie or "")
+                if imie:
+                    _dane["imie"] = str(imie).split()[0]
                 self._intro_gra = True
-                if sprobuj_intro_wideo(self,
-                                       motyw=("ciemny" if self.is_dark else "jasny"),
-                                       postep_ladowania=None,
-                                       po_zakonczeniu=self._intro_koniec,
-                                       katalog_zasobow=_kat_prog):
-                    _dziennik_animacji("intro WIDEO uruchomione (zasoby: %s)" % _kat_prog)
+                if _intro_mapa(self, dane=_dane, po_zakonczeniu=self._intro_koniec,
+                               katalog_zasobow=_kat_prog, ciemny=self.is_dark):
+                    _dziennik_animacji("intro ŻYWA MAPA uruchomione (miasto: %s, węzłów: %d)"
+                                       % (_dane.get("miasto", "?"), len(_dane.get("wezly") or [])))
                     return
                 self._intro_gra = False
-                _dziennik_animacji("intro wideo niedostępne — stara animacja")
+                _dziennik_animacji("intro żywa mapa niedostępne — klasyczna animacja")
             except Exception:
                 self._intro_gra = False
                 try:
                     import traceback
-                    _dziennik_animacji("intro wideo BŁĄD — stara animacja:\n"
+                    _dziennik_animacji("intro żywa mapa BŁĄD — klasyczna animacja:\n"
                                        + traceback.format_exc())
                 except Exception:
                     pass
@@ -18878,9 +19672,33 @@ class App(QMainWindow):
         except Exception:
             pass
         _dziennik_animacji("intro zakończone — ekran powitalny")
-        # Cokolwiek jeszcze zasłania CAŁE okno (np. nakładka intro wideo),
-        # ma zejść — pod spodem czeka gotowy program.
+        # Żywa mapa wymuszona przez strażnika: zatrzymujemy jej zegar, żeby
+        # nie zgłosiła końca drugi raz (bez emitowania sygnału).
+        try:
+            for _dz in self.findChildren(QWidget):
+                if type(_dz).__name__ == "IntroZywaMapa" and not getattr(_dz, "_koniec_wyslany", True):
+                    _dz._koniec_wyslany = True
+                    try:
+                        _dz._timer.stop()
+                    except Exception:
+                        pass
+                    _dz.hide(); _dz.deleteLater()
+        except Exception:
+            pass
+        # Cokolwiek jeszcze zasłania CAŁE okno, ma zejść — pod spodem czeka
+        # gotowy program.
         self._zdejmij_nakladki_pelnoekranowe()
+        # GŁĘBIA 3D dopiero TERAZ: nakładanie setek cieni przed intrem
+        # spowalniało samą animację (każda klatka przemalowywała też
+        # ocienione elementy pod spodem — stąd 45-sekundowe intro w 3.21.0).
+        if not getattr(self, "_glebia_nalozona", False):
+            self._glebia_nalozona = True
+            QTimer.singleShot(80, lambda: zastosuj_glebie_interfejsu(self))
+        # Zaproszenie do testów: po intrze, rzadko, zawsze do pominięcia.
+        if not getattr(self, "_zaproszenie_bylo", False):
+            self._zaproszenie_bylo = True
+            QTimer.singleShot(900, lambda: zaproszenie_testera(
+                self, getattr(self, "_imie_zalogowany", "") or "", self.is_dark))
 
     def _zdejmij_nakladki_pelnoekranowe(self):
         """Chowa każdy widżet-dziecko, który przykrywa całe okno i nie jest
@@ -18953,6 +19771,9 @@ class App(QMainWindow):
         self.title_bar.update_theme(self.is_dark)
 
         self.btn_theme.update_theme(self.is_dark)
+        self.btn_tester.update_theme(self.is_dark)
+        self.btn_haslo.update_theme(self.is_dark)
+        self.btn_wyglad.update_theme(self.is_dark)
         self.btn_dzwonek.is_dark = self.is_dark; self.btn_dzwonek.update()
         if hasattr(self, "panel_powiadomien"): self.panel_powiadomien.update_theme(self.is_dark)
         self.si_imie.update_theme(self.is_dark)
@@ -19510,6 +20331,7 @@ if __name__ == "__main__":
     # "zapamietywany na zawsze". Kazde wejscie do systemu jest odnotowane
     # w arkuszu (zakladka Log), a dostep mozna odebrac zdalnie - zmiana
     # hasla albo daty w kolumnie "Wazne do" dziala od nastepnego startu.
+    _zapamietaj_kod_przed_logowaniem()     # kto był tu zalogowany przed aktualizacją
     _kod, _imie_zal = dialog_logowania()
     if not _kod:
         sys.exit(0)
@@ -19540,20 +20362,25 @@ if __name__ == "__main__":
     _sesja_wynik = {}
 
     def _sesja_w_tle():
+        powod = ""
         try:
             w, d, _im = online_status_sesji()
             if w is None or w is False:
                 online_synchronizuj()
                 w, d, _im = online_status_sesji()
+            if w is False:
+                powod = "wazne_do=%s" % (_wczytaj(PLIK_STATUSU, {}) or {}).get("wazne_do", "?")
             if w is None:
                 w, d = demo_status()   # nigdy nie było kontaktu z serwerem
-            _sesja_wynik["gotowe"] = (bool(w), d)
+                if not w:
+                    powod = "demo"
+            _sesja_wynik["gotowe"] = (bool(w), d, powod)
         except Exception:
             try:
                 w, d = demo_status()
-                _sesja_wynik["gotowe"] = (bool(w), d)
+                _sesja_wynik["gotowe"] = (bool(w), d, "demo" if not w else "")
             except Exception:
-                _sesja_wynik["gotowe"] = (True, 0)
+                _sesja_wynik["gotowe"] = (True, 0, "")
 
     threading.Thread(target=_sesja_w_tle, daemon=True).start()
 
@@ -19610,6 +20437,11 @@ if __name__ == "__main__":
         sys.exit(1)
     _dziennik_animacji("okno programu zbudowane")
     window._demo_pozostalo = None          # ustali werdykt sesji z tła
+    try:
+        window._kod_uzytkownika = _kod or ""
+        window._imie_zalogowany = _imie_zal or ""
+    except Exception:
+        pass
     window.show()
     window.intro_po_sprawdzeniu(_imie_zal if "_imie_zal" in dir() else "")
 
@@ -19617,18 +20449,35 @@ if __name__ == "__main__":
         if "gotowe" not in _sesja_wynik:
             QTimer.singleShot(250, _werdykt_sesji)
             return
-        _wazna, _pozostalo = _sesja_wynik["gotowe"]
+        _wazna, _pozostalo = _sesja_wynik["gotowe"][:2]
+        _powod = (list(_sesja_wynik["gotowe"][2:]) or [""])[0]
         window._demo_pozostalo = _pozostalo
         if not _wazna:
+            # Zamknięcie programu ma nazwać powód wprost — „Sesja dobiegła
+            # końca" bez wyjaśnienia wyglądało u ludzi jak awaria („dane się
+            # nie pojawiają, a po chwili program się wyłącza").
+            try:
+                _dziennik_animacji("WERDYKT SESJI: zamykam program, powód: %s" % (_powod or "?"))
+            except Exception:
+                pass
             from PyQt6.QtWidgets import QMessageBox
             _mb = QMessageBox(window)
             _ico = znajdz_ikone()
             if _ico: _mb.setWindowIcon(QIcon(_ico))
-            _mb.setWindowTitle("PMT Planer — wersja DEMO")
+            _mb.setWindowTitle("PMT Planer — dostęp")
             _mb.setIcon(QMessageBox.Icon.Warning)
-            _mb.setText("Sesja dobiegła końca.")
-            _mb.setInformativeText("Dziękujemy za przetestowanie PMT Planer.\n"
-                                   "Aby przedłużyć dostęp, skontaktuj się z administratorem — po przedłużeniu wystarczy ponownie uruchomić program (przy dostępie do internetu).")
+            if str(_powod).startswith("wazne_do="):
+                _mb.setText("Dostęp do programu wygasł (%s)." % (str(_powod).split("=", 1)[1] or "?"))
+                _mb.setInformativeText("Termin ważności Twojego konta minął (kolumna \u201eWażne do\u201d "
+                                       "w arkuszu użytkowników). Poproś administratora o przedłużenie — "
+                                       "po przedłużeniu wystarczy ponownie uruchomić program.\n"
+                                       "Twoje dane na tym komputerze zostają nietknięte.")
+            else:
+                _mb.setText("Program nie potwierdził dostępu.")
+                _mb.setInformativeText("Minął okres próbny, a program nie miał jeszcze kontaktu z serwerem "
+                                       "(brak internetu albo blokada w sieci firmowej). Połącz się z siecią "
+                                       "i uruchom ponownie albo poproś administratora o kod aktywacyjny.\n"
+                                       "Twoje dane na tym komputerze zostają nietknięte.")
             _mb.setStandardButtons(QMessageBox.StandardButton.Ok)
             _mb.exec()
             window.close()

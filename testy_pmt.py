@@ -18,6 +18,11 @@ import json
 import glob
 import shutil
 import tempfile
+import importlib
+import zlib
+import base64
+import json
+import datetime
 import datetime
 
 KATALOG = os.path.dirname(os.path.abspath(__file__))
@@ -99,6 +104,42 @@ if _blok_txt:
     sprawdz("blokada= ma format RRRR-MM-DD",
             bool(re.match(r"^\d{4}-\d{2}-\d{2}$", _blok_txt)),
             "blokada=%s (Windows/Excel lubi podmieniać na DD.MM.RRRR)" % _blok_txt)
+
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("1b. Moduły towarzyszące: intro z kulą ziemską, karta testera, głębia 3D")
+for _mod in ("intro_zywa_mapa", "karta_testera", "wyglad_3d"):
+    try:
+        importlib.import_module(_mod)
+        sprawdz("moduł %s importuje się" % _mod, True)
+    except Exception as _e:
+        sprawdz("moduł %s importuje się" % _mod, False, repr(_e))
+try:
+    import intro_zywa_mapa as _izm
+    _izm._DZWIEK_ON = False            # testy bez dźwięku
+    sprawdz("intro ma wtopione logotypy sieci (nie potrzebuje plików PNG)",
+            len(json.loads(zlib.decompress(base64.b64decode(_izm._LOGO_B64)).decode("utf-8"))) >= 6)
+    sprawdz("intro ma wtopione kontury geograficzne", len(_izm._geo()) >= 2)
+except Exception as _e:
+    sprawdz("intro: dane wtopione w moduł", False, repr(_e))
+sprawdz("_siec_ma_logo: Żabka / Biedronka Codziennie / nieznana sieć",
+        P._siec_ma_logo("Żabka") and P._siec_ma_logo("BIEDRONKA Codziennie") and not P._siec_ma_logo("Carrefour"))
+_di = P.dane_intra_z_dysku("Jan Testowy")
+sprawdz("dane intra bez historii: losowa trasa naszych sieci i środek Polski",
+        isinstance(_di, dict) and len(_di.get("wezly") or []) >= 4
+        and all(P._siec_ma_logo(w["siec"]) for w in _di["wezly"])
+        and 49.0 < float(_di.get("lat", 0)) < 55.0 and 14.0 < float(_di.get("lon", 0)) < 24.5,
+        str({k: v for k, v in _di.items() if k != "wezly"}))
+sprawdz("dane intra nie podstawiają cudzego profilu, gdy imię się nie zgadza",
+        "imie" not in _di or str(_di.get("imie", "")).lower().startswith("jan"))
+_dz = datetime.date(2026, 9, 10)
+sprawdz("logowanie offline: świeży wpis (30 dni) — wolno",
+        P._logowanie_offline_dozwolone({"ostatnio": "2026-08-11T10:00:00"}, _dz) is True)
+sprawdz("logowanie offline: stary wpis (60 dni) — trzeba zalogować się online",
+        P._logowanie_offline_dozwolone({"ostatnio": "2026-07-12T10:00:00"}, _dz) is False)
+sprawdz("logowanie offline: wpis sprzed tej wersji (bez daty) — wolno",
+        P._logowanie_offline_dozwolone({"skrot": "x"}, _dz) is True)
+sprawdz("MNOZNIK_MIN ma sens fizyczny (1,1–1,4)", 1.1 <= P.MNOZNIK_MIN <= 1.4, str(P.MNOZNIK_MIN))
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -481,6 +522,47 @@ sprawdz("na wspólnym komputerze nowe konto NIE dostaje cudzego adresu bazy",
 sprawdz("na wspólnym komputerze wspólne pliki zostają nietknięte",
         os.path.exists(P.PUNKTY_STORE) and os.path.exists(P.WIZYTY_STORE))
 
+# C. komputer WSPÓLNY, ale loguje się TA SAMA osoba, która była zalogowana
+#    przed aktualizacją — dane są jej (zgłoszenie „dane się nie pojawiają")
+_stan_sprzed_3210(["11111", "22222"])
+P._zapisz(P.PLIK_STATUSU, {"kod": "11111", "imie": "Anna Kowalska"})
+P._zapamietaj_kod_przed_logowaniem()
+P.online_zapisz_kod("11111")
+P.ustaw_uzytkownika_planu("Anna Kowalska", "11111")
+sprawdz("osoba zalogowana przed aktualizacją odzyskuje punkty mimo drugiego konta w historii",
+        len(P.wczytaj_punkty()) == 1, repr(P.wczytaj_punkty()))
+sprawdz("osoba zalogowana przed aktualizacją odzyskuje adres bazy",
+        P.ustawienie_osobiste("adres_bazy", "") == "ul. Wspólna 1, Radom")
+P.online_zapisz_kod("22222")
+P.ustaw_uzytkownika_planu("Bartosz Nowak", "22222")
+sprawdz("…a druga osoba nadal NIE dostaje cudzych punktów",
+        P.wczytaj_punkty() == [], repr(P.wczytaj_punkty()))
+P.KOD_PRZED_LOGOWANIEM = ""
+
+# D. plan zapisany przez 3.21.0 pod starym kluczem (imię|kod) + stub w pliku
+#    wspólnym — po aktualizacji plan ma wrócić pod nowy klucz
+_stan_sprzed_3210(["11111", "22222"])
+_stary_klucz = P._klucz_uzytkownika("Anna Kowalska", "11111")
+with open(os.path.join(_TMP_HOME, ".pmt_plan_%s.json" % _stary_klucz), "w", encoding="utf-8") as f:
+    json.dump({"miesiace": [{"rok": 2026, "miesiac": 9, "dni": []}], "wlasciciel": _stary_klucz}, f)
+with open(P.PLAN_STORE, "w", encoding="utf-8") as f:
+    json.dump({"wlasciciel": _stary_klucz, "przeniesiony": True}, f)      # stub z 3.21.0
+P.zapisz_ustawienie("adres_bazy__" + _stary_klucz, "ul. Stara 3, Radom")
+P.online_zapisz_kod("11111")
+P.ustaw_uzytkownika_planu("Anna Kowalska", "11111")
+with open(P._plik_planu(), encoding="utf-8") as f:
+    _plan_po = json.load(f)
+sprawdz("plan spod klucza 3.21.0 (imię|kod) wraca pod nowy klucz konta",
+        P._plan_ma_tresc(P._plik_planu()) and _plan_po.get("miesiace", [{}])[0].get("miesiac") == 9,
+        "plik: %s, treść: %s" % (os.path.basename(P._plik_planu()), str(_plan_po)[:80]))
+sprawdz("stary plik planu zostaje jako kopia .sprzed_3.22.0",
+        os.path.exists(os.path.join(_TMP_HOME, ".pmt_plan_%s.json.sprzed_3.22.0" % _stary_klucz)))
+sprawdz("adres bazy spod klucza 3.21.0 wraca na konto",
+        P.ustawienie_osobiste("adres_bazy", "") == "ul. Stara 3, Radom",
+        repr(P.ustawienie_osobiste("adres_bazy", "")))
+sprawdz("stub {przeniesiony: true} nie jest traktowany jak plan",
+        P._plan_ma_tresc(P.PLAN_STORE) is False)
+
 _wyczysc_dom()
 
 # ══════════════════════════════════════════════════════════════════
@@ -611,6 +693,30 @@ if not SZYBKO:
     sprawdz("rejon przygraniczny: kwota rozpisana",
             abs(sum(d.suma for d in _dni_rzadkie) - 3000.0) <= 0.01,
             "%.2f zł" % sum(d.suma for d in _dni_rzadkie))
+
+    # DROGA NIGDY KRÓTSZA NIŻ LINIA PROSTA (zgłoszenie: Warszawa→Bolimów
+    # 20 km / 18 min u jednej osoby, 45 km / 41 min u drugiej).
+    def _floor_ok(dni):
+        return all(e.dystans_rzeczywisty >= e.d_line * P.MNOZNIK_MIN - 0.01
+                   for d in dni for e in d.etapy_surowe)
+    def _max_min(dni):
+        return max((P.PRZERWA_JEDZENIE_MIN + sum((e.czas_jazdy_minuty or 0) + (e.czas_w_sklepie or 0)
+                                                for e in d.etapy_surowe) for d in dni), default=0)
+    sprawdz("żaden odcinek nie jest krótszy niż %.2f × linia prosta (kwota minimalna)" % P.MNOZNIK_MIN,
+            _floor_ok(_dni_min))
+    sprawdz("żaden odcinek nie jest krótszy niż %.2f × linia prosta (11 000 zł)" % P.MNOZNIK_MIN,
+            _floor_ok(_dni_duze))
+    sprawdz("żaden odcinek nie jest krótszy niż %.2f × linia prosta (Suwałki)" % P.MNOZNIK_MIN,
+            _floor_ok(_dni_rzadkie))
+    _dni_male = P.generuj_trasy(80.0, "Radom", 51.40, 21.15, "mazowieckie",
+                                _dni_robocze, "90010112345", stawka=0.89)
+    sprawdz("mała kwota (80 zł): mniej dni i postojów zamiast krótszych kilometrów",
+            0 < len(_dni_male) <= 2 and _floor_ok(_dni_male)
+            and abs(sum(d.suma for d in _dni_male) - 80.0) <= 0.01
+            and _max_min(_dni_male) <= P.LIMIT_CZASU_MINUTY + 0.5,
+            "%d dni, %.2f zł, %.0f min" % (len(_dni_male), sum(d.suma for d in _dni_male), _max_min(_dni_male)))
+    sprawdz("po przycięciu każdy dzień ma co najmniej 2 postoje i powrót",
+            all(len(d.etapy_surowe) >= 3 for d in _dni_male + _dni_min + _dni_rzadkie))
 
     # Dni awaryjne nie mogą być swoimi kopiami — te same miejscowości
     # w tej samej kolejności na kilku datach wyglądają jak dokument
@@ -760,7 +866,7 @@ if not SZYBKO:
 
     sekcja("8. Okno programu buduje się i zamyka")
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtWidgets import QApplication, QWidget
         from PyQt6.QtCore import QTimer
         _app = QApplication.instance() or QApplication(sys.argv)
         _okno = P.App()
@@ -768,6 +874,56 @@ if not SZYBKO:
         QTimer.singleShot(600, _app.quit)
         _app.exec()
         sprawdz("główne okno programu buduje się bez błędu", True)
+        sprawdz("pasek górny ma przyciski: karta testera ★, hasło, wygląd ⋯",
+                all(hasattr(_okno, n) for n in ("btn_tester", "btn_haslo", "btn_wyglad")))
+        # głębia 3D: nakłada się bez błędu i trzyma limit efektów
+        import wyglad_3d as _w3d
+        _ile3d = P.zastosuj_glebie_interfejsu(_okno)
+        sprawdz("głębia 3D nakłada się (0 < elementów ≤ limit %d)" % _w3d.LIMIT_EFEKTOW,
+                0 < _ile3d <= _w3d.LIMIT_EFEKTOW, str(_ile3d))
+        P.zapisz_ustawienie("wyglad_3d", False)
+        sprawdz("głębia 3D wyłączona w ustawieniach = 0 elementów", P.zastosuj_glebie_interfejsu(_okno) == 0)
+        P.zapisz_ustawienie("wyglad_3d", True)
+        # intro „z orbity do trasy" jako nakładka w oknie: startuje, rysuje klatki, kończy się sygnałem
+        import intro_zywa_mapa as _izm
+        _izm._DZWIEK_ON = False
+        _stan = {"koniec": 0}
+        _ok_intro = _izm.sprobuj_intro(_okno, dane=P.dane_intra_z_dysku("Jan Testowy"),
+                                       po_zakonczeniu=lambda: _stan.__setitem__("koniec", _stan["koniec"] + 1),
+                                       katalog_zasobow=KATALOG, ciemny=True)
+        sprawdz("intro z kulą ziemską startuje jako nakładka w oknie", bool(_ok_intro))
+        _nakl = [c for c in _okno.findChildren(QWidget) if type(c).__name__ == "IntroZywaMapa"]
+        QTimer.singleShot(700, _app.quit)
+        _app.exec()                                  # kilkanaście klatek animacji
+        sprawdz("nakładka intra istnieje, jest pokazana po pierwszych klatkach i zakrywa okno",
+                len(_nakl) == 1 and _nakl[0].isVisibleTo(_okno) and not _nakl[0].isHidden()
+                and _nakl[0].width() >= _okno.width() - 2 and float(getattr(_nakl[0], "_t", 0) or 0) > 0.3,
+                str([(c.isVisibleTo(_okno), c.width(), _okno.width(), getattr(c, "_t", None)) for c in _nakl]))
+        _blad_klatek = None
+        try:
+            _nakl[0]._zakoncz()                      # jak klik/klawisz użytkownika
+            _app.processEvents()
+        except Exception as _e:
+            _blad_klatek = repr(_e)
+        sprawdz("kliknięcie kończy intro i wywołuje po_zakonczeniu dokładnie raz",
+                _blad_klatek is None and _stan["koniec"] == 1, _blad_klatek or str(_stan))
+        # strażnik: po zdjęciu nakładki przez program intro nie zgłasza końca drugi raz
+        _okno._intro_gra = True
+        _izm.sprobuj_intro(_okno, dane=P.dane_intra_z_dysku(""), po_zakonczeniu=_okno._intro_koniec,
+                           katalog_zasobow=KATALOG, ciemny=True)
+        _okno._intro_straznik()
+        _app.processEvents()
+        _zywe = [c for c in _okno.findChildren(QWidget)
+                 if type(c).__name__ == "IntroZywaMapa" and c.isVisible()]
+        sprawdz("strażnik zdejmuje żywą mapę i zatrzymuje jej zegar", not _zywe and _okno._intro_zakonczone)
+        # karta testera buduje się (osobne okno)
+        import karta_testera as _kt
+        _kt_ok = _kt.pokaz_karte(_okno)
+        sprawdz("karta testera otwiera się z programu", bool(_kt_ok) and _kt._OKNO is not None and _kt._OKNO.isVisible())
+        try:
+            _kt._OKNO.close()
+        except Exception:
+            pass
     except Exception as _e:
         sprawdz("główne okno programu buduje się bez błędu", False, repr(_e))
 

@@ -21,7 +21,7 @@ rem Wczesniej byly tu nazwy z innej, nigdy niewydanej paczki
 rem (intro_zywa_mapa.py, karta_testera.py, wyglad_3d.py) - przez to skrypt
 rem zawsze konczyl sie komunikatem "brakuje plikow" i nie dalo sie go uzyc.
 set "BRAK="
-for %%F in (PMT_Delegacje.py intro_wideo.py zbuduj.py wersja_pomocnik.py wersja_exe.txt) do if not exist "%%F" set "BRAK=%BRAK% %%F"
+for %%F in (PMT_Delegacje.py intro_zywa_mapa.py karta_testera.py wyglad_3d.py zbuduj.py wersja_pomocnik.py wersja_exe.txt) do if not exist "%%F" set "BRAK=%BRAK% %%F"
 if not defined BRAK goto :dodaj
 echo [UWAGA] W folderze brakuje plikow:%BRAK%
 echo Skopiuj je z paczki i uruchom ponownie.
@@ -35,7 +35,7 @@ git check-ignore -q menedzer.txt
 if errorlevel 1 if exist "menedzer.txt" goto :dane_osobowe
 
 echo Dodaje pliki zrodlowe...
-git add PMT_Delegacje.py intro_wideo.py zbuduj.py wersja_pomocnik.py wersja_exe.txt
+git add PMT_Delegacje.py intro_zywa_mapa.py karta_testera.py wyglad_3d.py zbuduj.py wersja_pomocnik.py wersja_exe.txt
 git add testy_pmt.py START_TUTAJ.txt BEZ_BLOKADY_WINDOWS.txt BACKEND_APPS_SCRIPT.txt
 git add INSTRUKCJA_BUDOWY.txt .gitignore 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt
 git add ZBUDUJ_EXE.bat ZBUDUJ_EXE_FOLDER.bat SPRAWDZ_WERSJE.bat URUCHOM_PROGRAM.bat

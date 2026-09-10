@@ -81,6 +81,9 @@ DOKĄD go wgrać.
   Windows zablokował niepodpisany `.pyd` z fontTools (3.21.3). Od 3.21.4 fontTools jest
   instalowany czysto pythonowo (`--no-binary fonttools` w requirements.txt), CI tego pilnuje,
   a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: START_TUTAJ.txt, 6b.
+- **Trzy moduły obok programu są obowiązkowe**: `intro_zywa_mapa.py` (intro z kulą
+  ziemską), `karta_testera.py`, `wyglad_3d.py`. Bez nich program działa, ale bez intra,
+  karty i głębi — dokładnie tak wyglądały paczki 3.21.0–3.21.4. Szczegóły: START_TUTAJ 6d.
 - **Buildy na Pythonie 3.13**, nie 3.14 (błąd `python314.dll` u użytkowników).
 - **Po każdej zmianie skryptu w arkuszu** trzeba wydać **nową wersję wdrożenia**,
   inaczej pod adresem `/exec` działa stary kod.

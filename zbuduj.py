@@ -21,7 +21,8 @@ import sys
 KATALOG = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 
-WYMAGANE = ["PMT_Delegacje.py", "intro_wideo.py"]
+WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
+            "wyglad_3d.py"]
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
 # tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
 # intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
@@ -33,7 +34,8 @@ WYMAGANE = ["PMT_Delegacje.py", "intro_wideo.py"]
 # plik NIE trafia (.gitignore) — i tylko to było realnym problemem.
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
         "pmt_logo_retro.png", "menedzer.txt"]
-UKRYTE = ["intro_wideo", "winsound"]
+UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "winsound",
+          "PyQt6.QtMultimedia"]
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
 # się rozjechać (tak zniknęło openpyxl z wydań budowanych w CI).
@@ -232,22 +234,6 @@ def dolacz_do_paczki(sc, wer):
             f.write(wer)
     except Exception as e:
         pisz("  [UWAGA] nie zapisałem znacznika wersji: %s" % e)
-    # Intro wideo: filmy z zasoby/ (albo z korzenia) trafiają do
-    # dist\PMT_Planer\zasoby — bez nich program pokazuje starą animację.
-    ile = 0
-    for nazwa in ("intro_zmierzch.mp4", "intro_zloty.mp4"):
-        for zr in (os.path.join(KATALOG, "zasoby", nazwa), os.path.join(KATALOG, nazwa)):
-            if os.path.exists(zr):
-                try:
-                    os.makedirs(os.path.join(kat, "zasoby"), exist_ok=True)
-                    shutil.copy2(zr, os.path.join(kat, "zasoby", nazwa))
-                    pisz("  dołączam intro: %s" % os.path.relpath(zr, KATALOG))
-                    ile += 1
-                except Exception as e:
-                    pisz("  [UWAGA] nie udało się dołączyć %s: %s" % (nazwa, e))
-                break
-    if not ile:
-        pisz("  [UWAGA] brak intro_zmierzch.mp4 / intro_zloty.mp4 (zasoby\\) — paczka pokaże STARĄ animację intro")
 
 
 def main():

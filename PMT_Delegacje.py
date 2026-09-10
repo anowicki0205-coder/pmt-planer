@@ -17597,8 +17597,19 @@ class App(QMainWindow):
         # rusza z widocznego logo przy bocznym menu.
         intro = getattr(self, "_intro", None)
         if getattr(self, "_intro_gra", False) or (intro is not None and intro.isVisible()):
-            QTimer.singleShot(700, self._pokaz_okno_aktualizacji)
-            return
+            # TWARDY LIMIT czekania. Gdy intro nie zgłosi końca (u jednego
+            # użytkownika 3.21.0 skończyło się ciemnym ekranem), flaga
+            # _intro_gra zostaje na zawsze — a ta pętla razem z nią: okno
+            # aktualizacji nie pojawiało się NIGDY, choć wersja na serwerze
+            # była nowsza. Po ~45 s pokazujemy okno niezależnie od intro.
+            self._akt_czekanie = getattr(self, "_akt_czekanie", 0) + 1
+            if self._akt_czekanie < 65:
+                QTimer.singleShot(700, self._pokaz_okno_aktualizacji)
+                return
+            try:
+                _dziennik_animacji("aktualizacja: intro nie zeszło po 45 s — pokazuję okno mimo to")
+            except Exception:
+                pass
         # punkt startu = MALE LOGO PMT w topbarze (nad menu po lewej)
         srodek_lok, start_rect = None, None
         try:

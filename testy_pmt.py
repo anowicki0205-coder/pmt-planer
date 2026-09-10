@@ -644,6 +644,31 @@ if not SZYBKO:
             P._uruchomiono_z_folderu_tymczasowego(r"C:\Temp\PMT_Planer\PMT_Planer.exe", _tmp_w) == "")
     sprawdz("instalacja w OneDrive/Pulpit nie jest zgłaszana",
             P._uruchomiono_z_folderu_tymczasowego(r"C:\Users\uzytkownik\OneDrive\Pulpit\PMT_Planer\PMT_Planer.exe", _tmp_w) == "")
+    sprawdz("TEMP ustawiony na korzeń dysku (D:\\) nie zgłasza instalacji na tym dysku",
+            P._uruchomiono_z_folderu_tymczasowego(r"D:\PMT\PMT_Planer\PMT_Planer.exe", "D:\\") == "")
+    sprawdz("TMP i TEMP różne: wykrywanie działa dla każdego z nich",
+            P._uruchomiono_z_folderu_tymczasowego(r"E:\tmp2\x_PMT_Planer.Windows.zip.abc\PMT_Planer\PMT_Planer.exe",
+                                                  [r"C:\Users\a\AppData\Local\Temp", r"E:\tmp2"]) == "zip")
+    _bylo_frozen_7b = getattr(sys, "frozen", None); _bylo_exe_7b = sys.executable
+    try:
+        sys.frozen = True
+        sys.executable = os.path.join(tempfile.gettempdir(), "x_PMT_Planer.Windows.zip.e96", "PMT_Planer", "PMT_Planer.exe")
+        if os.name == "nt":
+            _odp = P.zainstaluj_aktualizacje_i_zamknij(os.path.join(_TMP_HOME, "nie_ma.zip"))
+            sprawdz("instalator z %TEMP% zwraca wyjaśnienie zamiast podmieniać",
+                    isinstance(_odp, str) and "tymczasowego" in _odp, repr(_odp)[:120])
+        else:
+            sprawdz("poza Windows ostrzeżenie o folderze tymczasowym się nie pojawia",
+                    P._uruchomiono_z_folderu_tymczasowego() == "")
+    finally:
+        sys.executable = _bylo_exe_7b
+        if _bylo_frozen_7b is None:
+            try:
+                del sys.frozen
+            except Exception:
+                pass
+        else:
+            sys.frozen = _bylo_frozen_7b
     if not getattr(sys, "frozen", False):
         sprawdz("uruchomienie ze źródeł nigdy nie ostrzega",
                 P._uruchomiono_z_folderu_tymczasowego() == "")

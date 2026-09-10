@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  PMT Planer — pierwsze uruchomienie po pobraniu z internetu
+rem  PMT Planer - pierwsze uruchomienie po pobraniu z internetu
 rem
 rem  DLACZEGO TEN PLIK ISTNIEJE:
 rem  Windows oznacza KAZDY plik z pobranego archiwum znacznikiem
@@ -25,8 +25,14 @@ rem    i program konczy sie bledem "Failed to load Python DLL ... python313.dll"
 rem    Rozpoznajemy to po sciezce: folder tymczasowy uzytkownika.
 set "ZTEMP="
 echo "%~dp0" | find /i "\AppData\Local\Temp\" >nul && set "ZTEMP=1"
-if defined TEMP echo "%~dp0" | find /i "%TEMP%\" >nul && set "ZTEMP=1"
-if defined ZTEMP (
+rem    TEMP/TMP przeniesione przez firme (GPO) - sprawdzamy oba; gola litera
+rem    dysku ("C:") pasowalaby do wszystkiego, wiec wymagamy dluzszej sciezki.
+if defined TEMP if not "%TEMP:~3%"=="" echo "%~dp0" | find /i "%TEMP%\" >nul && set "ZTEMP=1"
+if defined TMP if not "%TMP:~3%"=="" echo "%~dp0" | find /i "%TMP%\" >nul && set "ZTEMP=1"
+rem    STOP tylko przy prawdziwym objawie: brak katalogu _internal obok tego
+rem    pliku (archiwizator wypakowal sam .bat). Kompletna instalacja w folderze
+rem    tymczasowym dostaje nizej samo ostrzezenie i idzie dalej.
+if defined ZTEMP if not exist "%~dp0_internal\" (
     echo   STOP: ten plik zostal uruchomiony z WNETRZA archiwum ZIP
     echo   ^(albo z folderu tymczasowego^). Windows wypakowal tylko ten jeden
     echo   plik - a program potrzebuje CALEGO folderu.
@@ -40,6 +46,12 @@ if defined ZTEMP (
     echo.
     pause
     exit /b 1
+)
+if defined ZTEMP (
+    echo   UWAGA: program lezy w folderze tymczasowym Windows - zniknie przy
+    echo   najblizszym sprzataniu tego folderu. Przenies CALY folder PMT_Planer
+    echo   np. do C:\PMT i uruchamiaj stamtad.
+    echo.
 )
 
 rem 1) zdejmujemy znacznik "plik z internetu" z wszystkich plikow
@@ -71,7 +83,7 @@ rem 3) ostrzezenie, gdy program zostal w folderze Pobrane
 echo "%~dp0" | find /i "\Downloads\" >nul
 if not errorlevel 1 (
     echo   UWAGA: program jest w folderze Pobrane.
-    echo   Zalecam przeniesc caly folder np. do C:\PMT — z Pobranych
+    echo   Zalecam przeniesc caly folder np. do C:\PMT - z Pobranych
     echo   Windows i programy antywirusowe czesto blokuja uruchamianie.
     echo.
 )

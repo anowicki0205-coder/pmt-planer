@@ -17,7 +17,8 @@ CO ZROBIĆ (raz, przy instalacji):
   3. Jako miejsce docelowe wpisz np.  C:\PMT  i kliknij „Wyodrębnij”.
   4. Wejdź do C:\PMT\PMT_Planer i uruchom URUCHOM_PMT (tylko za pierwszym
      razem — zdejmuje blokadę „plik z internetu”). Potem uruchamiaj PMT_Planer.exe.
-  5. Skrót na pulpit: prawy przycisk na PMT_Planer.exe → Wyślij do → Pulpit.
+  5. Skrót na pulpit: prawy przycisk na PMT_Planer.exe → (w Windows 11 najpierw
+     „Pokaż więcej opcji”) → Wyślij do → Pulpit (utwórz skrót).
 
 Nie przenoś samego pliku PMT_Planer.exe w inne miejsce — musi zostać w folderze
 razem z katalogiem _internal.

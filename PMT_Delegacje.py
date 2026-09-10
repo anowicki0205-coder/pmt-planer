@@ -1854,12 +1854,25 @@ def _uruchomiono_z_folderu_tymczasowego(sciezka=None, katalog_tmp=None) -> str:
     if sciezka is None:
         if not getattr(sys, "frozen", False):
             return ""                    # ze źródeł: nigdy nie ostrzegamy
+        if os.name != "nt":
+            return ""                    # instrukcja jest windowsowa (ZIP, C:\PMT)
         sciezka = sys.executable
     if katalog_tmp is None:
-        katalog_tmp = tempfile.gettempdir()
+        # Eksplorator wypakowuje do GetTempPath(), które czyta TMP przed TEMP;
+        # Python czyta TEMP przed TMP. Gdy się różnią (GPO, ręczna zmiana),
+        # porównanie z jednym z nich chybia — sprawdzamy wszystkie trzy.
+        katalog_tmp = [os.environ.get("TMP", ""), os.environ.get("TEMP", ""),
+                       tempfile.gettempdir()]
+    if isinstance(katalog_tmp, str):
+        katalog_tmp = [katalog_tmp]
     s = str(sciezka).replace("/", "\\").lower()
-    tmp = str(katalog_tmp).replace("/", "\\").lower().rstrip("\\")
-    w_temp = (bool(tmp) and s.startswith(tmp + "\\")) or "\\appdata\\local\\temp\\" in s
+    w_temp = "\\appdata\\local\\temp\\" in s
+    for k in katalog_tmp:
+        tmp = str(k or "").replace("/", "\\").lower().rstrip("\\")
+        # len > 2: goła litera dysku (D:) jako TEMP pasowałaby do każdej
+        # ścieżki na tym dysku — wtedy liczy się tylko test wyżej.
+        if len(tmp) > 2 and s.startswith(tmp + "\\"):
+            w_temp = True
     if not w_temp:
         return ""
     if ".zip" in s or "\\temp1_" in s or ".7z" in s or ".rar" in s:
@@ -9431,6 +9444,18 @@ def zainstaluj_aktualizacje_i_zamknij(pobrany_plik):
     zadziała u wszystkich, bez potrzeby wydawania nowej wersji programu.
     """
     try:
+        # Program uruchomiony z %TEMP% (np. z wnętrza ZIP-a): podmiana wpisałaby
+        # nową wersję w to samo tymczasowe miejsce, a kopia zapasowa też
+        # wylądowałaby w %TEMP% — czyli ~50 MB pobierania, żeby za chwilę
+        # wszystko zniknęło. Odmawiamy z jasnym powodem.
+        _skad = _uruchomiono_z_folderu_tymczasowego()
+        if _skad:
+            return ("Program działa z folderu tymczasowego"
+                    + (" (z wnętrza archiwum ZIP)" if _skad == "zip" else "")
+                    + ".\nAktualizacja wpisałaby nową wersję w to samo miejsce i zniknęłaby razem z nim.\n\n"
+                      "Najpierw rozpakuj całą paczkę (prawy przycisk na pliku ZIP \u2192 "
+                      "\u201eWyodrębnij wszystkie\u2026\u201d) np. do C:\\PMT, uruchom program stamtąd "
+                      "i dopiero wtedy zaktualizuj.")
         docelowy = sciezka_programu()
         bat, args = przygotuj_skrypt_aktualizacji(pobrany_plik, docelowy, os.getpid())
         # DETACHED/NEW_CONSOLE — skrypt ma przeżyć śmierć programu. Widoczne
@@ -19242,6 +19267,33 @@ if __name__ == "__main__":
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
 
+    # Start z folderu tymczasowego = ktoś kliknął program w środku ZIP-a
+    # (albo archiwizator rozpakował go do %TEMP%). Zwykle kończy się to
+    # jeszcze wcześniej, błędem „Failed to load Python DLL"; jeśli jednak
+    # program ruszył, mówimy wprost, co zrobić — bez tego „instalacja"
+    # zniknie przy najbliższym sprzątaniu folderu tymczasowego.
+    # PRZED oknem obowiązkowej aktualizacji: przycisk Zaktualizuj teraz wpisałby
+    # nową wersję do %TEMP% (patrz bezpiecznik w zainstaluj_aktualizacje_i_zamknij).
+    try:
+        _skad = _uruchomiono_z_folderu_tymczasowego()
+        if _skad:
+            _okno_pmt(None, "Program uruchomiony z folderu tymczasowego",
+                      ("Wygląda na to, że program został uruchomiony z WNĘTRZA archiwum ZIP.\n"
+                       if _skad == "zip" else
+                       "Program został uruchomiony z folderu tymczasowego Windows.\n")
+                      + "Tak uruchomiony zniknie przy najbliższym sprzątaniu tego folderu.\n\n"
+                        "Zrób tak (raz):\n"
+                        "1. Zamknij program.\n"
+                        "2. Kliknij prawym przyciskiem pobrany plik PMT_Planer.Windows.zip\n"
+                        "   i wybierz \u201eWyodrębnij wszystkie\u2026\u201d.\n"
+                        "3. Wskaż np. C:\\PMT i kliknij \u201eWyodrębnij\u201d.\n"
+                        "4. Uruchamiaj program z C:\\PMT\\PMT_Planer (za pierwszym razem URUCHOM_PMT).",
+                      tylko_ok=True)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+
     # ── OBOWIĄZKOWA AKTUALIZACJA — sprawdzenie przed wejściem ──────
     try:
         _wczytaj_wymagania()
@@ -19325,31 +19377,6 @@ if __name__ == "__main__":
                               ("jutro" if _dni == 1 else "za %d dni" % _dni)),
                              WERSJA_WYMAGANA or "nowszej", URL_POBIERANIA),
                           tylko_ok=True)
-    except SystemExit:
-        raise
-    except Exception:
-        pass
-
-    # Start z folderu tymczasowego = ktoś kliknął program w środku ZIP-a
-    # (albo archiwizator rozpakował go do %TEMP%). Zwykle kończy się to
-    # jeszcze wcześniej, błędem „Failed to load Python DLL"; jeśli jednak
-    # program ruszył, mówimy wprost, co zrobić — bez tego „instalacja"
-    # zniknie przy najbliższym sprzątaniu folderu tymczasowego.
-    try:
-        _skad = _uruchomiono_z_folderu_tymczasowego()
-        if _skad:
-            _okno_pmt(None, "Program uruchomiony z folderu tymczasowego",
-                      ("Wygląda na to, że program został uruchomiony z WNĘTRZA archiwum ZIP.\n"
-                       if _skad == "zip" else
-                       "Program został uruchomiony z folderu tymczasowego Windows.\n")
-                      + "Tak uruchomiony zniknie przy najbliższym sprzątaniu tego folderu.\n\n"
-                        "Zrób tak (raz):\n"
-                        "1. Zamknij program.\n"
-                        "2. Kliknij prawym przyciskiem pobrany plik PMT_Planer.Windows.zip\n"
-                        "   i wybierz \u201eWyodrębnij wszystkie\u2026\u201d.\n"
-                        "3. Wskaż np. C:\\PMT i kliknij \u201eWyodrębnij\u201d.\n"
-                        "4. Uruchamiaj program z C:\\PMT\\PMT_Planer (za pierwszym razem URUCHOM_PMT).",
-                      tylko_ok=True)
     except SystemExit:
         raise
     except Exception:

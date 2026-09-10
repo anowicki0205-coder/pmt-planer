@@ -224,7 +224,7 @@ KROK PO KROKU — WYDANIE 3.21.0
      normalne, podbije się samo po zbudowaniu wydania (krok 6c).
 
   3. PRZETESTUJ
-     python testy_pmt.py — wszystkie testy mają przejść (obecnie 131).
+     python testy_pmt.py — wszystkie testy mają przejść (ponad 140).
 
   4. ZBUDUJ
      Dwuklik ZBUDUJ_EXE_FOLDER.bat. Wynik: dist\PMT_Planer\
@@ -294,8 +294,9 @@ KROK PO KROKU — WYDANIE 3.21.0
        2. Kliknij pobrany plik PRAWYM przyciskiem → „Wyodrębnij wszystkie…”
           → wpisz C:\PMT → „Wyodrębnij”.
        3. Wejdź do C:\PMT\PMT_Planer i uruchom URUCHOM_PMT (tylko raz).
-       4. Potem uruchamiaj PMT_Planer.exe (skrót: prawy przycisk → Wyślij do
-          → Pulpit). Nie przenoś samego .exe — musi zostać obok _internal.
+       4. Potem uruchamiaj PMT_Planer.exe (skrót: prawy przycisk → w Windows 11
+          „Pokaż więcej opcji” → Wyślij do → Pulpit (utwórz skrót)).
+          Nie przenoś samego .exe — musi zostać obok _internal.
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu

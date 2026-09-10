@@ -174,6 +174,29 @@ def sprawdz_wynik(wer, folderowo):
     return (swiezy, sc)
 
 
+def dolacz_do_paczki(sc, wer):
+    """Dokłada do dist\\PMT_Planer to samo, co robot na GitHubie:
+    URUCHOM_PMT.bat (pierwsze uruchomienie), podpowiedź dla osób, które
+    klikną program W ŚRODKU ZIP-a, i znacznik wersji pmt_wersja.txt
+    (bez niego program nie pozna, że sąsiedni folder jest nowszy)."""
+    kat = os.path.dirname(sc)
+    for nazwa in ("URUCHOM_PMT.bat", "0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt"):
+        zr = os.path.join(KATALOG, nazwa)
+        if not os.path.exists(zr):
+            pisz("  [UWAGA] brak %s obok zbuduj.py — paczka bez tego pliku" % nazwa)
+            continue
+        try:
+            shutil.copy2(zr, os.path.join(kat, nazwa))
+            pisz("  dołączam: %s" % nazwa)
+        except Exception as e:
+            pisz("  [UWAGA] nie udało się dołączyć %s: %s" % (nazwa, e))
+    try:
+        with open(os.path.join(kat, "pmt_wersja.txt"), "w", encoding="utf-8") as f:
+            f.write(wer)
+    except Exception as e:
+        pisz("  [UWAGA] nie zapisałem znacznika wersji: %s" % e)
+
+
 def main():
     folderowo = "--jeden" not in sys.argv
     try:
@@ -237,6 +260,8 @@ def main():
     if not sc:
         pisz("[BŁĄD] Program nie powstał — zajrzyj do BUDOWANIE_log.txt")
         return 1
+    if folderowo:
+        dolacz_do_paczki(sc, wer)
     pisz("")
     pisz("=" * 62)
     if ok:

@@ -1,0 +1,23 @@
+﻿PMT PLANER — ZANIM URUCHOMISZ, PRZECZYTAJ (30 sekund)
+
+Jeśli widzisz ten plik w oknie, które otworzyło się po kliknięciu pobranego
+pliku PMT_Planer.Windows.zip — to jeszcze NIE jest rozpakowany program.
+Windows pokazuje zawartość archiwum, ale programu nie da się stąd uruchomić.
+
+Kliknięcie PMT_Planer.exe w tym oknie kończy się błędem:
+    Failed to load Python DLL ... _internal\python313.dll
+    LoadLibrary: Nie można odnaleźć określonego modułu.
+Windows wypakował wtedy tylko jeden plik, a program potrzebuje CAŁEGO folderu.
+To nie jest uszkodzona paczka ani wirus.
+
+CO ZROBIĆ (raz, przy instalacji):
+  1. Zamknij to okno.
+  2. W folderze Pobrane kliknij PRAWYM przyciskiem plik PMT_Planer.Windows.zip
+     i wybierz „Wyodrębnij wszystkie…”.
+  3. Jako miejsce docelowe wpisz np.  C:\PMT  i kliknij „Wyodrębnij”.
+  4. Wejdź do C:\PMT\PMT_Planer i uruchom URUCHOM_PMT (tylko za pierwszym
+     razem — zdejmuje blokadę „plik z internetu”). Potem uruchamiaj PMT_Planer.exe.
+  5. Skrót na pulpit: prawy przycisk na PMT_Planer.exe → Wyślij do → Pulpit.
+
+Nie przenoś samego pliku PMT_Planer.exe w inne miejsce — musi zostać w folderze
+razem z katalogiem _internal.

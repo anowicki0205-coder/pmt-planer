@@ -37,7 +37,7 @@ if errorlevel 1 if exist "menedzer.txt" goto :dane_osobowe
 echo Dodaje pliki zrodlowe...
 git add PMT_Delegacje.py intro_wideo.py zbuduj.py wersja_pomocnik.py wersja_exe.txt
 git add testy_pmt.py START_TUTAJ.txt BEZ_BLOKADY_WINDOWS.txt BACKEND_APPS_SCRIPT.txt
-git add INSTRUKCJA_BUDOWY.txt .gitignore
+git add INSTRUKCJA_BUDOWY.txt .gitignore 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt
 git add ZBUDUJ_EXE.bat ZBUDUJ_EXE_FOLDER.bat SPRAWDZ_WERSJE.bat URUCHOM_PROGRAM.bat
 git add UTWORZ_SKROT.bat PODPISZ_EXE.bat DODAJ_WYJATEK_WINDOWS.bat URUCHOM_PMT.bat
 git add updater.bat updater_folder.bat updater.sh

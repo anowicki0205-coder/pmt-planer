@@ -269,6 +269,34 @@ KROK PO KROKU — WYDANIE 3.21.0
         w pobranej paczce — ale 3.21.0 i 3.21.1 nie.
         Po wszystkim zerknij, czy wersja.txt w repozytorium ma cztery linie.
 
+  6a. CO WYSŁAĆ UŻYTKOWNIKOWI PRZY RĘCZNEJ INSTALACJI
+     Najczęstszy błąd (zdjęcie od użytkownika przy 3.21.1): otwarcie ZIP-a
+     w Eksploratorze i kliknięcie PMT_Planer.exe W ŚRODKU archiwum. Windows
+     wypakowuje wtedy do folderu tymczasowego SAM kliknięty plik i program
+     kończy się komunikatem:
+         Failed to load Python DLL
+         C:\Users\...\AppData\Local\Temp\..._PMT_Planer.Windows.zip...\_internal\python313.dll
+         LoadLibrary: Nie można odnaleźć określonego modułu.
+     To NIE jest uszkodzona paczka ani antywirus — brakuje reszty folderu.
+     Poznasz to po „\Temp\” i nazwie archiwum w ścieżce z komunikatu.
+
+     Od 3.21.2 paczka broni się sama na trzy sposoby:
+       · 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt — pierwszy plik na liście
+         w archiwum, z instrukcją (otwiera się nawet z wnętrza ZIP-a),
+       · URUCHOM_PMT.bat rozpoznaje start z folderu tymczasowego i zamiast
+         „nie znalazłem PMT_Planer.exe” mówi, co zrobić krok po kroku,
+       · program — gdyby archiwizator rozpakował go do %TEMP% i uruchomił —
+         ostrzega przy starcie, że taka „instalacja” zniknie.
+
+     Instrukcja dla użytkownika (wklej do maila; w opisie wydania dopisz ją
+     OD DRUGIEJ LINII — pierwsza linia opisu trafia do dymka aktualizacji):
+       1. Pobierz PMT_Planer.Windows.zip.
+       2. Kliknij pobrany plik PRAWYM przyciskiem → „Wyodrębnij wszystkie…”
+          → wpisz C:\PMT → „Wyodrębnij”.
+       3. Wejdź do C:\PMT\PMT_Planer i uruchom URUCHOM_PMT (tylko raz).
+       4. Potem uruchamiaj PMT_Planer.exe (skrót: prawy przycisk → Wyślij do
+          → Pulpit). Nie przenoś samego .exe — musi zostać obok _internal.
+
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu
      zostaw na czas PO zaktualizowaniu zespołu (zalecane 14 dni).

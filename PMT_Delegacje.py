@@ -1839,6 +1839,34 @@ def czy_zamrozony() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def _uruchomiono_z_folderu_tymczasowego(sciezka=None, katalog_tmp=None) -> str:
+    """Rozpoznaje start programu z folderu tymczasowego — najczęściej po
+    kliknięciu PMT_Planer.exe W ŚRODKU archiwum ZIP otwartego w Eksploratorze.
+    Zwraca "zip" (w ścieżce widać archiwum), "temp" (sam folder tymczasowy)
+    albo pusty tekst, gdy wszystko jest w porządku.
+
+    Windows wypakowuje wtedy do %TEMP% tylko kliknięty plik; zwykle program
+    w ogóle nie startuje („Failed to load Python DLL … python313.dll"), ale
+    niektóre archiwizatory rozpakowują cały folder — wtedy program rusza,
+    a po sprzątnięciu folderu tymczasowego znika razem z „instalacją".
+    Czysta logika na tekście ścieżek — bez pytania dysku — żeby dało się ją
+    sprawdzić testem także poza Windows."""
+    if sciezka is None:
+        if not getattr(sys, "frozen", False):
+            return ""                    # ze źródeł: nigdy nie ostrzegamy
+        sciezka = sys.executable
+    if katalog_tmp is None:
+        katalog_tmp = tempfile.gettempdir()
+    s = str(sciezka).replace("/", "\\").lower()
+    tmp = str(katalog_tmp).replace("/", "\\").lower().rstrip("\\")
+    w_temp = (bool(tmp) and s.startswith(tmp + "\\")) or "\\appdata\\local\\temp\\" in s
+    if not w_temp:
+        return ""
+    if ".zip" in s or "\\temp1_" in s or ".7z" in s or ".rar" in s:
+        return "zip"
+    return "temp"
+
+
 def odblokuj_wlasny_folder():
     """Zdejmuje z plikow programu znacznik "pochodzi z internetu".
 
@@ -9143,6 +9171,15 @@ class PobieranieAktualizacjiThread(QThread):
             wpisy = [w for w in os.listdir(cel) if not w.startswith(".")]
             if len(wpisy) == 1 and os.path.isdir(os.path.join(cel, wpisy[0])):
                 cel = os.path.join(cel, wpisy[0])
+            elif len(wpisy) > 1 and not os.path.isdir(os.path.join(cel, "_internal")):
+                # w korzeniu leżą luźne pliki (np. instrukcja) obok folderu
+                # programu — wchodzimy do tego folderu, który ma _internal.
+                # (Wydania 3.21.0/3.21.1 tego nie potrafią, dlatego paczka
+                # z GitHuba ma w korzeniu nadal dokładnie jeden folder.)
+                for w in wpisy:
+                    if os.path.isdir(os.path.join(cel, w, "_internal")):
+                        cel = os.path.join(cel, w)
+                        break
             nazwa_exe = os.path.basename(sys.executable)
             if not os.path.exists(os.path.join(cel, nazwa_exe)):
                 # w paczce program moze nazywac sie inaczej niz plik uzytkownika
@@ -19288,6 +19325,31 @@ if __name__ == "__main__":
                               ("jutro" if _dni == 1 else "za %d dni" % _dni)),
                              WERSJA_WYMAGANA or "nowszej", URL_POBIERANIA),
                           tylko_ok=True)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+
+    # Start z folderu tymczasowego = ktoś kliknął program w środku ZIP-a
+    # (albo archiwizator rozpakował go do %TEMP%). Zwykle kończy się to
+    # jeszcze wcześniej, błędem „Failed to load Python DLL"; jeśli jednak
+    # program ruszył, mówimy wprost, co zrobić — bez tego „instalacja"
+    # zniknie przy najbliższym sprzątaniu folderu tymczasowego.
+    try:
+        _skad = _uruchomiono_z_folderu_tymczasowego()
+        if _skad:
+            _okno_pmt(None, "Program uruchomiony z folderu tymczasowego",
+                      ("Wygląda na to, że program został uruchomiony z WNĘTRZA archiwum ZIP.\n"
+                       if _skad == "zip" else
+                       "Program został uruchomiony z folderu tymczasowego Windows.\n")
+                      + "Tak uruchomiony zniknie przy najbliższym sprzątaniu tego folderu.\n\n"
+                        "Zrób tak (raz):\n"
+                        "1. Zamknij program.\n"
+                        "2. Kliknij prawym przyciskiem pobrany plik PMT_Planer.Windows.zip\n"
+                        "   i wybierz \u201eWyodrębnij wszystkie\u2026\u201d.\n"
+                        "3. Wskaż np. C:\\PMT i kliknij \u201eWyodrębnij\u201d.\n"
+                        "4. Uruchamiaj program z C:\\PMT\\PMT_Planer (za pierwszym razem URUCHOM_PMT).",
+                      tylko_ok=True)
     except SystemExit:
         raise
     except Exception:

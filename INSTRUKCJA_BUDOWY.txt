@@ -24,6 +24,11 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.21.0)
    o potwierdzenie.
 
 5. Rozdaj CALY folder dist\PMT_Planer (spakowany do ZIP).
+   zbuduj.py doklada do tego folderu URUCHOM_PMT.bat, znacznik wersji
+   pmt_wersja.txt i 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt (podpowiedz dla
+   osob, ktore klikna program w srodku ZIP-a - blad "Failed to load
+   Python DLL"). Pakujac recznie: w korzeniu ZIP-a ma byc DOKLADNIE
+   JEDEN folder PMT_Planer - luzny plik obok psuje aktualizator 3.21.0/1.
 
 BUDOWANIE NA GITHUBIE (to samo, automatycznie)
   Opublikowanie wydania z tagiem "v3.21.0" uruchamia .github/workflows/

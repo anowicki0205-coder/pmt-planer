@@ -120,6 +120,15 @@ jobs:
           # Do paczki dokladamy skrypt pierwszego uruchomienia — zdejmuje on
           # znacznik "plik z internetu", ktory blokuje start programu.
           cp URUCHOM_PMT.bat dist/PMT_Planer/ 2>/dev/null || true
+          # Podpowiedz dla kogos, kto otworzy ZIP w Eksploratorze i kliknie
+          # program W SRODKU archiwum (blad "Failed to load Python DLL ...
+          # python313.dll" - zdjecie od uzytkownika przy 3.21.1). Nazwa
+          # zaczyna sie od "0_", wiec plik stoi na poczatku listy.
+          # UWAGA: korzen archiwum to nadal DOKLADNIE JEDEN folder PMT_Planer.
+          # Aktualizator w 3.21.0/3.21.1 wchodzi do srodka tylko wtedy, gdy
+          # w korzeniu jest jeden wpis - luzny plik w korzeniu zepsulby im
+          # aktualizacje. Dlatego podpowiedz lezy W folderze, nie obok.
+          cp 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt dist/PMT_Planer/
           # Znacznik wersji W PACZCE. Bez niego zadna kopia programu nie
           # potrafi rozpoznac, ze znaleziony obok folder jest NOWSZY od niej.
           python -c "import re,io;t=io.open('PMT_Delegacje.py',encoding='utf-8').read();v=re.search(r'WERSJA_PROGRAMU\s*=\s*\"([^\"]+)\"',t).group(1);io.open('dist/PMT_Planer/pmt_wersja.txt','w',encoding='utf-8').write(v);print('znacznik wersji:',v)"

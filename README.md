@@ -72,6 +72,11 @@ DOKĄD go wgrać.
   potrafił zmylić aktualizator starszych wersji (program pobierał złe archiwum
   i zgłaszał brak pliku `.exe`). Wersja 3.13.2 jest już na to odporna —
   szuka archiwum z "windows" w nazwie — ale zasada zostaje.
+- **„Failed to load Python DLL … \\Temp\\…zip…\\python313.dll”** u użytkownika =
+  uruchomił program W ŚRODKU archiwum ZIP otwartego w Eksploratorze (wypakował
+  się sam `.exe`, bez `_internal`). Nie paczka, nie antywirus. Instrukcja dla
+  użytkownika: START_TUTAJ.txt, krok 6a. Paczka od 3.21.2 zawiera podpowiedź
+  `0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt`, a `URUCHOM_PMT.bat` rozpoznaje tę sytuację.
 - **Buildy na Pythonie 3.13**, nie 3.14 (błąd `python314.dll` u użytkowników).
 - **Po każdej zmianie skryptu w arkuszu** trzeba wydać **nową wersję wdrożenia**,
   inaczej pod adresem `/exec` działa stary kod.

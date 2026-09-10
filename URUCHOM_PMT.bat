@@ -18,6 +18,30 @@ echo.
 echo   Przygotowuje PMT Planer do pierwszego uruchomienia...
 echo.
 
+rem 0) NAJCZESTSZY blad przy pierwszej instalacji: uruchomienie z WNETRZA
+rem    archiwum ZIP otwartego w Eksploratorze. Windows wypakowuje wtedy do
+rem    folderu tymczasowego TYLKO klikniety plik - bez katalogu _internal -
+rem    i program konczy sie bledem "Failed to load Python DLL ... python313.dll".
+rem    Rozpoznajemy to po sciezce: folder tymczasowy uzytkownika.
+set "ZTEMP="
+echo "%~dp0" | find /i "\AppData\Local\Temp\" >nul && set "ZTEMP=1"
+if defined TEMP echo "%~dp0" | find /i "%TEMP%\" >nul && set "ZTEMP=1"
+if defined ZTEMP (
+    echo   STOP: ten plik zostal uruchomiony z WNETRZA archiwum ZIP
+    echo   ^(albo z folderu tymczasowego^). Windows wypakowal tylko ten jeden
+    echo   plik - a program potrzebuje CALEGO folderu.
+    echo.
+    echo   Zrob tak:
+    echo     1. zamknij to okno i okno z zawartoscia archiwum,
+    echo     2. kliknij PRAWYM przyciskiem pobrany plik PMT_Planer.Windows.zip
+    echo        i wybierz "Wyodrebnij wszystkie...",
+    echo     3. jako miejsce docelowe wpisz np. C:\PMT i kliknij "Wyodrebnij",
+    echo     4. wejdz do C:\PMT\PMT_Planer i uruchom URUCHOM_PMT stamtad.
+    echo.
+    pause
+    exit /b 1
+)
+
 rem 1) zdejmujemy znacznik "plik z internetu" z wszystkich plikow
 rem    BEZ POWERSHELLA. Znacznik to zwykly dodatkowy strumien NTFS o nazwie
 rem    Zone.Identifier - kasujemy go poleceniem del. Wczesniej byl tu

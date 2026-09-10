@@ -624,6 +624,45 @@ if not SZYBKO:
             repr(P._paczka_nie_nowsza(_pk, "3.22.5")))
     shutil.rmtree(_pk, ignore_errors=True)
 
+    # start z wnętrza ZIP-a / z folderu tymczasowego (zdjęcie od użytkownika, 3.21.1:
+    # Eksplorator wypakował do %TEMP% sam PMT_Planer.exe, bez _internal)
+    _tmp_w = r"C:\Users\uzytkownik\AppData\Local\Temp"
+    _sc_zip = (_tmp_w + r"\cf2513eb-845c-47ed-a4e5-09fbc9158e96_PMT_Planer.Windows.zip.e96"
+               r"\PMT_Planer\PMT_Planer.exe")
+    sprawdz("start z wnętrza archiwum ZIP (ścieżka ze zdjęcia) jest rozpoznawany jako 'zip'",
+            P._uruchomiono_z_folderu_tymczasowego(_sc_zip, _tmp_w) == "zip",
+            repr(P._uruchomiono_z_folderu_tymczasowego(_sc_zip, _tmp_w)))
+    sprawdz("stary Eksplorator (Temp1_nazwa.zip) też jest rozpoznawany jako 'zip'",
+            P._uruchomiono_z_folderu_tymczasowego(_tmp_w + r"\Temp1_PMT_Planer.Windows.zip\PMT_Planer\PMT_Planer.exe", _tmp_w) == "zip")
+    sprawdz("start z %TEMP% bez archiwum w ścieżce = 'temp'",
+            P._uruchomiono_z_folderu_tymczasowego(_tmp_w + r"\PMT_Planer\PMT_Planer.exe", _tmp_w) == "temp")
+    sprawdz("%TEMP% przeniesiony przez użytkownika (D:\\Tymczasowe) też jest wykrywany",
+            P._uruchomiono_z_folderu_tymczasowego(r"D:\Tymczasowe\x_PMT_Planer.Windows.zip.1ab\PMT_Planer\PMT_Planer.exe", r"D:\Tymczasowe") == "zip")
+    sprawdz("zwykła instalacja C:\\PMT nie jest zgłaszana",
+            P._uruchomiono_z_folderu_tymczasowego(r"C:\PMT\PMT_Planer\PMT_Planer.exe", _tmp_w) == "")
+    sprawdz("folder o nazwie Temp POZA katalogiem tymczasowym nie jest zgłaszany",
+            P._uruchomiono_z_folderu_tymczasowego(r"C:\Temp\PMT_Planer\PMT_Planer.exe", _tmp_w) == "")
+    sprawdz("instalacja w OneDrive/Pulpit nie jest zgłaszana",
+            P._uruchomiono_z_folderu_tymczasowego(r"C:\Users\uzytkownik\OneDrive\Pulpit\PMT_Planer\PMT_Planer.exe", _tmp_w) == "")
+    if not getattr(sys, "frozen", False):
+        sprawdz("uruchomienie ze źródeł nigdy nie ostrzega",
+                P._uruchomiono_z_folderu_tymczasowego() == "")
+
+    # aktualizator: luźny plik w korzeniu archiwum nie może zatrzymać aktualizacji
+    import zipfile as _zf
+    for _z_nazwa, _luzny, _opis in (("paczka_czysta.zip", False, "korzeń = jeden folder (układ z GitHuba)"),
+                                    ("paczka_z_instrukcja.zip", True, "korzeń = folder + luźny plik")):
+        _zr = os.path.join(_TMP_HOME, _z_nazwa)
+        with _zf.ZipFile(_zr, "w") as _z:
+            _z.writestr("PMT_Planer/PMT_Planer.exe", b"x" * 64)
+            _z.writestr("PMT_Planer/_internal/python313.dll", b"y")
+            if _luzny:
+                _z.writestr("0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt", "czytaj")
+        _wynik = P.PobieranieAktualizacjiThread()._rozpakuj_folder(_zr)
+        sprawdz("aktualizator trafia do folderu z _internal: %s" % _opis,
+                bool(_wynik) and os.path.isdir(os.path.join(_wynik, "_internal")), repr(_wynik))
+    shutil.rmtree(os.path.join(tempfile.gettempdir(), "PMT_Planer_nowa_wersja"), ignore_errors=True)
+
     try:
         from PyQt6.QtWidgets import QApplication as _QA
         from PyQt6.QtCore import QTimer as _QT

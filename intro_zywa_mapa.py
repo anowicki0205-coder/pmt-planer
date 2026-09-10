@@ -290,20 +290,37 @@ def _cisza():
         pass
 
 
+def _dopisz_diag(tekst):
+    """Dziennik intra (~/PMT_intro_diag.txt) przycinany do ostatnich 200
+    linii, gdy przekroczy ~100 KB — inaczej rósł bez końca."""
+    try:
+        sciezka = os.path.join(os.path.expanduser("~"), "PMT_intro_diag.txt")
+        try:
+            if os.path.exists(sciezka) and os.path.getsize(sciezka) > 100000:
+                with open(sciezka, encoding="utf-8", errors="ignore") as f:
+                    ogon = f.readlines()[-200:]
+                with open(sciezka, "w", encoding="utf-8") as f:
+                    f.writelines(ogon)
+        except Exception:
+            pass
+        with open(sciezka, "a", encoding="utf-8") as f:
+            f.write(str(tekst).rstrip("\n") + "\n")
+    except Exception:
+        pass
+
+
 def _zapisz_dziennik_dzwieku():
     try:
         if not _DZWIEK_LOG:
             return
-        with open(os.path.join(os.path.expanduser("~"), "PMT_intro_diag.txt"),
-                  "a", encoding="utf-8") as f:
-            f.write("dźwięk: " + " | ".join(_DZWIEK_LOG[-14:]) + "\n")
+        _dopisz_diag("dźwięk: " + " | ".join(_DZWIEK_LOG[-14:]))
     except Exception:
         pass
 
 
 # ─────────────────────────── dane pokazowe ───────────────────────────
 DANE_DEMO = {
-    "imie": "Tomasz",
+    "imie": "",
     "miasto": "POLSKA",
     "lat": 52.03, "lon": 19.48,      # środek Polski, nie stolica
     "dni": 412, "wizyty": 3189, "km_rok": 41260,
@@ -456,10 +473,6 @@ if Qt is not None:
             self._buduj_swiat()
 
             self.daneGotowe.connect(self._przyjmij_dane)
-            try:
-                _graj_muzyke(_znajdz_muzyke(self._sciezki_zasobow()))
-            except Exception:
-                pass
             self._timer = QTimer(self)
             self._timer.timeout.connect(self._krok)
             self._timer.start(33)
@@ -529,14 +542,9 @@ if Qt is not None:
                 if px is None:
                     px = _wbudowane_logo(slug)       # zapas wtopiony w moduł
             self._logo_sieci[siec] = px
-            try:
-                with open(os.path.join(os.path.expanduser("~"),
-                                       "PMT_intro_diag.txt"), "a", encoding="utf-8") as fh:
-                    fh.write("logo %s (%s): %s | szukano w: %s\n"
-                             % (siec, slug, "OK" if px else "BRAK",
-                                " ; ".join(self._sciezki_zasobow())))
-            except Exception:
-                pass
+            if px is None:
+                _dopisz_diag("logo %s (%s): BRAK | szukano w: %s"
+                             % (siec, slug, " ; ".join(self._sciezki_zasobow())))
             return px
 
         # ---------- świat ----------
@@ -1477,10 +1485,12 @@ if Qt is not None:
             k = QColor(235, 250, 242); k.setAlphaF(max(0.0, min(1.0, 0.95 * zan))); p.setPen(k)
             n_od = len(self._odhaczone); n_w = len(self.wezly)
             km_dzis = self.dane.get("km_dzis") or (self.wezly[-1]["km"] if self.wezly else 0)
+            _dni = int(self.dane.get("dni", 0) or 0)
+            _pasek = "%d sklepów   ·   %d km" % (n_w, int(km_dzis * min(1.0, u * 1.15)))
+            if _dni > 0:
+                _pasek += "   ·   %d. dzień w trasie" % _dni
             p.drawText(r.adjusted(bh * 0.5, 0, 0, 0),
-                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                       "%d sklepów   ·   %d km   ·   %d. dzień w trasie"
-                       % (n_w, int(km_dzis * min(1.0, u * 1.15)), int(self.dane.get("dni", 0))))
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, _pasek)
             k = QColor(63, 224, 163); k.setAlphaF(max(0.0, min(1.0, zan))); p.setPen(k)
             p.drawText(r.adjusted(0, 0, -bh * 0.5, 0),
                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
@@ -1516,12 +1526,17 @@ if Qt is not None:
                 if kr >= 1.0:
                     f.setPixelSize(max(11, int(mn * 0.022))); p.setFont(f)
                     p.setPen(QColor(159, 212, 184))
+                    _wiz = int(self.dane.get("wizyty", 0) or 0)
+                    _kmr = int(self.dane.get("km_rok", 0) or 0)
+                    _dni = int(self.dane.get("dni", 0) or 0)
+                    if _wiz > 0 or _kmr > 0 or _dni > 0:
+                        _pods = "%s wizyt · %s km · %d. dzień w trasie" % (
+                            "{:,}".format(_wiz).replace(",", " "),
+                            "{:,}".format(_kmr).replace(",", " "), _dni)
+                    else:
+                        _pods = "Dobrej trasy!"
                     p.drawText(QRectF(cx - rr * 2, cy + rr + mn * 0.085, rr * 4, mn * 0.06),
-                               Qt.AlignmentFlag.AlignCenter,
-                               "%s wizyt · %s km · %d. dzień w trasie"
-                               % ("{:,}".format(int(self.dane.get("wizyty", 0))).replace(",", " "),
-                                  "{:,}".format(int(self.dane.get("km_rok", 0))).replace(",", " "),
-                                  int(self.dane.get("dni", 0))))
+                               Qt.AlignmentFlag.AlignCenter, _pods)
 
         def _rysuj_logo(self, p, x, y, r, a=1.0):
             if self._logo is not None and not self._logo.isNull():
@@ -1749,6 +1764,13 @@ def sprobuj_intro(rodzic, dane=None, po_zakonczeniu=None, katalog_zasobow="",
         w.setGeometry(rodzic.rect())
         w.raise_()
         w.show()
+        try:
+            # bez fokusu klawisz (Esc, spacja…) nie pomijał intra — działał
+            # tylko klik myszą
+            w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            w.setFocus()
+        except Exception:
+            pass
         return True
     except Exception:
         try:

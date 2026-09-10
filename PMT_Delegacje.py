@@ -437,6 +437,15 @@ def online_zapisz_kod(kod: str):
     if str(st.get("kod", "")) != kod:
         for pole in POLA_OSOBISTE_STATUSU:
             st.pop(pole, None)
+        # To konto już tu było: wracają JEGO imię, skrót hasła i ważność
+        # dostępu z historii urządzenia. Bez tego po logowaniu bez sieci
+        # status był pusty — puste imię, brak przejęcia danych i „program
+        # nie potwierdził dostępu" po chwili.
+        znane = (_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}
+        if isinstance(znane, dict):
+            for _pole in ("imie", "skrot", "wazne_do"):
+                if znane.get(_pole):
+                    st[_pole] = str(znane[_pole])
     st["kod"] = kod
     _zapisz(PLIK_STATUSU, st)
 
@@ -495,6 +504,7 @@ def online_synchronizuj() -> bool:
             "ostatnia_synchronizacja": datetime.date.today().isoformat(),
         })
         _zapisz(PLIK_STATUSU, st)
+    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""), odp.get("imie", ""))
     return True
 
 def _rozgrzej_backend():
@@ -725,9 +735,95 @@ def _zapisz_logowanie(kod: str, imie: str, skrot: str):
     """Dopisuje konto do historii urządzenia. Skrót hasła pozwala zalogować
     się później BEZ internetu — samo hasło nigdy nie jest zapisywane."""
     dane = _wczytaj(PLIK_LOGOWAN, {})
-    dane[str(kod)] = {"imie": str(imie or ""), "skrot": str(skrot),
-                      "ostatnio": datetime.datetime.now().isoformat(timespec="seconds")}
+    stary = dane.get(str(kod))
+    if not isinstance(stary, dict):
+        stary = {}
+    wpis = {"imie": str(imie or "") or str(stary.get("imie", "") or ""),
+            "skrot": str(skrot),
+            "ostatnio": datetime.datetime.now().isoformat(timespec="seconds")}
+    if stary.get("wazne_do"):
+        wpis["wazne_do"] = str(stary["wazne_do"])
+    dane[str(kod)] = wpis
     _zapisz(PLIK_LOGOWAN, dane)
+
+
+def _zapamietaj_waznosc_konta(kod: str, wazne_do: str, imie: str = ""):
+    """Ważność dostępu (kolumna „Ważne do") zapamiętana PER KONTO w historii
+    urządzenia. Dzięki temu po logowaniu bez sieci program zna termin konta,
+    zamiast wracać do 30-dniowej zasady demo i zamykać się „bez powodu"."""
+    try:
+        kod = str(kod or "").strip()
+        if not kod:
+            return
+        dane = _wczytaj(PLIK_LOGOWAN, {})
+        wpis = dane.get(kod)
+        if not isinstance(wpis, dict):
+            wpis = {}
+        if wazne_do:
+            wpis["wazne_do"] = str(wazne_do)
+        if imie and not wpis.get("imie"):
+            wpis["imie"] = str(imie)
+        dane[kod] = wpis
+        _zapisz(PLIK_LOGOWAN, dane)
+    except Exception:
+        pass
+
+
+def _zapisz_status_po_logowaniu(kod: str, skrot: str, imie: str, wazne_do: str = ""):
+    """Wspólny zapis statusu po UDANYM logowaniu (online i offline). Inne
+    konto niż poprzednio = czyścimy resztki poprzedniej osoby. Ważność
+    z historii urządzenia wchodzi tylko, gdy status jej nie ma."""
+    st = _wczytaj(PLIK_STATUSU, {})
+    if str(st.get("kod", "")) != kod:
+        for _pole in POLA_OSOBISTE_STATUSU:
+            st.pop(_pole, None)
+    st["kod"] = kod
+    st["skrot"] = skrot
+    if imie:
+        st["imie"] = str(imie)
+    if wazne_do and not st.get("wazne_do"):
+        st["wazne_do"] = str(wazne_do)
+    st["dokumenty_sesja"] = 0
+    st["plany_sesja"] = 0
+    _zapisz(PLIK_STATUSU, st)
+    return st
+
+
+def _sesja_z_historii_urzadzenia():
+    """Werdykt sesji BEZ serwera, gdy status nie ma „wazne_do":
+    1) ważność zapamiętana dla tego konta w historii urządzenia,
+    2) w ostateczności — zweryfikowane logowanie (skrót hasła) nie starsze
+       niż OFFLINE_LOGOWANIE_DNI (tyle wolno pracować bez sieci).
+    Zwraca (czy_wazna, dni, powod) albo (None, None, "") gdy nic nie wiadomo."""
+    try:
+        kod = online_kod_uzytkownika()
+        if not kod:
+            return None, None, ""
+        wpis = (_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}
+        if not isinstance(wpis, dict):
+            wpis = {}
+        wd = str(wpis.get("wazne_do", "") or "")
+        if wd:
+            try:
+                dni = (datetime.date.fromisoformat(wd) - datetime.date.today()).days
+                return dni >= 0, max(0, dni), ("" if dni >= 0 else "wazne_do=%s" % wd)
+            except Exception:
+                pass
+        st = _wczytaj(PLIK_STATUSU, {}) or {}
+        if wpis.get("skrot") or st.get("skrot"):
+            if _logowanie_offline_dozwolone(wpis):
+                try:
+                    ost = str(wpis.get("ostatnio", "") or "")
+                    d0 = (datetime.datetime.fromisoformat(ost[:19]).date()
+                          if ost else datetime.date.today())
+                    dni = max(0, OFFLINE_LOGOWANIE_DNI - (datetime.date.today() - d0).days)
+                except Exception:
+                    dni = OFFLINE_LOGOWANIE_DNI
+                return True, dni, ""
+            return False, 0, "offline>%d dni" % OFFLINE_LOGOWANIE_DNI
+    except Exception:
+        pass
+    return None, None, ""
 
 
 # Logowanie bez internetu działa TYLKO przez pewien czas od ostatniego
@@ -819,9 +915,13 @@ def online_zaloguj(kod: str, haslo: str):
                 return False, "", ("Minęło ponad %d dni od ostatniego logowania z internetem. "
                                    "Połącz się z siecią i zaloguj raz online — potem znów "
                                    "zadziała logowanie bez zasięgu." % OFFLINE_LOGOWANIE_DNI)
-            if znane.get("skrot") == skrot:
-                return True, str(znane.get("imie", "")), "offline"
-            return True, str(st.get("imie", "")), "offline"
+            imie_off = str(znane.get("imie", "") or st.get("imie", "") or "")
+            # Bez tego zapisu status zostawał pusty (albo z cudzym kodem):
+            # puste imię, brak przejęcia danych, sesja bez „wazne_do" —
+            # a po chwili „program nie potwierdził dostępu" i zamknięcie.
+            _zapisz_status_po_logowaniu(kod, skrot, imie_off,
+                                        wazne_do=str(znane.get("wazne_do", "") or ""))
+            return True, imie_off, "offline"
         # Nie zgadujemy przyczyny: pokazujemy, co DOKŁADNIE zawiodło. Wcześniej
         # każdy błąd wyglądał jak brak internetu — a bywa nim blokada firmowa,
         # certyfikat proxy albo przeciążony serwer.
@@ -836,19 +936,13 @@ def online_zaloguj(kod: str, haslo: str):
         return False, "", _powod
     if odp.get("status") != "ok":
         return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
-    st = _wczytaj(PLIK_STATUSU, {})
-    if str(st.get("kod", "")) != kod:
-        # Logowanie na INNE konto — nic po poprzedniej osobie nie zostaje.
-        for _pole in POLA_OSOBISTE_STATUSU:
-            st.pop(_pole, None)
-    st["kod"] = kod
-    st["skrot"] = _hash_hasla(kod, haslo)
-    st["imie"] = str(odp.get("imie", ""))
-    _zapisz(PLIK_STATUSU, st)
-    st["dokumenty_sesja"] = 0
-    st["plany_sesja"] = 0
-    _zapisz(PLIK_STATUSU, st)
-    _zapisz_logowanie(kod, st["imie"], st["skrot"])
+    st = _zapisz_status_po_logowaniu(kod, _hash_hasla(kod, haslo), str(odp.get("imie", "")))
+    if odp.get("wazne_do"):
+        st["wazne_do"] = str(odp.get("wazne_do"))
+        _zapisz(PLIK_STATUSU, st)
+    _zapisz_logowanie(kod, st.get("imie", ""), st["skrot"])
+    if odp.get("wazne_do"):
+        _zapamietaj_waznosc_konta(kod, str(odp.get("wazne_do")), st.get("imie", ""))
     try:
         threading.Thread(target=online_zdarzenie_sesji, args=("logowanie",), daemon=True).start()
     except Exception:
@@ -1135,6 +1229,17 @@ def _okno_resetu_hasla(rodzic, ciemny, kod_start=""):
     return wynik.get("dane")
 
 
+def _komunikat_logowania_wazny(komunikat: str) -> bool:
+    """Czy odmowa logowania to coś więcej niż złe hasło (sieć, wersja,
+    blokada konta, wygaśnięcie, limit dni bez sieci) — wtedy komunikat
+    z serwera pokazujemy także po próbie AUTOMATYCZNEJ, a nie tylko
+    łagodną podpowiedź „dokończ wpisywanie"."""
+    t = str(komunikat or "").lower()
+    return any(s in t for s in ("sieć", "sieci", "internet", "serwer", "wersj",
+                                "zablok", "certyf", "połącz", "wygas", "dni od",
+                                "aktualiz", "czasie", "vpn"))
+
+
 def dialog_logowania():
     """Okno logowania w stylu programu: LOGIN (5-cyfrowy kod) + HASŁO.
     Zwraca (kod, imie) albo (None, "") gdy użytkownik zrezygnował.
@@ -1358,13 +1463,26 @@ def dialog_logowania():
         b_ok.setEnabled(len(pole_kod.text()) == 5 and len(pole_haslo.text()) >= 4)
 
     def _zatwierdz():
-        if not b_ok.isEnabled():
+        if not b_ok.isEnabled() or _auto.get("w_toku"):
             return
         # Weryfikacja w WĄTKU: okno nie zamiera, a kropki pokazują życie.
         # Wcześniej zapytanie szło na wątku interfejsu i to ONO było
         # ~5-sekundową "przerwą" między kliknięciem a intro.
+        _tryb_auto = bool(_auto.get("tryb"))
+        _auto["w_toku"] = True
+        try:
+            if _auto.get("zegar") is not None:
+                _auto["zegar"].stop()
+        except Exception:
+            pass
+        _kod_pr, _hs_pr = pole_kod.text(), pole_haslo.text()
+        _auto["proby"].add(_kod_pr.strip() + "|" + _hs_pr)   # ta para już sprawdzana
         b_ok.setEnabled(False); b_anuluj.setEnabled(False)
-        pole_kod.setEnabled(False); pole_haslo.setEnabled(False)
+        pole_kod.setEnabled(False)
+        if not _tryb_auto:
+            # próba AUTOMATYCZNA nie blokuje pola hasła: użytkownik może
+            # pisać dalej, żaden znak nie ginie
+            pole_haslo.setEnabled(False)
         blad.setText(" ")
         # Stała szerokość dobrana pod PEŁNY napis "Sprawdzam…" — nic nie
         # skacze i nic się nie ucina; życie pokazuje zielony pasek światła.
@@ -1377,7 +1495,7 @@ def dialog_logowania():
         _start_wer = time.time()
         _wynik_wer = {}
 
-        def _w_tle(kod=pole_kod.text(), hs=pole_haslo.text()):
+        def _w_tle(kod=_kod_pr, hs=_hs_pr):
             try:
                 _wynik_wer["res"] = online_zaloguj(kod, hs)
             except Exception as e:
@@ -1411,24 +1529,34 @@ def dialog_logowania():
             b_ok.setText("Zaloguj"); b_anuluj.setEnabled(True)
             pole_kod.setEnabled(True); pole_haslo.setEnabled(True)
             _sprawdz_pola()
+            _auto["w_toku"] = False
+            _auto["tryb"] = False
             if ok:
-                wynik["kod"] = pole_kod.text().strip()
+                wynik["kod"] = _kod_pr.strip()
                 wynik["imie"] = imie
                 d.accept()
+                return
+            _zmienione = (pole_haslo.text() != _hs_pr or pole_kod.text() != _kod_pr)
+            if _tryb_auto and _zmienione:
+                # odpowiedź dotyczy STAREGO tekstu — użytkownik pisał dalej;
+                # nowy tekst sprawdzi się po pauzie (albo od razu, gdy znany)
+                _po_zmianie_hasla()
+            elif _tryb_auto and not _komunikat_logowania_wazny(komunikat):
+                # próba automatyczna: NIE ruszamy tekstu — użytkownik mógł
+                # jeszcze nie skończyć pisać; podpowiadamy, co dalej
+                blad.setText("Dokończ wpisywanie hasła albo naciśnij Enter.")
+                try:
+                    pole_haslo.deselect(); pole_haslo.end(False)
+                except Exception:
+                    pass
+                pole_haslo.setFocus()
             else:
-                if _auto.get("tryb"):
-                    # próba automatyczna: NIE ruszamy tekstu — użytkownik mógł
-                    # jeszcze nie skończyć pisać; podpowiadamy, co dalej
-                    blad.setText("Dokończ wpisywanie hasła albo naciśnij Enter.")
-                    try:
-                        pole_haslo.deselect(); pole_haslo.end(False)
-                    except Exception:
-                        pass
-                    pole_haslo.setFocus()
-                else:
-                    blad.setText(komunikat)
-                    pole_haslo.selectAll(); pole_haslo.setFocus()
-            _auto["tryb"] = False
+                # sieć, wersja, blokada konta, 45 dni bez sieci — to trzeba
+                # pokazać zawsze, także po próbie automatycznej
+                blad.setText(komunikat)
+                if not _tryb_auto:
+                    pole_haslo.selectAll()
+                pole_haslo.setFocus()
 
         _zeg.timeout.connect(_tik)
         _zeg.start(150)
@@ -1456,11 +1584,16 @@ def dialog_logowania():
     # sam próbuje wejść. Każda para kod+hasło sprawdzana jest tylko RAZ, próba
     # automatyczna nie kasuje wpisanego tekstu przy odmowie, a hasła krótsze niż
     # 5 znaków nie wychodzą do serwera. Enter i „Zaloguj" działają jak dotąd.
-    AUTO_PAUZA_MS = 900
-    _auto = {"proby": set(), "zegar": None, "tryb": False}
+    AUTO_PAUZA_MS = 1300
+    _auto = {"proby": set(), "zegar": None, "tryb": False, "w_toku": False}
 
     def _auto_probuj(zrodlo="zegar"):
-        if not pole_haslo.isEnabled() or not b_ok.isEnabled():
+        if _auto.get("w_toku") or not b_ok.isEnabled():
+            return
+        try:
+            if not d.isVisible():
+                return              # okno już zamknięte — zegar spóźniony
+        except Exception:
             return
         kod, hs = pole_kod.text().strip(), pole_haslo.text()
         if not (kod.isdigit() and len(kod) == 5) or len(hs) < 5:
@@ -1526,6 +1659,10 @@ def dialog_logowania():
             b_haslo.setText("Zmie\u0144 has\u0142o")
             if nowe_ok is True:
                 blad.setText(" ")
+                try:
+                    _auto["proby"].add(str(kod) + "|" + str(nowe))
+                except Exception:
+                    pass
                 pole_haslo.setText(nowe)
                 try:
                     # lokalny skrót do logowania OFFLINE też na nowe hasło
@@ -3365,11 +3502,23 @@ KOD_PRZED_LOGOWANIEM = ""
 
 
 def _zapamietaj_kod_przed_logowaniem() -> str:
+    """Kto był zalogowany PRZED tą wersją. Pierwszy odczyt idzie do ustawień
+    na stałe (klucz kod_przed_aktualizacja): gdyby ta osoba zalogowała się
+    dopiero za kilka uruchomień (albo po innej osobie), nadal odzyska swoje
+    dane sprzed aktualizacji."""
     global KOD_PRZED_LOGOWANIEM
     try:
         KOD_PRZED_LOGOWANIEM = str((_wczytaj(PLIK_STATUSU, {}) or {}).get("kod", "") or "")
     except Exception:
         KOD_PRZED_LOGOWANIEM = ""
+    try:
+        zapamietany = str(ustawienie("kod_przed_aktualizacja", "") or "")
+        if not zapamietany and KOD_PRZED_LOGOWANIEM:
+            zapisz_ustawienie("kod_przed_aktualizacja", KOD_PRZED_LOGOWANIEM)
+        elif zapamietany and not KOD_PRZED_LOGOWANIEM:
+            KOD_PRZED_LOGOWANIEM = zapamietany
+    except Exception:
+        pass
     return KOD_PRZED_LOGOWANIEM
 
 
@@ -3380,7 +3529,27 @@ def _wolno_przejac_wspolne(kod_biezacy: str) -> bool:
     if _tylko_jedno_konto_na_komputerze(kod_biezacy):
         return True
     k = "".join(ch for ch in str(kod_biezacy or "") if ch.isdigit())
-    return bool(k) and KOD_PRZED_LOGOWANIEM == k
+    if not k:
+        return False
+    if KOD_PRZED_LOGOWANIEM == k:
+        return True
+    try:
+        return str(ustawienie("kod_przed_aktualizacja", "") or "") == k
+    except Exception:
+        return False
+
+
+def _plik_ma_tresc(sciezka: str) -> bool:
+    """Plik JSON z jakąkolwiek treścią (pusta lista/słownik = jak brak pliku —
+    taki „pusty" własny plik nie blokuje przejęcia danych z poprzedniej wersji)."""
+    try:
+        if not sciezka or not os.path.exists(sciezka):
+            return False
+        with open(sciezka, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return bool(d)
+    except Exception:
+        return os.path.exists(sciezka) and os.path.getsize(sciezka) > 2
 
 
 def _plan_ma_tresc(sciezka: str) -> bool:
@@ -3425,12 +3594,32 @@ def _przejmij_dane_z_poprzedniej_wersji(imie: str = "", kod: str = "") -> None:
     try:
         if not AKTYWNY_UZYTKOWNIK:
             return
-        # 1) klucz z 3.21.0: imię|kod
+        # 1) klucz z 3.21.0: imię|kod. Imię z serwera bywa zapisane inaczej
+        #    niż przy poprzednim logowaniu — sprawdzamy wszystkie znane wersje
+        #    (z logowania, z historii urządzenia, ze statusu).
+        _imiona = []
         try:
-            _legacy = _klucz_uzytkownika(str(imie or ""), str(kod or "")) if (imie or kod) else ""
+            _hist_im = ((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(str(kod or "")) or {})
+            _hist_im = _hist_im.get("imie", "") if isinstance(_hist_im, dict) else ""
         except Exception:
-            _legacy = ""
-        if _legacy and _legacy != AKTYWNY_UZYTKOWNIK:
+            _hist_im = ""
+        try:
+            _stat_im = (_wczytaj(PLIK_STATUSU, {}) or {}).get("imie", "")
+        except Exception:
+            _stat_im = ""
+        for _im in (imie, _hist_im, _stat_im):
+            _im = str(_im or "").strip()
+            if _im and _im not in _imiona:
+                _imiona.append(_im)
+        _klucze = []
+        for _im in _imiona:
+            try:
+                _kl = _klucz_uzytkownika(_im, str(kod or ""))
+            except Exception:
+                continue
+            if _kl and _kl != AKTYWNY_UZYTKOWNIK and _kl not in _klucze:
+                _klucze.append(_kl)
+        for _legacy in _klucze:
             _stary_plan = os.path.join(os.path.expanduser("~"), ".pmt_plan_%s.json" % _legacy)
             try:
                 if _plan_ma_tresc(_stary_plan) and not _plan_ma_tresc(_plik_planu()):
@@ -3465,7 +3654,9 @@ def _przejmij_dane_z_poprzedniej_wersji(imie: str = "", kod: str = "") -> None:
                         continue
                     if _plan_ma_tresc(wlasny):
                         continue
-                elif os.path.exists(wlasny):
+                elif _plik_ma_tresc(wlasny):
+                    continue           # pusta lista/słownik = jak brak pliku
+                elif not _plik_ma_tresc(wspolny):
                     continue
                 shutil.copy2(wspolny, wlasny)
                 # Wspólnego pliku NIE kasujemy — zostaje jako kopia
@@ -3710,6 +3901,20 @@ def _losowa_trasa_pokazowa(miasto="") -> list:
     return wezly
 
 
+def _intro_wylaczone_plikiem(katalog: str = "") -> bool:
+    """Plik BEZ_INTRA.txt (obok programu albo w katalogu użytkownika)
+    wyłącza KAŻDE intro — bez niego użytkownik zamiast żywej mapy dostawał
+    klasyczną animację, a nie program od razu."""
+    try:
+        for _p in (os.path.join(katalog or "", "BEZ_INTRA.txt"),
+                   os.path.join(os.path.expanduser("~"), "BEZ_INTRA.txt")):
+            if _p and os.path.exists(_p):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
     """Dane dla intra czytane z dysku — bez interfejsu.
 
@@ -3727,16 +3932,17 @@ def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
                    if isinstance(w, dict) and w.get("profil")]
         pr = None
         if imie_zalogowany:
-            szukane = str(imie_zalogowany).strip().lower()
+            # TYLKO pełna zgodność imienia i nazwiska (bez względu na wielkość
+            # liter i nadmiarowe spacje) — dopasowanie „po początku" potrafiło
+            # oddać intru profil (i miasto) innej osoby o podobnym imieniu.
+            szukane = " ".join(str(imie_zalogowany).split()).lower()
             for kand in profile:
-                imie_pr = str(kand.get("imie") or "").strip().lower()
-                if imie_pr and (imie_pr == szukane
-                                or imie_pr.startswith(szukane)
-                                or szukane.startswith(imie_pr)):
+                imie_pr = " ".join(str(kand.get("imie") or "").split()).lower()
+                if imie_pr and imie_pr == szukane:
                     pr = kand
                     break
-        if pr is None and profile and not imie_zalogowany:
-            pr = profile[-1]
+        elif len(profile) == 1:
+            pr = profile[0]            # jedyna osoba na tym komputerze
         if pr:
             imie = (pr.get("imie") or "").strip()
             if imie:
@@ -3814,10 +4020,10 @@ def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
                     d["miasto"] = max(set(miasta), key=miasta.count).upper()
             try:
                 wszystkie = list(plan.get("dni", []))
-                d["wizyty"] = sum(len(getattr(x, "wizyty", []) or [])
-                                  for x in wszystkie) or None
+                d["wizyty"] = int(sum(len(getattr(x, "wizyty", []) or [])
+                                      for x in wszystkie))
                 d["km_rok"] = int(sum(float(getattr(x, "km", 0) or 0)
-                                      for x in wszystkie)) or None
+                                      for x in wszystkie))
                 daty = [getattr(x, "data", None) for x in wszystkie
                         if getattr(x, "data", None)]
                 if daty:
@@ -3829,6 +4035,14 @@ def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
     if not d.get("wezly"):
         d["wezly"] = _losowa_trasa_pokazowa(d.get("miasto", ""))
         d["km_dzis"] = d["wezly"][-1]["km"]
+    # Brakujące liczby to ZERA (intro chowa wtedy statystyki), a nie dane
+    # pokazowe z modułu — nikt nie zobaczy cudzego imienia ani 3189 wizyt.
+    for _k in ("dni", "wizyty", "km_rok", "km_dzis"):
+        try:
+            d[_k] = int(d.get(_k) or 0)
+        except Exception:
+            d[_k] = 0
+    d.setdefault("imie", "")
     # WSPÓŁRZĘDNE MIASTA — kolejno: z wizyt, z pamięci geokodowania,
     # z bazy miast programu, a na końcu środek Polski. Nigdy Warszawa
     # „z automatu" — ktoś z Sarnowej Góry ma zobaczyć Sarnową Górę.
@@ -3858,7 +4072,9 @@ def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
             pass
     if not (d.get("lat") and d.get("lon")):
         d["lat"], d["lon"] = 52.03, 19.48       # środek Polski
-    return {k: v for k, v in d.items() if v}
+    # zera i puste imię ZOSTAJĄ — nadpisują dane pokazowe modułu intra
+    return {k: v for k, v in d.items()
+            if v or k in ("dni", "wizyty", "km_rok", "km_dzis", "imie")}
 
 
 def _katalog_programu() -> str:
@@ -6374,6 +6590,18 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     def _linia_wszystkich():
         return sum(_linia_dnia(dz) for dz in finalne_dni)
 
+    def _km_odcinka(la1, lg1, la2, lg2):
+        """Odcinek dobudowany po przycięciu liczy się TAK SAMO jak reszta:
+        realna droga z pamięci podręcznej albo linia prosta × krętość. Sama
+        linia prosta dawała mu zaniżone kilometry względem sąsiadów."""
+        try:
+            km = dystans_drogowy(la1, lg1, la2, lg2, tylko_cache=True)
+            if km and km > 0:
+                return km
+        except Exception:
+            pass
+        return oblicz_dystans(la1, lg1, la2, lg2)
+
     def _sufit_surowy(dz):
         """Mnożnik, przy którym dzień dobija DOKŁADNIE do limitu godzin
         (bez dolnej granicy — do decyzji o przycinaniu)."""
@@ -6400,7 +6628,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         _z = dz.etapy_surowe[ktory + 1]           # etap wychodzący z niego
         _sklejony = RawEtap(
             skad=_do.skad, dokad=_z.dokad, data_str=_z.data_str,
-            d_line=oblicz_dystans(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng),
+            d_line=_km_odcinka(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng),
             czas_w_sklepie=_z.czas_w_sklepie, dokad_woj=_z.dokad_woj,
             skad_lat=_do.skad_lat, skad_lng=_do.skad_lng,
             dokad_lat=_z.dokad_lat, dokad_lng=_z.dokad_lng)
@@ -6426,11 +6654,11 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             _ds = _dz.etapy_surowe[0].data_str
             for (_n, _la, _lg, _sh, _wj) in _post:
                 _et2.append(RawEtap(skad=_pn, dokad=_n, data_str=_ds,
-                                    d_line=oblicz_dystans(_pl, _pg, _la, _lg), czas_w_sklepie=_sh,
+                                    d_line=_km_odcinka(_pl, _pg, _la, _lg), czas_w_sklepie=_sh,
                                     dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg))
                 _pl, _pg, _pn = _la, _lg, _n
             _et2.append(RawEtap(skad=_pn, dokad=_pow.dokad, data_str=_ds,
-                                d_line=oblicz_dystans(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng),
+                                d_line=_km_odcinka(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng),
                                 czas_w_sklepie=0, dokad_woj=_pow.dokad_woj, skad_lat=_pl, skad_lng=_pg,
                                 dokad_lat=_pow.dokad_lat, dokad_lng=_pow.dokad_lng))
             _s2 = tuple(e.dokad for e in _et2)
@@ -6439,11 +6667,13 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 _s = _s2
         _widziane_slady.add(_s)
 
-    # 0) osiem godzin przy realnej drodze — losowy postój (nie pierwszy)
+    # 0) osiem godzin przy realnej drodze — losowy postój (każdy, także
+    #    pierwszy: inaczej dni awaryjne z tej samej listy zaczynały się zawsze
+    #    tą samą miejscowością)
     for _dz in list(finalne_dni):
         while _sufit_surowy(_dz) < MNOZNIK_MIN:
             _n = len(_dz.etapy_surowe) - 1
-            if _n <= 2 or not _zdejmij_postoj(_dz, rng.randint(1, _n - 1)):
+            if _n <= 2 or not _zdejmij_postoj(_dz, rng.randint(0, _n - 1)):
                 break
             _postoje_przyciete += 1
         if _sufit_surowy(_dz) < MNOZNIK_MIN and len(finalne_dni) > 1:
@@ -6516,8 +6746,22 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # sporo km), delikatnie skalujemy WSZYSTKIE etapy w dół do budżetu. Delegacja
     # NIGDY nie może przekroczyć wpisanej kwoty.
     suma_biezaca = sum(e.kwota for e in wszystkie_surowe)
+    _kwota_za_mala = False
+    _kwota_min_realna = 0.0
     if suma_biezaca > kwota_calkowita + 0.01 and suma_biezaca > 0:
         skala = kwota_calkowita / suma_biezaca
+        # Poniżej dolnej granicy mnożnika (MNOZNIK_MIN) odcinek przestaje
+        # być realną drogą. Kwota pozostaje nieprzekraczalna, ale gdy nawet
+        # najkrótszy możliwy dzień (2 postoje) się w niej nie mieści,
+        # użytkownik dostaje wprost informację: kwota ZA MAŁA + minimum.
+        try:
+            _mn_min_dnia = min([x["mn"] for x in _dane_dni] or [MNOZNIK_MIN])
+            if skala < (MNOZNIK_MIN / max(_mn_min_dnia, 1e-9)) - 1e-9:
+                _kwota_za_mala = True
+                _kwota_min_realna = round(sum(e.d_line * MNOZNIK_MIN * stawka
+                                              for e in wszystkie_surowe), 2)
+        except Exception:
+            pass
         for e in wszystkie_surowe:
             e.dystans_rzeczywisty *= skala
             e.kwota = max(round(e.kwota * skala, 2), 0.0)
@@ -6542,14 +6786,16 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             _f.write("%s | kwota %.2f | stawka %.2f | cel %.0f km | dni robocze %d | "
                      "potrzeba %d | zbudowane %d | awaryjne %d | nieudane %d | "
                      "przyciete dni %d postoje %d | linia %.0f km | mnoznik %.2f-%.2f | "
-                     "limit dnia %d min | pojemnosc %.0f km | osiagnieto %.2f (%.1f%%)\n"
+                     "limit dnia %d min | pojemnosc %.0f km | osiagnieto %.2f (%.1f%%)"
                      % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                         kwota_calkowita, stawka, cel_calkowity_dystans, len(dni_robocze),
                         _dni_potrzeba, len(finalne_dni), _dni_awaryjne, _dni_nieudane,
                         _dni_przyciete, _postoje_przyciete, suma_linii,
                         min(_mnozniki), max(_mnozniki),
                         LIMIT_CZASU_MINUTY, _pojemnosc_km, _osi,
-                        100.0 * _osi / max(kwota_calkowita, 1e-9)))
+                        100.0 * _osi / max(kwota_calkowita, 1e-9))
+                     + (" | KWOTA ZA MALA (min %.2f zl)\n" % _kwota_min_realna
+                        if _kwota_za_mala else "\n"))
     except Exception:
         pass
 
@@ -6592,6 +6838,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     finalne_dni.kwota_docelowa = kwota_calkowita
     finalne_dni.kwota_osiagnieta = round(suma_final, 2)
     finalne_dni.kwota_niepelna = (kwota_calkowita - suma_final) > max(kwota_calkowita * 0.02, 20.0)
+    finalne_dni.kwota_za_mala = bool(_kwota_za_mala)
+    finalne_dni.kwota_min_realna = float(_kwota_min_realna or 0.0)
     finalne_dni.brak_dni = _brak_dni_na_kwote
     return finalne_dni
 
@@ -7034,6 +7282,8 @@ class GeneratorThread(QThread):
 
             # Czy realnymi trasami udało się pokryć żądaną kwotę? (info dla UI)
             self._kwota_niepelna = getattr(finalne_dni, 'kwota_niepelna', False)
+            self._kwota_za_mala = getattr(finalne_dni, 'kwota_za_mala', False)
+            self._kwota_min_realna = getattr(finalne_dni, 'kwota_min_realna', 0.0)
             self._kwota_osiagnieta = getattr(finalne_dni, 'kwota_osiagnieta', 0.0)
             self._kwota_docelowa = getattr(finalne_dni, 'kwota_docelowa', p['kwota_cel'])
             
@@ -19465,6 +19715,15 @@ class App(QMainWindow):
                 self.overlay_planer.pole_baza.setText(ustawienie_osobiste("adres_bazy", ""))
         except Exception:
             pass
+        try:
+            if hasattr(self, "overlay_planer") and hasattr(self.overlay_planer, "_przystanki"):
+                # lista sklepów w planerze też jest osobista — poprzednia
+                # zostawała na ekranie (i szła do zapisu pod nowym kontem)
+                self.overlay_planer._przystanki = list(wczytaj_punkty() or [])
+                self.overlay_planer._sort = None
+                self.overlay_planer._przerysuj()
+        except Exception:
+            pass
 
     def _pokaz_panel_admina(self):
         """Panel administratora — statystyki wszystkich użytkowników programu
@@ -19622,8 +19881,8 @@ class App(QMainWindow):
             # Klasyczne intro trwa ~20 s, żywa mapa ~21 s. Po 50 s bez
             # zgłoszenia końca strażnik sam pokazuje program.
             QTimer.singleShot(50000, self._intro_straznik)
-            if bool(ustawienie("bez_intra", False)):
-                _dziennik_animacji("intro wyłączone w menu Wygląd — od razu program")
+            if bool(ustawienie("bez_intra", False)) or _intro_wylaczone_plikiem(_kat_prog):
+                _dziennik_animacji("intro wyłączone (menu Wygląd albo BEZ_INTRA.txt) — od razu program")
                 self._intro_gra = False
                 self._intro_koniec()
                 return
@@ -19638,8 +19897,10 @@ class App(QMainWindow):
                 if imie:
                     _dane["imie"] = str(imie).split()[0]
                 self._intro_gra = True
+                # Intro jest malowane na ciemne tło (globus, mapa, jasne
+                # napisy) — w jasnym motywie napisy ginęły. Zawsze ciemne.
                 if _intro_mapa(self, dane=_dane, po_zakonczeniu=self._intro_koniec,
-                               katalog_zasobow=_kat_prog, ciemny=self.is_dark):
+                               katalog_zasobow=_kat_prog, ciemny=True):
                     _dziennik_animacji("intro ŻYWA MAPA uruchomione (miasto: %s, węzłów: %d)"
                                        % (_dane.get("miasto", "?"), len(_dane.get("wezly") or [])))
                     return
@@ -20167,6 +20428,17 @@ class App(QMainWindow):
                 success=False,
                 klik_akcja=(lambda f=folder: self._otworz_folder(f))
             )
+        elif getattr(self, "_thread", None) and getattr(self._thread, "_kwota_za_mala", False):
+            minimum = float(getattr(self._thread, "_kwota_min_realna", 0.0) or 0.0)
+            self.toast.show_toast(
+                "Kwota za mała na realną trasę",
+                ("Nawet najkrótszy dzień (2 postoje) kosztuje przy realnej drodze "
+                 "ok. %s zł. Odcinki zostały skrócone poniżej realnej drogi, żeby "
+                 "nie przekroczyć wpisanej kwoty — dokument jest gotowy, ale "
+                 "wiarygodniej będzie z wyższą kwotą.") % ("{:,.0f}".format(minimum).replace(",", " ")),
+                success=False,
+                klik_akcja=(lambda f=folder: self._otworz_folder(f))
+            )
         else:
             # Toast KLIKALNY — kliknięcie otwiera folder bez dodatkowych okien
             self.toast.show_toast(
@@ -20390,6 +20662,10 @@ if __name__ == "__main__":
                 w, d, _im = online_status_sesji()
             if w is False:
                 powod = "wazne_do=%s" % (_wczytaj(PLIK_STATUSU, {}) or {}).get("wazne_do", "?")
+            if w is None:
+                # bez „wazne_do" w statusie: ważność tego konta z historii
+                # urządzenia albo świeże (≤ 45 dni) zweryfikowane logowanie
+                w, d, powod = _sesja_z_historii_urzadzenia()
             if w is None:
                 w, d = demo_status()   # nigdy nie było kontaktu z serwerem
                 if not w:

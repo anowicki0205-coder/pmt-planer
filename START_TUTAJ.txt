@@ -358,7 +358,7 @@ KROK PO KROKU — WYDANIE 3.21.0
      to samo menu albo BEZ_3D.txt.
      Nowe w pasku: 🔑 Hasło (zmiana bez wylogowania), ★ karta testera,
      ⋯ wygląd. Autologowanie: znane hasło loguje od razu; nieznane — po
-     0,9 s przerwy w pisaniu (każda para kod+hasło próbowana raz, hasło
+     1,3 s przerwy w pisaniu (każda para kod+hasło próbowana raz, hasło
      krótsze niż 5 znaków nie wychodzi do serwera).
      Bezpieczeństwo: logowanie OFFLINE działa tylko 45 dni od ostatniego
      logowania online (konto zablokowane w arkuszu nie żyje wiecznie na
@@ -389,9 +389,27 @@ KROK PO KROKU — WYDANIE 3.21.0
           była zalogowana przed aktualizacją (nie tylko na komputerze
           jednej osoby). Pole nazwiska z konta jest zablokowane, więc
           podpowiedź PESEL/adresu startuje teraz sama.
+       3. Logowanie BEZ SIECI (także gdy sieć firmowa blokuje serwer)
+          wpuszczało po skrócie hasła, ale NIE zapisywało statusu: puste
+          imię, brak przejęcia danych, sesja bez „Ważne do” → po chwili
+          zasada demo (30 dni od instalacji) zamykała program. Od 3.22.0
+          logowanie offline zapisuje status, ważność konta jest pamiętana
+          PER KONTO w .pmt_logowania.json, a świeże (≤ 45 dni)
+          zweryfikowane logowanie wystarcza do pracy bez serwera.
      Werdykt sesji nazywa powód zamknięcia („Dostęp wygasł DD.MM.RRRR” —
      kolumna Ważne do — albo „nie potwierdził dostępu”) i zapisuje go
      w PMT_diagnostyka_animacji.txt.
+     Intro: zawsze na ciemnym tle (w jasnym motywie napisy ginęły), tylko
+     pełna zgodność imienia z profilem (żadnego „po początku”), zera zamiast
+     danych pokazowych, klawisz pomija (nakładka ma fokus), dziennik
+     PMT_intro_diag.txt przycinany. Autologowanie: próba automatyczna nie
+     blokuje pola (można pisać dalej), komunikaty o sieci/wersji/blokadzie
+     są pokazywane także po niej, a po zmianie hasła nowe hasło czeka na
+     klik „Zaloguj”. Silnik: odcinki dobudowane po przycięciu liczą się
+     jak reszta (droga z pamięci albo linia × krętość), do cięcia idzie
+     każdy postój, a gdy kwota nie starcza nawet na 2 postoje przy realnej
+     drodze, użytkownik dostaje komunikat „Kwota za mała na realną trasę”
+     z minimum (dziennik: „KWOTA ZA MALA”).
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu

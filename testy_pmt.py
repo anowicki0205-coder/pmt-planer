@@ -131,7 +131,16 @@ sprawdz("dane intra bez historii: losowa trasa naszych sieci i środek Polski",
         and 49.0 < float(_di.get("lat", 0)) < 55.0 and 14.0 < float(_di.get("lon", 0)) < 24.5,
         str({k: v for k, v in _di.items() if k != "wezly"}))
 sprawdz("dane intra nie podstawiają cudzego profilu, gdy imię się nie zgadza",
-        "imie" not in _di or str(_di.get("imie", "")).lower().startswith("jan"))
+        str(_di.get("imie", "")).strip().lower() in ("", "jan"), str(_di.get("imie")))
+sprawdz("dane intra bez historii: zera zamiast danych pokazowych modułu (bez cudzego imienia)",
+        "dni" in _di and int(_di.get("dni", 0)) == 0 and int(_di.get("wizyty", 0)) == 0
+        and str(_di.get("imie", "")).strip().lower() in ("", "jan"), str({k: v for k, v in _di.items() if k != "wezly"}))
+_bez_intra = os.path.join(_TMP_HOME, "BEZ_INTRA.txt")
+open(_bez_intra, "w").close()
+_wyl1 = P._intro_wylaczone_plikiem(_TMP_HOME)
+os.remove(_bez_intra)
+sprawdz("BEZ_INTRA.txt w katalogu użytkownika wyłącza intro (a bez pliku nie)",
+        _wyl1 is True and P._intro_wylaczone_plikiem(_TMP_HOME) is False)
 _dz = datetime.date(2026, 9, 10)
 sprawdz("logowanie offline: świeży wpis (30 dni) — wolno",
         P._logowanie_offline_dozwolone({"ostatnio": "2026-08-11T10:00:00"}, _dz) is True)
@@ -249,6 +258,86 @@ try:
     os.remove(P.PLIK_LOGOWAN)
 except Exception:
     pass
+
+# ── 1c. logowanie BEZ SIECI: status, ważność konta, werdykt sesji ─────────
+# (łańcuch ze zgłoszenia „dane się nie pojawiają… po chwili program się
+# wyłącza": logowanie offline nie zapisywało statusu → puste imię, brak
+# przejęcia danych, sesja bez ważności → zasada demo → zamknięcie)
+import urllib.request as _ur
+_kod_o, _haslo_o = "23456", "Haslo12345"
+for _w in (P.PLIK_STATUSU, P.PLIK_LOGOWAN):
+    try:
+        os.remove(_w)
+    except Exception:
+        pass
+P._zapisz_logowanie(_kod_o, "Jan Testowy", P._hash_hasla(_kod_o, _haslo_o))
+P._zapamietaj_waznosc_konta(_kod_o, (datetime.date.today() + datetime.timedelta(days=200)).isoformat())
+_hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
+sprawdz("historia urządzenia pamięta ważność konta PER KONTO",
+        bool(_hist.get("wazne_do")) and bool(_hist.get("skrot")), str(_hist))
+P._zapisz_logowanie(_kod_o, "", P._hash_hasla(_kod_o, _haslo_o))
+_hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
+sprawdz("ponowne logowanie nie kasuje ważności ani imienia w historii",
+        bool(_hist.get("wazne_do")) and _hist.get("imie") == "Jan Testowy", str(_hist))
+P._zapisz(P.PLIK_STATUSU, {"kod": "99999", "imie": "Anna Kowalska",
+                           "wazne_do": "2020-01-01", "skrot": "x"})
+_orig_urlopen = _ur.urlopen
+def _bez_sieci(*a, **k):
+    raise OSError("brak sieci (test)")
+_ur.urlopen = _bez_sieci
+try:
+    _ok_o, _imie_o, _kom_o = P.online_zaloguj(_kod_o, _haslo_o)
+    _ok_zle = P.online_zaloguj(_kod_o, _haslo_o + "x")[0]
+finally:
+    _ur.urlopen = _orig_urlopen
+_st_o = P._wczytaj(P.PLIK_STATUSU, {})
+sprawdz("logowanie bez sieci: wpuszcza po skrócie i ZAPISUJE status (kod, imię, ważność tego konta)",
+        _ok_o and _imie_o == "Jan Testowy" and _st_o.get("kod") == _kod_o
+        and _st_o.get("imie") == "Jan Testowy" and bool(_st_o.get("wazne_do"))
+        and _st_o.get("wazne_do") != "2020-01-01", str((_ok_o, _imie_o, _kom_o, _st_o)))
+sprawdz("logowanie bez sieci: złe hasło nie wchodzi", _ok_zle is False)
+_w_s, _d_s, _im_s = P.online_status_sesji()
+sprawdz("po logowaniu bez sieci sesja jest ważna (bez zasady demo)", _w_s is True and _d_s > 100, str((_w_s, _d_s)))
+P._zapisz(P.PLIK_STATUSU, {"kod": _kod_o, "imie": "Jan Testowy", "skrot": P._hash_hasla(_kod_o, _haslo_o)})
+_w_h, _d_h, _p_h = P._sesja_z_historii_urzadzenia()
+sprawdz("werdykt sesji z historii urządzenia: ważność konta", _w_h is True and _d_h > 100, str((_w_h, _d_h, _p_h)))
+_hist_all = P._wczytaj(P.PLIK_LOGOWAN, {})
+_hist_all[_kod_o].pop("wazne_do", None)
+P._zapisz(P.PLIK_LOGOWAN, _hist_all)
+_w_h2, _d_h2, _p_h2 = P._sesja_z_historii_urzadzenia()
+sprawdz("werdykt: świeże zweryfikowane logowanie bez ważności = do %d dni pracy bez sieci" % P.OFFLINE_LOGOWANIE_DNI,
+        _w_h2 is True and 0 < _d_h2 <= P.OFFLINE_LOGOWANIE_DNI, str((_w_h2, _d_h2, _p_h2)))
+_hist_all[_kod_o]["ostatnio"] = (datetime.datetime.now()
+                                 - datetime.timedelta(days=P.OFFLINE_LOGOWANIE_DNI + 3)).isoformat(timespec="seconds")
+P._zapisz(P.PLIK_LOGOWAN, _hist_all)
+_w_h3, _d_h3, _p_h3 = P._sesja_z_historii_urzadzenia()
+sprawdz("werdykt: logowanie starsze niż limit = odmowa z nazwanym powodem",
+        _w_h3 is False and "offline" in str(_p_h3), str((_w_h3, _d_h3, _p_h3)))
+P._zapamietaj_waznosc_konta(_kod_o, "2099-12-31")
+P._zapisz(P.PLIK_STATUSU, {"kod": "99999", "imie": "Anna Kowalska", "wazne_do": "2020-01-01"})
+P.online_zapisz_kod(_kod_o)
+_st_z = P._wczytaj(P.PLIK_STATUSU, {})
+sprawdz("zmiana konta: status dostaje imię i ważność TEGO konta, nie poprzedniej osoby",
+        _st_z.get("imie") == "Jan Testowy" and _st_z.get("wazne_do") == "2099-12-31", str(_st_z))
+sprawdz("komunikaty logowania: sieć/limit dni/blokada pokazywane po próbie automatycznej, złe hasło — podpowiedź",
+        P._komunikat_logowania_wazny("Serwer nie odpowiedział w wyznaczonym czasie.")
+        and P._komunikat_logowania_wazny("Minęło ponad 45 dni od ostatniego logowania z internetem.")
+        and P._komunikat_logowania_wazny("Konto zablokowane przez administratora")
+        and not P._komunikat_logowania_wazny("Błędne hasło."))
+_pusty = os.path.join(_TMP_HOME, "_pusty_test.json")
+with open(_pusty, "w") as _f:
+    _f.write("[]")
+_pusty_ok = P._plik_ma_tresc(_pusty) is False
+with open(_pusty, "w") as _f:
+    _f.write('[{"adres": "x"}]')
+_pelny_ok = P._plik_ma_tresc(_pusty) is True
+os.remove(_pusty)
+sprawdz("_plik_ma_tresc: pusta lista = jak brak pliku, lista z wpisem = treść", _pusty_ok and _pelny_ok)
+for _w in (P.PLIK_STATUSU, P.PLIK_LOGOWAN):
+    try:
+        os.remove(_w)
+    except Exception:
+        pass
 
 # magazyn profili zaśmiecony przez lokalną 3.21.0 (linia PMT_NOWY): tekst
 # „_tester_zaproszenie" obok profili wywalał program przy wpisaniu nazwiska
@@ -702,13 +791,16 @@ if not SZYBKO:
 
     # Kwota bardzo wysoka — silnik nie musi jej dobić (uczciwie o tym mówi),
     # ale ma wykorzystać miesiąc porządnie. Ten test pilnuje, żeby zmiany
-    # w trasie awaryjnej nie obcięły po cichu pokrycia.
+    # w trasie awaryjnej nie obcięły po cichu pokrycia. Próg 82%: odcinki
+    # dobudowane po przycięciu liczą się teraz jak reszta (droga, nie linia
+    # prosta), więc dwa najdalsze dni awaryjne uczciwie nie mieszczą się
+    # w 8 h — wcześniejsze ~94% brało się z zaniżonych odcinków.
     _kwota_duza = 11000.0
     _dni_duze = P.generuj_trasy(_kwota_duza, "Radom", 51.40, 21.15, "mazowieckie",
                                 _dni_robocze, "90010112345", stawka=1.15)
     _pokrycie = 100.0 * sum(d.suma for d in _dni_duze) / _kwota_duza
-    sprawdz("wysoka kwota (%.0f zł) pokryta w co najmniej 88%%" % _kwota_duza,
-            _pokrycie >= 88.0, "pokrycie %.1f%% przy %d dniach" % (_pokrycie, len(_dni_duze)))
+    sprawdz("wysoka kwota (%.0f zł) pokryta w co najmniej 82%%" % _kwota_duza,
+            _pokrycie >= 82.0, "pokrycie %.1f%% przy %d dniach" % (_pokrycie, len(_dni_duze)))
 
     # Rejon rzadko zaludniony — nie może się wysypać ani zbudować pustego planu.
     _dni_rzadkie = P.generuj_trasy(3000.0, "Suwałki", 54.10, 22.93, "podlaskie",
@@ -741,6 +833,11 @@ if not SZYBKO:
             "%d dni, %.2f zł, %.0f min" % (len(_dni_male), sum(d.suma for d in _dni_male), _max_min(_dni_male)))
     sprawdz("po przycięciu każdy dzień ma co najmniej 2 postoje i powrót",
             all(len(d.etapy_surowe) >= 3 for d in _dni_male + _dni_min + _dni_rzadkie))
+    sprawdz("silnik zgłasza kwotę za małą tylko, gdy najkrótszy realny dzień jej nie mieści",
+            hasattr(_dni_male, "kwota_za_mala")
+            and ((not _dni_male.kwota_za_mala) or _dni_male.kwota_min_realna > 80.0)
+            and not getattr(_dni_duze, "kwota_za_mala", False),
+            "za_mala=%s min=%.2f" % (getattr(_dni_male, "kwota_za_mala", None), getattr(_dni_male, "kwota_min_realna", 0)))
 
     # Dni awaryjne nie mogą być swoimi kopiami — te same miejscowości
     # w tej samej kolejności na kilku datach wyglądają jak dokument

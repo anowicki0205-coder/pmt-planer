@@ -727,6 +727,27 @@ def _hash_hasla(kod: str, haslo: str) -> str:
     return hashlib.sha256(("PMT|" + str(kod) + "|" + str(haslo)).encode("utf-8")).hexdigest()
 
 
+def _haslo_znane_lokalnie(kod: str, haslo: str) -> bool:
+    """Czy wpisane hasło zgadza się ze skrótem zapisanym na TYM komputerze
+    po poprzednim udanym logowaniu tego konta. Czysta funkcja — bez sieci.
+    Podstawa autologowania w oknie logowania: gdy hasło się zgadza, okno
+    samo rusza z weryfikacją, bez Enter i bez klikania „Zaloguj" (jak kod
+    w GitHubie). Pierwsze logowanie na nowym komputerze nadal wymaga Enter —
+    nie ma jeszcze z czym porównać."""
+    kod = str(kod).strip()
+    if not (kod.isdigit() and len(kod) == 5) or len(str(haslo)) < 4:
+        return False
+    try:
+        skrot = _hash_hasla(kod, str(haslo))
+        znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
+        if znane.get("skrot") == skrot:
+            return True
+        st = _wczytaj(PLIK_STATUSU, {})
+        return str(st.get("kod", "")) == kod and st.get("skrot") == skrot
+    except Exception:
+        return False
+
+
 def online_zaloguj(kod: str, haslo: str):
     """Weryfikuje logowanie. Zwraca (czy_ok, imie, komunikat).
 
@@ -1377,6 +1398,25 @@ def dialog_logowania():
     pole_haslo.textChanged.connect(lambda _: _sprawdz_pola())
     pole_kod.returnPressed.connect(lambda: pole_haslo.setFocus())
     pole_haslo.returnPressed.connect(_zatwierdz)
+
+    # AUTOLOGOWANIE: gdy wpisane hasło zgadza się ze skrótem z poprzedniego
+    # udanego logowania na tym komputerze, nie czekamy na Enter ani klik —
+    # weryfikacja rusza sama (jak kod w GitHubie). Nietrafione hasło nic nie
+    # robi: użytkownik pisze dalej albo zatwierdza po staremu.
+    _auto = {"uzyte": ""}
+
+    def _auto_logowanie(_=None):
+        if not pole_haslo.isEnabled() or not b_ok.isEnabled():
+            return
+        kod, hs = pole_kod.text().strip(), pole_haslo.text()
+        if _auto["uzyte"] == kod + "|" + hs:
+            return
+        if _haslo_znane_lokalnie(kod, hs):
+            _auto["uzyte"] = kod + "|" + hs
+            _dziennik_animacji("autologowanie — hasło zgodne ze skrótem na tym komputerze", nowy=True)
+            QTimer.singleShot(120, _zatwierdz)
+
+    pole_haslo.textChanged.connect(_auto_logowanie)
     def _test():
         b_test.setEnabled(False); b_test.setText("Sprawdzam…")
         blad.setText("Sprawdzam połączenie…")

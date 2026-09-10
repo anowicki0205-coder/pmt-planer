@@ -153,6 +153,18 @@ jobs:
           # w korzeniu jest jeden wpis - luzny plik w korzeniu zepsulby im
           # aktualizacje. Dlatego podpowiedz lezy W folderze, nie obok.
           cp 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt dist/PMT_Planer/
+          # INTRO WIDEO (intro_wideo.py): film intro_zmierzch.mp4 / intro_zloty.mp4
+          # z podkatalogu zasoby/ (albo z korzenia repo). Bez filmu program
+          # pokazuje STARA animacje QPainter - tak wygladaly paczki 3.21.0-3.21.4.
+          mkdir -p dist/PMT_Planer/zasoby
+          ILE=0
+          for F in zasoby/intro_zmierzch.mp4 zasoby/intro_zloty.mp4 intro_zmierzch.mp4 intro_zloty.mp4; do
+            if [ -f "$F" ]; then cp "$F" dist/PMT_Planer/zasoby/; echo "intro: dolaczam $F"; ILE=$((ILE+1)); fi
+          done
+          if [ "$ILE" = "0" ]; then
+            echo "::warning::Brak intro_zmierzch.mp4 / intro_zloty.mp4 w repo (zasoby/) - paczka pokaze stara animacje intro."
+            rmdir dist/PMT_Planer/zasoby 2>/dev/null || true
+          fi
           # Znacznik wersji W PACZCE. Bez niego zadna kopia programu nie
           # potrafi rozpoznac, ze znaleziony obok folder jest NOWSZY od niej.
           python -c "import re,io;t=io.open('PMT_Delegacje.py',encoding='utf-8').read();v=re.search(r'WERSJA_PROGRAMU\s*=\s*\"([^\"]+)\"',t).group(1);io.open('dist/PMT_Planer/pmt_wersja.txt','w',encoding='utf-8').write(v);print('znacznik wersji:',v)"

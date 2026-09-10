@@ -232,6 +232,22 @@ def dolacz_do_paczki(sc, wer):
             f.write(wer)
     except Exception as e:
         pisz("  [UWAGA] nie zapisałem znacznika wersji: %s" % e)
+    # Intro wideo: filmy z zasoby/ (albo z korzenia) trafiają do
+    # dist\PMT_Planer\zasoby — bez nich program pokazuje starą animację.
+    ile = 0
+    for nazwa in ("intro_zmierzch.mp4", "intro_zloty.mp4"):
+        for zr in (os.path.join(KATALOG, "zasoby", nazwa), os.path.join(KATALOG, nazwa)):
+            if os.path.exists(zr):
+                try:
+                    os.makedirs(os.path.join(kat, "zasoby"), exist_ok=True)
+                    shutil.copy2(zr, os.path.join(kat, "zasoby", nazwa))
+                    pisz("  dołączam intro: %s" % os.path.relpath(zr, KATALOG))
+                    ile += 1
+                except Exception as e:
+                    pisz("  [UWAGA] nie udało się dołączyć %s: %s" % (nazwa, e))
+                break
+    if not ile:
+        pisz("  [UWAGA] brak intro_zmierzch.mp4 / intro_zloty.mp4 (zasoby\\) — paczka pokaże STARĄ animację intro")
 
 
 def main():

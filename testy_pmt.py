@@ -191,6 +191,24 @@ if not os.path.exists(_plik_kontakt):
             pass
 
 
+# autologowanie: hasło znane z poprzedniego logowania na tym komputerze
+_kod_t, _haslo_t = "12345", "Tajne1234"
+sprawdz("autologowanie: nieznane konto → False",
+        P._haslo_znane_lokalnie(_kod_t, _haslo_t) is False)
+P._zapisz_logowanie(_kod_t, "Jan Testowy", P._hash_hasla(_kod_t, _haslo_t))
+sprawdz("autologowanie: zgodne hasło → True",
+        P._haslo_znane_lokalnie(_kod_t, _haslo_t) is True)
+sprawdz("autologowanie: literówka w haśle → False",
+        P._haslo_znane_lokalnie(_kod_t, _haslo_t + "x") is False)
+sprawdz("autologowanie: to samo hasło, inne konto → False",
+        P._haslo_znane_lokalnie("54321", _haslo_t) is False)
+sprawdz("autologowanie: za krótkie hasło nigdy nie loguje",
+        P._haslo_znane_lokalnie(_kod_t, "Taj") is False)
+try:
+    os.remove(P.PLIK_LOGOWAN)
+except Exception:
+    pass
+
 # biblioteka PDF: weszła, a gdy nie wejdzie — czytelny komunikat, nie wywrotka
 sprawdz("fpdf2 (biblioteka PDF) załadowana bez błędu",
         P.FPDF_BLAD == "", repr(P.FPDF_BLAD)[:160])

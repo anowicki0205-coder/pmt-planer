@@ -372,6 +372,27 @@ KROK PO KROKU — WYDANIE 3.21.0
      Intro wideo (intro_wideo.py, filmy z Blendera) — projekt porzucony,
      plik usunięty z repozytorium.
 
+     ZGŁOSZENIE „dane się nie pojawiają, nie da się wpisać, program się
+     wyłącza” — dwie przyczyny, obie po lokalnej 3.21.0 (PMT_NOWY):
+       1. Lokalna 3.21.0 dopisywała do .pmt_uzytkownicy.json znacznik
+          zaproszenia testera jako TEKST obok profili. Każda pętla po
+          profilach (podpowiedź PESEL/adresu po wpisaniu nazwiska, panel
+          administratora) robiła wpis.get() na tekście → wyjątek w slocie Qt
+          → PyQt6 ubija proces. Objaw: użytkownik wpisuje nazwisko i program
+          znika. Od 3.22.0 magazyn pomija obce wpisy, pętle są odporne,
+          a stan zaproszenia siedzi w ustawieniach.
+       2. Lokalna 3.21.0 kluczowała plan i adres bazy przez imię|kod;
+          paczki z GitHuba — przez sam kod. Plan zostawał osierocony, a do
+          nowego pliku kopiował się pusty „stub”. Od 3.22.0 stary plan
+          i adres są przejmowane (kopia .sprzed_3.22.0), stub nie jest
+          planem, a wspólne dane sprzed 3.21.0 wracają też do osoby, która
+          była zalogowana przed aktualizacją (nie tylko na komputerze
+          jednej osoby). Pole nazwiska z konta jest zablokowane, więc
+          podpowiedź PESEL/adresu startuje teraz sama.
+     Werdykt sesji nazywa powód zamknięcia („Dostęp wygasł DD.MM.RRRR” —
+     kolumna Ważne do — albo „nie potwierdził dostępu”) i zapisuje go
+     w PMT_diagnostyka_animacji.txt.
+
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu
      zostaw na czas PO zaktualizowaniu zespołu (zalecane 14 dni).

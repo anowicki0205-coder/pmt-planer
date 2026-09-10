@@ -3638,10 +3638,23 @@ def _klucz_uzytkownika(imie: str, pesel: str) -> str:
     return hashlib.sha256(surowy.encode("utf-8")).hexdigest()[:16]
 
 def _wczytaj_store() -> dict:
+    """Magazyn profili: {klucz: {"profil": {...}, "historia": [...]}}.
+
+    ZWRACA WYŁĄCZNIE WPISY-SŁOWNIKI. Lokalna wersja 3.21.0 (linia PMT_NOWY)
+    dopisywała do tego pliku znacznik zaproszenia testera jako ZWYKŁY TEKST
+    („_tester_zaproszenie": "2026-09-01"). Każda pętla po wpisach robiła
+    potem wpis.get(...) na tekście → AttributeError w slocie Qt → PyQt6
+    ubija cały proces. Objaw u użytkownika: po wpisaniu nazwiska program
+    znika. Obce wpisy pomijamy, a najbliższy zapis pliku je usuwa."""
     if os.path.exists(USER_STORE):
         try:
-            with open(USER_STORE, "r", encoding="utf-8") as f: return json.load(f)
-        except Exception: return {}
+            with open(USER_STORE, "r", encoding="utf-8") as f:
+                dane = json.load(f)
+            if not isinstance(dane, dict):
+                return {}
+            return {k: v for k, v in dane.items() if isinstance(v, dict)}
+        except Exception:
+            return {}
     return {}
 
 def _zapisz_store(store: dict):
@@ -3880,10 +3893,12 @@ def zaproszenie_testera(rodzic=None, imie: str = "", ciemny: bool = True):
                                  QPushButton, QFrame)
     from PyQt6.QtCore import Qt
     import datetime as _dt
+    # Stan zaproszenia trzymamy w USTAWIENIACH — NIE w magazynie profili.
+    # Linia PMT_NOWY zapisywała go tam jako tekst i wywalała program przy
+    # każdej pętli po profilach (patrz _wczytaj_store).
     try:
-        store = _wczytaj_store()
-        ost = store.get("_tester_zaproszenie", "")
-        ile = int(store.get("_tester_zaproszenia_ile", 0) or 0)
+        ost = str(ustawienie("tester_zaproszenie", "") or "")
+        ile = int(ustawienie("tester_zaproszenia_ile", 0) or 0)
         if ile >= ZAPROSZEN_TESTERA_MAX:
             return False
         if ost:
@@ -3891,7 +3906,7 @@ def zaproszenie_testera(rodzic=None, imie: str = "", ciemny: bool = True):
             if dni < 7:
                 return False
     except Exception:
-        store, ile = {}, 0
+        ile = 0
 
     tlo, ramka, tekst, tekst2, tekst3, akc, akc_t, przyc = (
         ("#0b2019", "#1e6e50", "#eafaf2", "#c9eedb", "#8fb3a3", "#10b881", "#04140d", "#07231a")
@@ -3947,9 +3962,8 @@ def zaproszenie_testera(rodzic=None, imie: str = "", ciemny: bool = True):
     b1.clicked.connect(d.accept)
     wynik = d.exec()
     try:
-        store["_tester_zaproszenie"] = _dt.date.today().isoformat()
-        store["_tester_zaproszenia_ile"] = ile + 1
-        _zapisz_store(store)
+        zapisz_ustawienie("tester_zaproszenie", _dt.date.today().isoformat())
+        zapisz_ustawienie("tester_zaproszenia_ile", ile + 1)
     except Exception:
         pass
     if wynik:
@@ -4079,8 +4093,10 @@ def szukaj_profilu_po_nazwisku(imie) -> Optional[dict]:
     store = _wczytaj_store()
     imie_low = imie.strip().lower()
     for wpis in store.values():
-        prof = wpis.get("profil", {})
-        if prof.get("imie", "").strip().lower() == imie_low:
+        if not isinstance(wpis, dict):
+            continue
+        prof = wpis.get("profil") or {}
+        if isinstance(prof, dict) and str(prof.get("imie", "")).strip().lower() == imie_low:
             return prof
     return None
 
@@ -4179,8 +4195,12 @@ def statystyki_administratora() -> dict:
     uzytkownicy = []
     suma_dok = 0; suma_wypraw = 0; suma_km = 0.0; suma_kwota = 0.0
     for wpis in store.values():
-        profil = wpis.get("profil", {})
-        historia = wpis.get("historia", [])
+        if not isinstance(wpis, dict):
+            continue
+        profil = wpis.get("profil") or {}
+        historia = wpis.get("historia") or []
+        if not isinstance(profil, dict) or not isinstance(historia, list):
+            continue
         if not profil and not historia:
             continue
         imie = profil.get("imie") or (historia[0].get("imie") if historia else "—")

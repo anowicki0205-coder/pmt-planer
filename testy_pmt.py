@@ -250,6 +250,30 @@ try:
 except Exception:
     pass
 
+# magazyn profili zaśmiecony przez lokalną 3.21.0 (linia PMT_NOWY): tekst
+# „_tester_zaproszenie" obok profili wywalał program przy wpisaniu nazwiska
+_store_brudny = {P._klucz_uzytkownika("Jan Testowy", "90010112345"):
+                 {"profil": {"imie": "Jan Testowy", "pesel": "90010112345", "adres": "ul. Kwiatowa 5, 26-600 Radom",
+                             "stanowisko": "KR", "silnik_idx": 1}, "historia": []},
+                 "_tester_zaproszenie": "2026-09-01", "_tester_zaproszenia_ile": 2}
+with open(P.USER_STORE, "w", encoding="utf-8") as f:
+    json.dump(_store_brudny, f)
+try:
+    _prof = P.szukaj_profilu_po_nazwisku("Jan Testowy")
+    _st = P.statystyki_administratora()
+    _di2 = P.dane_intra_z_dysku("Jan Testowy")
+    sprawdz("zaśmiecony magazyn profili (3.21.0 lokalna) nie wywraca podpowiedzi, panelu ani intra",
+            isinstance(_prof, dict) and _prof.get("pesel") == "90010112345" and isinstance(_st, dict)
+            and _di2.get("miasto") == "RADOM", "profil=%s miasto=%s" % (bool(_prof), _di2.get("miasto")))
+except Exception as _e:
+    sprawdz("zaśmiecony magazyn profili (3.21.0 lokalna) nie wywraca podpowiedzi, panelu ani intra", False, repr(_e))
+sprawdz("obce wpisy znikają z magazynu przy odczycie",
+        all(isinstance(v, dict) for v in P._wczytaj_store().values()) and len(P._wczytaj_store()) == 1)
+try:
+    os.remove(P.USER_STORE)
+except Exception:
+    pass
+
 # biblioteka PDF: weszła, a gdy nie wejdzie — czytelny komunikat, nie wywrotka
 sprawdz("fpdf2 (biblioteka PDF) załadowana bez błędu",
         P.FPDF_BLAD == "", repr(P.FPDF_BLAD)[:160])

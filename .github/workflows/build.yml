@@ -59,6 +59,7 @@ jobs:
         shell: bash
         env:
           PMT_MENEDZER: ${{ secrets.PMT_MENEDZER }}
+          BEZ_MENEDZERA_OK: ${{ vars.PMT_MENEDZER_OPCJONALNY }}
         run: |
           # Nazwisko przelozonego NIE jest w repozytorium (.gitignore). Do paczki
           # trafia z sekretu: Settings -> Secrets and variables -> Actions ->
@@ -66,9 +67,16 @@ jobs:
           if [ -n "$PMT_MENEDZER" ]; then
             printf '%s\n' "$PMT_MENEDZER" > menedzer.txt
             echo "menedzer.txt: utworzony z sekretu PMT_MENEDZER"
+          elif [ "$BEZ_MENEDZERA_OK" = "tak" ]; then
+            echo "UWAGA: brak sekretu PMT_MENEDZER - rubryka PRZELOZONY bedzie pusta"
+            echo "       (zmienna PMT_MENEDZER_OPCJONALNY=tak: buduje mimo to)."
           else
-            echo "UWAGA: brak sekretu PMT_MENEDZER - rubryka PRZELOZONY bedzie pusta,"
-            echo "       chyba ze uzytkownik wpisze nazwisko w oknie programu."
+            # Wydanie 3.21.2 poszlo do ludzi z PUSTA rubryka, bo ten krok tylko
+            # ostrzegal, a ostrzezenia w logu nikt nie czyta. Od teraz brak
+            # nazwiska ZATRZYMUJE budowanie - paczka bez przelozonego nie ma
+            # prawa trafic do wydania po cichu.
+            echo "::error::Brak sekretu PMT_MENEDZER. Ustaw go: Settings -> Secrets and variables -> Actions -> New repository secret (nazwa PMT_MENEDZER, wartosc = imie i nazwisko przelozonego), potem uruchom to budowanie ponownie (Re-run jobs). Jesli NAPRAWDE chcesz paczke bez nazwiska: Settings -> Secrets and variables -> Actions -> Variables -> New repository variable PMT_MENEDZER_OPCJONALNY = tak."
+            exit 1
           fi
 
       - name: Zbuduj program

@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.21.2 — WERSJA STABILNA
+  PMT PLANER 3.21.3 — WERSJA STABILNA
   baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
 ═══════════════════════════════════════════════════════════════════════
 
@@ -243,7 +243,11 @@ KROK PO KROKU — WYDANIE 3.21.0
   6. GITHUB — KOLEJNOŚĆ JEST WAŻNA
      a) wyślij źródła (WYSLIJ_NA_GITHUB.bat). Pliku wersja.txt NIE ruszaj
         (poza wierszami min= i blokada=) — numer wpisze się sam, patrz c).
-     b) opublikuj wydanie z tagiem v3.21.2 i NIC do niego nie przeciągaj.
+     b) opublikuj wydanie z tagiem v3.21.3 i NIC do niego nie przeciągaj.
+        UWAGA: paczka v3.21.2 (09.09.2026) została zbudowana BEZ nazwiska —
+        sekret PMT_MENEDZER był pusty (log: „brak sekretu PMT_MENEDZER”).
+        Od 3.21.3 budowanie bez sekretu ZATRZYMUJE się z czerwonym
+        komunikatem, więc najpierw ustaw sekret, potem publikuj.
         GitHub sam zbuduje paczki (Windows, macOS, Linux) i dołączy je
         do tego wydania — z tymi samymi ustawieniami co budowa lokalna.
         Poczekaj, aż zakładka Actions pokaże zielony znaczek.

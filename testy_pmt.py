@@ -198,10 +198,14 @@ sprawdz("_menedzer() bez ustawień i bez pliku zwraca pusty tekst",
 
 P.zapisz_ustawienie("menedzer", "Jan Przykładowy")
 P._ustawienia_reset()
-sprawdz("_menedzer() czyta ustawienie programu",
-        P._menedzer() == "Jan Przykładowy", repr(P._menedzer()))
+sprawdz("_menedzer() NIE czyta ustawień programu — tylko menedzer.txt z sekretu",
+        P._menedzer() == "", repr(P._menedzer()))
 P.zapisz_ustawienie("menedzer", "")
 P._ustawienia_reset()
+sprawdz("okna zmiany i resetu hasła mają własny arkusz stylu (nieprzezroczysta karta)",
+        "#PmtKarta" in P._styl_okna_logowania(True) and "#PmtKarta" in P._styl_okna_logowania(False)
+        and "_styl_okna_logowania(ciemny)" in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read().split("def _okno_zmiany_hasla")[1].split("def _okno_resetu_hasla")[0]
+        and "_styl_okna_logowania(ciemny)" in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read().split("def _okno_resetu_hasla")[1][:3000])
 
 _plik_men = os.path.join(KATALOG, "menedzer.txt")
 _bylo = os.path.exists(_plik_men)
@@ -1045,8 +1049,9 @@ if not SZYBKO:
         QTimer.singleShot(600, _app.quit)
         _app.exec()
         sprawdz("główne okno programu buduje się bez błędu", True)
-        sprawdz("pasek górny ma przyciski: karta testera ★, hasło, wygląd ⋯",
-                all(hasattr(_okno, n) for n in ("btn_tester", "btn_haslo", "btn_wyglad")))
+        sprawdz("pasek górny ma przyciski: karta testera ★ i hasło; bez ⋯ i bez pola przełożonego",
+                all(hasattr(_okno, n) for n in ("btn_tester", "btn_haslo"))
+                and not hasattr(_okno, "btn_wyglad") and not hasattr(_okno, "e_menedzer"))
         # głębia 3D: nakłada się bez błędu i trzyma limit efektów
         import wyglad_3d as _w3d
         _ile3d = P.zastosuj_glebie_interfejsu(_okno)

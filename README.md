@@ -9,7 +9,7 @@
 
 | Obszar | Zmiana |
 |---|---|
-| Przełożony | nazwisko poza kodem — pole „Przełożony" w oknie programu albo plik `menedzer.txt` obok programu; nie trafia do paczki ani do repozytorium |
+| Przełożony | nazwisko poza kodem — wyłącznie plik `menedzer.txt` obok programu (sekret `PMT_MENEDZER` przy budowaniu); w programie nie ma pola, nie trafia do repozytorium |
 | Dane osobowe | plan wizyt, lista sklepów, dziennik, notatki dni i adres bazy należą do KONTA, nie do komputera; wylogowanie czyści imię, rejon, ważność sesji i listę nieobecności |
 | Obowiązkowa aktualizacja | wiersze `min=` i `blokada=` w `wersja.txt`; okres przejściowy zamiast natychmiastowego odcięcia przy błędnej dacie; blokadę da się zdjąć zdalnie; automat wydania już jej nie kasuje |
 | Windows | koniec z uruchamianiem PowerShella i z automatycznym kasowaniem plików z pulpitu/Pobranych/Dokumentów; wydania z CI budowane z metadanymi i bez UPX |

@@ -602,16 +602,10 @@ def _pierwsza_linia_pliku(sciezka) -> str:
 def _menedzer() -> str:
     """Nazwisko przełożonego drukowane na delegacji — trzymane POZA kodem.
 
-    Kolejność: ustawienie programu (pole „Przełożony" w oknie programu),
-    potem plik menedzer.txt położony obok programu. Dzięki temu dane
-    osobowe nie krążą w repozytorium ani w rozsyłanej paczce, a zmiana
-    przełożonego nie wymaga wydawania nowej wersji."""
-    try:
-        w = (_wczytaj_ustawienia() or {}).get("menedzer", "")
-        if str(w).strip():
-            return str(w).strip()
-    except Exception:
-        pass
+    JEDYNE źródło: plik menedzer.txt obok programu, wkładany do paczki
+    przy budowaniu z sekretu PMT_MENEDZER (u autora: plik obok zbuduj.py).
+    Użytkownik nie ma pola do wpisania — nazwisko ma być zawsze to samo,
+    a dane osobowe nie krążą w repozytorium ani w kodzie."""
     for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
         try:
             sc = os.path.join(kat, "menedzer.txt")
@@ -627,11 +621,6 @@ def _menedzer() -> str:
 def _menedzer_zrodlo() -> str:
     """Skąd program wziął nazwisko przełożonego — do dziennika diagnostycznego.
     Puste = nie znalazł nigdzie (i wtedy wypisuje, GDZIE szukał)."""
-    try:
-        if str((_wczytaj_ustawienia() or {}).get("menedzer", "")).strip():
-            return "ustawienia programu"
-    except Exception:
-        pass
     szukane = []
     for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
         sc = os.path.join(kat, "menedzer.txt")
@@ -1081,6 +1070,85 @@ def online_wyloguj():
     return _wyczysc_status_osoby()
 
 
+def _styl_okna_logowania(ciemny: bool) -> str:
+    """Arkusz stylu okna logowania — ten sam dostają okna zmiany i resetu
+    hasła. Wywołane z programu (przycisk 🔑) nie dziedziczyły go po oknie
+    logowania i karta była przezroczysta."""
+    if not ciemny:
+        return '''
+        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                      stop:0 #FFFFFF, stop:0.62 #F2FBF7, stop:1 #DCF3EA);
+                    border: 1px solid rgba(13,148,136,0.55);
+                    border-top: 4px solid #10B981; border-radius: 14px; }
+        QLabel#tytul { color:#047857; font-family:'Segoe UI'; font-size:18px; font-weight:800;
+                       background: transparent; }
+        QLabel#pod   { color:#3F6B60; font-family:'Segoe UI'; font-size:12px; background: transparent; }
+        QLabel#etyk  { color:#0D9488; font-family:'Segoe UI'; font-size:10px; font-weight:800;
+                       letter-spacing:1px; background: transparent; }
+        QLabel#blad  { color:#DC2626; font-family:'Segoe UI'; font-size:11px; font-weight:600;
+                       background: transparent; }
+        QLineEdit { background:#FFFFFF; color:#064E3B; border:2px solid rgba(13,148,136,0.40);
+                    border-radius:8px; padding:8px; font-family:'Segoe UI'; }
+        QLineEdit#kod { font-size:20px; font-weight:700; letter-spacing:8px; }
+        QLineEdit#haslo { font-size:15px; letter-spacing:2px; }
+        QLineEdit:focus { border:2px solid #10B981; background:#F0FDF9; }
+        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                           stop:0 #0D9488, stop:1 #10B981);
+                         color:#FFFFFF; font-family:'Segoe UI'; font-size:14px; font-weight:800;
+                         border:none; border-radius:8px; padding:10px 24px; }
+        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                                 stop:0 #14B8A6, stop:1 #34D399); }
+        QPushButton#ok:disabled { background: rgba(16,185,129,0.20); color: rgba(6,78,59,0.55); }
+        QPushButton#anuluj { background:rgba(16,185,129,0.07); color:#0D9488;
+                             font-family:'Segoe UI'; font-size:12px; font-weight:700;
+                             border:1px solid rgba(13,148,136,0.55);
+                             border-radius:8px; padding:9px 14px; }
+        QPushButton#anuluj:hover { color:#047857; border-color:#10B981;
+                                   background:rgba(16,185,129,0.16); }
+        QPushButton#anuluj:pressed { background:rgba(16,185,129,0.26); }
+        QPushButton#chip, QPushButton#chipmin { color:#065F46; background:rgba(16,185,129,0.10);
+                           border:1px solid rgba(13,148,136,0.45); border-radius:12px;
+                           font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
+        QPushButton#chip:hover, QPushButton#chipmin:hover { color:#064E3B; border-color:#10B981;
+                           background:rgba(16,185,129,0.20); }
+        '''
+    return '''
+        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                      stop:0 #0F172A, stop:1 #04121A);
+                    border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
+        QLabel#tytul { color:#F8FAFC; font-family:'Segoe UI'; font-size:18px; font-weight:800;
+                       background: transparent; }
+        QLabel#pod   { color:#94A3B8; font-family:'Segoe UI'; font-size:12px; background: transparent; }
+        QLabel#etyk  { color:#94A3B8; font-family:'Segoe UI'; font-size:10px; font-weight:700;
+                       letter-spacing:1px; background: transparent; }
+        QLabel#blad  { color:#F87171; font-family:'Segoe UI'; font-size:11px; font-weight:600;
+                       background: transparent; }
+        QLineEdit { background:#0B1320; color:#F8FAFC; border:1px solid rgba(255,255,255,0.20);
+                    border-radius:8px; padding:9px; font-family:'Segoe UI'; }
+        QLineEdit#kod { font-size:20px; font-weight:700; letter-spacing:8px; }
+        QLineEdit#haslo { font-size:15px; letter-spacing:2px; }
+        QLineEdit:focus { border:1px solid #00E4A1; }
+        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                           stop:0 #00F0FF, stop:1 #00E4A1);
+                         color:#050B14; font-family:'Segoe UI'; font-size:14px; font-weight:800;
+                         border:none; border-radius:8px; padding:10px 24px; }
+        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                                 stop:0 #33F5FF, stop:1 #33EAB7); }
+        QPushButton#ok:disabled { background: rgba(30,41,59,0.6); color:#475569; }
+        QPushButton#anuluj { background:rgba(255,255,255,0.05); color:#94A3B8;
+                             font-family:'Segoe UI'; font-size:12px; font-weight:600;
+                             border:1px solid rgba(255,255,255,0.22);
+                             border-radius:8px; padding:9px 14px; }
+        QPushButton#anuluj:hover { color:#00E4A1; border-color:#00E4A1;
+                                   background:rgba(0,228,161,0.10); }
+        QPushButton#anuluj:pressed { background:rgba(0,228,161,0.20); }
+        QPushButton#chip, QPushButton#chipmin { color:#94A3B8; background:rgba(255,255,255,0.05);
+                           border:1px solid rgba(255,255,255,0.18); border-radius:12px;
+                           font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
+        QPushButton#chip:hover, QPushButton#chipmin:hover { color:#00E4A1; border-color:#00E4A1; }
+    '''
+
+
 def _okno_zmiany_hasla(rodzic, ciemny):
     """Jeden porządny dialog zmiany hasła: trzy pola, podgląd, walidacja.
     Zwraca (stare, nowe) albo None przy anulowaniu."""
@@ -1092,6 +1160,7 @@ def _okno_zmiany_hasla(rodzic, ciemny):
     okno.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     okno.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     okno.setFixedSize(430, 420)
+    okno.setStyleSheet(_styl_okna_logowania(ciemny))
     zew = QVBoxLayout(okno); zew.setContentsMargins(10, 10, 10, 10)
     karta = QFrame(); karta.setObjectName("PmtKarta")
     zew.addWidget(karta)
@@ -1169,6 +1238,7 @@ def _okno_resetu_hasla(rodzic, ciemny, kod_start=""):
     okno.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     okno.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     okno.setFixedSize(430, 500)
+    okno.setStyleSheet(_styl_okna_logowania(ciemny))
     zew = QVBoxLayout(okno); zew.setContentsMargins(10, 10, 10, 10)
     karta = QFrame(); karta.setObjectName("PmtKarta")
     zew.addWidget(karta)
@@ -1310,80 +1380,7 @@ def dialog_logowania():
                                   b_minim.raise_(), b_x.raise_(),
                                   b_minim.show(), b_x.show()))
     ciemny = bool(ustawienie("ciemny_motyw", True))   # okno logowania podąża za motywem
-    if not ciemny:
-        d.setStyleSheet('''
-        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
-                      stop:0 #FFFFFF, stop:0.62 #F2FBF7, stop:1 #DCF3EA);
-                    border: 1px solid rgba(13,148,136,0.55);
-                    border-top: 4px solid #10B981; border-radius: 14px; }
-        QLabel#tytul { color:#047857; font-family:'Segoe UI'; font-size:18px; font-weight:800;
-                       background: transparent; }
-        QLabel#pod   { color:#3F6B60; font-family:'Segoe UI'; font-size:12px; background: transparent; }
-        QLabel#etyk  { color:#0D9488; font-family:'Segoe UI'; font-size:10px; font-weight:800;
-                       letter-spacing:1px; background: transparent; }
-        QLabel#blad  { color:#DC2626; font-family:'Segoe UI'; font-size:11px; font-weight:600;
-                       background: transparent; }
-        QLineEdit { background:#FFFFFF; color:#064E3B; border:2px solid rgba(13,148,136,0.40);
-                    border-radius:8px; padding:8px; font-family:'Segoe UI'; }
-        QLineEdit#kod { font-size:20px; font-weight:700; letter-spacing:8px; }
-        QLineEdit#haslo { font-size:15px; letter-spacing:2px; }
-        QLineEdit:focus { border:2px solid #10B981; background:#F0FDF9; }
-        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                           stop:0 #0D9488, stop:1 #10B981);
-                         color:#FFFFFF; font-family:'Segoe UI'; font-size:14px; font-weight:800;
-                         border:none; border-radius:8px; padding:10px 24px; }
-        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                                 stop:0 #14B8A6, stop:1 #34D399); }
-        QPushButton#ok:disabled { background: rgba(16,185,129,0.20); color: rgba(6,78,59,0.55); }
-        QPushButton#anuluj { background:rgba(16,185,129,0.07); color:#0D9488;
-                             font-family:'Segoe UI'; font-size:12px; font-weight:700;
-                             border:1px solid rgba(13,148,136,0.55);
-                             border-radius:8px; padding:9px 14px; }
-        QPushButton#anuluj:hover { color:#047857; border-color:#10B981;
-                                   background:rgba(16,185,129,0.16); }
-        QPushButton#anuluj:pressed { background:rgba(16,185,129,0.26); }
-        QPushButton#chip, QPushButton#chipmin { color:#065F46; background:rgba(16,185,129,0.10);
-                           border:1px solid rgba(13,148,136,0.45); border-radius:12px;
-                           font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
-        QPushButton#chip:hover, QPushButton#chipmin:hover { color:#064E3B; border-color:#10B981;
-                           background:rgba(16,185,129,0.20); }
-        ''')
-    else:
-        d.setStyleSheet('''
-        #PmtKarta { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
-                      stop:0 #0F172A, stop:1 #04121A);
-                    border: 1px solid rgba(0,240,255,0.30); border-radius: 14px; }
-        QLabel#tytul { color:#F8FAFC; font-family:'Segoe UI'; font-size:18px; font-weight:800;
-                       background: transparent; }
-        QLabel#pod   { color:#94A3B8; font-family:'Segoe UI'; font-size:12px; background: transparent; }
-        QLabel#etyk  { color:#94A3B8; font-family:'Segoe UI'; font-size:10px; font-weight:700;
-                       letter-spacing:1px; background: transparent; }
-        QLabel#blad  { color:#F87171; font-family:'Segoe UI'; font-size:11px; font-weight:600;
-                       background: transparent; }
-        QLineEdit { background:#0B1320; color:#F8FAFC; border:1px solid rgba(255,255,255,0.20);
-                    border-radius:8px; padding:9px; font-family:'Segoe UI'; }
-        QLineEdit#kod { font-size:20px; font-weight:700; letter-spacing:8px; }
-        QLineEdit#haslo { font-size:15px; letter-spacing:2px; }
-        QLineEdit:focus { border:1px solid #00E4A1; }
-        QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                           stop:0 #00F0FF, stop:1 #00E4A1);
-                         color:#050B14; font-family:'Segoe UI'; font-size:14px; font-weight:800;
-                         border:none; border-radius:8px; padding:10px 24px; }
-        QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                                 stop:0 #33F5FF, stop:1 #33EAB7); }
-        QPushButton#ok:disabled { background: rgba(30,41,59,0.6); color:#475569; }
-        QPushButton#anuluj { background:rgba(255,255,255,0.05); color:#94A3B8;
-                             font-family:'Segoe UI'; font-size:12px; font-weight:600;
-                             border:1px solid rgba(255,255,255,0.22);
-                             border-radius:8px; padding:9px 14px; }
-        QPushButton#anuluj:hover { color:#00E4A1; border-color:#00E4A1;
-                                   background:rgba(0,228,161,0.10); }
-        QPushButton#anuluj:pressed { background:rgba(0,228,161,0.20); }
-        QPushButton#chip, QPushButton#chipmin { color:#94A3B8; background:rgba(255,255,255,0.05);
-                           border:1px solid rgba(255,255,255,0.18); border-radius:12px;
-                           font-family:'Segoe UI'; font-size:11px; font-weight:700; padding:5px 9px; }
-        QPushButton#chip:hover, QPushButton#chipmin:hover { color:#00E4A1; border-color:#00E4A1; }
-    ''')
+    d.setStyleSheet(_styl_okna_logowania(ciemny))
     from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect
     zewn = QVBoxLayout(d); zewn.setContentsMargins(10, 10, 10, 10)
     karta = QFrame(); karta.setObjectName("PmtKarta")
@@ -4179,7 +4176,7 @@ def zaproszenie_testera(rodzic=None, imie: str = "", ciemny: bool = True):
     tresc = ("Szukam osób, które przejdą program punkt po punkcie i powiedzą "
              "wprost, co działa, a co nie. Karta testera prowadzi krok po kroku, "
              "podpowiada, co warto sprawdzić — także próby na złość, jak błędny "
-             "PESEL czy bardzo wysoka kwota. Zajmuje pół godziny, postęp zapisuje "
+             "PESEL czy bardzo wysoka kwota. Zajmuje około 5 minut, postęp zapisuje "
              "się sam, a na końcu odbierasz imienny certyfikat.")
     n2 = QLabel(tresc)
     n2.setWordWrap(True)
@@ -18297,13 +18294,6 @@ class App(QMainWindow):
                 self.is_dark))
         tb.addWidget(self.btn_haslo)
 
-        # WYGLĄD — głębia 3D i intro do włączenia/wyłączenia bez grzebania w plikach
-        self.btn_wyglad = OutlineButton("⋯", self.is_dark, self.topbar)
-        self.btn_wyglad.setToolTip("Wygląd: głębia 3D (cienie), intro przy starcie")
-        self.btn_wyglad.setFixedWidth(40)
-        self.btn_wyglad.clicked.connect(self._menu_wygladu)
-        tb.addWidget(self.btn_wyglad)
-
         # Wylogowanie zawsze pod ręką — ten sam styl co pozostałe przyciski paska.
         self.btn_wyloguj = QPushButton("⎋  Wyloguj", self.topbar)
         styl_wyloguj(self.btn_wyloguj, self.is_dark)
@@ -18376,24 +18366,10 @@ class App(QMainWindow):
         self.si_stan = StyledInput("briefcase", self.c_stan, self.is_dark, self.card_top_frame)
         w_stan, self.l_stan = field("Stanowisko", self.si_stan)
 
-        # PRZEŁOŻONY — wpisywany tutaj, NIE zaszyty w kodzie programu.
-        # Wartość zostaje na tym komputerze (~/.pmt_ustawienia.json) i trafia
-        # na delegację w rubryce „przełożony". Dzięki temu nazwisko nie krąży
-        # w repozytorium ani w rozsyłanej paczce, a jego zmiana nie wymaga
-        # wydawania nowej wersji programu.
-        self.e_menedzer = GrubyKursorEdit()
-        self.e_menedzer.setPlaceholderText("np. Jan Kowalski")
-        self.e_menedzer.setText(_menedzer())
-        self.e_menedzer.setToolTip("Nazwisko przełożonego drukowane na delegacji.\n"
-                                   "Zapisuje się na tym komputerze — nie wysyłamy go nigdzie.")
-        self.e_menedzer.editingFinished.connect(self._zapisz_menedzera)
-        self.si_menedzer = StyledInput("user", self.e_menedzer, self.is_dark, self.card_top_frame)
-        w_menedzer, self.l_menedzer = field("Przełożony (na delegacji)", self.si_menedzer)
-
-        # Proporcje: adres najszerszy (bywa długi), stanowisko najwęższe
-        # (to lista wyboru), przełożony pośrodku.
-        row2_t.addWidget(w_adres, 4); row2_t.addWidget(w_stan, 2)
-        row2_t.addWidget(w_menedzer, 3)
+        # PRZEŁOŻONY nie ma pola w programie — na delegację trafia zawsze
+        # nazwisko z pliku menedzer.txt (sekret dołączany przy budowaniu).
+        # Proporcje: adres najszerszy (bywa długi), stanowisko węższe.
+        row2_t.addWidget(w_adres, 5); row2_t.addWidget(w_stan, 2)
         cl.addLayout(row2_t)
         
         cards_layout.addWidget(self.card_top_frame)
@@ -19668,63 +19644,6 @@ class App(QMainWindow):
         except Exception:
             pass
 
-    def _menu_wygladu(self):
-        """Menu pod przyciskiem ⋯: głębia 3D i intro. Zapisuje się na tym
-        komputerze; głębia włącza się od razu, wyłączenie schodzi z przycisków
-        od razu, a z reszty po ponownym uruchomieniu."""
-        try:
-            from PyQt6.QtWidgets import QMenu
-            from PyQt6.QtGui import QAction
-            m = QMenu(self)
-            m.setStyleSheet(
-                "QMenu{background:%s;color:%s;border:1px solid %s;border-radius:8px;padding:6px;}"
-                "QMenu::item{padding:6px 18px;border-radius:5px;}"
-                "QMenu::item:selected{background:%s;}"
-                % (("#0B1F1A", "#E9FDF4", "#1E6E50", "#14523C") if self.is_dark
-                   else ("#FFFFFF", "#0F172A", "#BFE3D3", "#E6F4EE")))
-            a3d = QAction("Głębia 3D (cienie i wypukłe krawędzie)", m)
-            a3d.setCheckable(True); a3d.setChecked(glebia_wlaczona())
-            m.addAction(a3d)
-            aintro = QAction("Intro przy starcie", m)
-            aintro.setCheckable(True); aintro.setChecked(not bool(ustawienie("bez_intra", False)))
-            m.addAction(aintro)
-            m.addSeparator()
-            atester = QAction("★  Karta testera", m)
-            m.addAction(atester)
-            wybor = m.exec(self.btn_wyglad.mapToGlobal(self.btn_wyglad.rect().bottomLeft()))
-            if wybor is a3d:
-                zapisz_ustawienie("wyglad_3d", bool(a3d.isChecked()))
-                if a3d.isChecked():
-                    self._glebia_nalozona = True
-                    zastosuj_glebie_interfejsu(self)
-                else:
-                    for w in self.findChildren(QPushButton):
-                        try:
-                            w.setGraphicsEffect(None)
-                        except Exception:
-                            pass
-                    _okno_pmt(self, "Głębia 3D wyłączona",
-                              "Cienie zeszły z przycisków. Reszta elementów wróci do "
-                              "płaskiego wyglądu po ponownym uruchomieniu programu.",
-                              tylko_ok=True)
-            elif wybor is aintro:
-                zapisz_ustawienie("bez_intra", not bool(aintro.isChecked()))
-            elif wybor is atester:
-                uruchom_karte_testera(self)
-        except Exception:
-            try:
-                import traceback
-                _dziennik_animacji("menu wyglądu BŁĄD:\n" + traceback.format_exc())
-            except Exception:
-                pass
-
-    def _zapisz_menedzera(self):
-        """Zapisuje nazwisko przełożonego (pole w karcie danych pracownika)."""
-        try:
-            zapisz_ustawienie("menedzer", self.e_menedzer.text().strip())
-        except Exception:
-            pass
-
     def _po_zmianie_konta(self, imie: str):
         """Po zalogowaniu innej osoby bez restartu programu: pokazujemy
         JEJ dane, nie te, które zostały na ekranie po poprzedniku."""
@@ -20089,7 +20008,6 @@ class App(QMainWindow):
         self.btn_theme.update_theme(self.is_dark)
         self.btn_tester.update_theme(self.is_dark)
         self.btn_haslo.update_theme(self.is_dark)
-        self.btn_wyglad.update_theme(self.is_dark)
         self.btn_dzwonek.is_dark = self.is_dark; self.btn_dzwonek.update()
         if hasattr(self, "panel_powiadomien"): self.panel_powiadomien.update_theme(self.is_dark)
         self.si_imie.update_theme(self.is_dark)
@@ -20321,8 +20239,9 @@ class App(QMainWindow):
                     self, "Rubryka PRZEŁOŻONY jest pusta",
                     "Na wszystkich delegacjach i w rozliczeniu pole MENEDŻER "
                     "wyjdzie puste.\n\n"
-                    "Uzupełnij pole \u201ePrzełożony (na delegacji)\u201d "
-                    "w karcie danych pracownika i kliknij Anuluj, żeby wrócić.\n\n"
+                    "Ta paczka programu nie ma pliku menedzer.txt (nazwisko "
+                    "przełożonego dołącza się przy budowaniu). Zgłoś to "
+                    "administratorowi i kliknij Anuluj, żeby wrócić.\n\n"
                     "OK = generuję mimo to, z pustą rubryką.")
                 if _dalej is not True:
                     self.reset_ui()

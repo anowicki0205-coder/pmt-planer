@@ -83,7 +83,7 @@ SCENARIUSZE = [
      "Poprzednie miesiące są widoczne i można je otworzyć.", 10),
 
     ("Stabilność", "Praca ciągła",
-     "Popracuj w programie kilkanaście minut, przełączaj zakładki.",
+     "Popracuj w programie kilka minut, przełączaj zakładki.",
      "Program nie zwalnia, nie zawiesza się, nic nie znika.", 15),
     ("Stabilność", "Ponowne uruchomienie",
      "Zamknij program i uruchom go ponownie.",

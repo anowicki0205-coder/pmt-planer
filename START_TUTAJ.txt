@@ -12,16 +12,17 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
 
   WYGLĄD I SPOSÓB PRACY PROGRAMU SIĘ NIE ZMIENIŁ. Układ okien, animacja
   startowa, planer wizyt, mapy, historia, PDF-y — wszystko jak dotąd.
-  Jedyna widoczna nowość to pole „Przełożony (na delegacji)" w karcie
-  danych pracownika.
+  Przełożony na delegacji podstawia się sam z pliku menedzer.txt
+  (dołączanego przy budowaniu z sekretu) — w programie nie ma pola.
 
 ───────────────────────────────────────────────────────────────────────
 1. PRZEŁOŻONY POZA KODEM
 ───────────────────────────────────────────────────────────────────────
   · Nazwiska nie ma już nigdzie w kodzie ani w tej instrukcji.
-  · Wpisujesz je RAZ w oknie programu: karta „DANE PRACOWNIKA",
-    pole „Przełożony (na delegacji)". Zapisuje się na Twoim komputerze.
-  · Alternatywa dla całego zespołu: plik menedzer.txt (jedna linia)
+  · W programie NIE MA pola do wpisania — użytkownik nie może go zmienić
+    ani pominąć (od 3.22.0; wcześniejsze wpisy w ustawieniach są
+    ignorowane).
+  · Jedyne źródło: plik menedzer.txt (jedna linia)
     położony OBOK PMT_Planer.exe. Program czyta go z katalogu programu,
     z podkatalogu _internal i z katalogu roboczego, w kodowaniu UTF-8,
     UTF-8 z BOM albo ANSI (cp1250) — czyli tak, jak zapisze go Notatnik.
@@ -234,7 +235,8 @@ KROK PO KROKU — WYDANIE 3.21.0
 
   5. SPRAWDŹ NA SOBIE — 10 minut, zanim wyślesz komukolwiek
      · uruchom program i zaloguj się,
-     · wpisz przełożonego w polu „Przełożony (na delegacji)",
+     · sprawdź, że obok zbuduj.py leży menedzer.txt (inaczej rubryka
+       MENEDŻER wyjdzie pusta i program ostrzeże przed generowaniem),
      · wygeneruj delegację na 4 700 zł — suma co do grosza,
      · otwórz jeden PDF: dane, trasa, rubryka MENEDŻER wypełniona,
      · otwórz mapę tras: pierwszy i ostatni punkt to Twój adres,
@@ -353,11 +355,10 @@ KROK PO KROKU — WYDANIE 3.21.0
          było ich 991 i to spowalniało intro.
      Intro gra jako NAKŁADKA w oknie programu (jak dotąd klasyczne), więc
      strażnik po 50 s i zdejmowanie nakładek działają na nie tak samo.
-     Klik lub klawisz pomija. Wyłączenie: menu ⋯ w pasku („Intro przy
-     starcie”) albo pusty plik BEZ_INTRA.txt obok programu; głębia:
-     to samo menu albo BEZ_3D.txt.
-     Nowe w pasku: 🔑 Hasło (zmiana bez wylogowania), ★ karta testera,
-     ⋯ wygląd. Autologowanie: znane hasło loguje od razu; nieznane — po
+     Klik lub klawisz pomija. Wyłączenie: pusty plik BEZ_INTRA.txt obok
+     programu (albo w katalogu użytkownika); głębia 3D: BEZ_3D.txt.
+     Nowe w pasku: 🔑 Hasło (zmiana bez wylogowania), ★ karta testera.
+     Autologowanie: znane hasło loguje od razu; nieznane — po
      1,3 s przerwy w pisaniu (każda para kod+hasło próbowana raz, hasło
      krótsze niż 5 znaków nie wychodzi do serwera).
      Bezpieczeństwo: logowanie OFFLINE działa tylko 45 dni od ostatniego

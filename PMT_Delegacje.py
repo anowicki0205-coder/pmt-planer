@@ -6595,6 +6595,11 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         realna droga z pamięci podręcznej albo linia prosta × krętość. Sama
         linia prosta dawała mu zaniżone kilometry względem sąsiadów."""
         try:
+            # klucz pamięci jest kierunkowy — dzień jadący pętlę w odwrotną
+            # stronę korzysta z tej samej drogi zapisanej w drugą stronę
+            _kl = f"{la2:.4f},{lg2:.4f};{la1:.4f},{lg1:.4f}"
+            if _kl in _road_cache and _road_cache[_kl] > 0:
+                return _road_cache[_kl]
             km = dystans_drogowy(la1, lg1, la2, lg2, tylko_cache=True)
             if km and km > 0:
                 return km
@@ -6755,11 +6760,13 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         # najkrótszy możliwy dzień (2 postoje) się w niej nie mieści,
         # użytkownik dostaje wprost informację: kwota ZA MAŁA + minimum.
         try:
-            _mn_min_dnia = min([x["mn"] for x in _dane_dni] or [MNOZNIK_MIN])
-            if skala < (MNOZNIK_MIN / max(_mn_min_dnia, 1e-9)) - 1e-9:
+            # Sygnał tylko przy ISTOTNEJ różnicy: przekroczenie o grosze
+            # (zaokrąglenia, zapas 0,5 km z przycinania) to nie „kwota za mała".
+            _minimum = round(sum(e.d_line * MNOZNIK_MIN * stawka
+                                 for e in wszystkie_surowe), 2)
+            if _minimum > kwota_calkowita + max(1.0, 0.01 * kwota_calkowita):
                 _kwota_za_mala = True
-                _kwota_min_realna = round(sum(e.d_line * MNOZNIK_MIN * stawka
-                                              for e in wszystkie_surowe), 2)
+                _kwota_min_realna = _minimum
         except Exception:
             pass
         for e in wszystkie_surowe:

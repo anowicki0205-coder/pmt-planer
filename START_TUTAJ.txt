@@ -415,6 +415,13 @@ KROK PO KROKU — WYDANIE 3.21.0
      każdy postój, a gdy kwota nie starcza nawet na 2 postoje przy realnej
      drodze, użytkownik dostaje komunikat „Kwota za mała na realną trasę”
      z minimum (dziennik: „KWOTA ZA MALA”).
+     Mapa tras: ukośnik w numerze mieszkania („Zamiejska 5/58”) rozbijał
+     adres w linku Google Maps na dwa przystanki (drugi trafiał na obcy
+     adres w tym kodzie pocztowym) — teraz adres jest jednym punktem.
+     Karta PARAMETRY TRASY: przy rozwiniętym menu bocznym tryb pracy
+     i dni bez pracy schodzą do drugiego wiersza (nic nie jest obcinane).
+     Logo: jedno i to samo (pmt_logo_retro) w ikonie programu, w intrze
+     (także wtopione w moduł) i w oknie po intrze.
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
      Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu

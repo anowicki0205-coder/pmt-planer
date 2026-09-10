@@ -909,6 +909,22 @@ if not SZYBKO:
                              kod_pocztowy="26-600", baza_miasto=_nazwa,
                              baza_lat=_lat, baza_lng=_lng, wojewodztwo=_woj)
     _folder = os.path.join(_TMP_HOME, "pdf")
+    # „5/58" w adresie: ukośnik rozbijał adres w linku Google Maps na DWA
+    # przystanki („Zamiejska 5" i „58, 03-580 Warszawa" → obcy adres)
+    try:
+        _prac_m = P.DanePracownika(imie="Jan Testowy", pesel="90010112345",
+                                   adres="ul. Zamiejska 5/58, 03-580 Warszawa", stanowisko="KR",
+                                   kod_pocztowy="03-580", baza_miasto=_nazwa,
+                                   baza_lat=_lat, baza_lng=_lng, wojewodztwo=_woj)
+        _folder_m = os.path.join(_TMP_HOME, "mapa_ukosnik"); os.makedirs(_folder_m, exist_ok=True)
+        P.generuj_mape_html(_dni, _prac_m, "wrzesień", 2026, _folder_m, True)
+        with open(os.path.join(_folder_m, "Trasy_Mapa.html"), encoding="utf-8") as _f:
+            _html_m = _f.read()
+        _linki = re.findall(r'maps/dir/([^"]+)"', _html_m)
+        sprawdz("mapa: adres z numerem mieszkania (5/58) to JEDEN przystanek w linku Google Maps",
+                _linki and all("5%2F58" in l and "5/58" not in l for l in _linki), str(_linki[:1])[:200])
+    except Exception as _e:
+        sprawdz("mapa: adres z numerem mieszkania (5/58) to JEDEN przystanek w linku Google Maps", False, repr(_e))
     _pods = P.generuj_pdfy(_dni, _prac, _mies, _rok, _folder, stawka=_stawka)
     _pliki = sorted(glob.glob(os.path.join(_folder, "*.pdf")))
     sprawdz("PDF-y powstały", len(_pliki) >= 2, "%d plików" % len(_pliki))
@@ -1052,6 +1068,21 @@ if not SZYBKO:
         sprawdz("pasek górny ma przyciski: karta testera ★ i hasło; bez ⋯ i bez pola przełożonego",
                 all(hasattr(_okno, n) for n in ("btn_tester", "btn_haslo"))
                 and not hasattr(_okno, "btn_wyglad") and not hasattr(_okno, "e_menedzer"))
+        # wiersz PARAMETRY TRASY: przy wąskiej karcie (rozwinięte menu) dwa rzędy
+        try:
+            _okno.card_bot_frame.width = lambda: 900
+            _okno._parametry_waskie = None; _okno._uloz_parametry()
+            _waski_ok = _okno._row2_b.count() == 2 and _okno._parametry_waskie is True
+            _okno.card_bot_frame.width = lambda: 1200
+            _okno._uloz_parametry()
+            _szeroki_ok = _okno._row2_b.count() == 0 and _okno._parametry_waskie is False
+            sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają",
+                    _waski_ok and _szeroki_ok, str((_waski_ok, _szeroki_ok)))
+        except Exception as _e:
+            sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają", False, repr(_e))
+        sprawdz("ikona okna i intro używają logo retro (spójnie z logo po intrze)",
+                os.path.basename(P.znajdz_ikone() or "").startswith("pmt_logo_retro")
+                and '"pmt_logo_retro.png"' in open(os.path.join(KATALOG, "intro_zywa_mapa.py"), encoding="utf-8").read())
         # głębia 3D: nakłada się bez błędu i trzyma limit efektów
         import wyglad_3d as _w3d
         _ile3d = P.zastosuj_glebie_interfejsu(_okno)

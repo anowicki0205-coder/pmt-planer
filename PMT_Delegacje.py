@@ -5773,7 +5773,7 @@ h1 {{ color:{tytul_c}; text-align:center; margin-bottom:4px; }}
             ety = w.nazwa or w.miasto
             etykiety.append(ety)
             cel = w.adres if w.adres else f"{w.miasto}, Polska"
-            url_punkty.append(urllib.parse.quote(cel))
+            url_punkty.append(urllib.parse.quote(cel, safe=""))   # „5/58" to JEDEN punkt
         h = int(d.minuty // 60); m = int(d.minuty % 60)
         dzien_tyg = dni_pl[d.data.weekday()]
         html += f"""<div class="day"><div class="day-t">{dzien_tyg}, {d.data.strftime('%d.%m.%Y')}</div>
@@ -5955,7 +5955,7 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
     if klucz in _geo_cache: return tuple(_geo_cache[klucz])
     for zapytanie in [adres_caly, miasto]:
         try:
-            q = urllib.parse.quote(f"{zapytanie}, Polska")
+            q = urllib.parse.quote(f"{zapytanie}, Polska", safe="")
             req = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1", headers={'User-Agent': 'PMT/112'})
             with urllib.request.urlopen(req, timeout=4) as resp:
                 data = json.loads(resp.read())
@@ -6926,7 +6926,9 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
         if not dzien.etapy: continue
         # START = baza (dom). Etykieta pokazuje miasto, ale URL używa pełnego adresu.
         punkty_wyswietlane = [f"🏠 {pracownik.baza_miasto}"]
-        punkty_url = [urllib.parse.quote(baza_punkt)]
+        # safe="": ukośnik w numerze mieszkania („5/58") nie może rozbić adresu
+        # na dwa przystanki w linku Google Maps
+        punkty_url = [urllib.parse.quote(baza_punkt, safe="")]
         _ostatni_indeks = len(dzien.etapy) - 1
         for _i, e in enumerate(dzien.etapy):
             # PEŁNY ADRES DOMOWY WYŁĄCZNIE NA POCZĄTKU I NA KOŃCU TRASY.
@@ -6937,11 +6939,11 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
             # a przy okazji rozwoziło adres domowy po linkach.
             if e.dokad == pracownik.baza_miasto and _i == _ostatni_indeks:
                 punkty_wyswietlane.append(f"🏠 {pracownik.baza_miasto}")
-                punkty_url.append(urllib.parse.quote(baza_punkt))
+                punkty_url.append(urllib.parse.quote(baza_punkt, safe=""))
             else:
                 punkty_wyswietlane.append(f"{e.dokad}")
                 _cel = f"{e.dokad}, {e.dokad_woj}, Polska" if e.dokad_woj else f"{e.dokad}, Polska"
-                punkty_url.append(urllib.parse.quote(_cel))
+                punkty_url.append(urllib.parse.quote(_cel, safe=""))
         html_content += f"""
             <div class="day-card">
                 <div class="day-title">Data: {dzien.data.strftime("%d.%m.%Y")}</div>
@@ -7450,7 +7452,8 @@ def znajdz_logo() -> Optional[str]:
 def znajdz_ikone() -> Optional[str]:
     """Ikona okna/aplikacji — preferuje .ico, potem .png. Te same lokalizacje."""
     pulpit = sciezka_pulpitu()
-    for nazwa in ["pmt_logo.ico", "pmt_logo.png", "pmt.ico", "pmt.png"]:
+    for nazwa in ["pmt_logo_retro.ico", "pmt_logo_retro.png",
+                  "pmt_logo.ico", "pmt_logo.png", "pmt.ico", "pmt.png"]:
         for kat in [None, pulpit, os.path.join(pulpit, "PMT")]:
             p = zasob_sciezka(nazwa) if kat is None else os.path.join(kat, nazwa)
             if os.path.exists(p):
@@ -18461,6 +18464,16 @@ class App(QMainWindow):
 
         row1_b.addWidget(w_tryb, 3); row1_b.addWidget(w_dni, 1)
         cr.addLayout(row1_b)
+        # Przy wąskim obszarze (rozwinięte menu boczne, małe okno) tryb pracy
+        # i dni bez pracy schodzą do DRUGIEGO wiersza — wcześniej przyciski
+        # były obcinane („jodnio", „ry i we"). Decyduje _uloz_parametry().
+        self._row1_b, self._w_tryb, self._w_dni = row1_b, w_tryb, w_dni
+        self._row2_b = QHBoxLayout(); self._row2_b.setSpacing(row1_b.spacing())
+        self._row2_b.setContentsMargins(0, 0, 0, 0)
+        cr.addLayout(self._row2_b)
+        self._parametry_waskie = None
+        self.card_bot_frame.installEventFilter(self)     # Resize → _uloz_parametry
+        QTimer.singleShot(0, self._uloz_parametry)
 
         # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
 
@@ -18743,6 +18756,29 @@ class App(QMainWindow):
                 "Nie udało się zainstalować",
                 f"{blad}\nSpróbuj pobrać ręcznie ze strony wydania.", success=False)
 
+    PARAMETRY_SZER_MIN = 1000     # poniżej tej szerokości karty — dwa wiersze
+
+    def _uloz_parametry(self):
+        """Wiersz PARAMETRY TRASY w jednym albo dwóch rzędach, zależnie od
+        szerokości karty. Wywoływane po zmianie rozmiaru okna i po animacji
+        menu bocznego."""
+        try:
+            szer = self.card_bot_frame.width()
+            if szer <= 0:
+                return
+            waski = szer < self.PARAMETRY_SZER_MIN
+            if self._parametry_waskie == waski:
+                return
+            self._parametry_waskie = waski
+            for w in (self._w_tryb, self._w_dni):
+                self._row1_b.removeWidget(w)
+                self._row2_b.removeWidget(w)
+            cel = self._row2_b if waski else self._row1_b
+            cel.addWidget(self._w_tryb, 3); cel.addWidget(self._w_dni, 1)
+            self.card_bot_frame.updateGeometry()
+        except Exception:
+            pass
+
     def toggle_sidebar(self):
         # ⚙️ "przypina" panel otwarty (klik) — hover nadal działa, ale nie zwija przypiętego
         self._sidebar_przypiety = not self._sidebar_przypiety
@@ -18770,6 +18806,10 @@ class App(QMainWindow):
             elif event.type() == QEvent.Type.Leave:
                 if not self._sidebar_przypiety:
                     self._rozwin_sidebar(False)
+        elif obj is getattr(self, "card_bot_frame", None) and event.type() == QEvent.Type.Resize:
+            # szerokość karty zmienia się o jeden przebieg układu PO menu
+            # bocznym — dopiero tu wiadomo, czy wiersz parametrów się mieści
+            QTimer.singleShot(0, self._uloz_parametry)
         return super().eventFilter(obj, event)
 
     def _nav_klik(self, przycisk, akcja):
@@ -18935,6 +18975,7 @@ class App(QMainWindow):
     def _animate_sidebar(self, width):
         self.sidebar_frame.setFixedWidth(width)
         self.btn_settings.move(width - 38, self.height() - 110)
+        QTimer.singleShot(0, self._uloz_parametry)
 
     # =====================================================================
     #  AKCJE NAWIGACJI
@@ -19760,6 +19801,8 @@ class App(QMainWindow):
             self.overlay_tryb_trasy.resize(self.main_container.size())
         if hasattr(self, "panel_powiadomien") and self.panel_powiadomien.isVisible():
             self.panel_powiadomien.hide()
+        if hasattr(self, "_row2_b"):
+            QTimer.singleShot(0, self._uloz_parametry)
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)

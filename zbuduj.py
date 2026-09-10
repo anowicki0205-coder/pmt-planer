@@ -33,7 +33,7 @@ WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
 # plik był wyrzucony z paczki i rubryka wychodziła pusta. Do repozytorium
 # plik NIE trafia (.gitignore) — i tylko to było realnym problemem.
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
-        "pmt_logo_retro.png", "menedzer.txt"]
+        "pmt_logo_retro.png", "pmt_logo_retro.ico", "menedzer.txt"]
 UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "winsound",
           "PyQt6.QtMultimedia"]
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
@@ -164,7 +164,10 @@ def buduj(py, folderowo=True):
     args = [py, "-m", "PyInstaller", "--noconfirm", "--noupx", "--windowed",
             "--name", "PMT_Planer",
             "--onedir" if folderowo else "--onefile"]
-    ikona = os.path.join(KATALOG, "pmt_logo.ico")
+    # ikona EXE = logo retro (to samo, co w oknie po intrze); stare tylko zapasowo
+    ikona = os.path.join(KATALOG, "pmt_logo_retro.ico")
+    if not os.path.exists(ikona):
+        ikona = os.path.join(KATALOG, "pmt_logo.ico")
     if os.path.exists(ikona):
         args += ["--icon", ikona]
     meta = os.path.join(KATALOG, "wersja_exe.txt")

@@ -101,7 +101,7 @@ jobs:
           # Dolaczamy KAZDY zasob, ktory jest w repo (tla, czcionki, ikony).
           # Brak pliku nie przerywa budowania — program ma tlo zastepcze.
           DODAJ=""
-          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png ciemny.png jasny.png pmt.jpg PMT.jpg menedzer.txt \
+          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png pmt_logo_retro.ico ciemny.png jasny.png pmt.jpg PMT.jpg menedzer.txt \
                    DejaVuSans.ttf DejaVuSans-Bold.ttf; do
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z;."; echo "dolaczam: $Z";
             else echo "POMIJAM (brak w repo): $Z"; fi
@@ -128,7 +128,7 @@ jobs:
           # zeby zadna zmiana w analizie PyInstallera ich nie zgubila.
           pyinstaller --onedir --windowed --noupx \
             --name PMT_Planer \
-            --icon pmt_logo.ico \
+            --icon pmt_logo_retro.ico \
             --version-file wersja_exe.txt \
             --hidden-import intro_zywa_mapa --hidden-import karta_testera \
             --hidden-import wyglad_3d --hidden-import winsound \
@@ -186,7 +186,7 @@ jobs:
             ikona: pmt_logo.icns
           - os: ubuntu-22.04
             nazwa: Linux
-            ikona: pmt_logo.png
+            ikona: pmt_logo_retro.png
 
     runs-on: ${{ matrix.os }}
 
@@ -214,7 +214,7 @@ jobs:
         shell: bash
         run: |
           DODAJ=""
-          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png ciemny.png jasny.png pmt.jpg PMT.jpg menedzer.txt \
+          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png pmt_logo_retro.ico ciemny.png jasny.png pmt.jpg PMT.jpg menedzer.txt \
                    DejaVuSans.ttf DejaVuSans-Bold.ttf; do
             if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z:."; fi
           done

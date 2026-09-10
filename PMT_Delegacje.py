@@ -18775,10 +18775,22 @@ class App(QMainWindow):
                 self._row2_b.removeWidget(w)
             cel = self._row2_b if waski else self._row1_b
             cel.addWidget(self._w_tryb, 3); cel.addWidget(self._w_dni, 1)
-            # drugi wiersz potrzebuje miejsca — bez tego przyciski chowały
-            # się pod dolną krawędzią karty
-            self.card_bot_frame.setMinimumHeight(190 if waski else 118)
+            # Wysokość karty z RZECZYWISTEGO układu (czcionki na Windows są
+            # wyższe niż w podglądzie) — stała liczba zostawiała przyciski
+            # drugiego wiersza pod dolną krawędzią karty.
+            self._dopasuj_wysokosc_karty_parametrow()
+            QTimer.singleShot(0, self._dopasuj_wysokosc_karty_parametrow)
+        except Exception:
+            pass
+
+    def _dopasuj_wysokosc_karty_parametrow(self):
+        try:
+            uk = self.card_bot_frame.layout()
+            uk.activate()
+            potrzebne = max(uk.sizeHint().height(), uk.minimumSize().height())
+            self.card_bot_frame.setMinimumHeight(max(118, int(potrzebne) + 6))   # +6: zapas na cień/obramowanie
             self.card_bot_frame.updateGeometry()
+            self.cards_wrap.updateGeometry()
         except Exception:
             pass
 

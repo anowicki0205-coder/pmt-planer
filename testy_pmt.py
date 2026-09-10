@@ -1073,11 +1073,11 @@ if not SZYBKO:
             _okno.card_bot_frame.width = lambda: 900
             _okno._parametry_waskie = None; _okno._uloz_parametry()
             _waski_ok = (_okno._row2_b.count() == 2 and _okno._parametry_waskie is True
-                         and _okno.card_bot_frame.minimumHeight() >= 180)
+                         and _okno.card_bot_frame.minimumHeight() >= _okno.card_bot_frame.layout().sizeHint().height())
             _okno.card_bot_frame.width = lambda: 1200
             _okno._uloz_parametry()
             _szeroki_ok = (_okno._row2_b.count() == 0 and _okno._parametry_waskie is False
-                           and _okno.card_bot_frame.minimumHeight() == 118)
+                           and 118 <= _okno.card_bot_frame.minimumHeight() < 160)
             sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają",
                     _waski_ok and _szeroki_ok, str((_waski_ok, _szeroki_ok)))
         except Exception as _e:

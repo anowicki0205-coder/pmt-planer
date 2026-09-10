@@ -1,4 +1,4 @@
-3.21.4
-Nowa wersja programu.
+3.22.0
+Intro z kulą ziemską, naprawa danych po aktualizacji, logowanie bez sieci, realne kilometry
 min=3.21.4
 blokada=2026-09-24

@@ -793,6 +793,12 @@ sprawdz("program nie kasuje plików poza własnym katalogiem bez zgody",
 # ══════════════════════════════════════════════════════════════════
 if not SZYBKO:
     sekcja("6. Silnik delegacji — kwoty, czas dnia, odległości")
+    # Testy silnika liczą ZAWSZE offline (linia prosta × krętość), niezależnie
+    # od tego, czy maszyna ma dostęp do serwera OSRM. Inaczej ten sam kod dawał
+    # inne liczby lokalnie i na GitHubie (realne drogi = dalsze dni odpadają
+    # z limitu 8 h), a test pokrycia był loterią zależną od sieci.
+    P._osrm_dostepny = False
+    P._road_cache.clear()
 
     _BAZY = [
         ("Radom", 51.40, 21.15, "mazowieckie"),

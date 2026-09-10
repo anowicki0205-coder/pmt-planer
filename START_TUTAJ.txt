@@ -419,7 +419,12 @@ KROK PO KROKU — WYDANIE 3.21.0
      adres w linku Google Maps na dwa przystanki (drugi trafiał na obcy
      adres w tym kodzie pocztowym) — teraz adres jest jednym punktem.
      Karta PARAMETRY TRASY: przy rozwiniętym menu bocznym tryb pracy
-     i dni bez pracy schodzą do drugiego wiersza (nic nie jest obcinane).
+     i dni bez pracy schodzą do drugiego wiersza, a karta rośnie (nic nie
+     jest obcinane).
+     Start: intro rusza od razu po pokazaniu okna — czarna „kurtyna” pod
+     paskiem (2,6 s czekania na werdykt wersji) zniknęła; okno aktualizacji
+     i tak czeka, aż intro zejdzie. Dymek „Rozpoznano pracownika” pokazuje
+     się dopiero po intrze.
      Logo: jedno i to samo (pmt_logo_retro) w ikonie programu, w intrze
      (także wtopione w moduł) i w oknie po intrze.
 

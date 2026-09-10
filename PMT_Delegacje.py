@@ -18469,7 +18469,7 @@ class App(QMainWindow):
         # były obcinane („jodnio", „ry i we"). Decyduje _uloz_parametry().
         self._row1_b, self._w_tryb, self._w_dni = row1_b, w_tryb, w_dni
         self._row2_b = QHBoxLayout(); self._row2_b.setSpacing(row1_b.spacing())
-        self._row2_b.setContentsMargins(0, 0, 0, 0)
+        self._row2_b.setContentsMargins(0, 4, 0, 0)
         cr.addLayout(self._row2_b)
         self._parametry_waskie = None
         self.card_bot_frame.installEventFilter(self)     # Resize → _uloz_parametry
@@ -18775,6 +18775,9 @@ class App(QMainWindow):
                 self._row2_b.removeWidget(w)
             cel = self._row2_b if waski else self._row1_b
             cel.addWidget(self._w_tryb, 3); cel.addWidget(self._w_dni, 1)
+            # drugi wiersz potrzebuje miejsca — bez tego przyciski chowały
+            # się pod dolną krawędzią karty
+            self.card_bot_frame.setMinimumHeight(190 if waski else 118)
             self.card_bot_frame.updateGeometry()
         except Exception:
             pass
@@ -18949,9 +18952,13 @@ class App(QMainWindow):
             idx = self.c_stan.findText(prof.get("stanowisko", ""))
             if idx >= 0: self.c_stan.setCurrentIndex(idx)
             self.c_silnik.setCurrentIndex(prof.get("silnik_idx", 1))
-            self.toast.show_toast("Rozpoznano pracownika",
-                                  f"Uzupełniłem dane {imie.split()[0]} z ostatniej sesji. Sprawdź i popraw w razie potrzeby.",
-                                  success=True)
+            _tresc = f"Uzupełniłem dane {imie.split()[0]} z ostatniej sesji. Sprawdź i popraw w razie potrzeby."
+            if getattr(self, "_intro_gra", False) or not getattr(self, "_intro_zakonczone", False):
+                # dymek wyskakiwał NA intro (i na czarną kurtynę) — pokażemy go,
+                # gdy intro zejdzie ze sceny
+                self._dymek_po_intrze = ("Rozpoznano pracownika", _tresc)
+            else:
+                self.toast.show_toast("Rozpoznano pracownika", _tresc, success=True)
 
     def _pokaz_o_programie(self):
         # Test silnika NA ŻYWO — wylicza, ile dni wychodzi dla kontrolnej kwoty.
@@ -19814,57 +19821,14 @@ class App(QMainWindow):
                not self.btn_dzwonek.rect().contains(pt_btn):
                 self.panel_powiadomien.hide()
 
-    def intro_po_sprawdzeniu(self, imie: str = "", limit_ms: int = 2600):
-        """NOWA KOLEJNOSC (3.20.57): najpierw werdykt sprawdzania wersji,
-        POTEM intro. Czekamy krotko na watek aktualizacji (limit_ms);
-        jesli jest nowsza — okno aktualizacji (z korytarzem z widocznego
-        logo) gra PRZED intro. Wolna siec = intro rusza normalnie,
-        a spozniona odpowiedz pojdzie dotychczasowa sciezka po intro.
-        Na czas oczekiwania scena pod topbarem jest przykryta kurtyna
-        w kolorze prologu — bez blysku "golego" interfejsu."""
-        kurtyna = QWidget(self.main_container)
-        kurtyna.setStyleSheet("background: %s;" %
-                              ("#050A12" if self.is_dark else "#EEF6F2"))
-        y0 = 0
-        try:
-            y0 = int(self.topbar.height())
-        except Exception:
-            pass
-        kurtyna.setGeometry(0, y0, self.main_container.width(),
-                            max(1, self.main_container.height() - y0))
-        kurtyna.show()
-        kurtyna.raise_()
-        self._kurtyna_start = kurtyna
-
-        start_ms = time.time() * 1000.0
-
-        def _dalej_intro():
-            try:
-                kurtyna.hide()
-                kurtyna.deleteLater()
-            except Exception:
-                pass
-            self._kurtyna_start = None
-            self.pokaz_intro(imie)
-
-        def _krok_czekania():
-            if self._nowa_wersja:
-                # dialog modalny (exec) — po zamknieciu jedziemy z intro
-                try:
-                    self._pokaz_okno_aktualizacji()
-                except Exception:
-                    pass
-                _dalej_intro()
-                return
-            if self._akt_rozstrzygniete:
-                _dalej_intro()
-                return
-            if (time.time() * 1000.0 - start_ms) >= limit_ms:
-                _dalej_intro()
-                return
-            QTimer.singleShot(150, _krok_czekania)
-
-        QTimer.singleShot(0, _krok_czekania)
+    def intro_po_sprawdzeniu(self, imie: str = "", limit_ms: int = 0):
+        """Intro rusza OD RAZU po pokazaniu okna. Do 3.22.0 scena pod paskiem
+        była na ~2,6 s przykrywana czarną „kurtyną" w oczekiwaniu na werdykt
+        sprawdzania wersji — u użytkowników wyglądało to jak ścięty, czarny
+        ekran przed intrem. Werdykt przychodzi w tle, a okno aktualizacji
+        samo czeka, aż intro zejdzie (_pokaz_okno_aktualizacji)."""
+        self._kurtyna_start = None
+        self.pokaz_intro(imie)
 
     def pokaz_intro(self, imie: str = ""):
         """Animacja startowa jako NAKŁADKA wewnątrz okna programu.
@@ -19950,6 +19914,13 @@ class App(QMainWindow):
         except Exception:
             pass
         _dziennik_animacji("intro zakończone — ekran powitalny")
+        try:
+            _dymek = getattr(self, "_dymek_po_intrze", None)
+            if _dymek:
+                self._dymek_po_intrze = None
+                QTimer.singleShot(1200, lambda: self.toast.show_toast(_dymek[0], _dymek[1], success=True))
+        except Exception:
+            pass
         # Żywa mapa wymuszona przez strażnika: zatrzymujemy jej zegar, żeby
         # nie zgłosiła końca drugi raz (bez emitowania sygnału).
         try:

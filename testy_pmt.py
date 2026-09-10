@@ -1072,14 +1072,29 @@ if not SZYBKO:
         try:
             _okno.card_bot_frame.width = lambda: 900
             _okno._parametry_waskie = None; _okno._uloz_parametry()
-            _waski_ok = _okno._row2_b.count() == 2 and _okno._parametry_waskie is True
+            _waski_ok = (_okno._row2_b.count() == 2 and _okno._parametry_waskie is True
+                         and _okno.card_bot_frame.minimumHeight() >= 180)
             _okno.card_bot_frame.width = lambda: 1200
             _okno._uloz_parametry()
-            _szeroki_ok = _okno._row2_b.count() == 0 and _okno._parametry_waskie is False
+            _szeroki_ok = (_okno._row2_b.count() == 0 and _okno._parametry_waskie is False
+                           and _okno.card_bot_frame.minimumHeight() == 118)
             sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają",
                     _waski_ok and _szeroki_ok, str((_waski_ok, _szeroki_ok)))
         except Exception as _e:
             sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają", False, repr(_e))
+        # start: intro rusza od razu, bez czarnej „kurtyny" pod paskiem
+        try:
+            _okno._intro_zakonczone = False; _okno._intro_gra = False
+            _okno.intro_po_sprawdzeniu("Jan Testowy")
+            _kurt = getattr(_okno, "_kurtyna_start", "brak")
+            _intro_od_razu = bool(getattr(_okno, "_intro_gra", False)) or bool(getattr(_okno, "_intro_zakonczone", False))
+            sprawdz("start programu: intro rusza od razu, bez czarnej kurtyny", _kurt is None and _intro_od_razu,
+                    str((_kurt, getattr(_okno, "_intro_gra", None), getattr(_okno, "_intro_zakonczone", None))))
+            _okno._intro_koniec()
+        except Exception as _e:
+            sprawdz("start programu: intro rusza od razu, bez czarnej kurtyny", False, repr(_e))
+        sprawdz("dymek Rozpoznano pracownika czeka na koniec intra",
+                "_dymek_po_intrze" in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read().split("def _podpowiedz_profil")[1][:2500])
         sprawdz("ikona okna i intro używają logo retro (spójnie z logo po intrze)",
                 os.path.basename(P.znajdz_ikone() or "").startswith("pmt_logo_retro")
                 and '"pmt_logo_retro.png"' in open(os.path.join(KATALOG, "intro_zywa_mapa.py"), encoding="utf-8").read())

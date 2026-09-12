@@ -2113,6 +2113,22 @@ def odblokuj_licencje_na_stale():
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
 WERSJA_PROGRAMU = "3.22.0"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
+# ETYKIETA WYDANIA — w wydaniu oficjalnym PUSTA (""), w paczce dla testera
+# niesie oznaczenie, ktore ma zobaczyc czlowiek. Dlaczego OSOBNA stala, a nie
+# dopisek do numeru: WERSJA_PROGRAMU musi zostac czystym X.Y.Z, bo skrypt
+# testowy (testy_pmt.py) robi int() na jego czesciach poza blokiem obslugi
+# wyjatkow — "3.22.0-TEST" wywrocilby caly skrypt, nie jeden test.
+ETYKIETA_WYDANIA = "WERSJA TESTOWA"
+
+
+def wersja_pelna() -> str:
+    """Numer wersji z etykieta wydania albo sam numer, gdy etykieta pusta."""
+    return ("%s — %s" % (WERSJA_PROGRAMU, ETYKIETA_WYDANIA)) if ETYKIETA_WYDANIA else WERSJA_PROGRAMU
+
+
+def tytul_okna() -> str:
+    """Nazwa programu w pasku okna — z etykieta wydania, gdy ta jest ustawiona."""
+    return ("PMT Planer — %s" % ETYKIETA_WYDANIA) if ETYKIETA_WYDANIA else "PMT Planer"
 # Sygnatura silnika — zmieniana przy każdej istotnej poprawce logiki tras.
 # Pozwala jednoznacznie sprawdzić w aplikacji (ekran "O programie"), czy
 # uruchomiony .exe zawiera aktualny silnik, czy stary build z cache.
@@ -2449,6 +2465,16 @@ def otworz_w_systemie(sciezka: str):
             subprocess.Popen(["xdg-open", sciezka])
     except Exception:
         pass
+
+
+def modul_pomocniczy(nazwa: str):
+    """Leniwy, osłonięty import modułu towarzyszącego (pmt_dokumenty,
+    pmt_podpis, pmt_wysylka). Brak modułu nie może wywrócić programu —
+    wtedy zwracamy None, a wołający zostaje przy starym zachowaniu."""
+    try:
+        return __import__(nazwa)
+    except Exception:
+        return None
 
 
 def sciezka_pulpitu() -> str:
@@ -3280,6 +3306,10 @@ def sprawdz_aktualizacje():
     """Zwraca (jest_nowsza, nowa_wersja, opis) albo (False, '', '').
     Działa cicho: każdy błąd (brak sieci, zły URL) = po prostu nic nie pokazujemy.
     Wywoływane w osobnym wątku, żeby nie blokować startu programu."""
+    # Paczka testowa z plikiem BEZ_AKTUALIZACJI.txt obok programu nie pyta
+    # serwera o nic — dla reszty programu wyglada to jak brak nowszej wersji.
+    if _aktualizacje_wylaczone_plikiem():
+        return (False, "", "")
     if not URL_WERSJI:
         return (False, "", "")
     try:
@@ -3938,6 +3968,22 @@ def _intro_wylaczone_plikiem(katalog: str = "") -> bool:
     except Exception:
         pass
     return False
+
+
+def _aktualizacje_wylaczone_plikiem(katalog: str = "") -> bool:
+    """Pusty plik BEZ_AKTUALIZACJI.txt OBOK PROGRAMU wylacza sprawdzanie
+    i pobieranie aktualizacji — ubezpieczenie paczki testowej, zeby nie
+    podmienila sie sama w trakcie testow.
+
+    Inaczej niz BEZ_INTRA.txt ten przelacznik NIE dziala z katalogu
+    uzytkownika. Plik w katalogu domowym zostalby na cudzym komputerze
+    na stale i bylby trwalym obejsciem blokady wersji — a blokada to
+    jedyny sposob, zeby wycofac wadliwe wydanie z 65 komputerow."""
+    try:
+        p = os.path.join(katalog or _katalog_programu(), "BEZ_AKTUALIZACJI.txt")
+        return bool(p) and os.path.exists(p)
+    except Exception:
+        return False
 
 
 def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
@@ -8584,7 +8630,7 @@ class FramelessTitleBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent); self.parent = parent; self.setFixedHeight(40); self._drag_pos = None
         l = QHBoxLayout(self); l.setContentsMargins(15, 0, 15, 0); l.setSpacing(10)
-        self.t = QLabel("PMT Planer"); self.t.setStyleSheet("color: #64748B; font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; background: transparent;"); l.addWidget(self.t); l.addStretch()
+        self.t = QLabel(tytul_okna()); self.t.setStyleSheet("color: #64748B; font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; background: transparent;"); l.addWidget(self.t); l.addStretch()
         self.b_min = QPushButton("—", self); self.b_min.setFixedSize(24, 24); self.b_min.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.b_max = QPushButton("🗖", self); self.b_max.setFixedSize(24, 24); self.b_max.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.b_close = QPushButton("✕", self); self.b_close.setFixedSize(24, 24); self.b_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -10145,6 +10191,11 @@ class PobieranieAktualizacjiThread(QThread):
 
     def run(self):
         try:
+            # Ten sam wylacznik co przy sprawdzaniu — inaczej paczka testowa
+            # dalaby sie podmienic z okna aktualizacji mimo blokady.
+            if _aktualizacje_wylaczone_plikiem():
+                self.blad.emit("Aktualizacje wyłączone (BEZ_AKTUALIZACJI.txt).")
+                return
             self.postep.emit(0.05, "Szukam najnowszego wydania…")
             url, czy_zip = znajdz_plik_wydania()
             if not url:
@@ -18138,6 +18189,761 @@ def pokaz_animacje_startowa(imie: str = ""):
         pass
 
 
+# ---------------------------------------------------------------------------
+#  PODPIS ELEKTRONICZNY I WYSYŁKA POCZTĄ
+#  Warstwa okna nad modułami pmt_podpis i pmt_wysylka. Moduły wczytujemy
+#  leniwie (modul_pomocniczy) — ich brak wyłącza funkcję, nie program.
+# ---------------------------------------------------------------------------
+
+def _barwy_dialogu(is_dark: bool) -> dict:
+    """Paleta okien dialogowych — ta sama, co w pozostałych oknach programu."""
+    if is_dark:
+        return {"karta": "#0B1320", "ramka": "rgba(0,240,255,0.30)", "akc": "#00F0FF",
+                "zielony": "#00E4A1", "txt": "#F8FAFC", "mut": "#94A3B8",
+                "pole": "rgba(5,10,20,0.6)"}
+    return {"karta": "#FFFFFF", "ramka": "rgba(13,148,136,0.35)", "akc": "#0D9488",
+            "zielony": "#059669", "txt": "#0F172A", "mut": "#64748B",
+            "pole": "rgba(241,245,249,0.9)"}
+
+
+def _styl_pola(b: dict) -> str:
+    return (f"QLineEdit {{ background:{b['pole']}; color:{b['txt']}; border:1px solid {b['ramka']}; "
+            f"border-radius:9px; padding:6px 10px; font-family:'Segoe UI'; font-size:12px; }} "
+            f"QLineEdit:focus {{ border:1px solid {b['akc']}; }}")
+
+
+def _styl_listy(b: dict) -> str:
+    return (f"QComboBox {{ background:{b['pole']}; color:{b['txt']}; border:1px solid {b['ramka']}; "
+            f"border-radius:9px; padding:6px 10px; font-family:'Segoe UI'; font-size:12px; }} "
+            f"QComboBox::drop-down {{ border:none; width:18px; }} "
+            f"QComboBox QAbstractItemView {{ background:{b['karta']}; color:{b['txt']}; "
+            f"border:1px solid {b['ramka']}; selection-background-color:{b['akc']}; "
+            f"selection-color:#04121A; outline:none; }}")
+
+
+def _styl_notatki(b: dict) -> str:
+    return (f"QPlainTextEdit {{ background:{b['pole']}; color:{b['txt']}; border:1px solid {b['ramka']}; "
+            f"border-radius:9px; padding:6px 8px; font-family:'Segoe UI'; font-size:11px; }}")
+
+
+def _styl_zaznaczenia(b: dict) -> str:
+    return (f"QCheckBox {{ color:{b['txt']}; font-family:'Segoe UI'; font-size:11px; font-weight:600; "
+            f"background:transparent; spacing:8px; }} "
+            f"QCheckBox::indicator {{ width:15px; height:15px; border:1px solid {b['ramka']}; "
+            f"border-radius:5px; background:{b['pole']}; }} "
+            f"QCheckBox::indicator:checked {{ background:{b['akc']}; border-color:{b['akc']}; }}")
+
+
+def _przycisk_glowny(przycisk, b: dict, wysokosc: int = 38):
+    przycisk.setFixedHeight(wysokosc)
+    przycisk.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    przycisk.setStyleSheet(
+        f"QPushButton {{ color:#04121A; background:qlineargradient(x1:0,y1:0,x2:1,y2:0, "
+        f"stop:0 {b['akc']}, stop:1 {b['zielony']}); border:none; border-radius:10px; "
+        f"padding:0 20px; font-family:'Segoe UI'; font-size:12px; font-weight:800; }} "
+        f"QPushButton:hover {{ background:{b['akc']}; }} "
+        f"QPushButton:disabled {{ color:{b['mut']}; background:{b['pole']}; }}")
+
+
+def _przycisk_ramka(przycisk, b: dict, wysokosc: int = 38):
+    przycisk.setFixedHeight(wysokosc)
+    przycisk.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    przycisk.setStyleSheet(
+        f"QPushButton {{ color:{b['txt']}; background:transparent; border:1px solid {b['ramka']}; "
+        f"border-radius:10px; padding:0 16px; font-family:'Segoe UI'; font-size:12px; }} "
+        f"QPushButton:hover {{ background:{b['pole']}; }} "
+        f"QPushButton:disabled {{ color:{b['mut']}; }}")
+
+
+def _etykieta_pola(tekst: str, b: dict):
+    et = QLabel(tekst)
+    et.setStyleSheet(f"color:{b['mut']}; font-family:'Segoe UI'; font-size:10px; "
+                     f"font-weight:700; letter-spacing:0.6px; background:transparent; border:none;")
+    return et
+
+
+def _odmiana_plikow(ile: int) -> str:
+    """„1 plik / 3 pliki / 12 plików" — bez tego liczba wygląda jak błąd."""
+    ile = int(ile)
+    reszta_setka = ile % 100
+    reszta = ile % 10
+    if ile == 1:
+        return "1 plik"
+    if 2 <= reszta <= 4 and not 12 <= reszta_setka <= 14:
+        return "%d pliki" % ile
+    return "%d plików" % ile
+
+
+class DialogPodpis(QDialog):
+    """Podpis elektroniczny gotowych dokumentów.
+
+    Paczka kopii (pmt_podpis.przygotuj_paczke), strona usługi w przeglądarce,
+    ścieżka folderu w schowku, a potem zegar co 2 s przeglądający Pobrane
+    i Do_podpisu w poszukiwaniu podpisanego pliku.
+
+    Zegar zatrzymujemy zawsze, gdy na wierzchu ma stanąć inne okno —
+    inaczej dałoby się otworzyć dwa pytania naraz."""
+
+    ODSTEP_MS = 2000
+
+    def __init__(self, parent=None, folder: str = "", is_dark: bool = True):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.is_dark = is_dark
+        self.folder = folder or ""
+        self.paczka = ""
+        self.manifest = ""
+        self.od_czasu = None
+        self._zajety = False
+
+        b = _barwy_dialogu(is_dark)
+        self._b = b
+
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
+        box = QFrame(); box.setObjectName("PodpisBox")
+        box.setStyleSheet(f"#PodpisBox {{ background:{b['karta']}; border:1px solid {b['ramka']}; "
+                          f"border-radius:16px; }}")
+        box.setFixedWidth(520)
+        root.addWidget(box)
+        bl = QVBoxLayout(box); bl.setContentsMargins(26, 24, 26, 22); bl.setSpacing(8)
+
+        t = QLabel("✍  Podpis elektroniczny")
+        t.setStyleSheet(f"color:{b['akc']}; font-family:'Segoe UI'; font-size:17px; "
+                        f"font-weight:800; background:transparent;")
+        bl.addWidget(t)
+
+        self.lbl_folder = QLabel(os.path.basename(self.folder) or "—")
+        self.lbl_folder.setWordWrap(True)
+        self.lbl_folder.setStyleSheet(f"color:{b['mut']}; font-family:'Segoe UI'; font-size:11px; "
+                                      f"background:transparent;")
+        bl.addWidget(self.lbl_folder)
+        bl.addSpacing(10)
+
+        bl.addWidget(_etykieta_pola("SPOSÓB", b))
+        self.c_sposob = QComboBox()
+        self.c_sposob.addItems(["Profil zaufany", "e-Dowód", "Mam już podpisany plik"])
+        self.c_sposob.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.c_sposob.setStyleSheet(_styl_listy(b))
+        bl.addWidget(self.c_sposob)
+        bl.addSpacing(12)
+
+        self.lbl_stan = QLabel("")
+        self.lbl_stan.setWordWrap(True)
+        self.lbl_stan.setStyleSheet(f"color:{b['txt']}; font-family:'Segoe UI'; font-size:13px; "
+                                    f"font-weight:700; background:transparent;")
+        bl.addWidget(self.lbl_stan)
+
+        self.lbl_plik = QLabel("")
+        self.lbl_plik.setWordWrap(True)
+        self.lbl_plik.setStyleSheet(f"color:{b['mut']}; font-family:'Segoe UI'; font-size:11px; "
+                                    f"background:transparent;")
+        bl.addWidget(self.lbl_plik)
+        bl.addSpacing(14)
+
+        rzad = QHBoxLayout(); rzad.setSpacing(10)
+        self.btn_start = QPushButton("Przygotuj i otwórz")
+        _przycisk_glowny(self.btn_start, b)
+        self.btn_start.clicked.connect(self._start)
+        rzad.addWidget(self.btn_start)
+
+        self.btn_plik = QPushButton("Wskaż plik")
+        _przycisk_ramka(self.btn_plik, b)
+        self.btn_plik.clicked.connect(self._wskaz_plik)
+        rzad.addWidget(self.btn_plik)
+        rzad.addStretch()
+
+        self.btn_anuluj = QPushButton("Anuluj")
+        _przycisk_ramka(self.btn_anuluj, b)
+        self.btn_anuluj.clicked.connect(self.reject)
+        rzad.addWidget(self.btn_anuluj)
+        bl.addLayout(rzad)
+
+        self.zegar = QTimer(self)
+        self.zegar.setInterval(self.ODSTEP_MS)
+        self.zegar.timeout.connect(self._tik)
+
+        self._odswiez_stan()
+
+    # --- zegar -------------------------------------------------------------
+    def zatrzymaj_zegar(self):
+        """Zegar nie może przeżyć okna — woła to i dialog, i zamykany program."""
+        try:
+            self.zegar.stop()
+        except Exception:
+            pass
+
+    def _pauza(self) -> bool:
+        """Zatrzymuje zegar na czas pokazania innego okna. Zwraca, czy chodził."""
+        chodzil = False
+        try:
+            chodzil = self.zegar.isActive()
+            self.zegar.stop()
+        except Exception:
+            pass
+        return chodzil
+
+    def _wznow(self, chodzil: bool):
+        if chodzil and self.manifest and not self._wszystko_podpisane():
+            try:
+                self.zegar.start()
+            except Exception:
+                pass
+
+    def closeEvent(self, event):
+        self.zatrzymaj_zegar()
+        try:
+            super().closeEvent(event)
+        except Exception:
+            pass
+
+    def reject(self):
+        self.zatrzymaj_zegar()
+        super().reject()
+
+    # --- stan --------------------------------------------------------------
+    def _wpisy(self) -> list:
+        modul = modul_pomocniczy("pmt_podpis")
+        if modul is None or not self.manifest:
+            return []
+        try:
+            dane = modul.wczytaj_manifest(self.manifest) or {}
+        except Exception:
+            return []
+        return [w for w in dane.get("pliki", []) if isinstance(w, dict)]
+
+    def _wszystko_podpisane(self) -> bool:
+        wpisy = self._wpisy()
+        return bool(wpisy) and all(w.get("status") == "podpisany" for w in wpisy)
+
+    def _ile_dokumentow(self) -> int:
+        modul = modul_pomocniczy("pmt_dokumenty")
+        if modul is not None:
+            try:
+                return len(modul.dokumenty_w_folderze(self.folder))
+            except Exception:
+                pass
+        try:
+            return len([n for n in os.listdir(self.folder) if n.lower().endswith(".pdf")])
+        except Exception:
+            return 0
+
+    def _odswiez_stan(self, godzina: str = ""):
+        wpisy = self._wpisy()
+        if wpisy:
+            podpisane = len([w for w in wpisy if w.get("status") == "podpisany"])
+            tekst = "Podpisano: %d z %d" % (podpisane, len(wpisy))
+        else:
+            tekst = "Dokumentów: %d" % self._ile_dokumentow()
+        if godzina:
+            tekst += "  ·  " + godzina
+        self.lbl_stan.setText(tekst)
+
+    def _komunikat(self, tekst: str):
+        self.lbl_plik.setText(tekst or "")
+
+    # --- przygotowanie paczki ---------------------------------------------
+    def _start(self):
+        modul = modul_pomocniczy("pmt_podpis")
+        if modul is None:
+            self._komunikat("Brak modułu podpisu.")
+            return
+        if not self.folder or not os.path.isdir(self.folder):
+            self._komunikat("Brak folderu z dokumentami.")
+            return
+        try:
+            paczka, wpisy = modul.przygotuj_paczke(self.folder)
+        except Exception as e:
+            self._komunikat(str(e))
+            return
+        self.paczka = paczka or ""
+        try:
+            self.manifest = modul.sciezka_manifestu(self.paczka)
+        except Exception:
+            self.manifest = ""
+        self.od_czasu = time.time()
+
+        try:
+            schowek = QApplication.clipboard()
+            if schowek is not None:
+                schowek.setText(self.paczka)
+        except Exception:
+            pass
+
+        rodzaj = ("profil_zaufany", "e_dowod", "")[max(0, min(2, self.c_sposob.currentIndex()))]
+        if rodzaj:
+            try:
+                webbrowser.open(modul.adres_uslugi(rodzaj))
+            except Exception:
+                pass
+
+        self.btn_start.setText("Przygotowano")
+        self._odswiez_stan()
+        self._komunikat(os.path.basename(self.paczka))
+        if not self._wszystko_podpisane():
+            self.zegar.start()
+
+    # --- oczekiwanie na podpisany plik ------------------------------------
+    def _katalogi_obserwowane(self, modul) -> list:
+        katalogi = []
+        try:
+            pobrane, prawdziwe = modul.sciezka_pobranych()
+            if prawdziwe and pobrane:
+                katalogi.append(pobrane)
+        except Exception:
+            pass
+        if self.paczka:
+            katalogi.append(self.paczka)
+        return katalogi
+
+    def _tik(self):
+        if self._zajety:
+            return
+        modul = modul_pomocniczy("pmt_podpis")
+        if modul is None or not self.manifest:
+            self.zatrzymaj_zegar()
+            return
+        try:
+            znalezione = modul.znajdz_podpisane(self.manifest,
+                                                self._katalogi_obserwowane(modul),
+                                                self.od_czasu)
+        except Exception:
+            return
+        for wpis in znalezione or []:
+            decyzja = wpis.get("decyzja")
+            if decyzja == "przyjmij" and wpis.get("plik"):
+                self._przyjmij(modul, wpis)
+            elif decyzja == "odrzuc":
+                self._odnotuj(modul, wpis)
+            elif decyzja == "zapytaj":
+                self._zapytaj(modul, wpis)
+                break
+        if self._wszystko_podpisane():
+            self.zatrzymaj_zegar()
+
+    def _odnotuj(self, modul, wpis):
+        """Plik obejrzany i odłożony — żeby to samo nie wracało co 2 s."""
+        try:
+            modul.oznacz_podpisany(self.manifest, None, wpis)
+        except Exception:
+            pass
+
+    def _do_podpisanych(self, zrodlo: str) -> str:
+        """Kopia podpisanego pliku w podfolderze Podpisane — bez nadpisywania."""
+        try:
+            cel_folder = os.path.join(self.paczka, "Podpisane")
+            os.makedirs(cel_folder, exist_ok=True)
+            nazwa = os.path.basename(zrodlo)
+            cel = os.path.join(cel_folder, nazwa)
+            if os.path.exists(cel):
+                rdzen, roz = os.path.splitext(nazwa)
+                cel = os.path.join(cel_folder, "%s_%s%s" % (
+                    rdzen, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"), roz))
+            shutil.copy2(zrodlo, cel)
+            return cel
+        except Exception:
+            return ""
+
+    def _przyjmij(self, modul, wpis):
+        kopia = self._do_podpisanych(wpis.get("sciezka", ""))
+        dopasowanie = dict(wpis)
+        if kopia:
+            dopasowanie["podpisany_plik"] = os.path.basename(kopia)
+        try:
+            modul.oznacz_podpisany(self.manifest, wpis.get("plik"), dopasowanie)
+        except Exception as e:
+            self._komunikat(str(e))
+            return
+        godzina = datetime.datetime.now().strftime("%H:%M")
+        self._odswiez_stan(godzina)
+        self._komunikat(os.path.basename(wpis.get("sciezka", "")))
+
+    def _zapytaj(self, modul, wpis):
+        self._zajety = True
+        chodzil = self._pauza()
+        try:
+            nazwa = os.path.basename(wpis.get("sciezka", ""))
+            dlg = DialogWyboru(self, "PODPIS", "Przyjąć plik %s?" % nazwa,
+                               wpis.get("plik") or "", "Przyjmij", "Pomiń",
+                               is_dark=self.is_dark)
+            wybor = dlg.exec_wybor()
+            if wybor == 'a' and wpis.get("plik"):
+                self._przyjmij(modul, wpis)
+            else:
+                self._odnotuj(modul, wpis)
+        except Exception as e:
+            self._komunikat(str(e))
+        finally:
+            self._zajety = False
+            self._wznow(chodzil)
+
+    # --- wskazanie pliku ręcznie ------------------------------------------
+    def _wpis_do_recznego(self, nazwa_pliku: str):
+        """Wpis manifestu, do którego pasuje ręcznie wskazany plik."""
+        wpisy = [w for w in self._wpisy() if w.get("status") != "podpisany"]
+        if not wpisy:
+            return None
+        prosta = os.path.splitext(os.path.basename(nazwa_pliku))[0].lower()
+        for w in wpisy:
+            rdzen = os.path.splitext(w.get("plik") or "")[0].lower()
+            if rdzen and rdzen in prosta:
+                return w
+        return wpisy[0]
+
+    def _wskaz_plik(self):
+        modul = modul_pomocniczy("pmt_podpis")
+        if modul is None or not self.manifest:
+            self._komunikat("Brak paczki.")
+            return
+        self._zajety = True
+        chodzil = self._pauza()
+        try:
+            start = self.paczka or self.folder
+            try:
+                pobrane, _prawdziwe = modul.sciezka_pobranych()
+                if pobrane:
+                    start = pobrane
+            except Exception:
+                pass
+            sciezka, _f = QFileDialog.getOpenFileName(
+                self, "Podpisany plik", start,
+                "Dokumenty i podpisy (*.pdf *.xades *.xml *.sig *.p7s *.p7m);;Wszystkie pliki (*)")
+            if not sciezka:
+                return
+            wpis = self._wpis_do_recznego(sciezka)
+            if wpis is None:
+                self._komunikat("Brak wpisu do oznaczenia.")
+                return
+            dopasowanie = {"sciezka": sciezka, "dostawca_deklarowany": self.c_sposob.currentText()}
+            kopia = self._do_podpisanych(sciezka)
+            if kopia:
+                dopasowanie["podpisany_plik"] = os.path.basename(kopia)
+            try:
+                modul.oznacz_podpisany(self.manifest, wpis.get("plik"), dopasowanie)
+            except Exception as e:
+                self._komunikat(str(e))
+                return
+            self._odswiez_stan(datetime.datetime.now().strftime("%H:%M"))
+            self._komunikat(os.path.basename(sciezka))
+        finally:
+            self._zajety = False
+            self._wznow(chodzil)
+
+
+class WysylkaThread(QThread):
+    """Wysyłka poczty w osobnym wątku — okno nie zastyga na czas rozmowy
+    z serwerem. Ustawienia z hasłem żyją tylko tutaj i tylko do końca run()."""
+    postep = pyqtSignal(float, str)
+    sukces = pyqtSignal(str)
+    blad = pyqtSignal(str, str)
+
+    def __init__(self, ustawienia: dict, wiadomosc):
+        super().__init__()
+        self._ustawienia = dict(ustawienia or {})
+        self._wiadomosc = wiadomosc
+        self._przerwane = False
+
+    def przerwij(self):
+        self._przerwane = True
+
+    def run(self):
+        modul = modul_pomocniczy("pmt_wysylka")
+        if modul is None:
+            self.blad.emit("konfiguracja", "Brak modułu wysyłki.")
+            return
+        try:
+            wynik = modul.wyslij(
+                self._ustawienia, self._wiadomosc,
+                postep=lambda frakcja, opis: self.postep.emit(float(frakcja), str(opis)),
+                przerwij=lambda: self._przerwane)
+            self.sukces.emit(getattr(wynik, "komunikat", "") or "Wysłano.")
+        except Exception as e:
+            self.blad.emit(str(getattr(e, "rodzaj", "") or "serwer"), str(e))
+        finally:
+            self._ustawienia = {}
+            self._wiadomosc = None
+
+
+class DialogWysylka(QDialog):
+    """Wysyłka kompletu dokumentów pocztą.
+
+    Ustawienia skrzynki zapisujemy w ustawieniach osobistych z przedrostkiem
+    „wysylka_". HASŁA NIE ZAPISUJEMY — pytamy o nie przy każdej wysyłce
+    i trzymamy wyłącznie w pamięci wątku."""
+
+    def __init__(self, parent=None, folder: str = "", imie: str = "",
+                 miesiac="", rok="", is_dark: bool = True):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.is_dark = is_dark
+        self.folder = folder or ""
+        self.watek = None
+        self._pliki = []
+
+        b = _barwy_dialogu(is_dark)
+        self._b = b
+
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
+        box = QFrame(); box.setObjectName("WysylkaBox")
+        box.setStyleSheet(f"#WysylkaBox {{ background:{b['karta']}; border:1px solid {b['ramka']}; "
+                          f"border-radius:16px; }}")
+        box.setFixedWidth(560)
+        root.addWidget(box)
+        bl = QVBoxLayout(box); bl.setContentsMargins(26, 22, 26, 20); bl.setSpacing(6)
+
+        t = QLabel("✉  Wysyłka")
+        t.setStyleSheet(f"color:{b['akc']}; font-family:'Segoe UI'; font-size:17px; "
+                        f"font-weight:800; background:transparent;")
+        bl.addWidget(t)
+        bl.addSpacing(8)
+
+        def pole(etykieta, wartosc=""):
+            bl.addWidget(_etykieta_pola(etykieta, b))
+            e = QLineEdit(str(wartosc or ""))
+            e.setStyleSheet(_styl_pola(b))
+            e.setFixedHeight(32)
+            bl.addWidget(e)
+            bl.addSpacing(6)
+            return e
+
+        self.e_do = pole("DO", ustawienie_osobiste("wysylka_odbiorca", ""))
+        self.e_kopia = pole("KOPIA", ustawienie_osobiste("wysylka_kopia", ""))
+
+        temat = ""
+        modul = modul_pomocniczy("pmt_wysylka")
+        if modul is not None:
+            try:
+                temat = modul.temat_wiadomosci(imie, miesiac, rok)
+            except Exception:
+                temat = ""
+        self.e_temat = pole("TEMAT", temat)
+
+        bl.addWidget(_etykieta_pola("ZAŁĄCZNIKI", b))
+        self.txt_pliki = QPlainTextEdit()
+        self.txt_pliki.setReadOnly(True)
+        self.txt_pliki.setFixedHeight(86)
+        self.txt_pliki.setStyleSheet(_styl_notatki(b))
+        bl.addWidget(self.txt_pliki)
+
+        rzad_zal = QHBoxLayout(); rzad_zal.setSpacing(10)
+        self.chk_podpisane = QCheckBox("Tylko podpisane")
+        self.chk_podpisane.setChecked(True)
+        self.chk_podpisane.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.chk_podpisane.setStyleSheet(_styl_zaznaczenia(b))
+        self.chk_podpisane.stateChanged.connect(lambda _v: self._odswiez_zalaczniki())
+        rzad_zal.addWidget(self.chk_podpisane)
+        rzad_zal.addStretch()
+        self.lbl_rozmiar = QLabel("")
+        self.lbl_rozmiar.setStyleSheet(f"color:{b['mut']}; font-family:'Segoe UI'; font-size:11px; "
+                                       f"background:transparent;")
+        rzad_zal.addWidget(self.lbl_rozmiar)
+        bl.addLayout(rzad_zal)
+        bl.addSpacing(10)
+
+        sep = QFrame(); sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background:{b['ramka']}; border:none;")
+        bl.addWidget(sep)
+        bl.addSpacing(8)
+
+        bl.addWidget(_etykieta_pola("SKRZYNKA", b))
+        rzad1 = QHBoxLayout(); rzad1.setSpacing(8)
+        self.e_nadawca = QLineEdit(ustawienie_osobiste("wysylka_nadawca", ""))
+        self.e_nadawca.setPlaceholderText("adres")
+        self.e_nadawca.setStyleSheet(_styl_pola(b)); self.e_nadawca.setFixedHeight(32)
+        rzad1.addWidget(self.e_nadawca, 3)
+        self.e_login = QLineEdit(ustawienie_osobiste("wysylka_login", ""))
+        self.e_login.setPlaceholderText("login")
+        self.e_login.setStyleSheet(_styl_pola(b)); self.e_login.setFixedHeight(32)
+        rzad1.addWidget(self.e_login, 2)
+        bl.addLayout(rzad1)
+        bl.addSpacing(6)
+
+        rzad2 = QHBoxLayout(); rzad2.setSpacing(8)
+        self.e_serwer = QLineEdit(ustawienie_osobiste("wysylka_serwer", ""))
+        self.e_serwer.setPlaceholderText("serwer")
+        self.e_serwer.setStyleSheet(_styl_pola(b)); self.e_serwer.setFixedHeight(32)
+        rzad2.addWidget(self.e_serwer, 3)
+        self.e_port = QLineEdit(str(ustawienie_osobiste("wysylka_port", "") or ""))
+        self.e_port.setPlaceholderText("port")
+        self.e_port.setStyleSheet(_styl_pola(b)); self.e_port.setFixedHeight(32)
+        self.e_port.setFixedWidth(72)
+        rzad2.addWidget(self.e_port)
+        self.c_szyfr = QComboBox()
+        self.c_szyfr.addItems(["STARTTLS", "SSL"])
+        if str(ustawienie_osobiste("wysylka_szyfrowanie", "")).lower() == "ssl":
+            self.c_szyfr.setCurrentIndex(1)
+        self.c_szyfr.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.c_szyfr.setStyleSheet(_styl_listy(b))
+        self.c_szyfr.setFixedHeight(32)
+        rzad2.addWidget(self.c_szyfr)
+        bl.addLayout(rzad2)
+        bl.addSpacing(12)
+
+        self.lbl_stan = QLabel("")
+        self.lbl_stan.setWordWrap(True)
+        self.lbl_stan.setStyleSheet(f"color:{b['txt']}; font-family:'Segoe UI'; font-size:12px; "
+                                    f"font-weight:700; background:transparent;")
+        bl.addWidget(self.lbl_stan)
+        bl.addSpacing(10)
+
+        rzad3 = QHBoxLayout(); rzad3.setSpacing(10)
+        self.btn_wyslij = QPushButton("Wyślij")
+        _przycisk_glowny(self.btn_wyslij, b)
+        self.btn_wyslij.clicked.connect(self._wyslij)
+        rzad3.addWidget(self.btn_wyslij)
+        rzad3.addStretch()
+        self.btn_zamknij = QPushButton("Zamknij")
+        _przycisk_ramka(self.btn_zamknij, b)
+        self.btn_zamknij.clicked.connect(self.reject)
+        rzad3.addWidget(self.btn_zamknij)
+        bl.addLayout(rzad3)
+
+        self._dobierz_zrodlo()
+        self._odswiez_zalaczniki()
+
+    # --- załączniki --------------------------------------------------------
+    def _dobierz_zrodlo(self):
+        """Gdy nic nie jest jeszcze podpisane — startujemy z pełnym folderem."""
+        modul = modul_pomocniczy("pmt_wysylka")
+        if modul is None:
+            return
+        try:
+            if not modul.zalaczniki(self.folder, tylko_podpisane=True).pliki:
+                if modul.zalaczniki(self.folder, tylko_podpisane=False).pliki:
+                    self.chk_podpisane.setChecked(False)
+        except Exception:
+            pass
+
+    def _odswiez_zalaczniki(self):
+        self._pliki = []
+        modul = modul_pomocniczy("pmt_wysylka")
+        if modul is None:
+            self.txt_pliki.setPlainText("")
+            self.lbl_rozmiar.setText("Brak modułu wysyłki")
+            return
+        try:
+            zal = modul.zalaczniki(self.folder,
+                                   tylko_podpisane=bool(self.chk_podpisane.isChecked()))
+        except Exception as e:
+            self.txt_pliki.setPlainText("")
+            self.lbl_rozmiar.setText(str(e))
+            return
+        self._pliki = list(zal.pliki)
+        self.txt_pliki.setPlainText("\n".join(os.path.basename(p) for p in self._pliki))
+        opis = "%s  ·  %s" % (_odmiana_plikow(len(self._pliki)),
+                              modul.rozmiar_po_ludzku(zal.rozmiar))
+        if zal.za_duze:
+            opis += "  ·  za duże"
+        if zal.niepodpisane:
+            opis += "  ·  bez podpisu: %d" % int(zal.niepodpisane)
+        self.lbl_rozmiar.setText(opis)
+
+    # --- ustawienia --------------------------------------------------------
+    def _zapisz_ustawienia(self):
+        """Zapisujemy wszystko poza hasłem — hasło nie trafia na dysk."""
+        try:
+            zapisz_ustawienie_osobiste("wysylka_odbiorca", self.e_do.text().strip())
+            zapisz_ustawienie_osobiste("wysylka_kopia", self.e_kopia.text().strip())
+            zapisz_ustawienie_osobiste("wysylka_nadawca", self.e_nadawca.text().strip())
+            zapisz_ustawienie_osobiste("wysylka_login", self.e_login.text().strip())
+            zapisz_ustawienie_osobiste("wysylka_serwer", self.e_serwer.text().strip())
+            zapisz_ustawienie_osobiste("wysylka_port", self.e_port.text().strip())
+            zapisz_ustawienie_osobiste("wysylka_szyfrowanie",
+                                       "ssl" if self.c_szyfr.currentIndex() == 1 else "starttls")
+        except Exception:
+            pass
+
+    # --- wysyłka -----------------------------------------------------------
+    def _wyslij(self):
+        modul = modul_pomocniczy("pmt_wysylka")
+        if modul is None:
+            self.lbl_stan.setText("Brak modułu wysyłki.")
+            return
+        if self.watek is not None and self.watek.isRunning():
+            return
+        self._odswiez_zalaczniki()
+        if not self._pliki:
+            self.lbl_stan.setText("Brak załączników.")
+            return
+        self._zapisz_ustawienia()
+
+        # Wiadomość składamy PRZED pytaniem o hasło — inaczej użytkownik
+        # wpisywałby je po to, żeby zobaczyć literówkę w adresie.
+        try:
+            wiadomosc = modul.zbuduj_wiadomosc(
+                self.e_nadawca.text().strip(), self.e_do.text(), self.e_temat.text(),
+                self._pliki, dw=self.e_kopia.text())
+        except Exception as e:
+            self.lbl_stan.setText(str(e))
+            return
+
+        haslo = _okno_pmt(self, "Hasło skrzynki", "", pole=True, haslo=True)
+        if not haslo:
+            return
+
+        ustawienia = {
+            "nadawca": self.e_nadawca.text().strip(),
+            "login": self.e_login.text().strip(),
+            "serwer": self.e_serwer.text().strip(),
+            "port": self.e_port.text().strip(),
+            "szyfrowanie": "ssl" if self.c_szyfr.currentIndex() == 1 else "starttls",
+            "haslo": haslo,
+        }
+
+        self.btn_wyslij.setEnabled(False)
+        self.lbl_stan.setText("Wysyłam…")
+        self.watek = WysylkaThread(ustawienia, wiadomosc)
+        ustawienia = None
+        haslo = None
+        self.watek.postep.connect(self._na_postep)
+        self.watek.sukces.connect(self._na_sukces_wysylki)
+        self.watek.blad.connect(self._na_blad_wysylki)
+        self.watek.start()
+
+    def _na_postep(self, frakcja, opis):
+        self.lbl_stan.setText("%s  %d%%" % (opis, int(max(0.0, min(1.0, frakcja)) * 100)))
+
+    def _na_sukces_wysylki(self, komunikat):
+        self.btn_wyslij.setEnabled(True)
+        self.lbl_stan.setText("Wysłano  ·  %s" % datetime.datetime.now().strftime("%H:%M"))
+
+    def _na_blad_wysylki(self, rodzaj, komunikat):
+        self.btn_wyslij.setEnabled(True)
+        self.lbl_stan.setText(str(komunikat))
+
+    # --- sprzątanie --------------------------------------------------------
+    def zakoncz_watek(self):
+        """Wątek nie może przeżyć okna — woła to i dialog, i zamykany program."""
+        watek = self.watek
+        if watek is None:
+            return
+        try:
+            if watek.isRunning():
+                watek.przerwij()
+                watek.wait(5000)
+        except Exception:
+            pass
+        # Sygnały odpinamy JAWNIE — okno zaraz znika, a wątek nie ma
+        # do czego wracać.
+        for sygnal in (watek.postep, watek.sukces, watek.blad):
+            try:
+                sygnal.disconnect()
+            except Exception:
+                pass
+
+    def closeEvent(self, event):
+        self.zakoncz_watek()
+        try:
+            super().closeEvent(event)
+        except Exception:
+            pass
+
+    def reject(self):
+        self.zakoncz_watek()
+        super().reject()
+
+
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -18148,6 +18954,9 @@ class App(QMainWindow):
         _ikona = znajdz_ikone()
         if _ikona:
             self.setWindowIcon(QIcon(_ikona))
+        # Okno jest bezramkowe, ale nazwa i tak trafia na pasek zadan i do
+        # Alt-Tab — etykieta wydania ma byc widoczna rowniez tam.
+        self.setWindowTitle(tytul_okna())
 
         _dziennik_animacji("budowa okna: start")
         # --- ROZMIAR OKNA: responsywny do ekranu użytkownika ---
@@ -18278,6 +19087,17 @@ class App(QMainWindow):
         styl_zglos_blad(self.btn_bug)
         self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:" + _adres_zgloszen()))
         tb.addWidget(self.btn_bug)
+
+        # ANIMACJA STARTOWA — wlacznik/wylacznik. Do 3.22.0 ustawienie
+        # "bez_intra" bylo tylko ODCZYTYWANE: nic w calym projekcie go nie
+        # zapisywalo, wiec jedynym sposobem na wylaczenie animacji bylo
+        # reczne polozenie pliku BEZ_INTRA.txt. Tu jest to jednym klikiem.
+        self.btn_intro = OutlineButton("", self.is_dark, self.topbar)
+        self.btn_intro.setCheckable(True)
+        self.btn_intro.setToolTip("Animacja startowa")
+        self.btn_intro.clicked.connect(self._przelacz_intro)
+        self._odswiez_btn_intro()
+        tb.addWidget(self.btn_intro)
 
         # KARTA TESTERA tuż obok zgłaszania błędu — kto chce pomóc, ma to
         # pod ręką w tym samym miejscu, w którym zgłasza usterki.
@@ -18495,6 +19315,18 @@ class App(QMainWindow):
         self.timeline = StageTimeline(self.is_dark, self.bot_card)
         bot.addWidget(self.timeline, 1)
 
+        # Podpis i wysylka gotowych dokumentow — tuz przy przycisku generowania,
+        # bo to naturalny ciag dalszy tej samej pracy.
+        self.btn_podpis = OutlineButton("\u270d  Podpis", self.is_dark, self.bot_card)
+        self.btn_podpis.setFixedHeight(46)
+        self.btn_podpis.clicked.connect(self._klik_podpis)
+        bot.addWidget(self.btn_podpis)
+
+        self.btn_wysylka = OutlineButton("\u2709  Wy\u015blij", self.is_dark, self.bot_card)
+        self.btn_wysylka.setFixedHeight(46)
+        self.btn_wysylka.clicked.connect(self._klik_wysylka)
+        bot.addWidget(self.btn_wysylka)
+
         self.btn = SpinnerButton("Generuj PDF", "download", self.is_dark, self.bot_card); self.btn.setFixedSize(210, 46)
         self.btn.clicked.connect(self._klik_generuj); bot.addWidget(self.btn)
 
@@ -18540,6 +19372,8 @@ class App(QMainWindow):
         self._powiadomien_nieprzeczytane = 0
 
         self._last_folder = None
+        self._dialog_podpisu = None    # zegar podpisu gasimy przy zamykaniu okna
+        self._watek_wysylki = None     # wysylka nie moze przezyc okna
         self._profil_zaproponowany = None    # by nie podpowiadać w kółko
 
         # Kalendarz Wypraw ZOSTAŁ SCALONY z Planem Wizyt → Miesiąc (jeden
@@ -18972,6 +19806,25 @@ class App(QMainWindow):
             else:
                 self.toast.show_toast("Rozpoznano pracownika", _tresc, success=True)
 
+    def _odswiez_btn_intro(self):
+        """Etykieta przycisku = STAN ustawienia (bez zdan objasniajacych)."""
+        try:
+            wlaczone = not bool(ustawienie("bez_intra", False))
+            self.btn_intro.setChecked(wlaczone)
+            self.btn_intro.setText("🎬 Intro ✓" if wlaczone else "🎬 Intro ✕")
+        except Exception:
+            pass
+
+    def _przelacz_intro(self):
+        """Zapisuje ustawienie bez_intra — to samo, ktore pokaz_intro czyta
+        przy starcie. Dziala od NASTEPNEGO uruchomienia; biezacego intra
+        (jesli jeszcze leci) swiadomie nie przerywamy."""
+        try:
+            zapisz_ustawienie("bez_intra", bool(not self.btn_intro.isChecked()))
+        except Exception:
+            pass
+        self._odswiez_btn_intro()
+
     def _pokaz_o_programie(self):
         # Test silnika NA ŻYWO — wylicza, ile dni wychodzi dla kontrolnej kwoty.
         # Aktualny silnik dla 2000 zł (Warszawa) daje ~10-13 dni. Jeśli pokaże
@@ -18986,7 +19839,7 @@ class App(QMainWindow):
         except Exception:
             diag = ""
         self.toast.show_toast(
-            f"PMT Planer — wersja {WERSJA_PROGRAMU}",
+            f"PMT Planer — wersja {wersja_pelna()}",
             "Generator delegacji z asystentem kontroli i historią rozliczeń.\n"
             f"Silnik: {SYGNATURA_SILNIKA}{diag}",
             success=True)
@@ -19281,7 +20134,8 @@ class App(QMainWindow):
                 success=True)
             try:
                 if foldery:
-                    otworz_w_systemie(foldery[0])
+                    self._last_folder = foldery[0]
+                    self._pokaz_dokumenty(foldery[0])
             except Exception:
                 pass
 
@@ -19793,10 +20647,94 @@ class App(QMainWindow):
                                   success=True,
                                   klik_akcja=(lambda t=target: self._otworz_folder(t)))
 
+    def _na_wierzch(self):
+        """Podnosi okno programu — po otwarciu dokumentu w innym programie
+        okno PMT zostaje pod spodem i wygląda, jakby program zniknął."""
+        try:
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+
+    def _pokaz_dokumenty(self, folder):
+        """Otwiera gotowy dokument z folderu i podnosi okno programu.
+        Bez modułu dokumentów albo przy pustym folderze — otwiera folder,
+        czyli dokładnie to, co program robił do tej pory."""
+        sciezka = ""
+        modul = modul_pomocniczy("pmt_dokumenty")
+        if modul is not None:
+            try:
+                sciezka = modul.podsumowanie(folder) or ""
+            except Exception:
+                sciezka = ""
+        try:
+            otworz_w_systemie(sciezka if sciezka else folder)
+        except Exception:
+            pass
+        self._na_wierzch()
+
     def _otworz_folder(self, folder):
         if folder and os.path.isdir(folder):
-            try: otworz_w_systemie(folder)
-            except Exception: pass
+            self._pokaz_dokumenty(folder)
+
+    def _folder_dokumentow(self):
+        """Folder z ostatnio wygenerowanym kompletem; gdy go nie ma — pytamy."""
+        folder = getattr(self, "_last_folder", None)
+        if folder and os.path.isdir(folder):
+            return folder
+        wybrany = QFileDialog.getExistingDirectory(self, "Folder z dokumentami",
+                                                   sciezka_pulpitu())
+        if wybrany and os.path.isdir(wybrany):
+            self._last_folder = wybrany
+            return wybrany
+        return ""
+
+    def _dane_do_tematu(self, folder):
+        """(imię, miesiąc, rok) do tematu wiadomości — z ostatniego
+        generowania, a gdy go nie było, z nazwy folderu."""
+        p = getattr(self, "_params", None) or {}
+        imie = p.get("imie") or ""
+        miesiac = p.get("miesiac") or ""
+        rok = p.get("rok") or ""
+        if not (imie and miesiac and rok):
+            modul = modul_pomocniczy("pmt_podpis")
+            if modul is not None:
+                try:
+                    i2, m2, r2 = modul.rozpoznaj_folder(os.path.basename(folder or ""))
+                    imie = imie or (i2 or "")
+                    miesiac = miesiac or (m2 or "")
+                    rok = rok or (r2 or "")
+                except Exception:
+                    pass
+        return (imie, miesiac, rok)
+
+    def _klik_podpis(self):
+        folder = self._folder_dokumentow()
+        if not folder:
+            return
+        dlg = DialogPodpis(self, folder=folder, is_dark=self.is_dark)
+        self._dialog_podpisu = dlg
+        try:
+            dlg.exec()
+        finally:
+            dlg.zatrzymaj_zegar()
+            self._dialog_podpisu = None
+        self._na_wierzch()
+
+    def _klik_wysylka(self):
+        folder = self._folder_dokumentow()
+        if not folder:
+            return
+        imie, miesiac, rok = self._dane_do_tematu(folder)
+        dlg = DialogWysylka(self, folder=folder, imie=imie, miesiac=miesiac,
+                            rok=rok, is_dark=self.is_dark)
+        try:
+            dlg.exec()
+        finally:
+            dlg.zakoncz_watek()
+            self._watek_wysylki = getattr(dlg, "watek", None)
+        self._na_wierzch()
+
 
     def set_form_enabled(self, enabled):
         self.e_imie.setEnabled(enabled); self.e_pesel.setEnabled(enabled)
@@ -20000,6 +20938,20 @@ class App(QMainWindow):
             pass
 
     def closeEvent(self, event):
+        # Zegar podpisu i watek wysylki NIE MOGA przezyc okna.
+        try:
+            dlg = getattr(self, "_dialog_podpisu", None)
+            if dlg is not None:
+                dlg.zatrzymaj_zegar()
+        except Exception:
+            pass
+        try:
+            watek = getattr(self, "_watek_wysylki", None)
+            if watek is not None and watek.isRunning():
+                watek.przerwij()
+                watek.wait(5000)
+        except Exception:
+            pass
         # pas bezpieczenstwa: stan motywu ZAWSZE trafia na dysk przy wyjsciu
         try:
             zapisz_ustawienie("ciemny_motyw", self.is_dark)
@@ -20032,6 +20984,8 @@ class App(QMainWindow):
         self.title_bar.update_theme(self.is_dark)
 
         self.btn_theme.update_theme(self.is_dark)
+        if hasattr(self, "btn_intro"):
+            self.btn_intro.update_theme(self.is_dark)
         self.btn_tester.update_theme(self.is_dark)
         self.btn_haslo.update_theme(self.is_dark)
         self.btn_dzwonek.is_dark = self.is_dark; self.btn_dzwonek.update()
@@ -20044,6 +20998,10 @@ class App(QMainWindow):
         self.si_mies.update_theme(self.is_dark)
         self.si_silnik.update_theme(self.is_dark)
         self.btn.update_theme(self.is_dark)
+        if hasattr(self, "btn_podpis"):
+            self.btn_podpis.update_theme(self.is_dark)
+        if hasattr(self, "btn_wysylka"):
+            self.btn_wysylka.update_theme(self.is_dark)
         self.gps_prog.set_theme(self.is_dark)
         # Nakładka planera przebudowuje przy motywie WSZYSTKIE wiersze bazy
         # (kolory są wypalane w widżety) — przy pełnej bazie to sekundy.
@@ -20141,6 +21099,15 @@ class App(QMainWindow):
         # scenariuszem (_scenariusz_timeline), nie surowym postępem wątku —
         # dzięki temu animacja ma stałe, przyjemne tempo niezależnie od
         # tego jak szybko policzył się wynik.
+        # Liczba 0..1 z sygnału wątku szła dotąd do kosza. Dopisujemy ją do
+        # NAPISU jako procent — i tylko tam: oś czasu i warunki finalizacji
+        # nadal nie widzą tej liczby na oczy.
+        try:
+            if postep is not None:
+                _p = int(round(max(0.0, min(1.0, float(postep))) * 100))
+                tekst = "%s  %d%%" % (str(tekst).rstrip(), _p)
+        except Exception:
+            pass
         self.overlay.update_status(tekst)
 
     def _scenariusz_timeline(self):
@@ -20430,8 +21397,9 @@ class App(QMainWindow):
         html_path = os.path.join(folder, "Trasy_Mapa.html")
         if os.path.exists(html_path):
             webbrowser.open("file://" + os.path.realpath(html_path).replace('\\', '/'))
-        try: otworz_w_systemie(folder)
-        except: pass
+        # Na wierzchu ma stanac GOTOWY DOKUMENT, nie folder — a zaraz po nim
+        # okno programu, zeby nie zniknelo pod przegladarka i czytnikiem PDF.
+        self._pokaz_dokumenty(folder)
 
 
 if __name__ == "__main__":

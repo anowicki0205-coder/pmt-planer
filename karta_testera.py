@@ -27,6 +27,32 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
 WERSJA_KARTY = "1.0"
 PLIK_STANU = os.path.join(os.path.expanduser("~"), ".pmt_tester.json")
 
+
+def _pulpit() -> str:
+    """Katalog, w którym lądują raport i certyfikat. Pyta program o
+    sciezka_pulpitu (Qt zna prawdziwe położenie Pulpitu, także gdy jest
+    przeniesiony do usługi chmurowej albo nazwany po polsku). Gdy karta
+    działa osobno i importu nie ma, zostaje dotychczasowe zachowanie."""
+    # program już działa: jako moduł (testy) albo jako __main__ (skrypt, EXE)
+    for nazwa in ("PMT_Delegacje", "__main__"):
+        try:
+            fn = getattr(sys.modules.get(nazwa), "sciezka_pulpitu", None)
+            if fn is None:
+                continue
+            p = fn()
+            if p and os.path.isdir(p):
+                return p
+        except Exception:
+            pass
+    try:                                       # karta uruchomiona osobno
+        from PMT_Delegacje import sciezka_pulpitu
+        p = sciezka_pulpitu()
+        if p and os.path.isdir(p):
+            return p
+    except Exception:
+        pass
+    return os.path.join(os.path.expanduser("~"), "Desktop")
+
 # ── scenariusze: (obszar, tytuł, jak sprawdzić, oczekiwany wynik, punkty) ──
 SCENARIUSZE = [
     ("Logowanie", "Wejście do programu",
@@ -438,7 +464,7 @@ class Tester(QWidget):
             (self.imie.text().strip().split()[0] if self.imie.text().strip() else "anonim"),
             datetime.datetime.now().strftime("%Y%m%d_%H%M"))
         sc, _ = QFileDialog.getSaveFileName(
-            self, "Zapisz raport", os.path.join(os.path.expanduser("~"), "Desktop", nazwa),
+            self, "Zapisz raport", os.path.join(_pulpit(), nazwa),
             "Pliki tekstowe (*.txt)")
         if not sc:
             return
@@ -493,7 +519,7 @@ class Tester(QWidget):
         p.drawText(0, 530, 1000, 30, int(Qt.AlignmentFlag.AlignCenter),
                    datetime.datetime.now().strftime("%d.%m.%Y"))
         p.end()
-        sc = os.path.join(os.path.expanduser("~"), "Desktop",
+        sc = os.path.join(_pulpit(),
                           "certyfikat_testera_%s.png" % imie.split()[0].lower())
         try:
             px.save(sc, "PNG")

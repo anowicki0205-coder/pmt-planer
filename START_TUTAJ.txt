@@ -35,10 +35,11 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
     to rubryka wychodziła pusta — cofnięte w 3.21.2. Nazwisko drukowane na
     każdej delegacji nie jest tajemnicą; problemem było wyłącznie to, że
     leżało w publicznym repozytorium.
-  · Program szuka pliku po kolei: ustawienia programu (pole w oknie),
-    obok PMT_Planer.exe, w _internal (paczka), w katalogu roboczym,
+  · Program szuka pliku po kolei: obok PMT_Planer.exe, w _internal
+    (paczka), w katalogu ze skryptem, w katalogu roboczym, a na końcu
     w Twoim katalogu użytkownika (C:\Users\TY\menedzer.txt). Czyta UTF-8,
     UTF-8 z BOM, ANSI (cp1250) i UTF-16 — każdy zapis z Notatnika.
+    W oknie programu NIE MA pola na nazwisko — plik jest jedyną drogą.
   · Plik .gitignore pilnuje, żeby menedzer.txt nigdy nie trafił na GitHub.
   · Tak samo działa pmt_kontakt.txt (jedna linia z adresem e-mail): to
     adres, na który trafia przycisk „Zgłoś błąd". Bez pliku program używa
@@ -210,7 +211,8 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
   12 scenariuszy generowania tras (4 bazy × 3 kwoty), sufity dokumentów,
   jednostronicowość PDF-ów i zbudowanie głównego okna programu.
 
-  Stan na dziś: 91/91 testów przechodzi.
+  Stan na dziś: przechodzą wszystkie — ponad 200 kontroli w pełnym
+  przebiegu i ponad 100 w wariancie --szybko.
 
 ───────────────────────────────────────────────────────────────────────
 KROK PO KROKU — WYDANIE 3.21.0
@@ -225,7 +227,7 @@ KROK PO KROKU — WYDANIE 3.21.0
      normalne, podbije się samo po zbudowaniu wydania (krok 6c).
 
   3. PRZETESTUJ
-     python testy_pmt.py — wszystkie testy mają przejść (ponad 140).
+     python testy_pmt.py — wszystkie testy mają przejść (ponad 200).
 
   4. ZBUDUJ
      Dwuklik ZBUDUJ_EXE_FOLDER.bat. Wynik: dist\PMT_Planer\

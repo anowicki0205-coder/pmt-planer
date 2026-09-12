@@ -421,6 +421,26 @@ def _sfera(lat, lon, r=1.0):
     return (r * math.cos(a) * math.sin(b), r * math.sin(a), r * math.cos(a) * math.cos(b))
 
 
+_TRASA_WZORCOWA = None
+
+
+def _trasa_wzorcowa():
+    """Punkty trasy intra. Kształt jest stały (wynika z _PETLA, nie z danych
+    użytkownika), a cały łańcuch wygładzania liczy się kilkaset milisekund na
+    wątku interfejsu. Liczymy go więc raz na uruchomienie programu i oddajemy
+    tę samą listę — nikt jej nie zmienia, jest tylko odczytywana."""
+    global _TRASA_WZORCOWA
+    if _TRASA_WZORCOWA is None:
+        p = _catmull(_PETLA, 10)
+        p = _catmull(p, 6)
+        p = _slalom(p, 0.034, 0.0, 1.78)
+        p = _catmull(p, 6)
+        p = _rowno(p, 900)
+        p = _catmull(p, 3)
+        _TRASA_WZORCOWA = _rowno(p, 1800)
+    return _TRASA_WZORCOWA
+
+
 # ═══════════════════════════ nakładka ═══════════════════════════
 if Qt is not None:
 
@@ -550,13 +570,7 @@ if Qt is not None:
 
         # ---------- świat ----------
         def _buduj_trase(self):
-            p = _catmull(_PETLA, 10)
-            p = _catmull(p, 6)
-            p = _slalom(p, 0.034, 0.0, 1.78)
-            p = _catmull(p, 6)
-            p = _rowno(p, 900)
-            p = _catmull(p, 3)
-            self.trasa = _rowno(p, 1800)
+            self.trasa = _trasa_wzorcowa()
 
         def _buduj_swiat(self):
             wezly = self.dane.get("wezly") or DANE_DEMO["wezly"]

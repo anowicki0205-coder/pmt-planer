@@ -22,7 +22,8 @@ KATALOG = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 
 WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
-            "wyglad_3d.py"]
+            "wyglad_3d.py", "pmt_dokumenty.py", "pmt_podpis.py",
+            "pmt_wysylka.py"]
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
 # tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
 # intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
@@ -34,8 +35,8 @@ WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
 # plik NIE trafia (.gitignore) — i tylko to było realnym problemem.
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
         "pmt_logo_retro.png", "pmt_logo_retro.ico", "menedzer.txt"]
-UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "winsound",
-          "PyQt6.QtMultimedia"]
+UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "pmt_dokumenty",
+          "winsound", "PyQt6.QtMultimedia", "pmt_podpis", "pmt_wysylka"]
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
 # się rozjechać (tak zniknęło openpyxl z wydań budowanych w CI).

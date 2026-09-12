@@ -1157,6 +1157,315 @@ if not SZYBKO:
 
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("9. Wersja testowa: dokumenty, podpis, wysyłka, udogodnienia")
+
+# Cała sekcja pracuje na katalogach tymczasowych pod _TMP_HOME: bez internetu,
+# bez serwera poczty, bez dotykania folderu programu i danych użytkownika.
+_S9 = os.path.join(_TMP_HOME, "sekcja9")
+_S9_DOK = os.path.join(_S9, "Rozliczenie_Jan_Testowy_lipiec_2026")
+os.makedirs(_S9_DOK, exist_ok=True)
+
+
+def _s9_pdf(sciezka, tresc, mtime=None):
+    """Najmniejszy plik udający PDF — testy sprawdzają nazwy i sumy, nie treść."""
+    with open(sciezka, "wb") as f:
+        f.write(b"%PDF-1.4\n" + tresc + b"\n%%EOF\n")
+    if mtime is not None:
+        os.utime(sciezka, (mtime, mtime))
+    return sciezka
+
+
+# Nazwy dokładnie takie, jakie składa generuj_pdfy (delegacja_NN_imię_miesiąc_rok
+# oraz rozliczenie_wydatków_…) — numer 10 pilnuje, że kolejność idzie po LICZBIE,
+# a nie alfabetycznie (alfabetycznie „10" wypadłoby przed „02").
+_S9_DELEGACJE = ("delegacja_01_Jan_Testowy_lipiec_2026r.pdf",
+                 "delegacja_02_Jan_Testowy_lipiec_2026r.pdf",
+                 "delegacja_10_Jan_Testowy_lipiec_2026r.pdf")
+for _i, _nazwa in enumerate(_S9_DELEGACJE):
+    _s9_pdf(os.path.join(_S9_DOK, _nazwa), b"delegacja numer %d" % (_i + 1))
+_S9_ROZL = _s9_pdf(os.path.join(_S9_DOK, "rozliczenie_wydatków_Jan_Testowy_lipiec_2026r.pdf"),
+                   b"zbiorcze rozliczenie miesiaca")
+_s9_pdf(os.path.join(_S9_DOK, "faktura_ze_skanera.pdf"), b"obcy plik uzytkownika")
+with open(os.path.join(_S9_DOK, "Trasy_Mapa.html"), "w", encoding="utf-8") as _f:
+    _f.write("<html></html>")
+_S9_PUSTY = os.path.join(_S9, "pusty")
+os.makedirs(_S9_PUSTY, exist_ok=True)
+
+# ── moduł dokumentów ──────────────────────────────────────────────
+_PD = None
+try:
+    import pmt_dokumenty as _PD
+    sprawdz("moduł pmt_dokumenty importuje się", True)
+except Exception as _e:
+    sprawdz("moduł pmt_dokumenty importuje się", False, repr(_e))
+
+if _PD is not None:
+    _s9_lista = [os.path.basename(x) for x in _PD.dokumenty_w_folderze(_S9_DOK)]
+    sprawdz("dokumenty: rozpoznane wszystkie nasze PDF-y, delegacje po numerze (01, 02, 10)",
+            _s9_lista == list(_S9_DELEGACJE) + [os.path.basename(_S9_ROZL)], str(_s9_lista))
+    sprawdz("dokumenty: obcy PDF i podgląd tras nie trafiają na listę",
+            "faktura_ze_skanera.pdf" not in _s9_lista
+            and not any(n.lower().endswith(".html") for n in _s9_lista), str(_s9_lista))
+    sprawdz("dokumenty: podsumowaniem jest rozliczenie zbiorcze",
+            _PD.podsumowanie(_S9_DOK) == _S9_ROZL, repr(_PD.podsumowanie(_S9_DOK)))
+    # bez zbiorczego podsumowaniem zostaje delegacja o NAJNIŻSZYM numerze
+    _S9_BEZ = os.path.join(_S9, "bez_zbiorczego")
+    os.makedirs(_S9_BEZ, exist_ok=True)
+    for _nazwa in ("delegacja_10_Jan_Testowy_lipiec_2026r.pdf",
+                   "delegacja_02_Jan_Testowy_lipiec_2026r.pdf"):
+        _s9_pdf(os.path.join(_S9_BEZ, _nazwa), b"delegacja bez zbiorczego")
+    sprawdz("dokumenty: bez rozliczenia podsumowaniem jest delegacja o najniższym numerze",
+            os.path.basename(_PD.podsumowanie(_S9_BEZ) or "")
+            == "delegacja_02_Jan_Testowy_lipiec_2026r.pdf",
+            repr(_PD.podsumowanie(_S9_BEZ)))
+    sprawdz("dokumenty: pusty folder = brak dokumentów i brak podsumowania",
+            _PD.dokumenty_w_folderze(_S9_PUSTY) == [] and _PD.podsumowanie(_S9_PUSTY) is None
+            and _PD.opis_kompletu(_S9_PUSTY) == "brak plików",
+            repr(_PD.opis_kompletu(_S9_PUSTY)))
+    sprawdz("dokumenty: folder nieistniejący i None nie wywracają programu",
+            _PD.dokumenty_w_folderze(os.path.join(_S9, "nie ma takiego")) == []
+            and _PD.podsumowanie(None) is None)
+    _s9_opis = _PD.opis_kompletu(_S9_DOK)
+    sprawdz("dokumenty: opis kompletu to same liczby (3 delegacje · 1 inny plik · rozmiar)",
+            _s9_opis.startswith("3 delegacje") and "1 inny plik" in _s9_opis
+            and _s9_opis.count("·") == 2 and "." not in _s9_opis, repr(_s9_opis))
+
+# ── moduł podpisu ─────────────────────────────────────────────────
+_PS = None
+try:
+    import pmt_podpis as _PS
+    sprawdz("moduł pmt_podpis importuje się", True)
+except Exception as _e:
+    sprawdz("moduł pmt_podpis importuje się", False, repr(_e))
+
+if _PS is not None:
+    import time as _time
+    _s9_teraz = _time.time()
+    _s9_otwarcie = _s9_teraz - 120          # moment otwarcia strony usługi
+    _s9_swiezo = _s9_teraz - 10
+    try:
+        _s9_paczka, _s9_wpisy = _PS.przygotuj_paczke(_S9_DOK)
+        _s9_manifest = _PS.sciezka_manifestu(_s9_paczka)
+        _s9_dane = _PS.wczytaj_manifest(_s9_manifest)
+    except Exception as _e:
+        _s9_paczka, _s9_wpisy, _s9_manifest, _s9_dane = "", [], "", {}
+        sprawdz("podpis: paczka Do_podpisu powstaje bez błędu", False, repr(_e))
+    if _s9_dane:
+        sprawdz("podpis: paczka to podfolder Do_podpisu z manifestem",
+                os.path.basename(_s9_paczka) == "Do_podpisu" and os.path.isfile(_s9_manifest),
+                repr(_s9_paczka))
+        # Do paczki idzie KAŻDY plik .pdf z folderu (także dołożony przez
+        # użytkownika skan) — podpisać można wszystko, co ma iść do przełożonego.
+        # Podglądu tras (.html) nie podpisujemy.
+        _s9_pdfy = sorted(n for n in os.listdir(_S9_DOK) if n.lower().endswith(".pdf"))
+        sprawdz("podpis: kopia każdego PDF-u w paczce, oryginały nietknięte, bez .html",
+                len(_s9_wpisy) == len(_s9_pdfy)
+                and all(os.path.isfile(os.path.join(_s9_paczka, w["plik"])) for w in _s9_wpisy)
+                and not any(w["plik"].lower().endswith(".html") for w in _s9_wpisy)
+                and all(os.path.isfile(os.path.join(_S9_DOK, n)) for n in _s9_pdfy),
+                str([w.get("plik") for w in _s9_wpisy]))
+        sprawdz("podpis: kopia zbiorczego bez ogonków w nazwie (portale nie lubią diakrytyków)",
+                os.path.isfile(os.path.join(_s9_paczka,
+                                            "rozliczenie_wydatkow_Jan_Testowy_lipiec_2026r.pdf")))
+        sprawdz("podpis: manifest ma imię, miesiąc i rok odczytane z nazwy folderu",
+                (_s9_dane.get("imie"), _s9_dane.get("miesiac"), _s9_dane.get("rok"))
+                == ("Jan Testowy", 7, 2026),
+                str((_s9_dane.get("imie"), _s9_dane.get("miesiac"), _s9_dane.get("rok"))))
+        _s9_sumy_ok = []
+        for _w in _s9_dane.get("pliki", []):
+            _kopia = os.path.join(_s9_paczka, _w.get("plik", ""))
+            _s9_sumy_ok.append(len(str(_w.get("skrot", ""))) == 64
+                               and _w["skrot"] == _PS.suma_sha256(_kopia)
+                               and int(_w.get("rozmiar", 0)) == os.path.getsize(_kopia))
+        sprawdz("podpis: każdy wpis manifestu ma sumę SHA-256 i rozmiar zgodne z plikiem",
+                bool(_s9_sumy_ok) and all(_s9_sumy_ok), str(_s9_sumy_ok))
+        sprawdz("podpis: świeża paczka czeka na podpis (żaden wpis nie udaje podpisanego)",
+                all(w.get("status") == "do_podpisu" for w in _s9_dane["pliki"]),
+                str([w.get("status") for w in _s9_dane["pliki"]]))
+
+        # WETO: użytkownik pobrał z powrotem TĘ SAMĄ, niepodpisaną kopię.
+        # Nazwa, świeży czas i rozszerzenie dają komplet przesłanek, a mimo to
+        # identyczna suma kontrolna musi taki plik odrzucić — podpisany PDF
+        # z definicji ma inną sumę.
+        _S9_POB = os.path.join(_S9, "Pobrane_weto")
+        os.makedirs(_S9_POB, exist_ok=True)
+        _s9_weto = os.path.join(_S9_POB, "delegacja_01_Jan_Testowy_lipiec_2026r-podpisany.pdf")
+        shutil.copyfile(os.path.join(_S9_DOK, _S9_DELEGACJE[0]), _s9_weto)
+        os.utime(_s9_weto, (_s9_swiezo, _s9_swiezo))
+        _s9_w = _PS.znajdz_podpisane(_s9_manifest, [_S9_POB], _s9_otwarcie)
+        sprawdz("podpis: plik o identycznej sumie kontrolnej odrzucony jako NIEPODPISANY",
+                len(_s9_w) == 1 and _s9_w[0]["decyzja"] == "odrzuc" and _s9_w[0]["plik"] is None,
+                str([(x["decyzja"], x["punkty"], x["plik"]) for x in _s9_w]))
+        _s9_blad = None
+        try:
+            _PS.oznacz_podpisany(_s9_manifest, _s9_dane["pliki"][0]["plik"], _s9_w[0])
+        except ValueError as _e:
+            _s9_blad = _e
+        sprawdz("podpis: plikiem z wetem nie da się oznaczyć wpisu jako podpisanego",
+                isinstance(_s9_blad, ValueError))
+
+        # REMIS: neutralna nazwa pasuje tak samo do każdego wpisu — nie zgadujemy.
+        _S9_POB2 = os.path.join(_S9, "Pobrane_remis")
+        os.makedirs(_S9_POB2, exist_ok=True)
+        _s9_pdf(os.path.join(_S9_POB2, "dokument_podpisany.pdf"),
+                b"zupelnie inna tresc", _s9_swiezo)
+        _s9_r = _PS.znajdz_podpisane(_s9_manifest, [_S9_POB2], _s9_otwarcie)
+        sprawdz("podpis: remis punktowy nie daje dopasowania (żaden wpis nie jest zgadywany)",
+                len(_s9_r) == 1 and _s9_r[0]["decyzja"] == "remis"
+                and _s9_r[0]["plik"] is None and len(_s9_r[0]["kandydaci"]) > 1,
+                str([(x["decyzja"], x["punkty"], x["plik"], x["kandydaci"]) for x in _s9_r]))
+        sprawdz("podpis: kopie z paczki i oryginały pomijane w ciszy (bez pytań co 2 s)",
+                _PS.znajdz_podpisane(_s9_manifest, [_s9_paczka, _S9_DOK], _s9_otwarcie) == [])
+
+# ── moduł wysyłki ─────────────────────────────────────────────────
+_PW = None
+try:
+    import pmt_wysylka as _PW
+    sprawdz("moduł pmt_wysylka importuje się", True)
+except Exception as _e:
+    sprawdz("moduł pmt_wysylka importuje się", False, repr(_e))
+
+if _PW is not None:
+    _s9_temat = _PW.temat_wiadomosci("Jan Testowy", 7, 2026)
+    sprawdz("wysyłka: temat zawiera imię, nazwisko, miesiąc słownie i rok",
+            "Jan" in _s9_temat and "Testowy" in _s9_temat
+            and "lipiec" in _s9_temat and "2026" in _s9_temat, repr(_s9_temat))
+    sprawdz("wysyłka: miesiąc podany słownie daje ten sam temat co numer",
+            _PW.temat_wiadomosci("Jan Testowy", "lipiec", "2026") == _s9_temat,
+            repr(_PW.temat_wiadomosci("Jan Testowy", "lipiec", "2026")))
+    sprawdz("wysyłka: szablon bez wymaganych pól wraca do domyślnego",
+            _PW.szablon_poprawny("Dokumenty do podpisu") is False
+            and _PW.temat_wiadomosci("Jan Testowy", 7, 2026,
+                                     szablon="Dokumenty do podpisu") == _s9_temat,
+            repr(_PW.temat_wiadomosci("Jan Testowy", 7, 2026, szablon="Dokumenty do podpisu")))
+    sprawdz("wysyłka: szablon z kompletem pól jest respektowany",
+            _PW.szablon_poprawny("{imie} / {miesiac} / {rok}") is True
+            and _PW.temat_wiadomosci("Jan Testowy", 7, 2026,
+                                     szablon="{imie} / {miesiac} / {rok}")
+            == "Jan Testowy / lipiec / 2026",
+            repr(_PW.temat_wiadomosci("Jan Testowy", 7, 2026, szablon="{imie} / {miesiac} / {rok}")))
+    sprawdz("wysyłka: urwany nawias w szablonie nie wywraca tematu",
+            _PW.temat_wiadomosci("Jan Testowy", 7, 2026, szablon="{imie} {miesiac") == _s9_temat,
+            repr(_PW.temat_wiadomosci("Jan Testowy", 7, 2026, szablon="{imie} {miesiac")))
+
+    # Temat z ogonkami MUSI wyjść z nagłówka taki, jaki wszedł. Nagłówek idzie
+    # przez sieć jako czyste ASCII (RFC 2047) — surowe UTF-8 rozjeżdża temat
+    # w skrzynce odbiorcy.
+    _s9_temat_pl = _PW.temat_wiadomosci("Łukasz Żółć-Ćwiąkała", 9, 2026)
+    sprawdz("wysyłka: polskie znaki w imieniu wchodzą do tematu bez zniekształceń",
+            "Łukasz Żółć-Ćwiąkała" in _s9_temat_pl and "wrzesień" in _s9_temat_pl,
+            repr(_s9_temat_pl))
+    _s9_wiad = None
+    try:
+        _s9_wiad = _PW.zbuduj_wiadomosc("nadawca@przyklad.pl", "odbiorca@przyklad.pl",
+                                        _s9_temat_pl, [_S9_ROZL])
+    except Exception as _e:
+        sprawdz("wysyłka: wiadomość z załącznikiem składa się bez błędu", False, repr(_e))
+    if _s9_wiad is not None:
+        import email as _email
+        import email.policy as _email_policy
+        _s9_bajty = _s9_wiad.as_bytes()
+        _s9_naglowki = _s9_bajty.split(b"\r\n\r\n", 1)[0]
+        _s9_odczyt = _email.message_from_bytes(_s9_bajty, policy=_email_policy.SMTP)
+        sprawdz("wysyłka: temat z ogonkami zakodowany w nagłówku (czyste ASCII, RFC 2047)",
+                all(b < 128 for b in _s9_naglowki)
+                and b"=?utf-8?" in _s9_naglowki.lower(),
+                repr(_s9_naglowki.split(b"Subject:")[-1][:80]))
+        sprawdz("wysyłka: odczytany z powrotem temat jest identyczny z wysłanym",
+                str(_s9_odczyt["Subject"]) == _s9_temat_pl, repr(str(_s9_odczyt["Subject"])))
+        sprawdz("wysyłka: załącznik dołączony pod własną nazwą",
+                [os.path.basename(_S9_ROZL)]
+                == [a.get_filename() for a in _s9_odczyt.iter_attachments()],
+                str([a.get_filename() for a in _s9_odczyt.iter_attachments()]))
+    # Zasada: program nie przechowuje haseł do usług zewnętrznych. Hasło żyje
+    # tylko w słowniku na czas jednej wysyłki; kopia idąca do zapisu i dziennika
+    # nie może go nieść.
+    _s9_ust = _PW.przygotuj_ustawienia({"nadawca": "nadawca@przyklad.pl",
+                                        "login": "nadawca@przyklad.pl",
+                                        "haslo": "TAJNE-HASLO-TESTOWE",
+                                        "serwer": "smtp.przyklad.pl"})
+    _s9_ust_bez = _PW.bez_hasla(_s9_ust)
+    sprawdz("wysyłka: kopia ustawień do zapisu i dziennika nie niesie hasła",
+            _s9_ust.get("haslo") == "TAJNE-HASLO-TESTOWE"
+            and not _s9_ust_bez.get("haslo")
+            and "TAJNE-HASLO-TESTOWE" not in json.dumps(_s9_ust_bez, ensure_ascii=False),
+            str(sorted(_s9_ust_bez)))
+
+# ── etykieta wydania a czysty numer wersji ────────────────────────
+# testy_pmt.py robi int() na członach numeru POZA blokiem obsługi wyjątków —
+# dopisek w rodzaju „3.22.0-TEST" wysypałby cały skrypt, a nie jeden test.
+sprawdz("numer wersji jest czystym zapisem X.Y.Z (int() na członach nie wysypie testów)",
+        bool(re.match(r"^\d+\.\d+\.\d+$", P.WERSJA_PROGRAMU))
+        and all(str(int(_c)) == _c for _c in P.WERSJA_PROGRAMU.split(".")),
+        repr(P.WERSJA_PROGRAMU))
+_s9_etykieta = getattr(P, "ETYKIETA_WYDANIA", None)
+sprawdz("etykieta wydania jest OSOBNĄ stałą, poza numerem wersji",
+        isinstance(_s9_etykieta, str)
+        and (not _s9_etykieta or _s9_etykieta not in P.WERSJA_PROGRAMU),
+        repr(_s9_etykieta))
+_s9_stara_etykieta = getattr(P, "ETYKIETA_WYDANIA", "")
+try:
+    P.ETYKIETA_WYDANIA = "WERSJA TESTOWA"
+    _s9_z = (P.wersja_pelna(), P.tytul_okna())
+    P.ETYKIETA_WYDANIA = ""
+    _s9_bez = (P.wersja_pelna(), P.tytul_okna())
+finally:
+    P.ETYKIETA_WYDANIA = _s9_stara_etykieta
+sprawdz("etykieta wydania widoczna w wersji i w tytule okna",
+        _s9_z == ("%s — WERSJA TESTOWA" % P.WERSJA_PROGRAMU, "PMT Planer — WERSJA TESTOWA"),
+        str(_s9_z))
+sprawdz("wyzerowanie etykiety zdejmuje oznaczenie ze wszystkich miejsc naraz",
+        _s9_bez == (P.WERSJA_PROGRAMU, "PMT Planer"), str(_s9_bez))
+
+# ── ubezpieczenie paczki testowej: BEZ_AKTUALIZACJI.txt ───────────
+_S9_PROG = os.path.join(_S9, "udaje_katalog_programu")
+os.makedirs(_S9_PROG, exist_ok=True)
+_s9_brak = P._aktualizacje_wylaczone_plikiem(_S9_PROG)
+_s9_dom = os.path.join(_TMP_HOME, "BEZ_AKTUALIZACJI.txt")
+open(_s9_dom, "w").close()
+_s9_u_uzytkownika = P._aktualizacje_wylaczone_plikiem(_S9_PROG)
+_s9_domyslny = P._aktualizacje_wylaczone_plikiem()      # domyślnie katalog programu
+_s9_obok = os.path.join(_S9_PROG, "BEZ_AKTUALIZACJI.txt")
+open(_s9_obok, "w").close()
+_s9_u_programu = P._aktualizacje_wylaczone_plikiem(_S9_PROG)
+os.remove(_s9_obok)
+_s9_po_usunieciu = P._aktualizacje_wylaczone_plikiem(_S9_PROG)
+os.remove(_s9_dom)
+sprawdz("BEZ_AKTUALIZACJI.txt obok programu wyłącza aktualizacje (a bez pliku nie)",
+        _s9_u_programu is True and _s9_brak is False and _s9_po_usunieciu is False,
+        str((_s9_brak, _s9_u_programu, _s9_po_usunieciu)))
+sprawdz("BEZ_AKTUALIZACJI.txt w katalogu UŻYTKOWNIKA niczego nie wyłącza "
+        "(inaczej zostałby trwałym obejściem blokady wersji)",
+        _s9_u_uzytkownika is False and _s9_domyslny is False,
+        str((_s9_u_uzytkownika, _s9_domyslny)))
+
+# ── wyłącznik animacji startowej ──────────────────────────────────
+_s9_bylo_intro = P.ustawienie("bez_intra", False)
+try:
+    P.zapisz_ustawienie("bez_intra", True)
+    P._ustawienia_reset()                 # tak samo jak świeży start programu
+    _s9_zapisane = P.ustawienie("bez_intra", False)
+    with open(P.USTAWIENIA_STORE, encoding="utf-8") as _f:
+        _s9_na_dysku = json.load(_f).get("bez_intra")
+    P.zapisz_ustawienie("bez_intra", False)
+    P._ustawienia_reset()
+    _s9_cofniete = P.ustawienie("bez_intra", True)
+finally:
+    P.zapisz_ustawienie("bez_intra", _s9_bylo_intro)
+    P._ustawienia_reset()
+sprawdz("ustawienie bez_intra zapisuje się na dysk i wraca przy kolejnym odczycie",
+        _s9_zapisane is True and _s9_na_dysku is True and _s9_cofniete is False,
+        str((_s9_zapisane, _s9_na_dysku, _s9_cofniete)))
+sprawdz("przełącznik animacji ma obsługę w oknie (stan przycisku i zapis ustawienia)",
+        callable(getattr(P.App, "_przelacz_intro", None))
+        and callable(getattr(P.App, "_odswiez_btn_intro", None)))
+sprawdz("animacja startowa czyta dokładnie ten klucz, który zapisuje przycisk",
+        '"bez_intra"' in _zrodlo.split("def pokaz_intro")[1][:4000]
+        or "'bez_intra'" in _zrodlo.split("def pokaz_intro")[1][:4000])
+
+shutil.rmtree(_S9, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)
 print("  WYNIK: %d / %d testów przeszło" % (len(WYNIKI) - len(_bledy), len(WYNIKI)))

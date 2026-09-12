@@ -5,72 +5,862 @@ Taca wysuwa się od dołu po wygenerowaniu i zostaje NAD programem, żeby nie
 trzeba było szukać plików w folderze. Panele podpisu i wysyłki otwierają się
 z tacy. Zgodnie z wolą właściciela nigdzie nie tłumaczymy działania programu —
 są nazwy, liczby i stany.
+
+Wszystko rysowane jest ręcznie (arkusz stylów rodzica potrafi zjeść setFont),
+a każdy ruch da się zatrzymać: ``TacaDokumentow.zatrzymaj_animacje()`` gasi
+kaskadę kartek, dochodzenie liczb i podświetlenia przycisków, panele robią to
+samo przy zamknięciu.
 """
-from PyQt6.QtCore import Qt, QRectF, QTimer, pyqtSignal, QPoint
-from PyQt6.QtGui import QPainter, QPainterPath, QPen, QColor, QLinearGradient, QBrush
-from PyQt6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-                             QLabel, QPushButton, QLineEdit, QComboBox, QRadioButton,
-                             QButtonGroup, QProgressBar, QFrame)
+import random
+
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, pyqtSignal
+from PyQt6.QtGui import (QBrush, QColor, QFontMetricsF, QLinearGradient, QPainter,
+                         QPainterPath, QPen, QPixmap, QRadialGradient)
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLineEdit, QPushButton,
+                             QSizePolicy, QVBoxLayout, QWidget)
 
 import proto_styl as S
 import proto_dane as D
 
 
+# ── barwy papieru i druku ────────────────────────────────────────────
+PAPIER_GORA   = QColor("#FFFEFA")      # cieplejsza biel
+PAPIER_SRODEK = QColor("#FDFAF3")
+PAPIER_DOL    = QColor("#F5F1E7")
+PAPIER_BOK    = QColor("#E3DCCC")      # grubość kartki
+PAPIER_SPOD   = QColor("#D2CAB8")      # kartki leżące pod spodem
+ATRAMENT      = QColor("#101828")
+ATRAMENT_2    = QColor("#59667E")
+ATRAMENT_3    = QColor("#98A1B2")
+LINIA_DRUKU   = QColor(24, 36, 60, 46)
+
+KAFEL_W       = 168.0                  # szerokość wzorcowa kartki na tacy
+KAFEL_H       = 152.0
+ODSTEP_KAFLI  = 10
+KASKADA_MS    = 46                     # opóźnienie kolejnej kartki
+MARG_SWIATLA  = 7                      # zapas wokół przycisku na poświatę
+
+
+# ── drobne pomocniki ─────────────────────────────────────────────────
+def _szer(napis, rozmiar, waga=400, mono=False, naglowek=False, odstep=0.0):
+    m = QFontMetricsF(S.czcionka(rozmiar, waga, mono, naglowek, odstep))
+    return m.horizontalAdvance(napis)
+
+
+def _miary(rozmiar, waga=400, mono=False, naglowek=False, odstep=0.0):
+    return QFontMetricsF(S.czcionka(rozmiar, waga, mono, naglowek, odstep))
+
+
+def _cien_miekki(p, pole, promien, przesun, rozmycie, sila, barwa=QColor(0, 0, 0), krok=2):
+    """Jedna warstwa miękkiego cienia: zanik kwadratowy, krok w pikselach."""
+    if rozmycie <= 0 or sila <= 0:
+        return
+    ile = max(1, int(rozmycie / max(1, krok)))
+    for i in range(ile, 0, -1):
+        odl = i * krok
+        a = int(sila * (1.0 - (i - 1) / float(ile)) ** 2.2 / ile * 2.4)
+        if a <= 0:
+            continue
+        r = pole.adjusted(-odl, -odl + przesun, odl, odl + przesun)
+        s = QPainterPath()
+        s.addRoundedRect(r, promien + odl, promien + odl)
+        p.fillPath(s, S.z_alfa(barwa, a))
+
+
+def _sciezka(r, promien):
+    s = QPainterPath()
+    s.addRoundedRect(r, promien, promien)
+    return s
+
+
+def _ogranicz(x, a=0.0, b=1.0):
+    return a if x < a else (b if x > b else x)
+
+
+def _linia_swiatla(p, x1, x2, y, kolor=S.CYJAN, sila=150, grubosc=1.2, poswiata=True):
+    """Cienka krawędź światła: gradient gaśnie po bokach, pod spodem aureola."""
+    if x2 - x1 < 4:
+        return
+    g = QLinearGradient(QPointF(x1, y), QPointF(x2, y))
+    g.setColorAt(0.00, S.z_alfa(kolor, 0))
+    g.setColorAt(0.18, S.z_alfa(kolor, sila * 0.55))
+    g.setColorAt(0.50, S.z_alfa(kolor, sila))
+    g.setColorAt(0.82, S.z_alfa(kolor, sila * 0.55))
+    g.setColorAt(1.00, S.z_alfa(kolor, 0))
+    if poswiata:
+        for i, a in ((5.0, 0.10), (3.0, 0.18), (1.8, 0.30)):
+            gg = QLinearGradient(QPointF(x1, y), QPointF(x2, y))
+            gg.setColorAt(0.00, S.z_alfa(kolor, 0))
+            gg.setColorAt(0.50, S.z_alfa(kolor, sila * a))
+            gg.setColorAt(1.00, S.z_alfa(kolor, 0))
+            p.fillRect(QRectF(x1, y - i * 0.5, x2 - x1, i), QBrush(gg))
+    p.fillRect(QRectF(x1, y, x2 - x1, grubosc), QBrush(g))
+
+
+# ── napis rysowany ręcznie ───────────────────────────────────────────
+class Napis(QWidget):
+    """Etykieta rysowana pędzlem — odporna na font-size z arkusza rodzica."""
+
+    def __init__(self, tekst="", rozmiar=13, waga=400, kolor=None, mono=False,
+                 naglowek=False, odstep=0.0, wyrownanie=Qt.AlignmentFlag.AlignLeft,
+                 punkt=None, rodzic=None):
+        super().__init__(rodzic)
+        self._tekst = str(tekst)
+        self._rozmiar = float(rozmiar)
+        self._waga = int(waga)
+        self._kolor = QColor(kolor) if kolor is not None else QColor(S.TEKST)
+        self._mono = bool(mono)
+        self._naglowek = bool(naglowek)
+        self._odstep = float(odstep)
+        self._wyrownanie = wyrownanie
+        self._punkt = QColor(punkt) if punkt is not None else None
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+
+    # — zgodność z QLabel —
+    def setText(self, tekst):
+        tekst = str(tekst)
+        if tekst == self._tekst:
+            return
+        self._tekst = tekst
+        self.updateGeometry()
+        self.update()
+
+    def text(self):
+        return self._tekst
+
+    def ustaw_kolor(self, kolor):
+        self._kolor = QColor(kolor)
+        self.update()
+
+    def _odstep_punktu(self):
+        return 14.0 if self._punkt is not None and self._tekst else 0.0
+
+    def sizeHint(self):
+        m = _miary(self._rozmiar, self._waga, self._mono, self._naglowek, self._odstep)
+        return QSize(int(m.horizontalAdvance(self._tekst) + self._odstep_punktu() + 2),
+                     int(m.height() + 2))
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, _zdarzenie):
+        if not self._tekst:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        m = _miary(self._rozmiar, self._waga, self._mono, self._naglowek, self._odstep)
+        szer = m.horizontalAdvance(self._tekst)
+        pelna = szer + self._odstep_punktu()
+        if self._wyrownanie & Qt.AlignmentFlag.AlignRight:
+            x = self.width() - pelna
+        elif self._wyrownanie & Qt.AlignmentFlag.AlignHCenter:
+            x = (self.width() - pelna) * 0.5
+        else:
+            x = 0.0
+        y = (self.height() + m.ascent() - m.descent()) * 0.5
+        if self._punkt is not None:
+            sr = QPointF(x + 4.0, self.height() * 0.5)
+            S.punkt_swiatla(p, sr, 7.0, self._punkt, 110)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(self._punkt))
+            p.drawEllipse(sr, 3.0, 3.0)
+            x += self._odstep_punktu()
+        S.tekst(p, x, y, self._tekst, self._kolor, self._rozmiar, self._waga,
+                mono=self._mono, naglowek=self._naglowek, odstep=self._odstep)
+        p.end()
+
+
+# ── przycisk rysowany ręcznie ────────────────────────────────────────
+class Przycisk(QPushButton):
+    """Trzy role: zwykły (szkło), zielony (obrys gradientowy), główny (poświata)."""
+
+    def __init__(self, tekst, rola="zwykly", rozmiar=13, rodzic=None):
+        super().__init__(tekst, rodzic)
+        self._rola = rola
+        self._rozmiar = float(rozmiar)
+        self._wysokosc = 40.0
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._pod = S.Plynnie(0.0, czas=170, krzywa="lagodna", rodzic=self,
+                              przy_zmianie=self.update)
+
+    def ustaw_wysokosc(self, h):
+        self._wysokosc = float(h)
+        self.updateGeometry()
+
+    def zatrzymaj_animacje(self):
+        self._pod.zatrzymaj()
+        self._pod.ustaw(0.0)
+
+    def sizeHint(self):
+        waga = 700 if self._rola == "glowny" else 600
+        szer = _szer(self.text(), self._rozmiar, waga) + 2 * 19
+        return QSize(int(szer + 2 * MARG_SWIATLA), int(self._wysokosc + 2 * MARG_SWIATLA))
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def enterEvent(self, zdarzenie):
+        if self.isEnabled():
+            self._pod.do(1.0)
+        super().enterEvent(zdarzenie)
+
+    def leaveEvent(self, zdarzenie):
+        self._pod.do(0.0)
+        super().leaveEvent(zdarzenie)
+
+    def hideEvent(self, zdarzenie):
+        self._pod.zatrzymaj()
+        super().hideEvent(zdarzenie)
+
+    def paintEvent(self, _zdarzenie):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        r = QRectF(self.rect()).adjusted(MARG_SWIATLA, MARG_SWIATLA,
+                                         -MARG_SWIATLA, -MARG_SWIATLA)
+        if r.width() < 4 or r.height() < 4:
+            p.end()
+            return
+        promien = min(12.0, r.height() * 0.32)
+        czynny = self.isEnabled()
+        pod = self._pod.teraz() if czynny else 0.0
+        wcisniety = self.isDown() and czynny
+        if wcisniety:
+            r = r.adjusted(0, 1.0, 0, 1.0)
+        s = _sciezka(r, promien)
+        waga = 700 if self._rola == "glowny" else 600
+        m = _miary(self._rozmiar, waga)
+        tx = r.center().x() - m.horizontalAdvance(self.text()) * 0.5
+        ty = r.center().y() + (m.ascent() - m.descent()) * 0.5
+
+        if self._rola == "glowny":
+            S.halo(p, r, S.ZIELEN, sila=int((46 + 42 * pod) * (1.0 if czynny else 0.25)),
+                   promien=MARG_SWIATLA + 6.0, zaokraglenie=promien, przesun=2.0)
+            S.halo(p, r, S.CYJAN, sila=int((30 + 30 * pod) * (1.0 if czynny else 0.25)),
+                   promien=MARG_SWIATLA + 2.0, zaokraglenie=promien, przesun=0.0)
+            g = QLinearGradient(r.topLeft(), r.topRight())
+            a, b = QColor(S.CYJAN), QColor(S.ZIELEN)
+            if not czynny:
+                a, b = a.darker(160), b.darker(160)
+            g.setColorAt(0.0, a.lighter(100 + int(8 * pod)))
+            g.setColorAt(1.0, b.lighter(100 + int(8 * pod)))
+            p.fillPath(s, QBrush(g))
+            polysk = QLinearGradient(r.topLeft(), QPointF(r.left(), r.center().y()))
+            polysk.setColorAt(0.0, QColor(255, 255, 255, 95))
+            polysk.setColorAt(1.0, QColor(255, 255, 255, 0))
+            p.fillPath(s, QBrush(polysk))
+            S.tekst(p, tx, ty, self.text(), QColor("#04121A") if czynny else QColor("#1B2A32"),
+                    self._rozmiar, waga)
+        elif self._rola == "zielony":
+            if pod > 0.01:
+                S.halo(p, r, S.ZIELEN, sila=int(30 * pod), promien=MARG_SWIATLA + 2.0,
+                       zaokraglenie=promien, przesun=1.0)
+            tlo = QLinearGradient(r.topLeft(), r.bottomLeft())
+            tlo.setColorAt(0.0, S.z_alfa(S.ZIELEN, 34 + 26 * pod))
+            tlo.setColorAt(1.0, S.z_alfa(S.ZIELEN, 14 + 14 * pod))
+            p.fillPath(s, QBrush(tlo))
+            S.obrys_gradientowy(p, s, S.z_alfa(S.CYJAN, 150 + 70 * pod),
+                                S.z_alfa(S.ZIELEN, 190 + 60 * pod), szerokosc=1.2)
+            barwa = QColor(S.MIETA) if czynny else S.z_alfa(S.MIETA, 110)
+            S.tekst(p, tx, ty, self.text(), barwa, self._rozmiar, waga)
+        else:
+            tlo = QLinearGradient(r.topLeft(), r.bottomLeft())
+            tlo.setColorAt(0.0, QColor(36, 52, 76, int(180 + 40 * pod)))
+            tlo.setColorAt(1.0, QColor(19, 30, 48, int(200 + 30 * pod)))
+            p.fillPath(s, QBrush(tlo))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(S.z_alfa(S.CYJAN if pod > 0.5 else QColor(255, 255, 255),
+                                   int(30 + 90 * pod)), 1.0))
+            p.drawPath(s)
+            gora = QRectF(r.x() + promien * 0.6, r.y() + 0.5, r.width() - promien * 1.2, 1.0)
+            p.fillRect(gora, QColor(255, 255, 255, int(26 + 30 * pod)))
+            barwa = QColor(S.TEKST) if czynny else S.z_alfa(S.TEKST, 110)
+            S.tekst(p, tx, ty, self.text(), barwa, self._rozmiar, waga)
+        p.end()
+
+
+class PrzyciskZamkniecia(QPushButton):
+    """Krzyżyk panelu — rysowany, bez żadnego napisu."""
+
+    def __init__(self, rodzic=None):
+        super().__init__("", rodzic)
+        self.setFixedSize(34, 34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._pod = S.Plynnie(0.0, czas=150, rodzic=self, przy_zmianie=self.update)
+
+    def zatrzymaj_animacje(self):
+        self._pod.zatrzymaj()
+        self._pod.ustaw(0.0)
+
+    def enterEvent(self, z):
+        self._pod.do(1.0)
+        super().enterEvent(z)
+
+    def leaveEvent(self, z):
+        self._pod.do(0.0)
+        super().leaveEvent(z)
+
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pod = self._pod.teraz()
+        r = QRectF(self.rect()).adjusted(3, 3, -3, -3)
+        s = _sciezka(r, r.height() * 0.5)
+        p.fillPath(s, QColor(255, 255, 255, int(12 + 26 * pod)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(S.z_alfa(S.BLAD if pod > 0.4 else QColor(255, 255, 255),
+                               int(28 + 80 * pod)), 1.0))
+        p.drawPath(s)
+        sr = r.center()
+        d = 5.0
+        pen = QPen(S.z_alfa(S.TEKST_2 if pod < 0.5 else S.TEKST, 230), 1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(sr.x() - d, sr.y() - d), QPointF(sr.x() + d, sr.y() + d))
+        p.drawLine(QPointF(sr.x() + d, sr.y() - d), QPointF(sr.x() - d, sr.y() + d))
+        p.end()
+
+
+# ── pasek postępu z zaokrąglonym czołem ──────────────────────────────
+class PasekPostepu(QWidget):
+    def __init__(self, kolor_a=S.CYJAN, kolor_b=S.ZIELEN, rodzic=None):
+        super().__init__(rodzic)
+        self.setFixedHeight(16)
+        self._a, self._b = QColor(kolor_a), QColor(kolor_b)
+        self._pl = S.Plynnie(0.0, czas=340, krzywa="wyjscie", rodzic=self,
+                             przy_zmianie=self.update)
+
+    def ustaw(self, ulamek, natychmiast=False):
+        u = _ogranicz(float(ulamek))
+        if natychmiast:
+            self._pl.ustaw(u)
+        else:
+            self._pl.do(u)
+
+    def ustaw_kolory(self, kolor_a, kolor_b):
+        self._a, self._b = QColor(kolor_a), QColor(kolor_b)
+        self.update()
+
+    def wartosc(self):
+        return self._pl.cel()
+
+    def zatrzymaj_animacje(self):
+        self._pl.dokoncz()
+
+    def hideEvent(self, z):
+        self._pl.zatrzymaj()
+        super().hideEvent(z)
+
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        h = 8.0
+        tor = QRectF(1.0, (self.height() - h) * 0.5, max(4.0, self.width() - 2.0), h)
+        st = _sciezka(tor, h * 0.5)
+        g = QLinearGradient(tor.topLeft(), tor.bottomLeft())
+        g.setColorAt(0.0, QColor(4, 9, 17, 220))
+        g.setColorAt(1.0, QColor(14, 24, 40, 190))
+        p.fillPath(st, QBrush(g))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1.0))
+        p.drawPath(st)
+        cieniowanie = QLinearGradient(tor.topLeft(), QPointF(tor.x(), tor.y() + h * 0.6))
+        cieniowanie.setColorAt(0.0, QColor(0, 0, 0, 90))
+        cieniowanie.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.fillPath(st, QBrush(cieniowanie))
+
+        t = _ogranicz(self._pl.teraz())
+        if t <= 0.0005:
+            p.end()
+            return
+        szer = max(h, tor.width() * t)
+        wyp = QRectF(tor.x(), tor.y(), szer, h)
+        sw = _sciezka(wyp, h * 0.5)
+        gw = QLinearGradient(tor.topLeft(), QPointF(tor.right(), tor.y()))
+        gw.setColorAt(0.0, self._a)
+        gw.setColorAt(1.0, self._b)
+        # aureola pod wypełnieniem
+        S.halo(p, wyp.adjusted(0, 1.0, 0, -1.0), self._b, sila=52, promien=6.0,
+               zaokraglenie=h * 0.5)
+        p.fillPath(sw, QBrush(gw))
+        polysk = QLinearGradient(wyp.topLeft(), QPointF(wyp.x(), wyp.center().y()))
+        polysk.setColorAt(0.0, QColor(255, 255, 255, 80))
+        polysk.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.fillPath(sw, QBrush(polysk))
+        # czoło: kropla światła
+        czolo = QPointF(wyp.right() - h * 0.5, wyp.center().y())
+        S.punkt_swiatla(p, czolo, 10.0, self._b, 150)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(255, 255, 255, 215)))
+        p.drawEllipse(czolo, h * 0.34, h * 0.34)
+        p.end()
+
+
+# ── kafel liczby zbiorczej ───────────────────────────────────────────
+class KafelLiczby(QWidget):
+    """Liczba dochodząca do wartości, czcionka o stałej szerokości."""
+
+    def __init__(self, opis, format_=None, wyrozniony=False, duzy=False, rodzic=None):
+        super().__init__(rodzic)
+        self._opis = str(opis)
+        self._format = format_ or (lambda v: f"{v:,.0f}".replace(",", " "))
+        self._wyrozniony = bool(wyrozniony)
+        self._duzy = bool(duzy)
+        self._cel = 0.0
+        self._pl = S.Plynnie(0.0, czas=760, krzywa="wyjscie", rodzic=self,
+                             przy_zmianie=self.update)
+        self.setFixedHeight(62)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    # — dane —
+    def ustaw_format(self, format_):
+        self._format = format_
+        self.updateGeometry()
+        self.update()
+
+    def ustaw_wartosc(self, wartosc, animuj=True):
+        self._cel = float(wartosc)
+        if animuj:
+            self._pl.do(self._cel)
+        else:
+            self._pl.ustaw(self._cel)
+        self.updateGeometry()
+        self.update()
+
+    def od_zera(self, wartosc):
+        self._cel = float(wartosc)
+        self._pl.ustaw(0.0)
+        self._pl.do(self._cel)
+        self.updateGeometry()
+        self.update()
+
+    def zatrzymaj_animacje(self):
+        self._pl.dokoncz()
+
+    def hideEvent(self, z):
+        self._pl.zatrzymaj()
+        super().hideEvent(z)
+
+    # — miary —
+    def _rozmiar_liczby(self):
+        return 23.0 if self._duzy else 18.0
+
+    def _napis(self):
+        return self._format(self._pl.teraz())
+
+    def sizeHint(self):
+        wzor = self._format(self._cel if self._cel else 8888.88)
+        a = _szer(wzor, self._rozmiar_liczby(), 700, mono=True)
+        b = _szer(self._opis, 9, 700, odstep=0.9)
+        return QSize(int(max(a, b) + 32), 62)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        s = _sciezka(r, 13.0)
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        if self._wyrozniony:
+            g.setColorAt(0.0, QColor(12, 40, 44, 232))
+            g.setColorAt(1.0, QColor(7, 22, 30, 240))
+        else:
+            g.setColorAt(0.0, QColor(20, 32, 50, 214))
+            g.setColorAt(1.0, QColor(10, 18, 30, 228))
+        p.fillPath(s, QBrush(g))
+        if self._wyrozniony:
+            S.obrys_gradientowy(p, s, S.z_alfa(S.CYJAN, 170), S.z_alfa(S.ZIELEN, 215),
+                                szerokosc=1.2)
+        else:
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(255, 255, 255, 26), 1.0))
+            p.drawPath(s)
+        gora = QRectF(r.x() + 9, r.y() + 0.6, r.width() - 18, 1.0)
+        p.fillRect(gora, QColor(255, 255, 255, 34))
+
+        rozm = self._rozmiar_liczby()
+        napis = self._napis()
+        kolor = S.MIETA if self._wyrozniony else S.TEKST
+        S.tekst(p, r.x() + 15, r.y() + 15 + rozm * 0.78, napis, kolor, rozm, 700,
+                mono=True, poswiata=0.7 if self._wyrozniony else 0.0)
+        S.tekst(p, r.x() + 15, r.bottom() - 12, self._opis,
+                S.z_alfa(S.MIETA, 170) if self._wyrozniony else S.TEKST_3,
+                9, 700, odstep=0.9)
+        p.end()
+
+
 # ── kafel jednego dokumentu ──────────────────────────────────────────
 class KafelDokumentu(QWidget):
+    """Kartka polecenia wyjazdu: ciepły papier, faktura, grubość i cień."""
+
+    otwarty = pyqtSignal(object)
+
     def __init__(self, dzien, numer, rodzic=None):
         super().__init__(rodzic)
         self.dzien = dzien
-        self.numer = numer
-        self.setFixedSize(154, 150)
+        self.numer = int(numer)
+        los = random.Random("%s-%02d" % (dzien.data.isoformat(), self.numer))
+        self._kat = los.uniform(-1.25, 1.25)          # ułamek stopnia przechylenia
+        self._przesuw = los.uniform(-1.6, 1.6)
+        self.setMinimumSize(int(KAFEL_W * 0.84), 132)
+        self.setMaximumHeight(int(KAFEL_H))
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pix = None
+        self._klucz_pix = None
+        self._wejscie = S.Plynnie(0.0, czas=430, krzywa="wyjscie", rodzic=self,
+                                  przy_zmianie=self.update)
+        self._pod = S.Plynnie(0.0, czas=170, rodzic=self, przy_zmianie=self.update)
 
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = QRectF(self.rect()).adjusted(2, 2, -2, -8)
-        S.cien(p, r, 8, sila=110, rozmycie=10, przesun=4)
-        # papier z grubością
-        sciezka = QPainterPath(); sciezka.addRoundedRect(r, 7, 7)
-        p.fillPath(sciezka, QBrush(S.PAPIER))
-        p.fillRect(QRectF(r.x() + 5, r.bottom() - 1.5, r.width() - 10, 1.5),
-                   QColor(200, 194, 182))
+    # — animacja wejścia —
+    def przygotuj(self):
+        self._wejscie.ustaw(0.0)
+
+    def pokaz(self):
+        self._wejscie.do(1.0)
+
+    def dokoncz(self):
+        self._wejscie.zatrzymaj()
+        self._wejscie.ustaw(1.0)
+
+    def zatrzymaj_animacje(self):
+        self.dokoncz()
+        self._pod.zatrzymaj()
+        self._pod.ustaw(0.0)
+
+    def widoczny_w_calosci(self):
+        return self._wejscie.teraz() > 0.999
+
+    # — zdarzenia —
+    def enterEvent(self, z):
+        self._pod.do(1.0)
+        super().enterEvent(z)
+
+    def leaveEvent(self, z):
+        self._pod.do(0.0)
+        super().leaveEvent(z)
+
+    def mouseReleaseEvent(self, z):
+        if z.button() == Qt.MouseButton.LeftButton and self.rect().contains(z.pos()):
+            self.otwarty.emit(self.dzien)
+        super().mouseReleaseEvent(z)
+
+    def hideEvent(self, z):
+        self._wejscie.zatrzymaj()
+        self._pod.zatrzymaj()
+        super().hideEvent(z)
+
+    def resizeEvent(self, z):
+        self._pix = None
+        super().resizeEvent(z)
+
+    # — rysowanie —
+    def _pole(self):
+        r = QRectF(self.rect())
+        return r.adjusted(10.0, 7.0, -10.0, -18.0)
+
+    def _klucz(self):
         d = self.dzien
-        data = f"{d.data.day:02d}.{d.data.month:02d}"
-        S.tekst(p, r.x() + 11, r.y() + 22, data, S.PAPIER_TEKST, 14, 700)
-        S.tekst(p, r.x() + 11, r.y() + 37, D.DNI_PL[d.data.weekday()], QColor(120, 130, 148), 10, 400)
-        S.tekst(p, r.x() + 11, r.y() + 58, f"POLECENIE WYJAZDU", QColor(120, 130, 148), 8, 600, odstep=0.4)
-        S.tekst(p, r.x() + 11, r.y() + 70, f"NR 2026/09/{self.numer:02d}", QColor(120, 130, 148), 8, 400)
-        # imitacja wierszy dokumentu
-        for i in range(3):
-            y = r.y() + 82 + i * 8
-            p.fillRect(QRectF(r.x() + 11, y, (r.width() - 30) * (0.9 - i * 0.13), 2.5),
-                       QColor(196, 202, 214))
-        # stopka kafla
-        S.tekst(p, r.x() + 11, r.bottom() - 12, f"{d.km:.0f} km", QColor(120, 130, 148), 10, 500, mono=True)
-        napis = f"{D.zl(d.kwota)} zł"
-        p.setFont(S.czcionka(11, 700, mono=True))
-        szer = p.fontMetrics().horizontalAdvance(napis)
-        S.tekst(p, r.right() - 11 - szer, r.bottom() - 12, napis, S.PAPIER_TEKST, 11, 700, mono=True)
-        # plakietka PDF
-        pr = QRectF(r.right() - 42, r.y() + 10, 32, 15)
-        pp = QPainterPath(); pp.addRoundedRect(pr, 4, 4)
-        p.fillPath(pp, QBrush(S.z_alfa(S.ZIELEN, 210)))
-        S.tekst(p, pr.x() + 7, pr.y() + 11, "PDF", QColor("#04121A"), 9, 700)
-        if d.podpisany:
-            p.setPen(QPen(S.z_alfa(S.ZIELEN, 220), 2))
+        return (self.width(), self.height(), round(self.devicePixelRatioF(), 2),
+                d.data, round(d.kwota, 2), round(d.km, 1), d.podpisany, self.numer)
+
+    def _pixmapa(self):
+        klucz = self._klucz()
+        if self._pix is not None and self._klucz_pix == klucz:
+            return self._pix
+        dpr = self.devicePixelRatioF()
+        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        r = self._pole()
+        p.translate(r.center())
+        p.rotate(self._kat)
+        p.translate(-r.center().x() + self._przesuw, -r.center().y())
+        self._rysuj_kartke(p, r)
+        p.end()
+        self._pix, self._klucz_pix = pix, klucz
+        return pix
+
+    def _rysuj_kartke(self, p, r):
+        promien = 7.0
+        # cień wielowarstwowy: styk, korpus, daleka poświata
+        _cien_miekki(p, r, promien, przesun=1, rozmycie=4, sila=120, krok=1)
+        _cien_miekki(p, r, promien, przesun=6, rozmycie=13, sila=104, krok=2)
+        _cien_miekki(p, r, promien, przesun=15, rozmycie=26, sila=62, krok=4)
+
+        # kartki leżące pod spodem — plik dokumentów, nie pojedyncza kartka
+        for wsun, zejscie, barwa in ((5.5, 6.5, PAPIER_SPOD), (2.6, 3.2, PAPIER_BOK)):
+            rr = QRectF(r.x() + wsun, r.y() + zejscie, r.width() - 2 * wsun, r.height())
+            p.fillPath(_sciezka(rr, promien), QBrush(barwa))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawPath(sciezka)
-            p.save()
-            p.translate(r.center().x(), r.bottom() - 48)
-            p.rotate(-7)
-            pieczec = QRectF(-50, -11, 100, 22)
-            pp2 = QPainterPath(); pp2.addRoundedRect(pieczec, 5, 5)
-            p.fillPath(pp2, QBrush(S.z_alfa(S.ZIELEN, 40)))
-            p.setPen(QPen(S.z_alfa(S.ZIELEN, 190), 1.2)); p.drawPath(pp2)
-            S.tekst(p, -42, -1, "PODPISANO", QColor("#0B7A5A"), 10, 700, odstep=0.6)
-            S.tekst(p, -42, 8, "profil zaufany · 14:20", QColor("#2E8B72"), 7, 500)
-            p.restore()
+            p.setPen(QPen(QColor(150, 142, 126, 90), 1.0))
+            p.drawLine(QPointF(rr.x() + promien, rr.bottom() - 0.5),
+                       QPointF(rr.right() - promien, rr.bottom() - 0.5))
+
+        s = _sciezka(r, promien)
+        g = QLinearGradient(r.topLeft(), r.bottomRight())
+        g.setColorAt(0.0, PAPIER_GORA)
+        g.setColorAt(0.55, PAPIER_SRODEK)
+        g.setColorAt(1.0, PAPIER_DOL)
+        p.fillPath(s, QBrush(g))
+
+        p.save()
+        p.setClipPath(s)
+        zasieg = max(r.width(), r.height()) * 1.3
+        rg = QRadialGradient(QPointF(r.x() + r.width() * 0.2, r.y() + r.height() * 0.08), zasieg)
+        rg.setColorAt(0.0, QColor(255, 251, 240, 130))
+        rg.setColorAt(1.0, QColor(255, 251, 240, 0))
+        p.fillRect(r, QBrush(rg))
+        rg2 = QRadialGradient(QPointF(r.right(), r.bottom()), zasieg * 0.85)
+        rg2.setColorAt(0.0, QColor(122, 116, 100, 34))
+        rg2.setColorAt(1.0, QColor(122, 116, 100, 0))
+        p.fillRect(r, QBrush(rg2))
+        S.ziarno(p, r, sila=6, skala=1.6, ciemne=1.35)         # faktura papieru
+        # grubość kartki po dolnej krawędzi
+        pas = QRectF(r.x(), r.bottom() - 4.5, r.width(), 4.5)
+        gp = QLinearGradient(pas.topLeft(), pas.bottomLeft())
+        gp.setColorAt(0.0, QColor(206, 198, 182, 0))
+        gp.setColorAt(1.0, QColor(200, 191, 174, 140))
+        p.fillRect(pas, QBrush(gp))
+        p.restore()
+
+        self._rysuj_tresc(p, r)
+
+        # krawędzie: góra zbiera światło, dół siada w cieniu
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.save()
+        p.setClipRect(QRectF(r.x(), r.y(), r.width(), r.height() * 0.5))
+        p.setPen(QPen(QColor(255, 255, 255, 205), 1.0))
+        p.drawPath(_sciezka(r.adjusted(0.6, 0.6, -0.6, -0.6), promien))
+        p.restore()
+        p.setPen(QPen(QColor(150, 142, 126, 120), 1.0))
+        p.drawLine(QPointF(r.x() + promien * 0.6, r.bottom() - 0.5),
+                   QPointF(r.right() - promien * 0.6, r.bottom() - 0.5))
+        p.setPen(QPen(QColor(26, 32, 46, 52), 1.0))
+        p.drawPath(s)
+
+        if self.dzien.podpisany:
+            p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(125), 190), 1.5))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(s)
+
+    def _rysuj_tresc(self, p, r):
+        d = self.dzien
+        lewy = r.x() + 12
+        prawy = r.right() - 12
+        data = "%02d.%02d" % (d.data.day, d.data.month)
+        S.tekst(p, lewy, r.y() + 23, data, ATRAMENT, 16, 700)
+        S.tekst(p, lewy, r.y() + 36, D.DNI_PL[d.data.weekday()], ATRAMENT_3, 9.5, 600,
+                odstep=0.4)
+
+        # plakietka PDF
+        pr = QRectF(prawy - 34, r.y() + 10, 34, 16)
+        pp = _sciezka(pr, 5.0)
+        gp = QLinearGradient(pr.topLeft(), pr.bottomRight())
+        gp.setColorAt(0.0, QColor("#0FD6A4"))
+        gp.setColorAt(1.0, QColor("#0AA9C9"))
+        p.fillPath(pp, QBrush(gp))
+        szer_pdf = _szer("PDF", 9, 800, odstep=0.4)
+        S.tekst(p, pr.center().x() - szer_pdf * 0.5, pr.y() + 11.5, "PDF",
+                QColor("#04121A"), 9, 800, odstep=0.4)
+
+        p.setPen(QPen(LINIA_DRUKU, 1.0))
+        p.drawLine(QPointF(lewy, r.y() + 44.5), QPointF(prawy, r.y() + 44.5))
+
+        S.tekst(p, lewy, r.y() + 58, "POLECENIE WYJAZDU", ATRAMENT_2, 8, 800, odstep=0.7)
+        nr = "NR %d/%02d/%02d" % (d.data.year, d.data.month, d.dokument or self.numer)
+        S.tekst(p, lewy, r.y() + 69.5, nr, ATRAMENT_3, 8.5, 500, mono=True)
+
+        # stopka: kilometry i kwota
+        yb = r.bottom() - 12
+        S.tekst(p, lewy, yb, "%.0f km" % d.km, ATRAMENT_3, 10, 600, mono=True)
+        kwota = "%s zł" % D.zl(d.kwota)
+        S.tekst(p, prawy - _szer(kwota, 11.5, 700, mono=True), yb, kwota,
+                ATRAMENT, 11.5, 700, mono=True)
+
+        # pole między numerem a stopką: wiersze druku albo pieczęć
+        gora = r.y() + 78.0
+        dol = yb - 15.0
+        if d.podpisany:
+            self._rysuj_pieczec(p, r, (gora + dol) * 0.5)
+            return
+        y = gora
+        i = 0
+        while y <= dol and i < 3:
+            p.fillRect(QRectF(lewy, y, (r.width() - 34) * (0.92 - i * 0.16), 2.2),
+                       QColor(150, 160, 180, 120))
+            y += 7.5
+            i += 1
+
+    def _rysuj_pieczec(self, p, r, srodek_y):
+        p.save()
+        p.translate(r.center().x(), srodek_y)
+        p.rotate(-7)
+        pole = QRectF(-52, -11.5, 104, 23)
+        s = _sciezka(pole, 6.0)
+        p.fillPath(s, QBrush(S.z_alfa(S.ZIELEN, 40)))
+        p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(115), 200), 1.3))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(s)
+        S.tekst(p, -44, -1, "PODPISANO", QColor("#0B7A5A"), 10, 800, odstep=0.7)
+        S.tekst(p, -44, 8.5, "profil zaufany · 14:20", QColor("#2E8B72"), 7, 500)
+        p.restore()
+
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        t = _ogranicz(self._wejscie.teraz())
+        pod = self._pod.teraz() if t > 0.999 else 0.0
+        pole = self._pole()
+        if pod > 0.01:
+            S.halo(p, pole.adjusted(0, -3 - 2 * pod, 0, -3 - 2 * pod), S.CYJAN,
+                   sila=int(34 * pod), promien=14.0, zaokraglenie=8.0, przesun=2.0)
+        p.save()
+        if t < 0.999:
+            p.setOpacity(_ogranicz(t * 1.25))
+            sr = pole.center()
+            k = 0.93 + 0.07 * t
+            p.translate(sr)
+            p.scale(k, k)
+            p.translate(-sr)
+            p.translate(0.0, (1.0 - t) * 18.0)
+        elif pod > 0.01:
+            p.translate(0.0, -3.0 * pod)
+        p.drawPixmap(0, 0, self._pixmapa())
+        if t < 0.999:
+            p.fillPath(_sciezka(pole, 7.0), QColor(255, 255, 255, int(70 * (1.0 - t))))
+        p.restore()
+        p.end()
+
+
+# ── pasek kartek z układem liczonym ręcznie ──────────────────────────
+class PasPapierow(QWidget):
+    """Kartki leżą obok siebie; mieści się tyle, ile wchodzi na szerokość."""
+
+    otwarty = pyqtSignal(object)
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self._kafle = []
+        self._ukryte = 0
+        self._odsloniete = 0
+        self._x_reszty = 0.0
+        self._wys_reszty = (0.0, float(KAFEL_H))
+        self._kaskada = QTimer(self)
+        self._kaskada.setInterval(KASKADA_MS)
+        self._kaskada.timeout.connect(self._nastepna)
+        self.setMinimumHeight(134)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    # — zawartość —
+    def ustaw_dni(self, dni):
+        for k in self._kafle:
+            k.setParent(None)
+            k.deleteLater()
+        self._kafle = []
+        for i, d in enumerate(dni, start=1):
+            k = KafelDokumentu(d, i, self)
+            k.otwarty.connect(self.otwarty.emit)
+            k.przygotuj()
+            k.show()
+            self._kafle.append(k)
+        self._ulozenie()
+
+    def sizeHint(self):
+        return QSize(int(KAFEL_W * 4 + ODSTEP_KAFLI * 3), int(KAFEL_H))
+
+    def resizeEvent(self, z):
+        self._ulozenie()
+        super().resizeEvent(z)
+
+    def _ulozenie(self):
+        n = len(self._kafle)
+        if not n:
+            self._ukryte = 0
+            self.update()
+            return
+        szerokosc = float(self.width())
+        wysokosc = min(KAFEL_H, max(132.0, float(self.height())))
+        gora = (self.height() - wysokosc) * 0.5
+        for szer in (KAFEL_W, 160.0, 152.0, 144.0):
+            ile = int((szerokosc + ODSTEP_KAFLI) // (szer + ODSTEP_KAFLI))
+            if ile >= n:
+                break
+        ile = max(1, min(n, ile))
+        if ile < n:                      # zostaw miejsce na kafel „reszta”
+            wolne = szerokosc - 74.0
+            ile = max(1, min(n - 1, int((wolne + ODSTEP_KAFLI) // (szer + ODSTEP_KAFLI))))
+        self._ukryte = n - ile
+        x = 0.0
+        for i, k in enumerate(self._kafle):
+            if i < ile:
+                k.setFixedWidth(int(szer))
+                k.setGeometry(int(x), int(gora), int(szer), int(wysokosc))
+                k.show()
+                x += szer + ODSTEP_KAFLI
+            else:
+                k.hide()
+        self._x_reszty = x
+        self._wys_reszty = (gora, wysokosc)
+        self.update()
+
+    # — kaskada —
+    def uruchom_kaskade(self):
+        self._kaskada.stop()
+        self._odsloniete = 0
+        for k in self._kafle:
+            k.przygotuj()
+        if not self._kafle:
+            return
+        self._nastepna()
+        self._kaskada.start()
+
+    def _nastepna(self):
+        widoczne = [k for k in self._kafle if not k.isHidden()]
+        if self._odsloniete >= len(widoczne):
+            self._kaskada.stop()
+            return
+        widoczne[self._odsloniete].pokaz()
+        self._odsloniete += 1
+
+    def zatrzymaj_animacje(self):
+        self._kaskada.stop()
+        for k in self._kafle:
+            k.zatrzymaj_animacje()
+        self._odsloniete = len(self._kafle)
+        self.update()
+
+    def hideEvent(self, z):
+        self._kaskada.stop()
+        super().hideEvent(z)
+
+    def paintEvent(self, _z):
+        if not self._ukryte:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        gora, wysokosc = getattr(self, "_wys_reszty", (0.0, float(self.height())))
+        r = QRectF(getattr(self, "_x_reszty", 0.0) + 2, gora + 8, 64.0, wysokosc - 30.0)
+        s = _sciezka(r, 7.0)
+        p.fillPath(s, QColor(255, 255, 255, 10))
+        pen = QPen(QColor(255, 255, 255, 42), 1.0)
+        pen.setDashPattern([3.0, 3.5])
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(s)
+        napis = "+%d" % self._ukryte
+        S.tekst(p, r.center().x() - _szer(napis, 17, 700, mono=True) * 0.5,
+                r.center().y() + 2, napis, S.TEKST_2, 17, 700, mono=True)
+        S.tekst(p, r.center().x() - _szer("PDF", 8, 700, odstep=0.8) * 0.5,
+                r.center().y() + 18, "PDF", S.TEKST_3, 8, 700, odstep=0.8)
         p.end()
 
 
@@ -84,265 +874,680 @@ class TacaDokumentow(QWidget):
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
         self.dni = []
+        self._czeka_kaskada = False
         self._buduj()
 
+    # — budowa —
     def _buduj(self):
         z = QVBoxLayout(self)
-        z.setContentsMargins(26, 22, 26, 20)
-        z.setSpacing(14)
+        z.setContentsMargins(26, 18, 26, 16)
+        z.setSpacing(10)
 
-        gora = QHBoxLayout(); gora.setSpacing(16)
-        lewo = QVBoxLayout(); lewo.setSpacing(2)
-        self.l_tytul = QLabel("Otwórz dokumenty")
-        self.l_tytul.setFont(S.czcionka(24, 700, naglowek=True))
-        self.l_sciezka = QLabel("")
-        self.l_sciezka.setFont(S.czcionka(12))
-        self.l_sciezka.setStyleSheet(f"color: {S.TEKST_2.name()};")
-        lewo.addWidget(self.l_tytul); lewo.addWidget(self.l_sciezka)
-        gora.addLayout(lewo); gora.addStretch(1)
+        gora = QHBoxLayout()
+        gora.setSpacing(14)
+        lewo = QVBoxLayout()
+        lewo.setSpacing(1)
+        self.l_tytul = Napis("Otwórz dokumenty", 23, 700, S.TEKST, naglowek=True)
+        self.l_sciezka = Napis("", 11.5, 400, S.TEKST_2)
+        lewo.addWidget(self.l_tytul)
+        lewo.addWidget(self.l_sciezka)
+        gora.addLayout(lewo)
+        gora.addStretch(1)
 
-        self.liczby = QHBoxLayout(); self.liczby.setSpacing(10)
-        gora.addLayout(self.liczby)
-        b_zwin = QPushButton("Zwiń tacę")
-        b_zwin.clicked.connect(self.zwin.emit)
-        gora.addWidget(b_zwin)
+        self.k_kwota = KafelLiczby("CO DO GROSZA", lambda v: "%s zł" % D.zl(v),
+                                   wyrozniony=True, duzy=True, rodzic=self)
+        self.k_km = KafelLiczby("REALNE DROGI",
+                                lambda v: "%s km" % f"{v:,.0f}".replace(",", " "),
+                                rodzic=self)
+        self.k_dni = KafelLiczby("DELEGACJE", lambda v: "%.0f" % v, rodzic=self)
+        for k in (self.k_kwota, self.k_km, self.k_dni):
+            gora.addWidget(k, 0, Qt.AlignmentFlag.AlignVCenter)
+        gora.addSpacing(4)
+        self.b_zwin = Przycisk("Zwiń tacę", "zwykly", 12.5, self)
+        self.b_zwin.ustaw_wysokosc(38)
+        self.b_zwin.clicked.connect(self.zwin.emit)
+        gora.addWidget(self.b_zwin, 0, Qt.AlignmentFlag.AlignVCenter)
         z.addLayout(gora)
 
-        self.pas = QHBoxLayout(); self.pas.setSpacing(10)
-        z.addLayout(self.pas)
+        self.pas = PasPapierow(self)
+        self.pas.otwarty.connect(self._kartka_klikieta)
+        z.addWidget(self.pas, 1)
 
-        dol = QHBoxLayout(); dol.setSpacing(10)
-        self.l_stan = QLabel("")
-        self.l_stan.setFont(S.czcionka(12, 600))
-        self.l_stan.setStyleSheet(f"color: {S.MIETA.name()};")
-        dol.addWidget(self.l_stan); dol.addStretch(1)
-        b_folder = QPushButton("Otwórz folder")
-        b_podpis = QPushButton("Podpisz elektronicznie"); b_podpis.setProperty("rola", "zielony")
-        b_mail = QPushButton("Wyślij e-mailem"); b_mail.setProperty("rola", "zielony")
-        b_wszystkie = QPushButton("Otwórz wszystkie dokumenty"); b_wszystkie.setProperty("rola", "glowny")
-        for b in (b_folder, b_podpis, b_mail, b_wszystkie):
-            b.setMinimumHeight(40); dol.addWidget(b)
-        b_podpis.clicked.connect(self.otworz_podpis.emit)
-        b_mail.clicked.connect(self.otworz_wysylke.emit)
-        b_wszystkie.clicked.connect(self.otworz_wszystkie.emit)
+        dol = QHBoxLayout()
+        dol.setSpacing(8)
+        self.l_stan = Napis("", 12, 600, S.MIETA, punkt=S.ZIELEN)
+        dol.addWidget(self.l_stan, 0, Qt.AlignmentFlag.AlignVCenter)
+        dol.addStretch(1)
+        self.b_folder = Przycisk("Otwórz folder", "zwykly", 13, self)
+        self.b_podpis = Przycisk("Podpisz elektronicznie", "zielony", 13, self)
+        self.b_mail = Przycisk("Wyślij e-mailem", "zielony", 13, self)
+        self.b_wszystkie = Przycisk("Otwórz wszystkie dokumenty", "glowny", 13, self)
+        for b in (self.b_folder, self.b_podpis, self.b_mail, self.b_wszystkie):
+            dol.addWidget(b, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.b_podpis.clicked.connect(self.otworz_podpis.emit)
+        self.b_mail.clicked.connect(self.otworz_wysylke.emit)
+        self.b_wszystkie.clicked.connect(self.otworz_wszystkie.emit)
         z.addLayout(dol)
 
-    def _kafel_liczby(self, wartosc, opis, wyroznij=False):
-        w = QFrame(); w.setFixedSize(148, 56)
-        w.setStyleSheet(
-            "QFrame { background: rgba(9,16,28,200); border-radius: 12px; border: 1px solid %s; }"
-            % ("rgba(0,228,161,0.55)" if wyroznij else "rgba(255,255,255,0.10)"))
-        l = QVBoxLayout(w); l.setContentsMargins(12, 7, 12, 7); l.setSpacing(0)
-        a = QLabel(wartosc); a.setFont(S.czcionka(17, 700, mono=True))
-        a.setStyleSheet(f"color: {(S.MIETA if wyroznij else S.TEKST).name()}; border: none;")
-        b = QLabel(opis); b.setFont(S.czcionka(9, 600, odstep=0.6))
-        b.setStyleSheet(f"color: {S.TEKST_3.name()}; border: none;")
-        l.addWidget(a); l.addWidget(b)
-        return w
-
+    # — dane —
     def ustaw_dni(self, dni, folder="Pulpit / Rozliczenie_Anna_Nowak_wrzesień_2026r"):
         self.dni = [d for d in dni if not d.wolny and not d.wylaczony]
         p = D.podsumowanie(dni)
-        self.l_sciezka.setText(f"wrzesień 2026 · {len(self.dni) + 1} plików PDF w  {folder}")
-        while self.liczby.count():
-            it = self.liczby.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        self.liczby.addWidget(self._kafel_liczby(f"{D.zl(p['kwota'])} zł", "CO DO GROSZA", True))
-        self.liczby.addWidget(self._kafel_liczby(f"{p['km']:,.0f}".replace(",", " ") + " km", "REALNE DROGI"))
-        self.liczby.addWidget(self._kafel_liczby(f"{p['dni']} z {p['dni_wszystkie']}", "DELEGACJE"))
-        while self.pas.count():
-            it = self.pas.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        for i, d in enumerate(self.dni[:7], start=1):
-            self.pas.addWidget(KafelDokumentu(d, i))
-        self.pas.addStretch(1)
+        ile_plikow = len(D.dokumenty(self.dni)) + 1 if self.dni else 0
+        self.l_sciezka.setText("wrzesień 2026 · %d plików PDF w  %s" % (ile_plikow, folder))
+        self.k_kwota.od_zera(p["kwota"])
+        self.k_km.od_zera(p["km"])
+        self.k_dni.ustaw_format(lambda v, c=p["dni_wszystkie"]: "%.0f z %d" % (v, c))
+        self.k_dni.od_zera(p["dni"])
+        self.pas.ustaw_dni(self.dni)
         ile = sum(1 for d in self.dni if d.podpisany)
-        self.l_stan.setText(f"{ile} z {len(self.dni)} podpisanych" if ile else "")
+        self.l_stan.setText("%d z %d podpisanych" % (ile, len(self.dni)) if ile else "")
+        if self.isVisible():
+            self.pas.uruchom_kaskade()
+            self._czeka_kaskada = False
+        else:
+            self._czeka_kaskada = True
 
-    def paintEvent(self, _):
+    def _kartka_klikieta(self, dzien):
+        self.l_stan.setText("%02d.%02d · otwarto" % (dzien.data.day, dzien.data.month))
+
+    # — animacje —
+    def zatrzymaj_animacje(self):
+        """Stawia wszystko w położeniu docelowym — powtarzalne zrzuty i czyste wyjście."""
+        self._czeka_kaskada = False
+        self.pas.zatrzymaj_animacje()
+        for k in (self.k_kwota, self.k_km, self.k_dni):
+            k.zatrzymaj_animacje()
+        for b in (self.b_zwin, self.b_folder, self.b_podpis, self.b_mail, self.b_wszystkie):
+            b.zatrzymaj_animacje()
+
+    def showEvent(self, z):
+        super().showEvent(z)
+        if self._czeka_kaskada:
+            self._czeka_kaskada = False
+            self.pas.uruchom_kaskade()
+
+    def hideEvent(self, z):
+        self.pas.zatrzymaj_animacje()
+        super().hideEvent(z)
+
+    def closeEvent(self, z):
+        self.zatrzymaj_animacje()
+        super().closeEvent(z)
+
+    def sizeHint(self):
+        return QSize(1100, 324)
+
+    # — rysowanie —
+    def paintEvent(self, _z):
         p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         r = QRectF(self.rect())
-        sciezka = QPainterPath()
-        sciezka.addRoundedRect(r.adjusted(0, 0, 0, 26), 26, 26)
+        s = _sciezka(r.adjusted(0, 0, 0, 26), 26.0)
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
-        g.setColorAt(0.0, QColor(22, 38, 58, 248))
-        g.setColorAt(1.0, QColor(11, 19, 32, 252))
-        p.fillPath(sciezka, QBrush(g))
-        p.fillRect(QRectF(r.x() + 26, r.y(), r.width() - 52, 1.2), S.z_alfa(S.CYJAN, 120))
-        p.setPen(QPen(S.OBRYS_MOCNY, 1)); p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(sciezka)
-        ucho = QRectF(r.center().x() - 24, r.y() + 8, 48, 3)
-        pu = QPainterPath(); pu.addRoundedRect(ucho, 1.5, 1.5)
-        p.fillPath(pu, QBrush(S.z_alfa(QColor(255, 255, 255), 60)))
+        g.setColorAt(0.0, QColor(24, 40, 60, 248))
+        g.setColorAt(0.45, QColor(16, 27, 44, 250))
+        g.setColorAt(1.0, QColor(10, 17, 29, 252))
+        p.fillPath(s, QBrush(g))
+        p.save()
+        p.setClipPath(s)
+        zasieg = max(r.width(), r.height())
+        rg = QRadialGradient(QPointF(r.center().x(), r.y()), zasieg * 0.75)
+        rg.setColorAt(0.0, S.z_alfa(S.CYJAN, 20))
+        rg.setColorAt(1.0, S.z_alfa(S.CYJAN, 0))
+        p.fillRect(r, QBrush(rg))
+        S.ziarno(p, r, sila=9, skala=1.0, ciemne=0.5)
+        p.restore()
+
+        _linia_swiatla(p, r.x() + 24, r.right() - 24, r.y() + 0.4, S.CYJAN, 165, 1.2)
+        p.setPen(QPen(S.OBRYS_MOCNY, 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(s)
+
+        ucho = QRectF(r.center().x() - 26, r.y() + 8, 52, 3)
+        p.fillPath(_sciezka(ucho, 1.5), QBrush(QColor(255, 255, 255, 62)))
         p.end()
 
 
 # ── wspólna podstawa paneli ──────────────────────────────────────────
 class Panel(QDialog):
-    def __init__(self, tytul, rodzic=None):
+    """Okno bez ramy systemowej: ten sam materiał co taca, miękki cień pod spodem."""
+
+    MARGINES = 26          # zapas na cień dookoła okna
+
+    def __init__(self, tytul, podtytul="", rodzic=None):
         super().__init__(rodzic)
         self.setWindowTitle(tytul)
         self.setModal(True)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setStyleSheet(S.qss())
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(620)
+        self._ciagniecie = None
+
+        m = self.MARGINES
         self.z = QVBoxLayout(self)
-        self.z.setContentsMargins(24, 20, 24, 20)
-        self.z.setSpacing(14)
-        t = QLabel(tytul); t.setFont(S.czcionka(18, 700, naglowek=True))
-        self.z.addWidget(t)
+        self.z.setContentsMargins(m + 26, m + 20, m + 26, m + 20)
+        self.z.setSpacing(13)
 
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        S.tlo_sceny(p, r, plamy=False)
-        S.szklo(p, r, 16, mocne=True)
-        p.end()
+        naglowek = QHBoxLayout()
+        naglowek.setSpacing(12)
+        kolumna = QVBoxLayout()
+        kolumna.setSpacing(2)
+        self.l_tytul = Napis(tytul, 21, 700, S.TEKST, naglowek=True)
+        self.l_podtytul = Napis(podtytul, 11, 500, S.TEKST_3, odstep=0.4)
+        kolumna.addWidget(self.l_tytul)
+        kolumna.addWidget(self.l_podtytul)
+        naglowek.addLayout(kolumna)
+        naglowek.addStretch(1)
+        self.b_zamknij = PrzyciskZamkniecia(self)
+        self.b_zamknij.clicked.connect(self.reject)
+        naglowek.addWidget(self.b_zamknij, 0, Qt.AlignmentFlag.AlignTop)
+        self.z.addLayout(naglowek)
+        self.z.addSpacing(2)
 
+    # — pomocniki układu —
     def wiersz(self, etykieta, widget):
-        w = QHBoxLayout(); w.setSpacing(12)
-        l = QLabel(etykieta); l.setFixedWidth(120)
-        l.setFont(S.czcionka(10, 600, odstep=0.6))
-        l.setStyleSheet(f"color: {S.TEKST_3.name()};")
-        w.addWidget(l); w.addWidget(widget, 1)
+        w = QHBoxLayout()
+        w.setSpacing(12)
+        l = Napis(etykieta, 9.5, 800, S.TEKST_3, odstep=0.9)
+        l.setFixedWidth(104)
+        w.addWidget(l, 0, Qt.AlignmentFlag.AlignVCenter)
+        w.addWidget(widget, 1)
         self.z.addLayout(w)
         return widget
 
+    def wiersz_stanu(self, tekst="", licznik=""):
+        """Stan po lewej, liczba po prawej — jedna para o wyraźnej hierarchii."""
+        w = QHBoxLayout()
+        w.setSpacing(12)
+        l_stan = Napis(tekst, 12, 600, S.TEKST_2)
+        l_licznik = Napis(licznik, 13, 700, S.TEKST, mono=True,
+                          wyrownanie=Qt.AlignmentFlag.AlignRight)
+        w.addWidget(l_stan, 0, Qt.AlignmentFlag.AlignVCenter)
+        w.addStretch(1)
+        w.addWidget(l_licznik, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.z.addLayout(w)
+        return l_stan, l_licznik
 
+    def stopka(self, *przyciski):
+        d = QHBoxLayout()
+        d.setSpacing(8)
+        d.addStretch(1)
+        for b in przyciski:
+            d.addWidget(b)
+        self.z.addLayout(d)
+        return d
+
+    def pole(self):
+        m = self.MARGINES
+        return QRectF(self.rect()).adjusted(m, m - 4, -m, -m - 4)
+
+    # — przesuwanie okna bez ramy —
+    def mousePressEvent(self, z):
+        if z.button() == Qt.MouseButton.LeftButton and z.position().y() < self.MARGINES + 74:
+            self._ciagniecie = z.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(z)
+
+    def mouseMoveEvent(self, z):
+        if self._ciagniecie is not None and z.buttons() & Qt.MouseButton.LeftButton:
+            self.move(z.globalPosition().toPoint() - self._ciagniecie)
+        super().mouseMoveEvent(z)
+
+    def mouseReleaseEvent(self, z):
+        self._ciagniecie = None
+        super().mouseReleaseEvent(z)
+
+    # — rysowanie —
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        r = self.pole()
+        promien = 20.0
+        _cien_miekki(p, r, promien, przesun=4, rozmycie=10, sila=150, krok=2)
+        _cien_miekki(p, r, promien, przesun=12, rozmycie=26, sila=130, krok=3)
+        _cien_miekki(p, r, promien, przesun=26, rozmycie=52, sila=90, krok=6)
+
+        s = _sciezka(r, promien)
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        g.setColorAt(0.0, QColor(26, 43, 64, 252))
+        g.setColorAt(0.45, QColor(17, 28, 46, 253))
+        g.setColorAt(1.0, QColor(10, 17, 29, 254))
+        p.fillPath(s, QBrush(g))
+        p.save()
+        p.setClipPath(s)
+        rg = QRadialGradient(QPointF(r.center().x(), r.y()), max(r.width(), r.height()) * 0.8)
+        rg.setColorAt(0.0, S.z_alfa(S.CYJAN, 22))
+        rg.setColorAt(1.0, S.z_alfa(S.CYJAN, 0))
+        p.fillRect(r, QBrush(rg))
+        S.ziarno(p, r, sila=9, skala=1.0, ciemne=0.5)
+        p.restore()
+
+        _linia_swiatla(p, r.x() + 22, r.right() - 22, r.y() + 0.6, S.CYJAN, 165, 1.2)
+        p.setPen(QPen(S.OBRYS_MOCNY, 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(s)
+
+        # kreska pod nagłówkiem
+        y = self.l_podtytul.geometry().bottom() + 12.0
+        gk = QLinearGradient(QPointF(r.x(), y), QPointF(r.right(), y))
+        gk.setColorAt(0.0, QColor(255, 255, 255, 0))
+        gk.setColorAt(0.10, QColor(255, 255, 255, 52))
+        gk.setColorAt(0.90, QColor(255, 255, 255, 26))
+        gk.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.fillRect(QRectF(r.x() + 18, y, r.width() - 36, 1.0), QBrush(gk))
+        _linia_swiatla(p, r.x() + 26, r.x() + 128, y, S.CYJAN, 130, 1.0)
+        p.end()
+
+
+# ── kafel ścieżki podpisu ────────────────────────────────────────────
+class KafelSciezki(QWidget):
+    """Klikalna ścieżka podpisu — kafel, nie przełącznik."""
+
+    wybrano = pyqtSignal(int)
+
+    def __init__(self, numer, nazwa, opis, znak="tarcza", rodzic=None):
+        super().__init__(rodzic)
+        self.numer = int(numer)
+        self.nazwa = str(nazwa)
+        self.opis = str(opis)
+        self.znak = znak
+        self._wybrany = False
+        self._pod = S.Plynnie(0.0, czas=160, rodzic=self, przy_zmianie=self.update)
+        self._wybor = S.Plynnie(0.0, czas=240, krzywa="wyjscie", rodzic=self,
+                                przy_zmianie=self.update)
+        self.setFixedHeight(64)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def ustaw_wybrany(self, wybrany, animuj=True):
+        self._wybrany = bool(wybrany)
+        if animuj:
+            self._wybor.do(1.0 if self._wybrany else 0.0)
+        else:
+            self._wybor.ustaw(1.0 if self._wybrany else 0.0)
+        self.update()
+
+    def wybrany(self):
+        return self._wybrany
+
+    def zatrzymaj_animacje(self):
+        self._pod.zatrzymaj()
+        self._pod.ustaw(0.0)
+        self._wybor.dokoncz()
+
+    def enterEvent(self, z):
+        if self.isEnabled():
+            self._pod.do(1.0)
+        super().enterEvent(z)
+
+    def leaveEvent(self, z):
+        self._pod.do(0.0)
+        super().leaveEvent(z)
+
+    def mouseReleaseEvent(self, z):
+        if (self.isEnabled() and z.button() == Qt.MouseButton.LeftButton
+                and self.rect().contains(z.pos())):
+            self.wybrano.emit(self.numer)
+        super().mouseReleaseEvent(z)
+
+    def _rysuj_znak(self, p, sr, kolor):
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        pen = QPen(kolor, 1.5)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        x, y = sr.x(), sr.y()
+        if self.znak == "tarcza":
+            s = QPainterPath()
+            s.moveTo(x, y - 9)
+            s.lineTo(x + 8, y - 5)
+            s.lineTo(x + 8, y + 2)
+            s.cubicTo(x + 8, y + 7, x + 4, y + 9, x, y + 10)
+            s.cubicTo(x - 4, y + 9, x - 8, y + 7, x - 8, y + 2)
+            s.lineTo(x - 8, y - 5)
+            s.closeSubpath()
+            p.drawPath(s)
+            p.drawLine(QPointF(x - 3.4, y), QPointF(x - 0.8, y + 3.0))
+            p.drawLine(QPointF(x - 0.8, y + 3.0), QPointF(x + 4.0, y - 3.0))
+        elif self.znak == "karta":
+            r = QRectF(x - 9, y - 6.5, 18, 13)
+            p.drawPath(_sciezka(r, 2.5))
+            p.drawLine(QPointF(x - 9, y - 2.0), QPointF(x + 9, y - 2.0))
+            p.setBrush(QBrush(kolor))
+            p.drawEllipse(QPointF(x - 4.0, y + 2.5), 1.8, 1.8)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawLine(QPointF(x + 0.5, y + 2.5), QPointF(x + 6.5, y + 2.5))
+        else:
+            s = QPainterPath()
+            s.moveTo(x - 7, y - 9)
+            s.lineTo(x + 3, y - 9)
+            s.lineTo(x + 7, y - 5)
+            s.lineTo(x + 7, y + 9)
+            s.lineTo(x - 7, y + 9)
+            s.closeSubpath()
+            p.drawPath(s)
+            p.drawLine(QPointF(x + 3, y - 9), QPointF(x + 3, y - 5))
+            p.drawLine(QPointF(x + 3, y - 5), QPointF(x + 7, y - 5))
+            p.drawLine(QPointF(x - 3.5, y + 1), QPointF(x + 3.5, y + 1))
+            p.drawLine(QPointF(x - 3.5, y + 5), QPointF(x + 1.5, y + 5))
+
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w = _ogranicz(self._wybor.teraz())
+        pod = self._pod.teraz() * (1.0 - w * 0.6)
+        czynny = self.isEnabled()
+        if not czynny:
+            pod = 0.0
+        r = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
+        s = _sciezka(r, 13.0)
+        if w > 0.01:
+            S.halo(p, r, S.ZIELEN, sila=int(26 * w), promien=10.0, zaokraglenie=13.0,
+                   przesun=2.0)
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        g.setColorAt(0.0, QColor(int(20 + 6 * w), int(32 + 22 * w), int(50 + 14 * w),
+                                 int(200 + 30 * pod)))
+        g.setColorAt(1.0, QColor(int(11 + 2 * w), int(19 + 10 * w), int(31 + 8 * w), 225))
+        p.fillPath(s, QBrush(g))
+        if w > 0.02:
+            S.obrys_gradientowy(p, s, S.z_alfa(S.CYJAN, int(210 * w)),
+                                S.z_alfa(S.ZIELEN, int(230 * w)), szerokosc=1.4)
+        else:
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(255, 255, 255, int(26 + 44 * pod)), 1.0))
+            p.drawPath(s)
+        gora = QRectF(r.x() + 10, r.y() + 0.6, r.width() - 20, 1.0)
+        p.fillRect(gora, QColor(255, 255, 255, int(28 + 26 * (pod + w))))
+
+        alfa = 255 if czynny else 120
+        kolor_znaku = S.z_alfa(S.MIETA if w > 0.4 else S.TEKST_2, alfa)
+        self._rysuj_znak(p, QPointF(r.x() + 30, r.center().y()), kolor_znaku)
+
+        x = r.x() + 54
+        nazwa_kolor = S.z_alfa(S.TEKST if w < 0.4 else S.MIETA, alfa)
+        S.tekst(p, x, r.center().y() - 3, self.nazwa, nazwa_kolor, 14, 700 if w > 0.4 else 600,
+                poswiata=0.6 * w)
+        S.tekst(p, x, r.center().y() + 14, self.opis, S.z_alfa(S.TEKST_3, alfa), 11, 500)
+
+        # znacznik wyboru po prawej
+        sr = QPointF(r.right() - 26, r.center().y())
+        if w > 0.02:
+            S.punkt_swiatla(p, sr, 14.0, S.ZIELEN, int(120 * w))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(S.z_alfa(S.ZIELEN if w > 0.4 else QColor(255, 255, 255),
+                               int(60 + 170 * w)), 1.4))
+        p.drawEllipse(sr, 9.0, 9.0)
+        if w > 0.02:
+            pen = QPen(S.z_alfa(S.MIETA, int(255 * w)), 2.0)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            p.drawLine(QPointF(sr.x() - 4.0, sr.y() + 0.2), QPointF(sr.x() - 1.2, sr.y() + 3.2))
+            p.drawLine(QPointF(sr.x() - 1.2, sr.y() + 3.2), QPointF(sr.x() + 4.4, sr.y() - 3.4))
+        p.end()
+
+
+# ── panel podpisu ────────────────────────────────────────────────────
 class PanelPodpisu(Panel):
     """Wybór bezpłatnej ścieżki podpisu i jego przebieg."""
-    def __init__(self, dni, rodzic=None):
-        super().__init__("Podpisz elektronicznie", rodzic)
-        self.dni = dni
-        self.grupa = QButtonGroup(self)
-        for i, (nazwa, opis) in enumerate((
-                ("Profil zaufany", "gov.pl · bezpłatny"),
-                ("e-dowód · podpis osobisty", "dowód z certyfikatem · NFC lub czytnik"),
-                ("Mam już podpisany plik", "wskaż plik z dysku"))):
-            r = QRadioButton(f"  {nazwa}          {opis}")
-            r.setFont(S.czcionka(13, 600 if i == 0 else 400))
-            r.setMinimumHeight(42)
-            if i == 0: r.setChecked(True)
-            self.grupa.addButton(r, i)
-            self.z.addWidget(r)
-        self.z.addSpacing(6)
-        self.postep = QProgressBar(); self.postep.setRange(0, len(dni) or 1)
-        self.postep.setTextVisible(False); self.postep.setFixedHeight(6)
-        self.postep.setStyleSheet(
-            "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 3px; }"
-            "QProgressBar::chunk { background: %s; border-radius: 3px; }" % S.CYJAN.name())
-        self.z.addWidget(self.postep)
-        self.l_stan = QLabel("gotowe do podpisu: %d" % len(dni))
-        self.l_stan.setFont(S.czcionka(12)); self.l_stan.setStyleSheet(f"color: {S.TEKST_2.name()};")
-        self.z.addWidget(self.l_stan)
-        d = QHBoxLayout(); d.addStretch(1)
-        self.b_anuluj = QPushButton("Anuluj"); self.b_anuluj.clicked.connect(self.reject)
-        self.b_dalej = QPushButton("Dalej"); self.b_dalej.setProperty("rola", "glowny")
-        self.b_dalej.setMinimumWidth(130); self.b_dalej.clicked.connect(self._dalej)
-        d.addWidget(self.b_anuluj); d.addWidget(self.b_dalej)
-        self.z.addLayout(d)
-        self._licznik = 0
-        self._zegar = QTimer(self); self._zegar.timeout.connect(self._tyk)
 
+    SCIEZKI = (("Profil zaufany", "gov.pl · bezpłatny", "tarcza"),
+               ("e-dowód · podpis osobisty", "certyfikat w dowodzie · NFC albo czytnik", "karta"),
+               ("Mam już podpisany plik", "plik z dysku", "plik"))
+
+    def __init__(self, dni, rodzic=None):
+        self.dni = list(dni)
+        super().__init__("Podpisz elektronicznie",
+                         "%d dokumentów · %s zł" % (len(self.dni),
+                                                    D.zl(sum(d.kwota for d in self.dni))),
+                         rodzic)
+        self._wybor = 0
+        self.kafle = []
+        for i, (nazwa, opis, znak) in enumerate(self.SCIEZKI):
+            k = KafelSciezki(i, nazwa, opis, znak, self)
+            k.wybrano.connect(self._wybierz)
+            k.ustaw_wybrany(i == 0, animuj=False)
+            self.kafle.append(k)
+            self.z.addWidget(k)
+        self.z.addSpacing(4)
+
+        self.l_stan, self.l_licznik = self.wiersz_stanu(
+            "gotowe do podpisu", "0 / %d" % len(self.dni))
+        self.postep = PasekPostepu(S.CYJAN, S.ZIELEN, self)
+        self.z.addWidget(self.postep)
+
+        self.b_anuluj = Przycisk("Anuluj", "zwykly", 13, self)
+        self.b_anuluj.clicked.connect(self.reject)
+        self.b_dalej = Przycisk("Dalej", "glowny", 13, self)
+        self.b_dalej.clicked.connect(self._dalej)
+        self.stopka(self.b_anuluj, self.b_dalej)
+
+        self._licznik = 0
+        self._zegar = QTimer(self)
+        self._zegar.setInterval(max(90, int(1900 / max(1, len(self.dni)))))
+        self._zegar.timeout.connect(self._tyk)
+
+    # — wybór ścieżki —
+    def _wybierz(self, numer):
+        if numer == self._wybor:
+            return
+        self._wybor = int(numer)
+        for k in self.kafle:
+            k.ustaw_wybrany(k.numer == self._wybor)
+        self.l_stan.setText("gotowe do podpisu · %s" % self.SCIEZKI[self._wybor][0].lower())
+
+    def nazwa_sciezki(self):
+        return self.SCIEZKI[self._wybor][0]
+
+    # — przebieg —
     def _dalej(self):
         self.b_dalej.setEnabled(False)
-        for b in self.grupa.buttons(): b.setEnabled(False)
-        self.l_stan.setText("czekam na podpisane pliki…")
-        self._zegar.start(420)
+        for k in self.kafle:
+            k.setEnabled(False)
+        self.l_stan.setText(self.nazwa_sciezki().lower())
+        self._zegar.start()
 
     def _tyk(self):
         self._licznik += 1
-        self.postep.setValue(self._licznik)
-        self.l_stan.setText(f"{self._licznik} z {len(self.dni)} podpisanych")
-        if self._licznik >= len(self.dni):
+        ile = len(self.dni)
+        self.postep.ustaw(self._licznik / float(max(1, ile)))
+        self.l_licznik.setText("%d / %d" % (self._licznik, ile))
+        if self._licznik >= ile:
             self._zegar.stop()
-            self.postep.setStyleSheet(
-                "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 3px; }"
-                "QProgressBar::chunk { background: %s; border-radius: 3px; }" % S.ZIELEN.name())
-            self.l_stan.setText(f"podpisano {len(self.dni)} z {len(self.dni)} · profil zaufany")
-            self.b_dalej.setText("Zamknij"); self.b_dalej.setEnabled(True)
-            try: self.b_dalej.clicked.disconnect()
-            except Exception: pass
+            self.postep.ustaw_kolory(S.ZIELEN, S.MIETA)
+            self.l_stan.setText("podpisano · %s" % self.nazwa_sciezki().lower())
+            self.l_stan.ustaw_kolor(S.MIETA)
+            self.l_licznik.ustaw_kolor(S.MIETA)
+            self.b_dalej.setText("Zamknij")
+            self.b_dalej.setEnabled(True)
+            try:
+                self.b_dalej.clicked.disconnect()
+            except Exception:
+                pass
             self.b_dalej.clicked.connect(self.accept)
 
+    # — zatrzymanie —
+    def zatrzymaj_animacje(self):
+        self._zegar.stop()
+        self.postep.zatrzymaj_animacje()
+        for k in self.kafle:
+            k.zatrzymaj_animacje()
+        for b in (self.b_anuluj, self.b_dalej):
+            b.zatrzymaj_animacje()
+        self.b_zamknij.zatrzymaj_animacje()
+
     def reject(self):
-        self._zegar.stop(); super().reject()
+        self.zatrzymaj_animacje()
+        super().reject()
 
     def accept(self):
-        self._zegar.stop(); super().accept()
+        self.zatrzymaj_animacje()
+        super().accept()
 
 
+# ── lista załączników ────────────────────────────────────────────────
+class ListaPlikow(QWidget):
+    def __init__(self, nazwy, reszta=0, rodzic=None):
+        super().__init__(rodzic)
+        self._nazwy = list(nazwy)
+        self._reszta = int(reszta)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(int(len(self._nazwy) * 20 + (18 if self._reszta else 0) + 4))
+
+    def paintEvent(self, _z):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        y = 14.0
+        for nazwa in self._nazwy:
+            r = QRectF(0, y - 9, 24, 13)
+            p.fillPath(_sciezka(r, 3.5), QBrush(S.z_alfa(S.ZIELEN, 46)))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(S.z_alfa(S.ZIELEN, 110), 1.0))
+            p.drawPath(_sciezka(r, 3.5))
+            S.tekst(p, r.x() + 4.5, y + 1.5, "PDF", S.z_alfa(S.MIETA, 220), 7.5, 800, odstep=0.4)
+            S.tekst(p, 32, y + 1.0, nazwa, S.TEKST_2, 11, 500, mono=True)
+            y += 20.0
+        if self._reszta:
+            S.tekst(p, 32, y + 1.0, "… razem %d plików" % self._reszta, S.TEKST_3, 11, 500,
+                    mono=True)
+        p.end()
+
+
+# ── panel wysyłki ────────────────────────────────────────────────────
 class PanelWysylki(Panel):
     """Adresat, gotowy temat i załączniki."""
+
     def __init__(self, dni, rodzic=None):
-        super().__init__("Wyślij e-mailem", rodzic)
-        self.dni = dni
+        self.dni = list(dni)
+        ile = len(D.dokumenty(self.dni)) + 1 if self.dni else 1
+        super().__init__("Wyślij e-mailem",
+                         "%s · %s 2026 · %d załączników"
+                         % (D.PRACOWNIK, D.nazwa_miesiaca(9), ile), rodzic)
+        self._ile_plikow = ile
         self.e_do = self.wiersz("DO", QLineEdit("kadry@pmt.pl"))
         self.e_dw = self.wiersz("DW", QLineEdit(""))
-        temat = f"Delegacje — {D.PRACOWNIK} — {D.nazwa_miesiaca(9)} 2026"
+        temat = "Delegacje — %s — %s 2026" % (D.PRACOWNIK, D.nazwa_miesiaca(9))
         self.e_temat = self.wiersz("TEMAT", QLineEdit(temat))
-        self.e_temat.setFont(S.czcionka(13, 600))
-        lista = QLabel("\n".join(
-            f"delegacja_{i:02d}_{D.PRACOWNIK.replace(' ', '_')}_wrzesień_2026r.pdf"
-            for i in range(1, min(len(dni), 6) + 1)) + f"\n… razem {len(dni) + 1} plików")
-        lista.setFont(S.czcionka(11, mono=True))
-        lista.setStyleSheet(f"color: {S.TEKST_2.name()};")
-        self.wiersz("ZAŁĄCZNIKI", lista)
-        self.postep = QProgressBar(); self.postep.setRange(0, len(dni) + 1)
-        self.postep.setTextVisible(False); self.postep.setFixedHeight(6)
-        self.postep.setStyleSheet(
-            "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 3px; }"
-            "QProgressBar::chunk { background: %s; border-radius: 3px; }" % S.ZIELEN.name())
+        for pole in (self.e_do, self.e_dw, self.e_temat):
+            pole.setMinimumHeight(38)
+        nazwy = ["delegacja_%02d_%s_wrzesień_2026r.pdf"
+                 % (i, D.PRACOWNIK.replace(" ", "_")) for i in range(1, min(ile - 1, 4) + 1)]
+        nazwy.append("ewidencja_przebiegu_%s_wrzesień_2026r.pdf"
+                     % D.PRACOWNIK.replace(" ", "_"))
+        self.wiersz("ZAŁĄCZNIKI", ListaPlikow(nazwy, ile if ile > len(nazwy) else 0, self))
+        self.z.addSpacing(4)
+
+        self.l_stan, self.l_licznik = self.wiersz_stanu(
+            "gotowe do wysyłki", "0 / %d" % ile)
+        self.postep = PasekPostepu(S.CYJAN, S.ZIELEN, self)
         self.z.addWidget(self.postep)
-        self.l_stan = QLabel(""); self.l_stan.setFont(S.czcionka(12))
-        self.l_stan.setStyleSheet(f"color: {S.TEKST_2.name()};")
-        self.z.addWidget(self.l_stan)
-        d = QHBoxLayout(); d.addStretch(1)
-        b_anuluj = QPushButton("Anuluj"); b_anuluj.clicked.connect(self.reject)
-        self.b_wyslij = QPushButton("Wyślij"); self.b_wyslij.setProperty("rola", "glowny")
-        self.b_wyslij.setMinimumWidth(130); self.b_wyslij.clicked.connect(self._wyslij)
-        d.addWidget(b_anuluj); d.addWidget(self.b_wyslij)
-        self.z.addLayout(d)
+
+        self.b_anuluj = Przycisk("Anuluj", "zwykly", 13, self)
+        self.b_anuluj.clicked.connect(self.reject)
+        self.b_wyslij = Przycisk("Wyślij", "glowny", 13, self)
+        self.b_wyslij.clicked.connect(self._wyslij)
+        self.stopka(self.b_anuluj, self.b_wyslij)
+
         self._i = 0
-        self._zegar = QTimer(self); self._zegar.timeout.connect(self._tyk)
+        self._zegar = QTimer(self)
+        self._zegar.setInterval(max(110, int(1600 / max(1, ile))))
+        self._zegar.timeout.connect(self._tyk)
 
     def _wyslij(self):
         self.b_wyslij.setEnabled(False)
-        self._zegar.start(260)
+        self.l_stan.setText("załączniki")
+        self._zegar.start()
 
     def _tyk(self):
         self._i += 1
-        self.postep.setValue(self._i)
-        self.l_stan.setText(f"{self._i} z {len(self.dni) + 1} załączników")
-        if self._i >= len(self.dni) + 1:
+        self.postep.ustaw(self._i / float(max(1, self._ile_plikow)))
+        self.l_licznik.setText("%d / %d" % (self._i, self._ile_plikow))
+        if self._i >= self._ile_plikow:
             self._zegar.stop()
-            self.l_stan.setText(f"wysłano 14:26 · {self.e_do.text()} · {len(self.dni) + 1} załączników")
-            self.b_wyslij.setText("Zamknij"); self.b_wyslij.setEnabled(True)
-            try: self.b_wyslij.clicked.disconnect()
-            except Exception: pass
+            self.postep.ustaw_kolory(S.ZIELEN, S.MIETA)
+            self.l_stan.setText("wysłano 14:26 · %s" % self.e_do.text())
+            self.l_stan.ustaw_kolor(S.MIETA)
+            self.l_licznik.ustaw_kolor(S.MIETA)
+            self.b_wyslij.setText("Zamknij")
+            self.b_wyslij.setEnabled(True)
+            try:
+                self.b_wyslij.clicked.disconnect()
+            except Exception:
+                pass
             self.b_wyslij.clicked.connect(self.accept)
 
+    def zatrzymaj_animacje(self):
+        self._zegar.stop()
+        self.postep.zatrzymaj_animacje()
+        for b in (self.b_anuluj, self.b_wyslij):
+            b.zatrzymaj_animacje()
+        self.b_zamknij.zatrzymaj_animacje()
+
     def reject(self):
-        self._zegar.stop(); super().reject()
+        self.zatrzymaj_animacje()
+        super().reject()
 
     def accept(self):
-        self._zegar.stop(); super().accept()
+        self.zatrzymaj_animacje()
+        super().accept()
+
+
+# ── zrzuty ───────────────────────────────────────────────────────────
+def _tlo_pod_panel(rozmiar):
+    pix = QPixmap(rozmiar)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    S.tlo_sceny(p, QRectF(0, 0, rozmiar.width(), rozmiar.height()))
+    p.end()
+    return pix
+
+
+def _zrzut_panelu(app, panel, nazwa):
+    panel.show()
+    for _ in range(6):
+        app.processEvents()
+    panel.zatrzymaj_animacje()
+    for _ in range(4):
+        app.processEvents()
+    tlo = _tlo_pod_panel(panel.size())
+    p = QPainter(tlo)
+    p.drawPixmap(0, 0, panel.grab())
+    p.end()
+    tlo.save(nazwa)
+    panel.close()
+    print("zapisano", nazwa)
 
 
 if __name__ == "__main__":
     import sys
     from PyQt6.QtWidgets import QApplication
+
     app = QApplication(sys.argv)
-    dni = D.oblicz_miesiac(1850, wolne=(14, 15))
-    okno = QWidget(); okno.resize(1440, 430)
+    app.setFont(S.czcionka(13))
+    dni = D.oblicz_miesiac(4200, wolne=(14, 15))
+    okno = QWidget()
+    okno.resize(1440, 430)
     okno.setStyleSheet(S.qss())
-    l = QVBoxLayout(okno); l.setContentsMargins(0, 0, 0, 0)
-    taca = TacaDokumentow(); taca.ustaw_dni(dni)
-    l.addStretch(1); l.addWidget(taca)
+    l = QVBoxLayout(okno)
+    l.setContentsMargins(0, 0, 0, 0)
+    taca = TacaDokumentow()
+    l.addStretch(1)
+    l.addWidget(taca)
     okno.show()
+    taca.ustaw_dni(dni)
+
     if "--zrzut" in sys.argv:
+        for _ in range(6):
+            app.processEvents()
+        taca.zatrzymaj_animacje()
+        for _ in range(4):
+            app.processEvents()
         okno.grab().save("zrzut_taca.png")
         print("zapisano zrzut_taca.png")
+        w_trasie = [d for d in dni if not d.wolny]
+        _zrzut_panelu(app, PanelPodpisu(w_trasie), "zrzut_taca_podpis.png")
+        _zrzut_panelu(app, PanelWysylki(w_trasie), "zrzut_taca_wysylka.png")
         sys.exit(0)
     sys.exit(app.exec())

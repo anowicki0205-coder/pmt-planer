@@ -2,22 +2,31 @@
 """Taśma miesiąca — poziomy pasek wszystkich dni, tuż pod paskiem tytułowym.
 
 Jeden kafel to jeden dzień: skrót dnia tygodnia z numerem, miniatura trasy
-i kwota. Dzień bez trasy jest tylko wygaszony, a napis „wolne” dostaje wyłącznie
-dzień wyłączony przez użytkownika. Dzień wybrany jest uniesiony i ma jasną obwódkę, dzisiejszy dostaje
-cyjanową obwódkę i plakietkę DZIŚ z dziobkiem. Po wygenerowaniu dokumentów
+i kwota. Kafel nie jest płaskim prostokątem — ma wypukłą płaszczyznę, wewnętrzną
+krawędź światła u góry i własny cień pod spodem, więc taśma czyta się jak rząd
+fizycznych klawiszy. Dzień bez trasy jest tylko wygaszony, a napis „wolne”
+dostaje wyłącznie dzień wyłączony przez użytkownika. Dzień wybrany unosi się
+płynnie (krótkie przejście ze sprężyną), dzisiejszy dostaje cyjanową obwódkę
+z wolnym pulsowaniem i plakietkę DZIŚ z dziobkiem. Po wygenerowaniu dokumentów
 dni w trasie dostają plakietkę PDF, a dzień podpisany zielony znacznik.
+
+Liczby zbiorcze w nagłówku dochodzą do nowych wartości płynnie (proto_styl.Plynnie).
+Wszystkie ruchy da się zatrzymać metodą ``zatrzymaj_animacje()``; zegar pulsu
+chodzi tylko wtedy, gdy jest co pulsować, i gaśnie przy chowaniu widżetu.
 
 Barwy, czcionki i pomocniki rysowania pochodzą z proto_styl, dane z proto_dane.
 """
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QEvent, pyqtSignal
+import math
+
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QEvent, QTimer, pyqtSignal
 from PyQt6.QtGui import (QPainter, QPainterPath, QPen, QBrush, QColor,
                          QLinearGradient, QRadialGradient, QFontMetricsF)
 from PyQt6.QtWidgets import QWidget, QToolTip
 
 from proto_styl import (TLO_GORA, TEKST, TEKST_2, TEKST_3,
                         CYJAN, ZIELEN, MIETA, BURSZTYN,
-                        z_alfa, czcionka, szklo, cien, poswiata_linii,
-                        punkt_swiatla, tekst)
+                        z_alfa, czcionka, poswiata_linii,
+                        punkt_swiatla, tekst, Plynnie)
 import proto_dane as dane
 
 # ── miary taśmy (wprost z zatwierdzonego projektu) ───────────────────
@@ -30,6 +39,18 @@ H_TASMY      = 118      # docelowa wysokość całości
 ODSTEP       = 4.0      # przerwa między kaflami
 PROMIEN      = 9.0
 BIEL         = QColor(255, 255, 255)
+CZERN        = QColor(0, 0, 0)
+
+# ── ruch ─────────────────────────────────────────────────────────────
+KLATKA_MS    = 40       # zegar pulsu — 25 kl./s wystarczy na wolne tętno
+OKRES_PULSU  = 2600.0   # pełny oddech obwódki dnia dzisiejszego
+CZAS_WYBORU  = 210      # przejście uniesienia kafla
+CZAS_LICZB   = 300      # dochodzenie liczb zbiorczych w nagłówku
+
+# ── materiał kafla ───────────────────────────────────────────────────
+KORPUS_GORA  = QColor(40, 59, 89, 196)
+KORPUS_SROD  = QColor(22, 35, 56, 180)
+KORPUS_DOL   = QColor(11, 18, 31, 196)
 
 
 def _postoje_txt(n):
@@ -62,9 +83,29 @@ class TasmaMiesiaca(QWidget):
         self._dni = []
         self._dzis = 0
         self._wybrany = 0
+        self._wybrany_stary = 0
         self._stan = "zwykly"
         self._pod_kursorem = -1
         self._zbior = dane.podsumowanie([])
+        self._uklad = {"etykieta": (False, 10), "kwota": (12, True)}
+        self._faza = 0.0
+        self._anim = True
+        self._pierwsze_dane = True
+
+        # płynne dochodzenie liczb i uniesienia kafla
+        self._pl_kwota = Plynnie(0.0, czas=CZAS_LICZB, krzywa="wyjscie", rodzic=self,
+                                 przy_zmianie=self._odswiez_naglowek)
+        self._pl_km = Plynnie(0.0, czas=CZAS_LICZB, krzywa="wyjscie", rodzic=self,
+                              przy_zmianie=self._odswiez_naglowek)
+        self._pl_dni = Plynnie(0.0, czas=CZAS_LICZB, krzywa="wyjscie", rodzic=self,
+                               przy_zmianie=self._odswiez_naglowek)
+        self._pl_wybor = Plynnie(1.0, czas=CZAS_WYBORU, krzywa="sprezyna", rodzic=self,
+                                 przy_zmianie=self._odswiez_wybor)
+
+        self._zegar = QTimer(self)
+        self._zegar.setInterval(KLATKA_MS)
+        self._zegar.timeout.connect(self._tik)
+
         self.setMouseTracking(True)
         self.setMinimumHeight(84)
         self.setMinimumWidth(420)
@@ -81,6 +122,18 @@ class TasmaMiesiaca(QWidget):
         z = dane.podsumowanie(licz)
         z["dni_wszystkie"] = len(self._dni)
         self._zbior = z
+        # pierwsze dane, taśma schowana albo wyzerowana kwota — liczby siadają
+        # od razu; doliczanie ma sens tylko między dwiema prawdziwymi kwotami
+        skok = (self._pierwsze_dane or not self.isVisible()
+                or z["kwota"] <= 0.0 or not self._anim)
+        for plynne, wartosc in ((self._pl_kwota, z["kwota"]),
+                                (self._pl_km, z["km"]),
+                                (self._pl_dni, z["dni"])):
+            if skok:
+                plynne.ustaw(wartosc)
+            else:
+                plynne.do(wartosc)
+        self._pierwsze_dane = False
 
     @staticmethod
     def _wylaczony(d):
@@ -91,14 +144,25 @@ class TasmaMiesiaca(QWidget):
         self._przelicz()
         if self._wybrany and not self._dzien(self._wybrany):
             self._wybrany = 0
+        self._dopilnuj_zegara()
         self.update()
 
     def ustaw_dzis(self, numer_dnia):
         self._dzis = int(numer_dnia or 0)
+        self._dopilnuj_zegara()
         self.update()
 
     def ustaw_wybrany(self, numer_dnia):
-        self._wybrany = int(numer_dnia or 0)
+        numer = int(numer_dnia or 0)
+        if numer == self._wybrany:
+            return
+        self._wybrany_stary = self._wybrany
+        self._wybrany = numer
+        if self._anim and self.isVisible():
+            self._pl_wybor.ustaw(0.0)
+            self._pl_wybor.do(1.0)
+        else:
+            self._pl_wybor.ustaw(1.0)
         self.update()
 
     def ustaw_stan(self, nazwa):
@@ -130,6 +194,71 @@ class TasmaMiesiaca(QWidget):
             if d.data.day == numer:
                 return d
         return None
+
+    # ── animacje ─────────────────────────────────────────────────────
+    def zatrzymaj_animacje(self):
+        """Gasi zegar i stawia wszystkie ruchy w położeniu docelowym."""
+        self._anim = False
+        self._zegar.stop()
+        self._faza = 0.0
+        self._stoj_plynne()
+        self._wybrany_stary = self._wybrany
+        self.update()
+
+    def wznow_animacje(self):
+        self._anim = True
+        self._dopilnuj_zegara()
+        self.update()
+
+    def animacje_chodza(self):
+        return bool(self._anim)
+
+    def _dopilnuj_zegara(self):
+        """Zegar pulsu chodzi tylko wtedy, gdy dzisiejszy dzień jest na taśmie."""
+        trzeba = bool(self._anim and self.isVisible() and self._dzis
+                      and self._dzien(self._dzis) is not None)
+        if trzeba and not self._zegar.isActive():
+            self._zegar.start()
+        elif not trzeba and self._zegar.isActive():
+            self._zegar.stop()
+
+    def _tik(self):
+        self._faza = (self._faza + KLATKA_MS) % (OKRES_PULSU * 4.0)
+        r = self._rect_dnia(self._dzis)
+        self.update(self._obszar(r, 9.0) if r is not None else self.rect())
+
+    def _puls(self):
+        """0…1 — wolny oddech obwódki dnia dzisiejszego."""
+        if not self._anim:
+            return 0.35
+        return 0.5 + 0.5 * math.sin(self._faza / OKRES_PULSU * 2.0 * math.pi)
+
+    @staticmethod
+    def _obszar(rect, zapas):
+        """Prostokąt kafla z zapasem na poświatę i plakietkę DZIŚ nad nim."""
+        return rect.adjusted(-zapas, -zapas - 12.0, zapas, zapas).toAlignedRect()
+
+    def _rect_dnia(self, numer):
+        if not numer:
+            return None
+        kafle = self._kafle()
+        for i, d in enumerate(self._dni):
+            if d.data.day == numer and i < len(kafle):
+                return kafle[i]
+        return None
+
+    def _odswiez_naglowek(self):
+        self.update(0, 0, self.width(), int(PAD_GORA + H_NAGLOWEK + 4.0))
+
+    def _odswiez_wybor(self):
+        obszar = None
+        for numer in (self._wybrany, self._wybrany_stary):
+            r = self._rect_dnia(numer)
+            if r is None:
+                continue
+            pole = self._obszar(r, 10.0)
+            obszar = pole if obszar is None else obszar.united(pole)
+        self.update(obszar if obszar is not None else self.rect())
 
     # ── układ ────────────────────────────────────────────────────────
     def _pas(self):
@@ -174,17 +303,49 @@ class TasmaMiesiaca(QWidget):
     def mouseMoveEvent(self, e):
         i = self._indeks(e.position())
         if i != self._pod_kursorem:
+            poprzedni = self._pod_kursorem
             self._pod_kursorem = i
             self.setCursor(Qt.CursorShape.PointingHandCursor if i >= 0
                            else Qt.CursorShape.ArrowCursor)
-            self.update()
+            self._odswiez_kafle((poprzedni, i))
         super().mouseMoveEvent(e)
 
     def leaveEvent(self, e):
         if self._pod_kursorem != -1:
+            poprzedni = self._pod_kursorem
             self._pod_kursorem = -1
-            self.update()
+            self._odswiez_kafle((poprzedni,))
         super().leaveEvent(e)
+
+    def _odswiez_kafle(self, indeksy):
+        """Odświeża tylko wskazane kafle — taśma ma trzydzieści, malujemy dwa."""
+        kafle = self._kafle()
+        obszar = None
+        for i in indeksy:
+            if i is None or i < 0 or i >= len(kafle):
+                continue
+            pole = self._obszar(kafle[i], 10.0)
+            obszar = pole if obszar is None else obszar.united(pole)
+        self.update(obszar if obszar is not None else self.rect())
+
+    def showEvent(self, e):
+        self._dopilnuj_zegara()
+        super().showEvent(e)
+
+    def hideEvent(self, e):
+        self._zegar.stop()
+        self._stoj_plynne()
+        super().hideEvent(e)
+
+    def closeEvent(self, e):
+        self._zegar.stop()
+        self._stoj_plynne()
+        super().closeEvent(e)
+
+    def _stoj_plynne(self):
+        """Stawia dochodzenia liczb na wartościach docelowych i gasi ich zegary."""
+        for plynne in (self._pl_kwota, self._pl_km, self._pl_dni, self._pl_wybor):
+            plynne.dokoncz()
 
     def event(self, e):
         if e.type() == QEvent.Type.ToolTip:
@@ -213,10 +374,13 @@ class TasmaMiesiaca(QWidget):
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self._rysuj_naglowek(p)
         kafle = self._kafle()
+        self._uklad = self._policz_uklad(kafle)
+        self._rysuj_szyne(p, kafle)
+        wyjatki = {self._dzis, self._wybrany, self._wybrany_stary} - {0}
         gorne = []
         for i, r in enumerate(kafle):
             d = self._dni[i]
-            if d.data.day in (self._dzis, self._wybrany):
+            if d.data.day in wyjatki:
                 gorne.append((i, r, d))
             else:
                 self._rysuj_kafel(p, r, d, i)
@@ -238,10 +402,23 @@ class TasmaMiesiaca(QWidget):
                 self._plakietka_dzis(p, self._uniesienie(r, d))
         p.end()
 
+    def _udzial_wyboru(self, numer):
+        """Ile dany dzień jest „wybrany”: 1 dla wybranego, 0 dla reszty, po drodze ułamek."""
+        if not numer:
+            return 0.0
+        t = self._pl_wybor.teraz()
+        if numer == self._wybrany:
+            return t
+        if numer == self._wybrany_stary and numer != self._wybrany:
+            return 1.0 - t
+        return 0.0
+
     def _uniesienie(self, r, d):
-        if d.data.day == self._wybrany:
-            return r.adjusted(-1.2, -4.0, 1.2, 1.2)
-        return r
+        u = self._udzial_wyboru(d.data.day)
+        if u <= 0.002:
+            return r
+        u = max(0.0, u)          # sprężyna potrafi zejść pod zero — kafel nie tonie
+        return r.adjusted(-1.2 * u, -4.0 * u, 1.2 * u, 1.2 * u)
 
     def _rysuj_naglowek(self, p):
         y = PAD_GORA + 12.5
@@ -250,22 +427,54 @@ class TasmaMiesiaca(QWidget):
         tekst(p, PAD_BOK, y, "TAŚMA MIESIĄCA", kolor=MIETA,
               rozmiar=12, waga=600, naglowek=True, odstep=1.3)
 
-        z = self._zbior
-        grupy = [(dane.zl(z["kwota"], grosze=False) + " zł", ""),
-                 (dane.zl(z["km"], grosze=False) + " km", ""),
-                 (str(z["dni"]), "z %d dni" % z["dni_wszystkie"])]
-        f_w = czcionka(12, 700, mono=True)
-        f_s = czcionka(12, 400)
-        fm_w, fm_s = QFontMetricsF(f_w), QFontMetricsF(f_s)
+        wszystkie = self._zbior["dni_wszystkie"]
+        # liczba osobno (stała szerokość, pełna jasność), jednostka osobno i ciszej
+        grupy = [(dane.zl(self._pl_kwota.teraz(), grosze=False), "zł", ""),
+                 (dane.zl(self._pl_km.teraz(), grosze=False), "km", ""),
+                 (str(int(round(self._pl_dni.teraz()))), "", "z %d dni" % wszystkie)]
+        fm_w = QFontMetricsF(czcionka(12, 700, mono=True))
+        fm_j = QFontMetricsF(czcionka(11, 600))
+        fm_s = QFontMetricsF(czcionka(12, 400))
         x = self.width() - PAD_BOK
-        for wart, sufiks in reversed(grupy):
+        for wart, jedn, sufiks in reversed(grupy):
             if sufiks:
                 x -= fm_s.horizontalAdvance(sufiks)
                 tekst(p, x, y, sufiks, kolor=TEKST_2, rozmiar=12)
-                x -= 4.0
+                x -= 5.0
+            if jedn:
+                x -= fm_j.horizontalAdvance(jedn)
+                tekst(p, x, y, jedn, kolor=z_alfa(TEKST_2, 200), rozmiar=11, waga=600)
+                x -= 3.0
             x -= fm_w.horizontalAdvance(wart)
             tekst(p, x, y, wart, kolor=TEKST, rozmiar=12, waga=700, mono=True)
-            x -= 16.0
+            x -= 17.0
+
+    def _rysuj_szyne(self, p, kafle):
+        """Cienka szyna pod kaflami: szwy tygodni i świecące odcinki dni w trasie."""
+        if not kafle:
+            return
+        pas = self._pas()
+        y = pas.bottom() + 6.5
+        if self.height() - y < 5.0:
+            return
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(z_alfa(BIEL, 22), 1.0))
+        p.drawLine(QPointF(pas.left(), y), QPointF(pas.right(), y))
+        for i, r in enumerate(kafle):
+            d = self._dni[i]
+            if d.data.weekday() == 0 and i > 0:      # szew tygodnia
+                x = r.left() - ODSTEP / 2.0
+                p.setPen(QPen(z_alfa(BIEL, 52), 1.0))
+                p.drawLine(QPointF(x, y - 5.0), QPointF(x, y + 1.0))
+            if self._wylaczony(d) or d.wolny or d.postoje == 0:
+                continue
+            dzis = (d.data.day == self._dzis)
+            kolor = CYJAN if dzis else ZIELEN
+            odcinek = QPainterPath()
+            odcinek.moveTo(r.left() + 2.0, y)
+            odcinek.lineTo(r.right() - 2.0, y)
+            poswiata_linii(p, odcinek, kolor, ((5.0, 18), (2.6, 40),
+                                               (1.3, 235 if dzis else 190)))
 
     def _aureola(self, p, sciezka, kolor, warstwy):
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -273,14 +482,78 @@ class TasmaMiesiaca(QWidget):
             p.setPen(QPen(z_alfa(kolor, alfa), szer))
             p.drawPath(sciezka)
 
+    # ── materiał kafla ───────────────────────────────────────────────
+    def _cien_pod_kaflem(self, p, r, prom, sila, przesun, warstwy=None):
+        """Kilka warstw zamiast rozmycia — kafel ma się odklejać od tła."""
+        p.setPen(Qt.PenStyle.NoPen)
+        for rozrost, alfa in (warstwy or ((3.4, 0.30), (1.9, 0.52), (0.7, 1.0))):
+            s = QPainterPath()
+            s.addRoundedRect(r.adjusted(-rozrost, -rozrost + przesun,
+                                        rozrost, rozrost + przesun),
+                             prom + rozrost, prom + rozrost)
+            p.fillPath(s, z_alfa(CZERN, sila * alfa))
+
+    def _korpus(self, p, r, sciezka, prom, jasnosc=1.0, akcent=None, moc=0.0):
+        """Wypukła płaszczyzna: gradient pionowy, barwa stanu, kopuła światła, cień przy dnie.
+
+        Barwa stanu idzie pod kopułę, więc zielony dzień dalej jest wybrzuszony,
+        a nie zamalowany na płasko.
+        """
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        g.setColorAt(0.00, z_alfa(KORPUS_GORA, KORPUS_GORA.alpha() * jasnosc))
+        g.setColorAt(0.46, z_alfa(KORPUS_SROD, KORPUS_SROD.alpha() * jasnosc))
+        g.setColorAt(1.00, z_alfa(KORPUS_DOL, KORPUS_DOL.alpha()))
+        p.fillPath(sciezka, QBrush(g))
+
+        if akcent is not None and moc > 0.0:
+            a = QLinearGradient(r.topLeft(), r.bottomLeft())
+            a.setColorAt(0.00, z_alfa(akcent, 58 * moc))
+            a.setColorAt(0.55, z_alfa(akcent, 30 * moc))
+            a.setColorAt(1.00, z_alfa(akcent, 12 * moc))
+            p.fillPath(sciezka, QBrush(a))
+
+        # kopuła — źródło światła tuż nad kaflem, płaszczyzna wybrzusza się do widza
+        h = r.height()
+        kopula = QRadialGradient(QPointF(r.center().x(), r.top() - h * 0.52), h * 1.30)
+        kopula.setColorAt(0.00, z_alfa(BIEL, 30 * jasnosc))
+        kopula.setColorAt(0.55, z_alfa(BIEL, 12 * jasnosc))
+        kopula.setColorAt(1.00, z_alfa(BIEL, 0))
+        p.fillPath(sciezka, QBrush(kopula))
+        # dno kafla ucieka w cień
+        dno = QLinearGradient(QPointF(0, r.bottom() - h * 0.42), QPointF(0, r.bottom()))
+        dno.setColorAt(0.0, z_alfa(CZERN, 0))
+        dno.setColorAt(1.0, z_alfa(CZERN, 72))
+        p.fillPath(sciezka, QBrush(dno))
+
+    def _krawedz_swiatla(self, p, r, prom, sila=1.0):
+        """Wewnętrzna krawędź: mocne światło u góry, cienkie odbicie u dołu."""
+        if r.width() < 5.0 or r.height() < 5.0 or sila <= 0.0:
+            return
+        wew = QPainterPath()
+        pw = max(0.0, prom - 0.6)
+        wew.addRoundedRect(r.adjusted(0.6, 0.6, -0.6, -0.6), pw, pw)
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        g.setColorAt(0.00, z_alfa(BIEL, 132 * sila))
+        g.setColorAt(0.16, z_alfa(BIEL, 40 * sila))
+        g.setColorAt(0.46, z_alfa(BIEL, 0))
+        g.setColorAt(0.97, z_alfa(BIEL, 0))
+        g.setColorAt(1.00, z_alfa(BIEL, 30 * sila))
+        pen = QPen(QBrush(g), 1.0)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(pen)
+        p.drawPath(wew)
+
     def _rysuj_kafel(self, p, rbaza, d, i):
         dzis = (d.data.day == self._dzis)
-        wyb = (d.data.day == self._wybrany)
+        wyb_u = self._udzial_wyboru(d.data.day)
+        wyb = wyb_u > 0.02
         wyl = self._wylaczony(d)
         ma_trase = (not wyl) and (not d.wolny) and d.postoje > 0
         pod = (i == self._pod_kursorem)
         po_gen = (self._stan == "po_generacji")
         r = self._uniesienie(rbaza, d)
+        u = max(0.0, min(1.0, wyb_u))       # do jasności: bez przestrzelenia
 
         prom = min(PROMIEN, r.width() * 0.26)
         sciezka = QPainterPath()
@@ -289,29 +562,37 @@ class TasmaMiesiaca(QWidget):
         weekend = d.data.weekday() >= 5
 
         # tło kafla
+        wysoko = max(u, 1.0 if dzis else 0.0)
         if wyl:
             p.fillPath(sciezka, z_alfa(BIEL, 7))
         else:
-            cien(p, r, prom, sila=150 if (wyb or dzis) else 90,
-                 rozmycie=10 if (wyb or dzis) else 6, przesun=5)
-            szklo(p, r, prom, mocne=False, obrys=False, rozblysk=True)
-            if weekend and not ma_trase:
-                p.fillPath(sciezka, z_alfa(TLO_GORA, 120))   # weekend głębiej w tle
-        if ma_trase:
-            baza = CYJAN if dzis else ZIELEN
-            g = QLinearGradient(r.topLeft(), r.bottomLeft())
-            g.setColorAt(0.0, z_alfa(baza, 82 if (wyb or dzis) else 62))
-            g.setColorAt(1.0, z_alfa(baza, 16))
-            p.fillPath(sciezka, QBrush(g))
+            self._cien_pod_kaflem(p, r, prom,
+                                  sila=48 + 64 * wysoko,
+                                  przesun=2.0 + 3.0 * wysoko,
+                                  warstwy=None if (wysoko > 0.02 or ma_trase)
+                                  else ((2.2, 0.40), (0.8, 1.0)))
+            # dzień bez trasy jest cofnięty w tło, dzień w trasie wychodzi do przodu
+            if ma_trase:
+                jasnosc = 0.92 + 0.40 * wysoko
+            elif weekend:
+                jasnosc = 0.34 + 0.66 * wysoko
+            else:
+                jasnosc = 0.52 + 0.62 * wysoko
+            akcent = (CYJAN if dzis else ZIELEN) if (ma_trase or dzis) else None
+            moc = (0.85 + 0.35 * wysoko) if ma_trase else (0.45 if dzis else 0.0)
+            self._korpus(p, r, sciezka, prom, jasnosc, akcent, moc)
 
         # obwódka
         if dzis:
-            self._aureola(p, sciezka, CYJAN, ((9.0, 12), (5.0, 24), (2.6, 48)))
-            pen = QPen(CYJAN, 1.6)
+            puls = self._puls()
+            self._aureola(p, sciezka, CYJAN,
+                          ((10.0, 8 + int(10 * puls)), (5.0, 20 + int(14 * puls)),
+                           (2.6, 44 + int(16 * puls))))
+            pen = QPen(z_alfa(CYJAN, 205 + int(50 * puls)), 1.5 + 0.3 * puls)
         elif wyb:
             if ma_trase:
-                self._aureola(p, sciezka, ZIELEN, ((7.0, 14), (3.5, 24)))
-            pen = QPen(z_alfa(TEKST, 235), 1.4)
+                self._aureola(p, sciezka, ZIELEN, ((7.0, int(14 * u)), (3.5, int(24 * u))))
+            pen = QPen(z_alfa(TEKST, 120 - int(60 * u)), 1.0)
         elif ma_trase:
             self._aureola(p, sciezka, ZIELEN, ((6.0, 10), (3.0, 18)))
             pen = QPen(z_alfa(ZIELEN, 130), 1.2)
@@ -326,11 +607,29 @@ class TasmaMiesiaca(QWidget):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(pen)
         p.drawPath(sciezka)
+        if not wyl:
+            self._krawedz_swiatla(p, r, prom,
+                                  sila=(0.85 if ma_trase else 0.60) + 0.50 * wysoko)
         if wyb:
             zew = QPainterPath()
-            zew.addRoundedRect(r.adjusted(-2.0, -2.0, 2.0, 2.0), prom + 2, prom + 2)
-            p.setPen(QPen(z_alfa(TEKST, 200), 1.8))
+            odsun = 2.0
+            zew.addRoundedRect(r.adjusted(-odsun, -odsun, odsun, odsun),
+                               prom + odsun, prom + odsun)
+            # obręcz wybranego dnia jest światłem, nie plastikiem: jaśnieje u góry
+            g = QLinearGradient(QPointF(0, r.top() - odsun), QPointF(0, r.bottom() + odsun))
+            g.setColorAt(0.0, z_alfa(BIEL, 235 * u))
+            g.setColorAt(0.5, z_alfa(TEKST, 175 * u))
+            g.setColorAt(1.0, z_alfa(TEKST_2, 120 * u))
+            p.setPen(QPen(QBrush(g), 1.6))
             p.drawPath(zew)
+        if dzis:
+            puls = self._puls()
+            obw = QPainterPath()
+            odsun = 2.2 + 1.6 * puls
+            obw.addRoundedRect(r.adjusted(-odsun, -odsun, odsun, odsun),
+                               prom + odsun, prom + odsun)
+            p.setPen(QPen(z_alfa(CYJAN, 26 + int(58 * puls)), 1.1))
+            p.drawPath(obw)
 
         # miejsce zajęte przez plakietki (rysowane osobno, na wierzchu)
         z_lewej = 0.0
@@ -340,30 +639,32 @@ class TasmaMiesiaca(QWidget):
             if d.podpisany:
                 z_lewej = 3.5
 
-        # etykieta dnia
-        if wyb or dzis:
-            kol_etyk, waga = TEKST, 700
+        # etykieta dnia — drugi plan względem kwoty
+        if dzis:
+            kol_etyk, waga = z_alfa(MIETA, 245), 600
+        elif wyb:
+            kol_etyk, waga = z_alfa(TEKST, 120 + int(120 * u)), 600
         elif ma_trase:
-            kol_etyk, waga = MIETA, 600
+            kol_etyk, waga = z_alfa(MIETA, 190), 600
         elif wyl:
             kol_etyk, waga = TEKST_2, 500
         elif weekend:
             kol_etyk, waga = z_alfa(TEKST_3, 130), 500
         else:
             kol_etyk, waga = TEKST_3, 500
-        maks = max(10.0, r.width() - 6.0 - z_lewej - z_prawej)
-        napis, rozm = _dopasuj([d.etykieta, str(d.data.day)], maks, (10, 9, 8), waga=waga)
+        krotka, rozm = self._uklad["etykieta"]
+        napis = str(d.data.day) if krotka else d.etykieta
         srodek = r.center().x() + (z_lewej - z_prawej) * 0.5
         szer_n = QFontMetricsF(czcionka(rozm, waga)).horizontalAdvance(napis)
-        tekst(p, srodek - szer_n / 2.0, r.top() + 15.0, napis, kolor=kol_etyk,
+        tekst(p, srodek - szer_n / 2.0, r.top() + 14.0, napis, kolor=kol_etyk,
               rozmiar=rozm, waga=waga)
 
         # środek: miniatura trasy albo przekreślenie
-        pole = QRectF(r.left() + 5.0, r.top() + r.height() * 0.33,
-                      r.width() - 10.0, r.height() * 0.27)
+        pole = QRectF(r.left() + 5.0, r.top() + r.height() * 0.30,
+                      r.width() - 10.0, r.height() * 0.30)
         if ma_trase:
             self._rysuj_miniature(p, sciezka, pole, d, CYJAN if dzis else
-                                  (MIETA if wyb else ZIELEN), wyb or dzis)
+                                  (MIETA if wyb else ZIELEN), dzis or u > 0.5)
         elif wyl:
             p.setPen(QPen(z_alfa(BURSZTYN, 70), 1.0))
             p.drawLine(QPointF(pole.left() + 3.5, pole.bottom() + 1.0),
@@ -371,18 +672,68 @@ class TasmaMiesiaca(QWidget):
 
         # dół: kwota albo napis wolne
         if ma_trase:
-            warianty = ["%s zł" % dane.zl(d.kwota, grosze=False),
-                        dane.zl(d.kwota, grosze=False)]
-            napis, rozm = _dopasuj(warianty, r.width() - 6.0, (10, 9, 8),
-                                   waga=700, mono=True)
-            szer_n = QFontMetricsF(czcionka(rozm, 700, mono=True)).horizontalAdvance(napis)
-            tekst(p, r.center().x() - szer_n / 2.0, r.bottom() - 8.0, napis,
-                  kolor=TEKST, rozmiar=rozm, waga=700, mono=True)
+            self._rysuj_kwote(p, r, d)
         elif wyl:
             napis, rozm = _dopasuj(["wolne", "—"], r.width() - 6.0, (9, 8), waga=500)
             szer_n = QFontMetricsF(czcionka(rozm, 500)).horizontalAdvance(napis)
             tekst(p, r.center().x() - szer_n / 2.0, r.bottom() - 8.0, napis,
                   kolor=BURSZTYN, rozmiar=rozm, waga=500)
+
+    def _rysuj_kwote(self, p, r, d):
+        """Liczba czcionką o stałej szerokości, „zł” cicho obok — pierwszy plan kafla."""
+        liczba = dane.zl(d.kwota, grosze=False)
+        rozm, z_jednostka = self._uklad["kwota"]
+        y = r.bottom() - 8.5
+        szer_l = QFontMetricsF(czcionka(rozm, 700, mono=True)).horizontalAdvance(liczba)
+        if not z_jednostka:
+            tekst(p, r.center().x() - szer_l / 2.0, y, liczba, kolor=TEKST,
+                  rozmiar=rozm, waga=700, mono=True)
+            return
+        r_j = max(7, rozm - 3)
+        szer_j = QFontMetricsF(czcionka(r_j, 600)).horizontalAdvance("zł")
+        x = r.center().x() - (szer_l + 2.0 + szer_j) / 2.0
+        tekst(p, x, y, liczba, kolor=TEKST, rozmiar=rozm, waga=700, mono=True)
+        tekst(p, x + szer_l + 2.0, y, "zł", kolor=z_alfa(TEKST_2, 190),
+              rozmiar=r_j, waga=600)
+
+    def _policz_uklad(self, kafle):
+        """Jeden wariant napisów dla całej taśmy — kafle nie mogą się różnić.
+
+        Rozmiar dobiera najszerszy napis w miesiącu, nie pojedynczy dzień.
+        """
+        szer = kafle[0].width() if kafle else 0.0
+        zapas = 7.0 if self._stan == "po_generacji" else 0.0
+        maks = max(6.0, szer - 6.0 - zapas)
+
+        etykieta = (True, 8)
+        for krotka in (False, True):
+            napisy = [str(d.data.day) if krotka else d.etykieta for d in self._dni]
+            for rozm in (10, 9, 8):
+                fm = QFontMetricsF(czcionka(rozm, 600))
+                if all(fm.horizontalAdvance(n) <= maks for n in napisy):
+                    etykieta = (krotka, rozm)
+                    break
+            else:
+                continue
+            break
+
+        kwoty = [dane.zl(d.kwota, grosze=False) for d in self._dni
+                 if not self._wylaczony(d) and not d.wolny and d.postoje > 0]
+        kwota = (8, False)
+        if kwoty:
+            wolne = max(6.0, szer - 6.0)
+            szukaj = [(r, True) for r in (12, 11, 10, 9, 8)] + \
+                     [(r, False) for r in (12, 11, 10, 9, 8)]
+            for rozm, z_jedn in szukaj:
+                fm = QFontMetricsF(czcionka(rozm, 700, mono=True))
+                potrzeba = max(fm.horizontalAdvance(k) for k in kwoty)
+                if z_jedn:
+                    potrzeba += 2.0 + QFontMetricsF(
+                        czcionka(max(7, rozm - 3), 600)).horizontalAdvance("zł")
+                if potrzeba <= wolne:
+                    kwota = (rozm, z_jedn)
+                    break
+        return {"etykieta": etykieta, "kwota": kwota}
 
     def _rysuj_miniature(self, p, obrys_kafla, pole, d, kolor, mocno):
         punkty = self._punkty_trasy(d, pole)
@@ -396,14 +747,33 @@ class TasmaMiesiaca(QWidget):
         sc.lineTo(punkty[-1])
         p.save()
         p.setClipPath(obrys_kafla)
-        poswiata_linii(p, sc, kolor, ((5.0, 18 if mocno else 12),
-                                      (2.6, 56 if mocno else 42),
-                                      (1.3, 245)))
-        punkt_swiatla(p, punkty[0], 4.0, kolor, 140)
+        # cienka nitka z poświatą zamiast grubej krechy
+        poswiata_linii(p, sc, kolor, ((4.4, 14 if mocno else 9),
+                                      (2.3, 34 if mocno else 24),
+                                      (1.1, 240 if mocno else 205)))
+        self._kropki_przystankow(p, punkty, kolor, mocno)
+        p.restore()
+
+    def _kropki_przystankow(self, p, punkty, kolor, mocno):
+        """Przystanki jako drobne kropki — rzedniejemy je, gdy trasa jest gęsta."""
+        r_kropki = 1.25 if mocno else 1.1
+        krok = 1
+        if len(punkty) > 2:
+            dlugosci = [math.hypot(punkty[i + 1].x() - punkty[i].x(),
+                                   punkty[i + 1].y() - punkty[i].y())
+                        for i in range(len(punkty) - 1)]
+            sredni = sum(dlugosci) / len(dlugosci)
+            if sredni < 3.2:
+                krok = max(2, int(math.ceil(3.2 / max(sredni, 0.6))))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(z_alfa(kolor, 190 if mocno else 150)))
+        for i in range(krok, len(punkty), krok):
+            p.drawEllipse(punkty[i], r_kropki, r_kropki)
+        # baza — jaśniejszy punkt z poświatą
+        punkt_swiatla(p, punkty[0], 3.6, kolor, 150 if mocno else 110)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(TEKST if mocno else MIETA))
-        p.drawEllipse(punkty[0], 1.8, 1.8)
-        p.restore()
+        p.drawEllipse(punkty[0], 1.7, 1.7)
 
     def _punkty_trasy(self, d, pole):
         """Przystanki dnia przeniesione w prostokąt miniatury (bez powrotu do bazy)."""
@@ -447,9 +817,13 @@ class TasmaMiesiaca(QWidget):
         sc = QPainterPath()
         sc.addRoundedRect(pr, wys / 2.0, wys / 2.0)
         sc = sc.united(dzb)
-        self._aureola(p, sc, CYJAN, ((10.0, 26), (5.0, 52)))
+        puls = self._puls()
+        self._aureola(p, sc, CYJAN, ((10.0, 18 + int(16 * puls)), (5.0, 40 + int(24 * puls))))
         p.setPen(Qt.PenStyle.NoPen)
-        p.fillPath(sc, QBrush(CYJAN))
+        g = QLinearGradient(pr.topLeft(), pr.bottomLeft())
+        g.setColorAt(0.0, CYJAN.lighter(118))
+        g.setColorAt(1.0, CYJAN.darker(108))
+        p.fillPath(sc, QBrush(g))
         p.setPen(QPen(z_alfa(BIEL, 90), 1.0))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(sc)
@@ -529,6 +903,7 @@ if __name__ == "__main__":
     tasma.przelaczono_wolny.connect(lambda n: print("wolny", n))
 
     okno.show()
+    tasma.zatrzymaj_animacje()      # powtarzalny zrzut: żadnego ruchu w tle
     app.processEvents()
     okno.grab().save("zrzut_tasma.png")
 
@@ -538,4 +913,5 @@ if __name__ == "__main__":
     print("zapisano zrzut_tasma.png i zrzut_tasma_po.png")
 
     if "--pokaz" in sys.argv:
+        tasma.wznow_animacje()
         sys.exit(app.exec())

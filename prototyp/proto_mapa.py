@@ -5,14 +5,18 @@ Wszystko jest rysowane ręcznie w paintEvent — żadnych obrazków z dysku,
 żadnych bibliotek poza PyQt6. Geometria liczona jest ze współczynników,
 więc oba widżety znoszą dowolną zmianę rozmiaru okna.
 
-Teren nie jest rysunkiem technicznym: buduje go kilkanaście wypełnionych
+Teren nie jest rysunkiem technicznym: każde wzgórze to stos wypełnionych
 warstw wysokościowych o bardzo niskim kontraście, przesuwanych ku światłu,
-plus mgła odległości u góry. Statyczny podkład (tło, teren, rzeka, drogi)
-liczony jest raz na rozmiar i trzymany w pixmapie, więc animacja blasku
-trasy kosztuje tylko odrysowanie warstw ruchomych.
+z miękkim pasem cienia po stronie przeciwnej. Nad tym leży mgła odległości,
+więc góra mapy jest jaśniejsza i spokojniejsza od dołu.
+
+Klatka animacji nic nie przelicza: teren siedzi w pixmapie zależnej tylko
+od rozmiaru, trasa z cieniem w drugiej, a miasta i podpisy w trzeciej.
+Co klatkę dochodzi płynący blask, kreski powrotu i oddech bazy.
 
 Zegary: MapaDnia i KartkaDelegacji mają ``ustaw_animacje(wlaczone)``.
 Wyłączenie zatrzymuje zegar i ustawia stałą fazę — zrzuty są powtarzalne.
+Zegary gasną też przy schowaniu i zamknięciu widżetu.
 """
 import math
 
@@ -151,12 +155,15 @@ def _poduszka(p, pole, promien=None, sila=150, warstw=5):
         p.fillPath(s, QColor(3, 8, 15, a))
 
 
-def _cien_miekki(p, pole, promien, przesun, rozmycie, sila, barwa=QColor(0, 0, 0)):
-    """Jedna warstwa miękkiego cienia: zanik kwadratowy, krok co 2 piksele."""
+def _cien_miekki(p, pole, promien, przesun, rozmycie, sila, barwa=QColor(0, 0, 0), krok=2):
+    """Jedna warstwa miękkiego cienia: zanik kwadratowy, krok w pikselach.
+
+    Im dalszy cień, tym rzadszy krok — rozmycie i tak zjada różnicę, a rysuje
+    się dwa razy mniej ścieżek.
+    """
     if rozmycie <= 0 or sila <= 0:
         return
-    krok = 2
-    ile = max(1, int(rozmycie / krok))
+    ile = max(1, int(rozmycie / max(1, krok)))
     for i in range(ile, 0, -1):
         odl = i * krok
         a = int(sila * (1.0 - (i - 1) / float(ile)) ** 2.2 / ile * 2.4)
@@ -259,8 +266,10 @@ class MapaDnia(QWidget):
         self._stan = "zwykly"
         self._teren = self._zbuduj_teren()
         self._drogi = self._zbuduj_drogi()
-        self._podklad = None            # pixmapa terenu (zależy tylko od rozmiaru)
+        self._podklad = None            # tło mapy (zależy tylko od rozmiaru)
         self._podklad_klucz = None
+        self._teren_pix = None          # sam teren, liczony w połowie skali
+        self._teren_klucz = None
         self._dol = None                # teren + cień i światło trasy
         self._gora = None               # miasta i podpisy, na przezroczystym
         self._warstwy_klucz = None
@@ -271,6 +280,11 @@ class MapaDnia(QWidget):
         self._zegar = QTimer(self)
         self._zegar.setInterval(self.KLATKA)
         self._zegar.timeout.connect(self._tik)
+        # teren przelicza się dopiero, gdy rozmiar okna przestanie się zmieniać
+        self._zegar_terenu = QTimer(self)
+        self._zegar_terenu.setSingleShot(True)
+        self._zegar_terenu.setInterval(180)
+        self._zegar_terenu.timeout.connect(self._przelicz_teren)
         self._rozsadz_zegar()
 
     # — interfejs publiczny —
@@ -296,6 +310,9 @@ class MapaDnia(QWidget):
         self._anim = bool(wlaczone)
         if not self._anim:
             self._faza = self.FAZA_ZRZUTU
+            if self._zegar_terenu.isActive():     # zrzut ma mieć ostry teren
+                self._zegar_terenu.stop()
+                self._przelicz_teren()
         self._rozsadz_zegar()
         self.update()
 
@@ -311,9 +328,7 @@ class MapaDnia(QWidget):
 
     # — zegar —
     def _rozsadz_zegar(self):
-        czynny = (self._dzien is not None and not self._dzien.wolny
-                  and len(self._dzien.trasa) >= 2)
-        if self._anim and czynny and self.isVisible():
+        if self._anim and self._czynny() and self.isVisible():
             if not self._zegar.isActive():
                 self._zegar.start()
         elif self._zegar.isActive():
@@ -333,13 +348,22 @@ class MapaDnia(QWidget):
 
     def closeEvent(self, zdarzenie):
         self._zegar.stop()
+        self._zegar_terenu.stop()
         super().closeEvent(zdarzenie)
 
     def resizeEvent(self, zdarzenie):
         self._podklad = None
         self._warstwy_klucz = None
         self._geo_klucz = None
+        # w trakcie ciągnięcia okna teren jest rozciągany, nie przeliczany
+        self._zegar_terenu.start()
         super().resizeEvent(zdarzenie)
+
+    def _przelicz_teren(self):
+        self._teren_klucz = None
+        self._podklad = None
+        self._warstwy_klucz = None
+        self.update()
 
     # — geometria terenu (liczona raz, w układzie 0..1) —
     def _zbuduj_teren(self):
@@ -378,8 +402,8 @@ class MapaDnia(QWidget):
             return {"warstwy": warstwy, "wys": wys}
 
         # dwie rodziny: szerokie masywy i drobniejsze garby, które je urozmaicają
-        wzgorza = [wzgorze(0.13, 0.30, 0.62, 1.00, 9) for _ in range(9)]
-        wzgorza += [wzgorze(0.045, 0.115, 0.40, 0.72, 6) for _ in range(12)]
+        wzgorza = [wzgorze(0.13, 0.30, 0.62, 1.00, 7) for _ in range(9)]
+        wzgorza += [wzgorze(0.045, 0.115, 0.40, 0.72, 4) for _ in range(12)]
 
         # rzeka: kilka punktów sterujących z góry na dół, lekko wijąca się
         rzeka = []
@@ -423,8 +447,9 @@ class MapaDnia(QWidget):
         return st.ZIELEN if self._stan == "sukces" else st.CYJAN
 
     def _czynny(self):
+        """Dzień z prawdziwą trasą: baza, co najmniej jeden przystanek i powrót."""
         d = self._dzien
-        return d is not None and not d.wolny and len(d.trasa) >= 2
+        return d is not None and not d.wolny and len(d.trasa) >= 3
 
     # — rysowanie —
     def paintEvent(self, _zdarzenie):
@@ -445,7 +470,7 @@ class MapaDnia(QWidget):
             self._rysuj_puls_bazy(p)                   # e) oddech bazy
             self._rysuj_nitke(p, geo)                  # f) nitka do kartki
 
-        st.winieta(p, r, 78)                           # g) wykończenie
+        st.winieta(p, r, 62)                           # g) wykończenie
         st.ziarno(p, r, 10)
         p.end()
 
@@ -463,7 +488,6 @@ class MapaDnia(QWidget):
                  self._geo_klucz, self._stan)
         if self._warstwy_klucz == klucz and self._dol is not None:
             return self._dol, self._gora
-        r = QRectF(self.rect())
 
         dol = self._nowa_pixmapa()
         q = QPainter(dol)
@@ -502,10 +526,12 @@ class MapaDnia(QWidget):
         # i rozciąga — cztery razy taniej przy zmianie rozmiaru okna
         teren = self._pixmapa_terenu(dpr)
         q.drawPixmap(QRectF(r), teren, QRectF(teren.rect()))
+        q.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self._rysuj_siatke(q, r)
         self._rysuj_rzeke(q, r)
         self._rysuj_drogi(q, r)
         self._rysuj_mgle(q, r)
+        self._rysuj_podzialke(q, r)
         q.end()
         self._podklad = pix
         self._podklad_klucz = klucz
@@ -513,6 +539,10 @@ class MapaDnia(QWidget):
 
     def _pixmapa_terenu(self, dpr):
         """Tło sceny i wzgórza w połowie rozdzielczości."""
+        klucz = (self.width(), self.height(), round(dpr, 3))
+        if self._teren_pix is not None and (self._teren_klucz == klucz
+                                            or self._zegar_terenu.isActive()):
+            return self._teren_pix
         skala = 0.5
         w = max(2, int(self.width() * dpr * skala))
         h = max(2, int(self.height() * dpr * skala))
@@ -525,6 +555,7 @@ class MapaDnia(QWidget):
         st.tlo_sceny(q, r)
         self._rysuj_teren(q, r)
         q.end()
+        self._teren_pix, self._teren_klucz = pix, klucz
         return pix
 
     def _rysuj_siatke(self, p, r):
@@ -610,6 +641,24 @@ class MapaDnia(QWidget):
                 p.drawPath(sciezka)
                 p.restore()
 
+    def _rysuj_podzialke(self, p, r):
+        """Cicha podziałka odległości w rogu — same liczby, bez opisów."""
+        pole = self._pole()
+        km = 50.0
+        dlug = pole.width() * km / 235.0          # 235 km na szerokość układu miast
+        if dlug < 40.0 or dlug > pole.width() * 0.5:
+            return
+        x = r.x() + r.width() * 0.045
+        y = r.bottom() - r.height() * 0.055
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(st.z_alfa(st.TEKST_3, 70), 1.0))
+        p.drawLine(QPointF(x, y), QPointF(x + dlug, y))
+        for u, wys in ((0.0, 5.0), (0.5, 3.0), (1.0, 5.0)):
+            p.drawLine(QPointF(x + dlug * u, y), QPointF(x + dlug * u, y - wys))
+        _napis(p, x, y - 8.0, "0", st.z_alfa(st.TEKST_3, 110), 9.0, 500, mono=True)
+        _napis(p, x + dlug, y - 8.0, "50 km", st.z_alfa(st.TEKST_3, 110), 9.0, 500,
+               mono=True, prawy=True)
+
     def _rysuj_mgle(self, p, r):
         """Mgła odległości: góra mapy jaśniejsza i o mniejszym kontraście."""
         g = QLinearGradient(r.topLeft(), QPointF(r.x(), r.y() + r.height() * 0.66))
@@ -622,6 +671,12 @@ class MapaDnia(QWidget):
         g2.setColorAt(0.0, QColor(205, 226, 240, 22))
         g2.setColorAt(1.0, QColor(205, 226, 240, 0))
         p.fillRect(r, QBrush(g2))
+        # światło wpadające z lewego górnego rogu — ten sam kierunek, co cienie
+        rg = QRadialGradient(QPointF(r.x() + r.width() * 0.08, r.y() - r.height() * 0.06),
+                             max(r.width(), r.height()) * 0.95)
+        rg.setColorAt(0.0, st.z_alfa(BARWA_MGLY, 20))
+        rg.setColorAt(1.0, st.z_alfa(BARWA_MGLY, 0))
+        p.fillRect(r, QBrush(rg))
 
     def _rysuj_rzeke(self, p, r):
         punkty = [(r.x() + x * r.width(), r.y() + y * r.height())
@@ -665,7 +720,7 @@ class MapaDnia(QWidget):
         punkty = [(self._punkt(n).x(), self._punkt(n).y()) for n in trasa]
         glowna = _sciezka_gladka(punkty[:-1], napiecie=1.0)       # bez powrotu do bazy
         powrot = self._luk_powrotu(punkty)                        # odcinek powrotny
-        ile_probek = 220
+        ile_probek = 180
         probki = [glowna.pointAtPercent(i / float(ile_probek)) for i in range(ile_probek + 1)]
         nitka = self._sciezka_nitki()
         etykiety = self._ulozenie_podpisow(glowna, powrot, nitka)
@@ -696,11 +751,11 @@ class MapaDnia(QWidget):
     def _rysuj_cien_trasy(self, p, geo):
         """Trasa rzuca cień na teren — linia unosi się nad mapą."""
         k = self._grubosc()
-        przes = max(4.0, 11.0 * k)
+        przes = max(6.0, 17.0 * k)
         p.save()
         p.translate(-SWIATLO[0] * przes, -SWIATLO[1] * przes)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        for szer, alfa in ((26 * k, 30), (15 * k, 40), (7.0 * k, 52)):
+        for szer, alfa in ((38 * k, 26), (24 * k, 30), (12.0 * k, 40), (6.0 * k, 44)):
             pen = QPen(QColor(0, 0, 0, alfa), max(1.0, szer))
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -774,17 +829,18 @@ class MapaDnia(QWidget):
         """Pierścień z cienkim obrysem, punkt w środku i miękkie halo."""
         if powtorka:
             # miasto odwiedzone wcześniej tego dnia: spokojniejsze, bez halo
+            st.punkt_swiatla(p, srodek, r_pkt * 2.4, st.MIETA, 28)
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(QColor(5, 13, 23, 210)))
-            p.drawEllipse(srodek, r_pkt * 0.92, r_pkt * 0.92)
+            p.setBrush(QBrush(QColor(6, 16, 27, 215)))
+            p.drawEllipse(srodek, r_pkt * 0.94, r_pkt * 0.94)
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(st.z_alfa(st.MIETA, 86), max(1.0, r_pkt * 0.20)))
-            p.drawEllipse(srodek, r_pkt * 0.92, r_pkt * 0.92)
-            p.setPen(QPen(st.z_alfa(st.MIETA, 40), 1.0))
-            p.drawEllipse(srodek, r_pkt * 1.62, r_pkt * 1.62)
+            p.setPen(QPen(st.z_alfa(st.MIETA, 120), max(1.0, r_pkt * 0.20)))
+            p.drawEllipse(srodek, r_pkt * 0.94, r_pkt * 0.94)
+            p.setPen(QPen(st.z_alfa(st.MIETA, 46), 1.0))
+            p.drawEllipse(srodek, r_pkt * 1.66, r_pkt * 1.66)
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(st.z_alfa(st.MIETA, 150)))
-            p.drawEllipse(srodek, r_pkt * 0.26, r_pkt * 0.26)
+            p.setBrush(QBrush(st.z_alfa(st.MIETA, 200)))
+            p.drawEllipse(srodek, r_pkt * 0.28, r_pkt * 0.28)
             return
 
         st.punkt_swiatla(p, srodek, r_pkt * 5.2 * waga, kolor, int(52 * waga))
@@ -829,14 +885,25 @@ class MapaDnia(QWidget):
             self._znak_miasta(p, s, r_pkt * 1.25, st.ZIELEN, waga=0.55)
             return
 
-        widziane = set()
+        powtorzone = self._powtorzone(trasa)
+        narysowane = set()
         for nazwa in trasa[1:-1]:
-            s = self._punkt(nazwa)
-            self._znak_miasta(p, s, r_pkt, kolor, powtorka=(nazwa in widziane))
-            widziane.add(nazwa)
+            if nazwa in narysowane:
+                continue
+            narysowane.add(nazwa)
+            self._znak_miasta(p, self._punkt(nazwa), r_pkt, kolor,
+                              powtorka=(nazwa in powtorzone))
 
         # baza: większa i jaśniejsza od reszty
         self._znak_miasta(p, self._punkt(dn.BAZA), r_pkt * 1.5, st.ZIELEN, waga=1.0)
+
+    @staticmethod
+    def _powtorzone(trasa):
+        """Przystanki, w których przedstawiciel bywa tego dnia więcej niż raz."""
+        ile = {}
+        for nazwa in list(trasa)[1:-1]:
+            ile[nazwa] = ile.get(nazwa, 0) + 1
+        return {n for n, k in ile.items() if k > 1}
 
     def _rysuj_puls_bazy(self, p):
         """Wolny oddech halo bazy — jedyny ruch poza blaskiem trasy."""
@@ -856,8 +923,9 @@ class MapaDnia(QWidget):
         r_pkt = max(3.4, skala * 0.0095)
         pozycje = {n: self._punkt(n) for n in dn.MIASTA}
 
-        f_zwykly = st.czcionka(12, 500)
-        f_baza = st.czcionka(14, 600)
+        rozm_z, rozm_b = self._rozmiary_podpisow()
+        f_zwykly = st.czcionka(rozm_z, 500)
+        f_baza = st.czcionka(rozm_b, 600)
         m_zwykly = QFontMetricsF(f_zwykly)
         m_baza = QFontMetricsF(f_baza)
 
@@ -865,15 +933,15 @@ class MapaDnia(QWidget):
         probki = []
         for sciezka in (glowna, powrot):
             if sciezka is not None and sciezka.length() > 0:
-                probki.extend(sciezka.pointAtPercent(i / 90.0) for i in range(91))
+                probki.extend(sciezka.pointAtPercent(i / 64.0) for i in range(65))
         probki.extend(pozycje[n] for n in dzien.trasa if n in pozycje)
         # nitka jest cienka, więc kolizja z nią kosztuje mniej niż z trasą
-        probki_nitki = ([nitka.pointAtPercent(i / 60.0) for i in range(61)]
+        probki_nitki = ([nitka.pointAtPercent(i / 40.0) for i in range(41)]
                         if nitka is not None and nitka.length() > 0 else [])
 
         zajete = []
         etykiety = []
-        widziane = set()
+        powtorzone = self._powtorzone(dzien.trasa)
         kolejnosc = [dn.BAZA]
         for n in dzien.trasa[1:-1]:
             if n not in kolejnosc:
@@ -930,17 +998,22 @@ class MapaDnia(QWidget):
 
             x, y, pole = najlepszy
             zajete.append(pole)
-            powtorka = nazwa in widziane
-            widziane.add(nazwa)
-            etykiety.append((x, y, napis, baza, pole, powtorka))
+            powtorka = nazwa in powtorzone
+            rozmiar, waga = (rozm_b, 600) if baza else (rozm_z, 500)
+            # przystanek powtórzony tego dnia ma spokojniejszy, ciemniejszy podpis
+            kolor = st.TEKST if not powtorka else st.z_alfa(st.TEKST_2, 220)
+            etykiety.append((x, y, napis, pole, rozmiar, waga, kolor))
         return etykiety
 
+    def _rozmiary_podpisow(self):
+        """Wielkość podpisów rośnie z oknem, ale wolniej niż ono samo."""
+        k = max(0.55, min(2.0, self._grubosc())) ** 0.45
+        return max(11.0, min(16.0, 12.0 * k)), max(12.5, min(19.0, 14.0 * k))
+
     def _rysuj_podpisy(self, p, geo):
-        for (x, y, napis, baza, pole, _powt) in geo["etykiety"]:
+        for (x, y, napis, pole, rozmiar, waga, kolor) in geo["etykiety"]:
             _poduszka(p, pole.adjusted(2, 1, -2, -1), sila=170)
-        for (x, y, napis, baza, pole, _powt) in geo["etykiety"]:
-            rozmiar, waga = (14, 600) if baza else (12, 500)
-            kolor = st.TEKST if baza else st.z_alfa(st.TEKST, 238)
+        for (x, y, napis, pole, rozmiar, waga, kolor) in geo["etykiety"]:
             _napis(p, x, y, napis, kolor, rozmiar, waga)
 
     # — nitka do kartki —
@@ -1105,9 +1178,9 @@ class KartkaDelegacji(QWidget):
         pusta = (self._stan == "pusta") or self._dzien is None or self._dzien.wolny
 
         # cień wielowarstwowy: styk, korpus, daleka poświata
-        _cien_miekki(p, kar, promien, przesun=2, rozmycie=6, sila=110)
-        _cien_miekki(p, kar, promien, przesun=9, rozmycie=20, sila=96)
-        _cien_miekki(p, kar, promien, przesun=24, rozmycie=46, sila=64)
+        _cien_miekki(p, kar, promien, przesun=2, rozmycie=6, sila=110, krok=2)
+        _cien_miekki(p, kar, promien, przesun=9, rozmycie=21, sila=96, krok=3)
+        _cien_miekki(p, kar, promien, przesun=24, rozmycie=48, sila=64, krok=6)
 
         sciezka = QPainterPath()
         sciezka.addRoundedRect(kar, promien, promien)
@@ -1166,7 +1239,7 @@ class KartkaDelegacji(QWidget):
         rg2.setColorAt(1.0, QColor(120, 116, 104, 0))
         p.fillRect(kar, QBrush(rg2))
         # faktura papieru — drobne ziarno, ledwie widoczne
-        st.ziarno(p, kar, sila=9, skala=1.5, ciemne=1.6)
+        st.ziarno(p, kar, sila=7, skala=1.4, ciemne=1.8)
         p.restore()
 
         # krawędź: górna zbiera światło, dolna siada w cieniu

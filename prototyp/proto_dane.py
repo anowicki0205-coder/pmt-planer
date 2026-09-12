@@ -67,7 +67,8 @@ class Dzien:
     kwota: float = 0.0
     start: str = "07:20"
     koniec: str = "15:41"
-    wolny: bool = False
+    wolny: bool = False          # brak trasy tego dnia
+    wylaczony: bool = False      # użytkownik sam wyłączył ten dzień
     podpisany: bool = False
 
     @property
@@ -113,6 +114,9 @@ def oblicz_miesiac(kwota_zl, rok=2026, miesiac=9, tryb="Tydzień", wolne=()):
     kwota_zl = max(0.0, float(kwota_zl or 0))
     ile = calendar.monthrange(rok, miesiac)[1]
     wszystkie = {d: Dzien(_dt.date(rok, miesiac, d), wolny=True) for d in range(1, ile + 1)}
+    for d in wolne:
+        if d in wszystkie:
+            wszystkie[d].wylaczony = True
     if kwota_zl < KWOTA_MIN:
         return [wszystkie[d] for d in range(1, ile + 1)]
 

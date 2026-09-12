@@ -38,3 +38,6 @@ PMT_intro_diag.txt
 PMT_intro_blad.txt
 raport_testera_*.txt
 certyfikat_testera_*.png
+
+# zrzuty robocze prototypu (powstają przy każdym uruchomieniu)
+prototyp/zrzut_*.png

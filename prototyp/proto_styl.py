@@ -187,7 +187,10 @@ def tekst(p: QPainter, x, y, napis, kolor=TEKST, rozmiar=13, waga=400,
 # ── arkusz stylów dla zwykłych kontrolek ─────────────────────────────
 def qss():
     return f"""
-    QWidget {{ color: {TEKST.name()}; font-family: '{rodzina_tekst()}'; font-size: 13px; }}
+    /* Bez font-size i bez font-family na QWidget: taka regula nadpisuje
+       setFont() w widzetach rysowanych recznie i zjada ich rozmiary. */
+    QWidget {{ color: {TEKST.name()}; }}
+    QLineEdit, QComboBox, QPushButton, QRadioButton, QLabel {{ font-family: '{rodzina_tekst()}'; font-size: 13px; }}
     QLineEdit, QComboBox {{
         background: rgba(9, 16, 28, 200); border: 1px solid rgba(255,255,255,0.10);
         border-radius: 10px; padding: 9px 12px; color: {TEKST.name()}; selection-background-color: {CYJAN.name()};

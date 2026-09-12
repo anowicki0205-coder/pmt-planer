@@ -99,15 +99,35 @@ def scena_kompas():
 def scena_okno():
     import proto_okno as OK
     okno = OK.OknoPrototypu()
-    okno.resize(1280, 800)
+    okno.resize(1240, 780)
     okno.show()
     QCoreApplication.processEvents()
     kroki = [(0, None)]
-    if hasattr(okno, "_uruchom_generowanie"):
-        kroki.append((900, okno._uruchom_generowanie))
-    elif hasattr(okno, "uruchom_generowanie"):
-        kroki.append((900, okno.uruchom_generowanie))
-    kroki.append((9000, None))
+    # wybieramy WYŁĄCZNIE dni, które naprawdę mają trasę — inaczej mapa stoi pusta
+    import proto_dane as D
+    dni = D.oblicz_miesiac(1850, wolne=(14, 15))
+    z_trasa = [d.data.day for d in dni if not d.wolny]
+    tasma = getattr(okno, "tasma", None)
+    if tasma is not None and len(z_trasa) >= 2:
+        for opoznienie, dzien in ((600, z_trasa[1]), (2000, z_trasa[3 % len(z_trasa)])):
+            kroki.append((opoznienie, (lambda d=dzien: tasma.wybrano.emit(d))))
+    # Pokaz generowania prowadzimy WPROST, klatka po klatce. Zegar programu
+    # zwalnia przy nagrywaniu (każda klatka to zrzut całego okna), więc taca
+    # nie zdążyłaby się wysunąć w rozsądnym czasie filmu.
+    kompas = okno.k_kompas.kompas
+    def start_pokazu():
+        okno._po_generacji = False
+        kompas.ustaw_stan("praca")
+        okno.ustaw_postep_pokazu(0.0)
+        if hasattr(okno, "_zegar_gen"):
+            okno._zegar_gen.stop()
+    kroki.append((3200, start_pokazu))
+    t = 3400
+    for i in range(34):
+        kroki.append((t, (lambda u=(i + 1) / 34.0: okno.ustaw_postep_pokazu(u))))
+        t += 105
+    kroki.append((t + 150, lambda: okno.zakoncz_pokaz(animacja=True)))
+    kroki.append((t + 3200, None))
     return okno, kroki
 
 

@@ -533,7 +533,7 @@ class KartaKompasuOkna(KartaKompasu):
     plakietek z prawej. W kolumnie zwężonej plakietki schodzą pod spód, na
     całą szerokość karty — inaczej nie zmieściłyby się obok kompasu."""
 
-    PROG_WASKI = 348
+    PROG_KOLUMNY = 348          # poniżej tej szerokości karta układa się inaczej
     WYS_PLAKIETKI = 25.0
     ROZMIARY_TYTULU = (19, 17, 15, 13)
 
@@ -543,7 +543,7 @@ class KartaKompasuOkna(KartaKompasu):
         self.kompas.setMinimumSize(64, 64)     # róża zostaje kwadratem
 
     def waska(self):
-        return self.width() < self.PROG_WASKI
+        return self.width() < self.PROG_KOLUMNY
 
     # — układ —
     def resizeEvent(self, zdarzenie):
@@ -936,7 +936,6 @@ class WierszLimitu(QWidget):
         self._aktywna = 0
         self._pod = -1
         self.setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setMinimumHeight(26)
 
@@ -992,11 +991,14 @@ class WierszLimitu(QWidget):
                 i = k
         if i != self._pod:
             self._pod = i
+            self.setCursor(Qt.CursorShape.PointingHandCursor if i >= 0
+                           else Qt.CursorShape.ArrowCursor)
             self.update()
         super().mouseMoveEvent(e)
 
     def leaveEvent(self, e):
         self._pod = -1
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.update()
         super().leaveEvent(e)
 
@@ -1401,9 +1403,11 @@ class OknoPrototypu(QWidget):
         h = [int(round(mi + (ce - mi) * udzial)) for mi, ce in zip(minima, cele)]
         nadmiar = wolne - sum(h)
         if nadmiar > 0:                      # w wysokim oknie karty rosną razem
-            h[0] += min(int(nadmiar * 0.18), 40)
-            h[1] += min(int(nadmiar * 0.20), 46)
-        h[2] = max(minima[2], wolne - h[0] - h[1])
+            h[0] += min(int(nadmiar * 0.12), 24)
+            h[1] += min(int(nadmiar * 0.14), 26)
+        # karta kompasu bierze resztę, ale nie rozciąga się bez końca —
+        # w bardzo wysokim oknie zostaje margines pod kolumną
+        h[2] = max(minima[2], min(wolne - h[0] - h[1], 272))
         return h
 
     def resizeEvent(self, e):
@@ -1468,6 +1472,7 @@ class OknoPrototypu(QWidget):
 
     def _limit_zmieniony(self, wartosc):
         self._limit_dnia = float(wartosc)
+        self.k_parametry.limit.ustaw_wartosc(self._limit_dnia)
         self._przelicz_teraz()
 
     def _maks_miesiaca(self, tryb):

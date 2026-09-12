@@ -59,9 +59,9 @@ SWIATLO_3D = (-0.56, 0.42, 0.60)
 
 BARWA_TERENU = QColor(126, 178, 206)      # chłodny kamień, prawie bez nasycenia
 BARWA_MGLY = QColor(150, 196, 226)        # mgła odległości w głębi sceny
-BARWA_DACHU = QColor(64, 90, 114)
-BARWA_SCIANY = QColor(24, 37, 55)
-BARWA_BOKU = QColor(8, 14, 24)
+BARWA_DACHU = QColor(54, 77, 99)
+BARWA_SCIANY = QColor(21, 33, 49)
+BARWA_BOKU = QColor(7, 12, 21)
 
 KOMORKA_TERENU = 172.0     # bok siatki, w której może stanąć jedno wzgórze
 WZNIOS_TRASY = 11.0        # o tyle trasa unosi się nad gruntem
@@ -806,6 +806,7 @@ class MapaDnia(QWidget):
             if r_pix < 3.5 or w["wys"] * skala < 1.6:
                 continue                               # za mały garb, żeby go było widać
             mgla = rzut.mgla(w["gleb"])
+            moc = min(1.0, w["wys"] / 44.0) ** 0.8      # ile kontrastu dostaje bryła
             drobny = r_pix < 22.0 or w["wys"] * skala < 7.0
             ile = 3 if drobny else w["ile"]
 
@@ -845,11 +846,11 @@ class MapaDnia(QWidget):
                                 pole.center().y() + ly * pole.height() * 0.6),
                         QPointF(pole.center().x() - lx * pole.width() * 0.6,
                                 pole.center().y() - ly * pole.height() * 0.6))
-                    jasna = rzut.zamgl(QColor(56, 86, 112), mgla)
-                    ciemna = rzut.zamgl(QColor(4, 9, 18), mgla)
-                    g.setColorAt(0.0, st.z_alfa(jasna, int(150 - 60 * mgla)))
-                    g.setColorAt(0.40, st.z_alfa(ciemna, int(190 - 80 * mgla)))
-                    g.setColorAt(1.0, st.z_alfa(ciemna, int(226 - 96 * mgla)))
+                    jasna = rzut.zamgl(QColor(92, 130, 160), mgla)
+                    ciemna = rzut.zamgl(QColor(3, 7, 15), mgla)
+                    g.setColorAt(0.0, st.z_alfa(jasna, int((196 - 72 * mgla) * moc)))
+                    g.setColorAt(0.38, st.z_alfa(ciemna, int((214 - 84 * mgla) * moc)))
+                    g.setColorAt(1.0, st.z_alfa(ciemna, int((240 - 96 * mgla) * moc)))
                     p.fillPath(sciana, QBrush(g))
 
                 # b) taras: wypełniony kształt o nieregularnej krawędzi,
@@ -862,7 +863,7 @@ class MapaDnia(QWidget):
                 jasny = QPointF(sr.x() + lx * zas, sr.y() + ly * zas)
                 ciemny = QPointF(sr.x() - lx * zas, sr.y() - ly * zas)
                 barwa = rzut.zamgl(BARWA_TERENU, mgla)
-                sila = (6.0 + 13.0 * t) * (1.0 - 0.42 * mgla)
+                sila = (8.0 + 18.0 * t) * (1.0 - 0.42 * mgla) * (0.42 + 0.58 * moc)
                 g = QLinearGradient(jasny, ciemny)
                 g.setColorAt(0.0, st.z_alfa(barwa, int(sila * 1.35)))
                 g.setColorAt(0.58, st.z_alfa(barwa, int(sila * 0.86)))
@@ -874,7 +875,8 @@ class MapaDnia(QWidget):
                     p.setBrush(Qt.BrushStyle.NoBrush)
                     p.setPen(_pioro_gradientowe(
                         jasny, ciemny,
-                        st.z_alfa(rzut.zamgl(st.MIETA, mgla), int((58 + 46 * t) * (1.0 - mgla * 0.85))),
+                        st.z_alfa(rzut.zamgl(st.MIETA, mgla),
+                                  int((58 + 46 * t) * (1.0 - mgla * 0.85) * (0.35 + 0.65 * moc))),
                         QColor(0, 0, 0, 0), max(1.0, min(2.0, r_pix * 0.03))))
                     p.drawPath(gora)
                     p.setPen(Qt.PenStyle.NoPen)
@@ -889,7 +891,7 @@ class MapaDnia(QWidget):
                                                self._obrys_wzgorza(w, s_sr, k)]))
                     p.setBrush(Qt.BrushStyle.NoBrush)
                     p.setPen(QPen(st.z_alfa(rzut.zamgl(BARWA_TERENU, mgla),
-                                            int(30 * (1.0 - mgla * 0.7))), 1.0))
+                                            int(30 * (1.0 - mgla * 0.7) * moc)), 1.0))
                     p.drawPath(posr)
                     p.setPen(Qt.PenStyle.NoPen)
                 poprz_obrys, poprz_z = obrys, z
@@ -1087,39 +1089,46 @@ class MapaDnia(QWidget):
             sr_y = sum(y for _, y in punkty) / len(punkty)
             mgla = rzut.mgla(rzut.glebokosc(0.0, sr_y, 0.0))
             pas = _wstega(rzut, punkty, 9.0, self._wysokosc, wznios=0.25)
-            p.fillPath(pas, st.z_alfa(rzut.zamgl(QColor(140, 168, 192), mgla),
-                                      int(50 - 24 * mgla)))
+            p.fillPath(pas, st.z_alfa(rzut.zamgl(QColor(132, 160, 184), mgla),
+                                      int(38 - 18 * mgla)))
             rdzen = _wstega(rzut, punkty, 3.2, self._wysokosc, wznios=0.5)
-            p.fillPath(rdzen, st.z_alfa(rzut.zamgl(QColor(198, 222, 238), mgla),
-                                        int(60 - 28 * mgla)))
+            p.fillPath(rdzen, st.z_alfa(rzut.zamgl(QColor(186, 212, 230), mgla),
+                                        int(44 - 21 * mgla)))
 
     # — zabudowa —
     def _zbuduj_zabudowe(self):
-        """Skupiska brył przy miastach: bok, głębokość, wysokość i położenie.
+        """Ciasne skupiska brył przy miastach: bok, głębokość, wysokość, położenie.
 
         Wszystko z hasza nazwy miasta, więc każde miasto ma swoją, stałą
-        sylwetkę. Baza jest większa i wyższa od pozostałych.
+        sylwetkę. Skupisko to jedna do trzech niskich brył tuż przy punkcie
+        miasta (przy bazie pięć) —
+        region ma wyglądać na rozrzucone miasteczka, a nie na jedną
+        metropolię, więc między nimi zostaje otwarty teren: pola, rzeka
+        i drogi. Baza jest większa od pozostałych, ale i tak niższa od słupa
+        światła, żeby nie zasłaniała trasy.
         """
         bryly = []
         for nazwa in dn.MIASTA:
             cx, cy = self._miasta[nazwa]
             baza = (nazwa == dn.BAZA)
-            ile = 11 if baza else 4 + int(_hasz(nazwa, 0) * 3.99)
-            promien = 26.0 if baza else 15.5
+            ile = 5 if baza else 1 + int(_hasz(nazwa, 0) * 2.50)
+            promien = 13.0 if baza else 7.5
             for i in range(ile):
                 kat = 2.0 * math.pi * (i / float(ile) + 0.16 * _hasz(nazwa, i, 1))
-                odl = promien * (0.30 + 0.70 * _hasz(nazwa, i, 2))
+                odl = promien * (0.22 + 0.78 * _hasz(nazwa, i, 2))
                 bx = cx + math.cos(kat) * odl
                 by = cy + math.sin(kat) * odl * 0.82
-                niski = _hasz(nazwa, i, 8) > 0.62         # hala zamiast wieży
-                bok = (3.6 + 3.0 * _hasz(nazwa, i, 3)) if niski else 2.2 + 2.0 * _hasz(nazwa, i, 3)
-                glab = (3.2 + 2.6 * _hasz(nazwa, i, 4)) if niski else 2.2 + 2.0 * _hasz(nazwa, i, 4)
-                wys = (5.0 + 8.0 * _hasz(nazwa, i, 5)) if niski else \
-                    12.0 + 32.0 * _hasz(nazwa, i, 5) ** 1.35
+                niski = _hasz(nazwa, i, 8) > 0.45         # hala zamiast kamienicy
+                bok = (4.0 + 3.0 * _hasz(nazwa, i, 3)) if niski else 2.6 + 2.1 * _hasz(nazwa, i, 3)
+                glab = (3.5 + 2.6 * _hasz(nazwa, i, 4)) if niski else 2.6 + 2.1 * _hasz(nazwa, i, 4)
+                # najwyższa bryła miasteczka ma być wyraźnie niższa od słupa
+                # przystanku (24 jednostki), żeby trasa nie ginęła za dachami
+                wys = (4.0 + 5.0 * _hasz(nazwa, i, 5)) if niski else \
+                    7.0 + 10.0 * _hasz(nazwa, i, 5) ** 1.15
                 if baza:
-                    bok *= 1.35
-                    glab *= 1.35
-                    wys = 20.0 + 48.0 * _hasz(nazwa, i, 6) ** 1.25
+                    bok *= 1.45
+                    glab *= 1.45
+                    wys = 9.0 + 15.0 * _hasz(nazwa, i, 6) ** 1.15
                 bryly.append({"x": bx, "y": by, "bok": bok, "glab": glab,
                               "wys": wys, "miasto": nazwa,
                               "okna": _hasz(nazwa, i, 7)})
@@ -1492,9 +1501,9 @@ class MapaDnia(QWidget):
         """Świecąca linia leżąca nad terenem, węższa w głębi sceny."""
         kolor = self._kolor_trasy()
         _poswiata_zmienna(p, geo["pkt_glowna"], geo["ska_glowna"], kolor,
-                          ((11.0, 14, 5), (6.4, 30, 3), (3.2, 92, 2), (1.5, 196, 1)))
+                          ((13.0, 20, 5), (7.2, 42, 3), (3.6, 118, 2), (1.7, 226, 1)))
         _poswiata_zmienna(p, geo["pkt_glowna"], geo["ska_glowna"],
-                          QColor(228, 255, 255), ((0.55, 140, 1),))
+                          QColor(232, 255, 255), ((0.60, 185, 1),))
 
     def _rysuj_powrot(self, p, geo):
         """Powrót do bazy: kreski wolno płyną w stronę domu."""
@@ -1503,7 +1512,7 @@ class MapaDnia(QWidget):
         sr = sum(ska) / max(1, len(ska))
         przesun = -self._faza * 34.0 * k if self._anim else 0.0
         _kreskowana(p, geo["powrot"], st.ZIELEN,
-                    warstwy=((6.4 * sr, 24), (3.0 * sr, 62), (1.25 * sr, 214)),
+                    warstwy=((7.2 * sr, 30), (3.4 * sr, 76), (1.35 * sr, 235)),
                     kreska=11.0 * k, przerwa=8.0 * k, przesuniecie=przesun)
 
     def _rysuj_blask(self, p, geo):
@@ -1529,10 +1538,10 @@ class MapaDnia(QWidget):
             a, b = probki[i0], probki[i1]
             s = (skale[i0] + skale[i1]) * 0.5
             jas = (1.0 - i / float(ile)) ** 2.0
-            for szer, sila, barwa in ((9.0 * s, 28, kolor),
-                                      (4.2 * s, 64, kolor),
-                                      (2.0 * s, 100, kolor),
-                                      (0.9 * s, 235, QColor(238, 255, 255))):
+            for szer, sila, barwa in ((10.5 * s, 34, kolor),
+                                      (4.8 * s, 74, kolor),
+                                      (2.3 * s, 112, kolor),
+                                      (1.0 * s, 245, QColor(240, 255, 255))):
                 pen = QPen(st.z_alfa(barwa, sila * jas), max(0.8, szer))
                 pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                 p.setPen(pen)
@@ -1614,8 +1623,20 @@ class MapaDnia(QWidget):
         k = max(0.55, min(2.0, self._grubosc())) ** 0.45
         return max(10.5, min(15.0, 11.5 * k)), max(12.0, min(18.0, 13.5 * k))
 
+    # osiem stron świata wokół szczytu słupa; góra i skosy przed bokami,
+    # bo tam tabliczka najrzadziej wchodzi na trasę
+    KIERUNKI_PODPISU = ((0.0, -1.0), (0.8, -0.8), (-0.8, -0.8), (1.0, -0.15),
+                        (-1.0, -0.15), (0.7, 0.7), (-0.7, 0.7), (0.0, 1.0))
+    LUZY_PODPISU = (9.0, 20.0, 34.0, 52.0)
+
     def _ulozenie_podpisow(self, slupy, probki, pkt_powrot, nitka):
-        """Tabliczki szukają miejsca nad swoim słupem — raz na układ, nie co klatkę."""
+        """Tabliczki rozsuwane wokół swoich punktów — raz na układ, nie co klatkę.
+
+        Każda szuka miejsca w ośmiu kierunkach od szczytu swojego słupa, zaczynając
+        od najkrótszego odsunięcia. Im dalej od miasta i im bardziej w bok, tym
+        droższe miejsce, więc tabliczka odchodzi od punktu dopiero wtedy, gdy
+        inaczej weszłaby na sąsiadkę albo na trasę.
+        """
         rozm_z, rozm_b = self._rozmiary_podpisow()
         f_zwykly = st.czcionka(rozm_z, 600)
         f_baza = st.czcionka(rozm_b, 700)
@@ -1641,26 +1662,28 @@ class MapaDnia(QWidget):
             kotwica = s["gora"]
 
             najlepszy, najkoszt = None, None
-            for nr, (dx, luz) in enumerate(
-                    ((0.0, 14), (0.0, 32), (-0.60, 18), (0.60, 18),
-                     (0.0, 52), (-0.60, 40), (0.60, 40), (-1.00, 12), (1.00, 12),
-                     (0.0, 74), (-1.00, 38), (1.00, 38), (-0.60, 64), (0.60, 64),
-                     (0.0, 98), (-1.35, 24), (1.35, 24), (-1.00, 76), (1.00, 76))):
-                x = kotwica.x() + dx * szer - szer * 0.5
-                y = kotwica.y() - luz - wys
-                pole = QRectF(x, y, szer, wys)
-                koszt = nr * 3.0 + luz * 0.22 + abs(dx) * 14.0
-                if not brzeg.contains(pole):
-                    koszt += 900
-                for inne in zajete:
-                    wspolne = pole.intersected(inne.adjusted(-7, -6, 7, 6))
-                    if not wspolne.isEmpty():
-                        koszt += 12.0 * wspolne.width() * wspolne.height()
-                for pt in przeszkody:
-                    if pole.contains(pt):
-                        koszt += 40
-                if najkoszt is None or koszt < najkoszt:
-                    najkoszt, najlepszy = koszt, pole
+            for luz in self.LUZY_PODPISU:
+                for nr, (kx, ky) in enumerate(self.KIERUNKI_PODPISU):
+                    # środek tabliczki odsunięty od kotwicy o pół jej rozmiaru
+                    # plus luz — dzięki temu kreska zostaje krótka w każdą stronę
+                    sx = kotwica.x() + kx * (szer * 0.5 + luz)
+                    sy = kotwica.y() + ky * (wys * 0.5 + luz)
+                    pole = QRectF(sx - szer * 0.5, sy - wys * 0.5, szer, wys)
+                    koszt = luz * 1.4 + nr * 5.0
+                    if not brzeg.contains(pole):
+                        koszt += 900
+                    for inne in zajete:
+                        wspolne = pole.intersected(inne.adjusted(-7, -6, 7, 6))
+                        if not wspolne.isEmpty():
+                            koszt += 12.0 * wspolne.width() * wspolne.height()
+                    for pt in przeszkody:
+                        if pole.contains(pt):
+                            koszt += 60
+                    for s2 in slupy:                 # nie zasłaniamy cudzych słupów
+                        if s2 is not s and pole.contains(s2["gora"]):
+                            koszt += 120
+                    if najkoszt is None or koszt < najkoszt:
+                        najkoszt, najlepszy = koszt, pole
             zajete.append(najlepszy)
             rozmiar, waga = (rozm_b, 700) if baza else (rozm_z, 600)
             etykiety.append({"pole": najlepszy, "napis": napis, "rozmiar": rozmiar,
@@ -1675,9 +1698,10 @@ class MapaDnia(QWidget):
             pole = e["pole"]
             barwa = st.ZIELEN if e["baza"] else kolor
             kotwica = e["kotwica"]
-            # cienka kreska od tabliczki do punktu na terenie
+            # cienka kreska od tabliczki do jej punktu — celujemy w najbliższą
+            # krawędź, więc przy tabliczce z boku kreska też zostaje krótka
             styk = QPointF(min(max(kotwica.x(), pole.left() + 6), pole.right() - 6),
-                           pole.bottom())
+                           min(max(kotwica.y(), pole.top() + 4), pole.bottom() - 4))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.setPen(_pioro_gradientowe(styk, kotwica, st.z_alfa(barwa, 150),
                                         st.z_alfa(barwa, 40), 1.1))

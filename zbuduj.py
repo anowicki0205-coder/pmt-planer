@@ -21,9 +21,15 @@ import sys
 KATALOG = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 
+# Widżety nowego wyglądu (uruchamiany przez „PMT_Planer.exe --nowy").
+# Leżą w podfolderze prototyp\ — PyInstaller znajduje je dzięki --paths
+# (patrz buduj()), a do paczki wchodzą jako zwykłe moduły.
+PROTOTYP = ["proto_styl", "proto_dane", "proto_mapa", "proto_tasma",
+            "proto_kompas", "proto_taca", "proto_okno"]
 WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
             "wyglad_3d.py", "pmt_dokumenty.py", "pmt_podpis.py",
-            "pmt_wysylka.py"]
+            "pmt_wysylka.py", "nowy_wyglad.py"] + [
+            os.path.join("prototyp", n + ".py") for n in PROTOTYP]
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
 # tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
 # intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
@@ -36,7 +42,8 @@ WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
         "pmt_logo_retro.png", "pmt_logo_retro.ico", "menedzer.txt"]
 UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "pmt_dokumenty",
-          "winsound", "PyQt6.QtMultimedia", "pmt_podpis", "pmt_wysylka"]
+          "winsound", "PyQt6.QtMultimedia", "pmt_podpis", "pmt_wysylka",
+          "nowy_wyglad"] + PROTOTYP
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
 # się rozjechać (tak zniknęło openpyxl z wydań budowanych w CI).
@@ -176,6 +183,11 @@ def buduj(py, folderowo=True):
         args += ["--version-file", meta]
     for m in UKRYTE:
         args += ["--hidden-import", m]
+    # Moduły nowego wyglądu siedzą w podfolderze — bez tego PyInstaller
+    # nie znalazłby proto_okno i „--nowy" padłoby dopiero u użytkownika.
+    katalog_prototypu = os.path.join(KATALOG, "prototyp")
+    if os.path.isdir(katalog_prototypu):
+        args += ["--paths", katalog_prototypu]
     dolaczone = []
     zasoby = os.path.join(KATALOG, "zasoby")
     if os.path.isdir(zasoby):

@@ -21403,6 +21403,12 @@ class App(QMainWindow):
 
 
 if __name__ == "__main__":
+    # NOWY WYGLĄD: osobne okno na tym samym silniku (nowy_wyglad.py).
+    # Bez tego argumentu program zachowuje się dokładnie jak dotąd.
+    if "--nowy" in sys.argv:
+        import nowy_wyglad
+        sys.exit(nowy_wyglad.main(sys.argv))
+
     app = QApplication(sys.argv)
     _rozgrzej_backend()   # zbudź backend od razu — nim użytkownik wpisze hasło,
                           # serwer będzie ciepły i logowanie odpowie od ręki

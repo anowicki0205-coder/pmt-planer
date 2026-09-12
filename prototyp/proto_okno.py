@@ -12,11 +12,11 @@ import sys
 
 from PyQt6.QtCore import (Qt, QRect, QRectF, QPointF, QTimer, QEasingCurve,
                           QPropertyAnimation, QRegularExpression, pyqtSignal)
-from PyQt6.QtGui import (QBrush, QColor, QFontMetricsF, QLinearGradient, QPainter,
-                         QPainterPath, QPen, QPolygonF, QRadialGradient,
-                         QRegularExpressionValidator)
-from PyQt6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtGui import (QBrush, QColor, QFontMetricsF, QKeySequence, QLinearGradient,
+                         QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient,
+                         QRegularExpressionValidator, QShortcut)
+from PyQt6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel, QLayout,
+                             QLineEdit, QVBoxLayout, QWidget)
 
 import proto_styl as S
 import proto_dane as D
@@ -28,20 +28,37 @@ from proto_taca import TacaDokumentow, PanelPodpisu, PanelWysylki
 # ── miary układu (wprost z zatwierdzonego projektu) ───────────────────
 SZYNA_W    = 72
 PASEK_H    = 56
-TASMA_H    = 118
+TASMA_H    = 118       # taśma w oknie szerokim
+TASMA_H_MIN = 92       # taśma w oknie ciasnym
 MARG       = 24        # margines boczny obszaru treści
+MARG_MIN   = 14
 KOL_W      = 380       # kolumna kart
+KOL_W_MIN  = 300       # kolumna zwęża się pierwsza, aż do tej granicy
 ODSTEP     = 16        # przerwa kolumna–mapa
+ODSTEP_MIN = 12
 ODSTEP_K   = 14        # przerwa między kartami
-GORA_PRACY = PASEK_H + TASMA_H + 30
+ODSTEP_K_MIN = 9
+PRZERWA_GORA = 30      # taśma–karty
+PRZERWA_GORA_MIN = 12
 DOL_PRACY  = 16
+DOL_PRACY_MIN = 10
 KARTKA_W   = 342
 H_STRON    = 34
+H_STRON_MIN = 28
+MAPA_W_MIN = 360
+
+ROZMIAR_DOCELOWY = (1440, 900)   # rozmiar startowy, gdy ekran na to pozwala
+ROZMIAR_MIN      = (1040, 660)
+UDZIAL_EKRANU    = 0.90
+PROG_WASKI       = 1240          # poniżej tej szerokości zwęża się kolumna
+PROG_NISKI       = 820           # poniżej tej wysokości kurczą się odstępy
 
 ROK, MIESIAC = 2026, 9
 DZIS = 11
 CZAS_GENERACJI_MS = 5000
 CZAS_TACY_MS = 350
+
+LIMITY_DNIA = (D.MAX_KWOTA_DNIA, 999.00)
 
 DNI_PELNE = ["poniedziałek", "wtorek", "środa", "czwartek",
              "piątek", "sobota", "niedziela"]
@@ -106,6 +123,19 @@ def arkusz():
             tresc = (tresc[:poczatek] + "QWidget { color: %s; }" % S.TEKST.name()
                      + tresc[koniec + 1:])
     return tresc
+
+
+def _wciecie_pola(w, wysokosc):
+    """Wcięcie pola dobrane do jego wysokości.
+
+    Arkusz stylów daje 9 px z każdej strony — w niskim oknie pole ma 27 px
+    i tekst zostałby przycięty przy dolnej krawędzi."""
+    pad = max(2, min(9, int((wysokosc - 20) / 2)))
+    if getattr(w, "_wciecie", None) == pad:
+        return
+    w._wciecie = pad
+    rodzaj = "QComboBox" if isinstance(w, QComboBox) else "QLineEdit"
+    w.setStyleSheet("%s { padding: %dpx 12px; }" % (rodzaj, pad))
 
 
 def _pigulka(p, r, promien, wypelnienie, obrys=None, szer_obrysu=1.0):
@@ -323,9 +353,15 @@ class PasekGorny(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._aktywny = 1
         self._pod = -1
+        self.marg = MARG
+
+    def ustaw_margines(self, marg):
+        if int(marg) != self.marg:
+            self.marg = int(marg)
+            self.update()
 
     def _pola_zakladek(self):
-        x = MARG + _szerokosc("Bilans miesiąca", 19, 700, naglowek=True) + 22
+        x = self.marg + _szerokosc("Bilans miesiąca", 19, 700, naglowek=True) + 22
         pola = []
         for nazwa in self.MIESIACE:
             szer = _szerokosc(nazwa, 13, 600) + 26
@@ -364,7 +400,7 @@ class PasekGorny(QWidget):
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         sr = PASEK_H / 2.0
 
-        S.tekst(p, MARG, sr + 7, "Bilans miesiąca", S.TEKST, 19, 700, naglowek=True)
+        S.tekst(p, self.marg, sr + 7, "Bilans miesiąca", S.TEKST, 19, 700, naglowek=True)
 
         pola = self._pola_zakladek()
         obwoluta = QRectF(pola[0].x() - 5, pola[0].y() - 4,
@@ -381,21 +417,27 @@ class PasekGorny(QWidget):
             S.tekst(p, r.center().x() - szer / 2.0, r.center().y() + 5,
                     self.MIESIACE[i], kolor, 13, 600 if czynny else 500)
 
-        # — prawa strona —
-        x = self.width() - MARG
+        # — prawa strona: w ciasnym oknie znikają kolejne części, nic nie nachodzi —
+        granica = pola[-1].right() + 24
+        x = self.width() - self.marg
         x -= self._awatar(p, x, sr)
         x -= 12
-        x -= self._przycisk(p, x, sr, "Zgłoś błąd")
-        x -= 12
-        x -= self._dzwonek(p, x, sr)
-        x -= 16
+        szer = _szerokosc("Zgłoś błąd", 13, 500) + 30
+        if x - szer > granica:
+            x -= self._przycisk(p, x, sr, "Zgłoś błąd")
+            x -= 12
+        if x - 34 > granica:
+            x -= self._dzwonek(p, x, sr)
+            x -= 16
         napis = "Konto ważne do 31.12.2026"
-        szer = _napis_prawy(p, x, sr + 5, napis, S.TEKST_2, 12, 500)
-        x -= szer + 10
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(S.ZIELEN))
-        p.drawEllipse(QPointF(x, sr), 3.4, 3.4)
-        S.punkt_swiatla(p, QPointF(x, sr), 9, S.ZIELEN, 120)
+        szer = _szerokosc(napis, 12, 500) + 16
+        if x - szer > granica:
+            szer = _napis_prawy(p, x, sr + 5, napis, S.TEKST_2, 12, 500)
+            x -= szer + 10
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(S.ZIELEN))
+            p.drawEllipse(QPointF(x, sr), 3.4, 3.4)
+            S.punkt_swiatla(p, QPointF(x, sr), 9, S.ZIELEN, 120)
         p.end()
 
     def _awatar(self, p, prawy, sr):
@@ -485,12 +527,86 @@ class Lista(QComboBox):
 
 
 class KartaKompasuOkna(KartaKompasu):
-    """Karta kompasu z ciaśniejszym marginesem — pełny tytuł mieści się w kolumnie 380."""
+    """Karta kompasu dopasowana do kolumny.
 
+    W kolumnie szerokiej układ zatwierdzony: kompas z lewej, tytuł i rząd
+    plakietek z prawej. W kolumnie zwężonej plakietki schodzą pod spód, na
+    całą szerokość karty — inaczej nie zmieściłyby się obok kompasu."""
+
+    PROG_WASKI = 348
+    WYS_PLAKIETKI = 25.0
+    ROZMIARY_TYTULU = (19, 17, 15, 13)
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self.setMinimumSize(268, 126)
+        self.kompas.setMinimumSize(64, 64)     # róża zostaje kwadratem
+
+    def waska(self):
+        return self.width() < self.PROG_WASKI
+
+    # — układ —
     def resizeEvent(self, zdarzenie):
         super().resizeEvent(zdarzenie)
-        bok = max(90, int(min(self.height() - 26, 122)))
-        self.kompas.setGeometry(10, int((self.height() - bok) / 2.0), bok, bok)
+        h, w = self.height(), self.width()
+        if self.waska():
+            pas = self.WYS_PLAKIETKI + 14.0
+            bok = int(max(64, min(h - pas - 16, 116, w * 0.40)))
+            gora = int(max(8, (h - pas - bok) / 2.0 + 2))
+            self.kompas.setGeometry(12, gora, bok, bok)
+        else:
+            bok = max(90, int(min(h - 26, 122)))
+            self.kompas.setGeometry(10, int((h - bok) / 2.0), bok, bok)
+
+    def _rozmiar_tytulu(self, szer):
+        for rozmiar in self.ROZMIARY_TYTULU:
+            if _szerokosc(self.TYTUL, rozmiar, 700, naglowek=True) <= szer:
+                return rozmiar
+        return self.ROZMIARY_TYTULU[-1]
+
+    def _uklad_plakietek(self, szer_max):
+        """Dwa dodatkowe, drobniejsze stopnie — plakietki nie wychodzą poza kartę."""
+        font, szerokosci, odstep, rozmiar = super()._uklad_plakietek(szer_max)
+        if not szerokosci:
+            return font, szerokosci, odstep, rozmiar
+        if sum(szerokosci) + odstep * (len(szerokosci) - 1) <= szer_max + 0.5:
+            return font, szerokosci, odstep, rozmiar
+        for rozmiar2, zapas_ze, zapas_bez, odstep2 in ((9.0, 20.0, 13.0, 3.0),
+                                                       (8.0, 17.0, 11.0, 2.5)):
+            f = S.czcionka(rozmiar2, 600)
+            metryka = QFontMetricsF(f)
+            szer2 = []
+            for nazwa in self.ETAPY:
+                znacznik = self._etapy.get(nazwa, "czeka") in ("gotowe", "w_toku")
+                szer2.append(metryka.horizontalAdvance(nazwa)
+                             + (zapas_ze if znacznik else zapas_bez))
+            if (sum(szer2) + odstep2 * (len(szer2) - 1) <= szer_max + 0.5
+                    or rozmiar2 == 8.0):
+                return f, szer2, odstep2, rozmiar2
+        return font, szerokosci, odstep, rozmiar
+
+    # — rysowanie —
+    def paintEvent(self, zdarzenie):
+        if not self.waska():
+            super().paintEvent(zdarzenie)
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        karta = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
+        S.cien(p, karta, 18.0, sila=90, rozmycie=14, przesun=6)
+        S.szklo(p, karta, 18.0)
+
+        g = self.kompas.geometry()
+        x = g.right() + 12.0
+        szer = max(50.0, karta.right() - 14.0 - x)
+        rozmiar = self._rozmiar_tytulu(szer)
+        S.tekst(p, x, g.center().y() + rozmiar * 0.36, self.TYTUL,
+                S.TEKST, rozmiar, 700, naglowek=True)
+
+        y = karta.bottom() - 14.0 - self.WYS_PLAKIETKI
+        self._rysuj_plakietki(p, karta.x() + 14.0, y, karta.width() - 28.0)
+        p.end()
 
 
 class KartaPracownika(Karta):
@@ -499,6 +615,7 @@ class KartaPracownika(Karta):
         z = QVBoxLayout(self)
         z.setContentsMargins(18, 40, 18, 14)
         z.setSpacing(9)
+        z.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         self.imie = QLineEdit(D.PRACOWNIK)
         self.haslo = QLineEdit("kadry2026")
@@ -519,6 +636,27 @@ class KartaPracownika(Karta):
         wiersz.addWidget(self.stanowisko, 1)
         z.addLayout(wiersz)
         z.addWidget(self.adres)
+
+    def resizeEvent(self, e):
+        """Trzy wiersze zostają zawsze — w ciasnym oknie kurczą się odstępy."""
+        ciasno = self.height() < 172
+        wasko = self.width() < 344
+        z = self.layout()
+        z.setContentsMargins(14 if wasko else 18, 32 if ciasno else 40,
+                             14 if wasko else 18, 10 if ciasno else 14)
+        z.setSpacing(6 if ciasno else 9)
+        self.haslo.setFixedWidth(112 if wasko else 152)
+        pola = (self.imie, self.haslo, self.stanowisko, self.adres)
+        for w in pola:
+            w.setMinimumHeight(27 if ciasno else 30)
+            w.setMaximumHeight(30 if ciasno else 36)
+        z.activate()
+        for w in pola:
+            _wciecie_pola(w, w.height())
+        for w in (self.imie, self.adres):
+            if not w.hasFocus():
+                w.setCursorPosition(0)         # widać początek, nie koniec adresu
+        super().resizeEvent(e)
 
 
 class Segmentowany(QWidget):
@@ -561,11 +699,25 @@ class Segmentowany(QWidget):
                     for i in range(len(self.pozycje))]
         pola = []
         x = r.x()
+        rozmiar = self._rozmiar_napisu()
         for nazwa in self.pozycje:
-            szer = _szerokosc(nazwa, self._rozmiar, 600) + 24
+            szer = _szerokosc(nazwa, rozmiar, 600) + 24
             pola.append(QRectF(x, r.y(), szer, r.height()))
             x += szer + 8
         return pola
+
+    def _rozmiar_napisu(self):
+        """Napis kurczy się razem z przełącznikiem — nic nie wychodzi poza pigułkę."""
+        if self._styl == "zlaczony":
+            wolne = (self.width() - 8) / max(1, len(self.pozycje)) - 12
+        else:
+            wolne = (self.width() - 8 * (len(self.pozycje) - 1)) \
+                / max(1, len(self.pozycje)) - 20
+        rozmiar = self._rozmiar
+        while rozmiar > 9 and max(_szerokosc(n, rozmiar, 600)
+                                  for n in self.pozycje) > wolne:
+            rozmiar -= 1
+        return rozmiar
 
     def mousePressEvent(self, e):
         for i, r in enumerate(self._pola()):
@@ -616,9 +768,11 @@ class Segmentowany(QWidget):
                     _pigulka(p, pole, promien, S.z_alfa(QColor(255, 255, 255), 12))
                 kolor = S.TEKST_2
             napis = self.pozycje[i]
-            szer = _szerokosc(napis, self._rozmiar, 600 if czynna else 500)
-            S.tekst(p, pole.center().x() - szer / 2.0, pole.center().y() + 5,
-                    napis, kolor, self._rozmiar, 600 if czynna else 500)
+            rozmiar = self._rozmiar_napisu()
+            szer = _szerokosc(napis, rozmiar, 600 if czynna else 500)
+            S.tekst(p, pole.center().x() - szer / 2.0,
+                    pole.center().y() + 4 + rozmiar / 13.0,
+                    napis, kolor, rozmiar, 600 if czynna else 500)
         p.end()
 
 
@@ -628,18 +782,16 @@ class PoleKwoty(QWidget):
     zmieniono = pyqtSignal()
     zatwierdzono = pyqtSignal()
 
+    ROZMIARY = (31, 27, 24, 21)
+
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
-        self.setMinimumHeight(48)
-        self._font_kwoty = S.czcionka(31, 700, naglowek=True)
+        self.setMinimumHeight(44)
+        self._rozmiar = self.ROZMIARY[0]
+        self._ostrzezenie = False
         self.pole = QLineEdit(self)
         self.pole.setFrame(False)
-        self.pole.setFont(self._font_kwoty)
-        self.pole.setStyleSheet(
-            "QLineEdit { background: transparent; border: none; padding: 0px;"
-            " font-family: '%s'; font-size: 31px; font-weight: 700;"
-            " color: %s; selection-background-color: rgba(0,240,255,0.30); }"
-            % (S.rodzina_naglowek(), S.CYJAN.name()))
+        self._ustaw_rozmiar(self.ROZMIARY[0])
         self.pole.setValidator(QRegularExpressionValidator(
             QRegularExpression(r"[0-9 ]{0,9}(,[0-9]{0,2})?")))
         self.pole.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -656,13 +808,32 @@ class PoleKwoty(QWidget):
                                   % S.TEKST_3.name())
         self.l_nota.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
+    def _ustaw_rozmiar(self, rozmiar):
+        rozmiar = int(rozmiar)
+        if rozmiar == getattr(self, "_rozmiar_ustawiony", None):
+            return
+        self._rozmiar_ustawiony = rozmiar
+        self.pole.setFont(S.czcionka(rozmiar, 700, naglowek=True))
+        self.pole.setStyleSheet(
+            "QLineEdit { background: transparent; border: none; padding: 0px;"
+            " font-family: '%s'; font-size: %dpx; font-weight: 700;"
+            " color: %s; selection-background-color: rgba(0,240,255,0.30); }"
+            % (S.rodzina_naglowek(), rozmiar, S.CYJAN.name()))
+
     def tekst(self):
         return self.pole.text()
 
     def ustaw_tekst(self, napis):
         self.pole.setText(napis)
 
-    def ustaw_note(self, napis):
+    def ustaw_note(self, napis, ostrzezenie=False):
+        ostrzezenie = bool(ostrzezenie)
+        if ostrzezenie != self._ostrzezenie:
+            self._ostrzezenie = ostrzezenie
+            kolor = S.BURSZTYN if ostrzezenie else S.TEKST_3
+            self.l_nota.setStyleSheet(
+                "color: %s; background: transparent; font-size: 11px;%s"
+                % (kolor.name(), " font-weight: 600;" if ostrzezenie else ""))
         self.l_nota.setText(napis)
         self._uklad()
 
@@ -676,18 +847,30 @@ class PoleKwoty(QWidget):
 
     def _uklad(self):
         h = self.height()
-        fm = QFontMetricsF(self.pole.font())
         tresc = self.pole.text() or "0"
         szer_nota = QFontMetricsF(self.l_nota.font()).horizontalAdvance(
             self.l_nota.text()) + 6
         szer_gr = QFontMetricsF(self.l_grosze.font()).horizontalAdvance(
             self.l_grosze.text()) + 4
-        wolne = max(70.0, self.width() - 36 - szer_nota - szer_gr)
-        szer = max(64.0, min(fm.horizontalAdvance(tresc) + 16.0, wolne))
-        wys_pola = min(h - 12, 44)
-        self.pole.setGeometry(int(18), int((h - wys_pola) / 2.0), int(szer), int(wys_pola))
-        self.l_grosze.setGeometry(int(18 + szer), int(h / 2.0 - 2), int(szer_gr), 20)
-        self.l_nota.setGeometry(int(self.width() - 18 - szer_nota), int(h / 2.0 - 9),
+        bok = 18 if self.width() >= 300 else 13
+        wolne = max(60.0, self.width() - 2 * bok - szer_nota - szer_gr)
+
+        # liczba kurczy się razem z kartą — nie wjeżdża pod grosze ani pod notę
+        rozmiar = self.ROZMIARY[0]
+        for kandydat in self.ROZMIARY:
+            rozmiar = kandydat
+            f = S.czcionka(kandydat, 700, naglowek=True)
+            if QFontMetricsF(f).horizontalAdvance(tresc) + 14.0 <= wolne:
+                break
+        self._ustaw_rozmiar(rozmiar)
+
+        fm = QFontMetricsF(self.pole.font())
+        szer = max(52.0, min(fm.horizontalAdvance(tresc) + 14.0, wolne))
+        wys_pola = min(h - 10, rozmiar + 13)
+        self.pole.setGeometry(int(bok), int((h - wys_pola) / 2.0),
+                              int(szer), int(wys_pola))
+        self.l_grosze.setGeometry(int(bok + szer), int(h / 2.0 - 2), int(szer_gr), 20)
+        self.l_nota.setGeometry(int(self.width() - bok - szer_nota), int(h / 2.0 - 9),
                                 int(szer_nota), 18)
 
     def paintEvent(self, _e):
@@ -695,7 +878,8 @@ class PoleKwoty(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         czynne = bool(self.pole.text().strip())
-        obrys = S.z_alfa(S.CYJAN, 150 if czynne else 60)
+        akcent = S.BURSZTYN if self._ostrzezenie else S.CYJAN
+        obrys = S.z_alfa(akcent, 170 if self._ostrzezenie else (150 if czynne else 60))
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
         g.setColorAt(0.0, QColor(10, 24, 34, 230))
         g.setColorAt(1.0, QColor(8, 17, 27, 235))
@@ -704,8 +888,8 @@ class PoleKwoty(QWidget):
             p.save()
             p.setClipPath(s)
             rg = QRadialGradient(QPointF(r.x() + 60, r.center().y()), 130)
-            rg.setColorAt(0.0, S.z_alfa(S.CYJAN, 34))
-            rg.setColorAt(1.0, S.z_alfa(S.CYJAN, 0))
+            rg.setColorAt(0.0, S.z_alfa(akcent, 40 if self._ostrzezenie else 34))
+            rg.setColorAt(1.0, S.z_alfa(akcent, 0))
             p.fillRect(r, QBrush(rg))
             p.restore()
         p.end()
@@ -741,57 +925,221 @@ class WierszWolnych(QWidget):
         p.end()
 
 
+class WierszLimitu(QWidget):
+    """Wybór limitu kwoty jednego dnia — podpis i dwie wartości w jednym wierszu."""
+
+    wybrano = pyqtSignal(float)
+
+    def __init__(self, wartosci=LIMITY_DNIA, rodzic=None):
+        super().__init__(rodzic)
+        self.wartosci = tuple(float(w) for w in wartosci)
+        self._aktywna = 0
+        self._pod = -1
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setMinimumHeight(26)
+
+    # — stan —
+    def wartosc(self):
+        return self.wartosci[self._aktywna]
+
+    def ustaw_wartosc(self, wartosc):
+        for i, w in enumerate(self.wartosci):
+            if abs(w - float(wartosc)) < 0.005:
+                if i != self._aktywna:
+                    self._aktywna = i
+                    self.update()
+                return
+
+    # — układ —
+    def _z_jednostka(self):
+        pelne = sum(_szerokosc(D.zl(w) + " zł", 12, 600, mono=True) + 18
+                    for w in self.wartosci)
+        return pelne + 6 + _szerokosc("limit dnia", 12, 500) + 34 <= self.width()
+
+    def _napis(self, i):
+        return D.zl(self.wartosci[i]) + (" zł" if self._z_jednostka() else "")
+
+    def _pola(self):
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        h = min(22.0, r.height() - 6)
+        y = r.center().y() - h / 2.0
+        pola = []
+        x = r.right() - 8
+        for i in range(len(self.wartosci) - 1, -1, -1):
+            szer = _szerokosc(self._napis(i), 12, 600, mono=True) + 18
+            x -= szer
+            pola.insert(0, QRectF(x, y, szer, h))
+            x -= 6
+        return pola
+
+    # — zdarzenia —
+    def mousePressEvent(self, e):
+        for i, pole in enumerate(self._pola()):
+            if pole.adjusted(-3, -4, 3, 4).contains(e.position()):
+                if i != self._aktywna:
+                    self._aktywna = i
+                    self.update()
+                    self.wybrano.emit(self.wartosci[i])
+                break
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        i = -1
+        for k, pole in enumerate(self._pola()):
+            if pole.adjusted(-3, -4, 3, 4).contains(e.position()):
+                i = k
+        if i != self._pod:
+            self._pod = i
+            self.update()
+        super().mouseMoveEvent(e)
+
+    def leaveEvent(self, e):
+        self._pod = -1
+        self.update()
+        super().leaveEvent(e)
+
+    # — rysowanie —
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        _pigulka(p, r, 10, QColor(9, 16, 28, 190), S.OBRYS)
+        S.tekst(p, r.x() + 14, r.center().y() + 5, "limit dnia", S.TEKST_2, 12, 500)
+        for i, pole in enumerate(self._pola()):
+            czynna = (i == self._aktywna)
+            promien = pole.height() / 2.0
+            if czynna:
+                g = QLinearGradient(pole.topLeft(), pole.topRight())
+                g.setColorAt(0.0, S.z_alfa(S.CYJAN, 58))
+                g.setColorAt(1.0, S.z_alfa(S.ZIELEN, 46))
+                _pigulka(p, pole, promien, g, S.z_alfa(S.CYJAN, 150))
+                kolor = S.TEKST
+            else:
+                _pigulka(p, pole, promien,
+                         QColor(17, 28, 46, 215 if i == self._pod else 150), S.OBRYS)
+                kolor = S.TEKST_3
+            napis = self._napis(i)
+            waga = 700 if czynna else 500
+            szer = _szerokosc(napis, 12, waga, mono=True)
+            S.tekst(p, pole.center().x() - szer / 2.0, pole.center().y() + 4,
+                    napis, kolor, 12, waga, mono=True)
+        p.end()
+
+
 class KartaParametrow(Karta):
+
+    POJEMNOSCI = ("powyżej 900 cm³", "do 900 cm³", "motocykl")
+    POJEMNOSCI_KROTKIE = ("> 900 cm³", "do 900 cm³", "motocykl")
+
     def __init__(self, rodzic=None):
         super().__init__("PARAMETRY", "", rodzic)
         z = QVBoxLayout(self)
         z.setContentsMargins(18, 36, 18, 14)
         z.setSpacing(12)
+        z.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         self.kwota = PoleKwoty()
-        self.kwota.setMinimumHeight(48)
+        self.kwota.setMinimumHeight(44)
         self.kwota.setMaximumHeight(58)
         z.addWidget(self.kwota)
 
         wiersz = QHBoxLayout()
         wiersz.setSpacing(10)
         self.pojemnosc = Lista()
-        self.pojemnosc.addItems(["powyżej 900 cm³", "do 900 cm³", "motocykl"])
-        self.pojemnosc.setMinimumHeight(30)
+        self._krotkie = False
+        self.pojemnosc.addItems(self.POJEMNOSCI)
+        self.pojemnosc.setMinimumHeight(28)
         self.pojemnosc.setMaximumHeight(36)
         self.pojemnosc.setFixedWidth(168)
         self.tryb = Segmentowany(["Tydzień", "Wieczory"], 0, "zlaczony")
-        self.tryb.setMinimumHeight(30)
+        self.tryb.setMinimumHeight(28)
         self.tryb.setMaximumHeight(36)
         wiersz.addWidget(self.pojemnosc)
         wiersz.addWidget(self.tryb, 1)
         z.addLayout(wiersz)
 
+        self.limit = WierszLimitu()
+        self.limit.setMinimumHeight(26)
+        self.limit.setMaximumHeight(30)
+        z.addWidget(self.limit)
+
         self.wolne = WierszWolnych()
-        self.wolne.setMinimumHeight(28)
+        self.wolne.setMinimumHeight(26)
         self.wolne.setMaximumHeight(32)
         z.addWidget(self.wolne)
         z.addStretch(1)
 
+    def _ustaw_pojemnosci(self, krotkie):
+        """W wąskiej kolumnie pozycje mają krótsze nazwy — nic nie jest ucinane."""
+        if krotkie == self._krotkie:
+            return
+        self._krotkie = krotkie
+        i = max(0, self.pojemnosc.currentIndex())
+        self.pojemnosc.blockSignals(True)
+        self.pojemnosc.clear()
+        self.pojemnosc.addItems(self.POJEMNOSCI_KROTKIE if krotkie else self.POJEMNOSCI)
+        self.pojemnosc.setCurrentIndex(i)
+        self.pojemnosc.blockSignals(False)
+
+    def resizeEvent(self, e):
+        """Karta sama się kurczy — w niskim oknie schodzą odstępy, nie treść."""
+        ciasno = self.height() < 226
+        wasko = self.width() < 344
+        z = self.layout()
+        z.setContentsMargins(14 if wasko else 18, 30 if ciasno else 36,
+                             14 if wasko else 18, 10 if ciasno else 14)
+        z.setSpacing(8 if ciasno else 12)
+        self.kwota.setMaximumHeight(46 if ciasno else 58)
+        self._ustaw_pojemnosci(wasko)
+        self.pojemnosc.setFixedWidth(132 if wasko else 168)
+        for w in (self.pojemnosc, self.tryb):
+            w.setMaximumHeight(28 if ciasno else 36)
+        self.limit.setMaximumHeight(26 if ciasno else 30)
+        self.wolne.setMaximumHeight(26 if ciasno else 32)
+        z.activate()
+        _wciecie_pola(self.pojemnosc, self.pojemnosc.height())
+        super().resizeEvent(e)
+
 
 # ── nakładki mapy ────────────────────────────────────────────────────
 class PigulkaDnia(QWidget):
-    """Nagłówek dnia leżący na mapie."""
+    """Nagłówek dnia leżący na mapie.
+
+    Treść jest podzielona na człony; w wąskim oknie odpadają kolejne od końca,
+    zamiast wyjeżdżać poza pigułkę."""
+
+    LACZNIK = "  ·  "
 
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
         self._glowny = ""
-        self._reszta = ""
+        self._czesci = []
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-    def ustaw_tekst(self, glowny, reszta=""):
-        self._glowny, self._reszta = glowny, reszta
+    def ustaw_tekst(self, glowny, czesci=()):
+        if isinstance(czesci, str):
+            czesci = [c for c in czesci.split(self.LACZNIK) if c]
+        self._glowny = glowny
+        self._czesci = list(czesci)
         self.update()
 
-    def szerokosc_tresci(self):
+    def _reszta(self, ile=None):
+        czesci = self._czesci if ile is None else self._czesci[:ile]
+        return "".join(self.LACZNIK + c for c in czesci)
+
+    def szerokosc_tresci(self, ile=None):
         return (_szerokosc(self._glowny, 13, 700, odstep=0.5)
-                + _szerokosc(self._reszta, 13, 500) + 36)
+                + _szerokosc(self._reszta(ile), 13, 500) + 36)
+
+    def _ile_miesci(self):
+        for ile in range(len(self._czesci), -1, -1):
+            if self.szerokosc_tresci(ile) <= self.width() + 0.5 or ile == 0:
+                return ile
+        return 0
 
     def paintEvent(self, _e):
         p = QPainter(self)
@@ -803,7 +1151,7 @@ class PigulkaDnia(QWidget):
         y = r.center().y() + 5
         S.tekst(p, x, y, self._glowny, S.CYJAN, 13, 700, odstep=0.5)
         x += _szerokosc(self._glowny, 13, 700, odstep=0.5)
-        S.tekst(p, x, y, self._reszta, S.TEKST_2, 13, 500)
+        S.tekst(p, x, y, self._reszta(self._ile_miesci()), S.TEKST_2, 13, 500)
         p.end()
 
 
@@ -894,7 +1242,7 @@ class OknoPrototypu(QWidget):
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
         self.setWindowTitle("PMT Planer — prototyp wyglądu")
-        self.setMinimumSize(1200, 780)
+        self.setMinimumSize(*ROZMIAR_MIN)
         self.setStyleSheet(arkusz())
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -905,10 +1253,40 @@ class OknoPrototypu(QWidget):
         self._po_generacji = False
         self._taca_widoczna = False
         self._t_gen = 0
+        self._limit_dnia = LIMITY_DNIA[0]
+        self._maks_kwota = 0.0
+        self._za_duzo = False
+        self._animacje = True
 
         self._buduj()
         self._polacz()
         self._przelicz_teraz(pierwszy=True)
+
+    # ── rozmiar okna ─────────────────────────────────────────────────
+    def dopasuj_do_ekranu(self, docelowy=ROZMIAR_DOCELOWY):
+        """Okno mieści się na ekranie: rozmiar docelowy albo 90% obszaru."""
+        ekran = self.screen() or QApplication.primaryScreen()
+        obszar = ekran.availableGeometry() if ekran is not None \
+            else QRect(0, 0, docelowy[0], docelowy[1])
+
+        # na małym ekranie minimum ustępuje — okno ma się zmieścić w całości
+        self.setMinimumSize(min(ROZMIAR_MIN[0], obszar.width()),
+                            min(ROZMIAR_MIN[1], obszar.height()))
+
+        w = max(self.minimumWidth(),
+                min(docelowy[0], int(obszar.width() * UDZIAL_EKRANU)))
+        h = max(self.minimumHeight(),
+                min(docelowy[1], int(obszar.height() * UDZIAL_EKRANU)))
+        self.resize(w, h)
+        self.move(obszar.x() + max(0, (obszar.width() - w) // 2),
+                  obszar.y() + max(0, (obszar.height() - h) // 2))
+        return w, h
+
+    def przelacz_pelny_ekran(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
 
     # ── budowa ───────────────────────────────────────────────────────
     def _buduj(self):
@@ -951,10 +1329,16 @@ class OknoPrototypu(QWidget):
         self._anim_tacy.setDuration(CZAS_TACY_MS)
         self._anim_tacy.setEasingCurve(QEasingCurve.Type.OutCubic)
 
+        # pełny ekran działa także wtedy, gdy pisze się w polu kwoty
+        self._skrot_pelny = QShortcut(QKeySequence(Qt.Key.Key_F11), self)
+        self._skrot_pelny.setContext(Qt.ShortcutContext.WindowShortcut)
+        self._skrot_pelny.activated.connect(self.przelacz_pelny_ekran)
+
     def _polacz(self):
         self.k_parametry.kwota.zmieniono.connect(self._kwota_zmieniona)
         self.k_parametry.kwota.zatwierdzono.connect(self._enter_w_kwocie)
         self.k_parametry.tryb.wybrano.connect(lambda _n: self._przelicz_teraz())
+        self.k_parametry.limit.wybrano.connect(self._limit_zmieniony)
         self.tasma.wybrano.connect(self._wybierz_dzien)
         self.tasma.przelaczono_wolny.connect(self._przelacz_wolny)
         self.mapa.klikniete_miasto.connect(self._klik_miasto)
@@ -972,48 +1356,85 @@ class OknoPrototypu(QWidget):
         self._zegar_stanu.timeout.connect(self._odswiez_stan_tacy)
 
     # ── układ ────────────────────────────────────────────────────────
+    def _miary(self):
+        """Wszystkie miary układu liczone z rozmiaru okna — jedno miejsce.
+
+        Ciasne okno oddaje najpierw odstępy, potem szerokość kolumny kart
+        (aż do KOL_W_MIN), a mapę zwęża dopiero na końcu."""
+        W, H = self.width(), self.height()
+        wask = max(0.0, min(1.0, (PROG_WASKI - W) / float(PROG_WASKI - ROZMIAR_MIN[0])))
+        nisk = max(0.0, min(1.0, (PROG_NISKI - H) / float(PROG_NISKI - ROZMIAR_MIN[1])))
+        cias = max(wask, nisk)
+
+        def miedzy(duza, mala, t):
+            return int(round(duza - (duza - mala) * t))
+
+        m = {"marg": miedzy(MARG, MARG_MIN, cias),
+             "odstep": miedzy(ODSTEP, ODSTEP_MIN, cias),
+             "odstep_k": miedzy(ODSTEP_K, ODSTEP_K_MIN, nisk),
+             "tasma_h": miedzy(TASMA_H, TASMA_H_MIN, nisk),
+             "przerwa": miedzy(PRZERWA_GORA, PRZERWA_GORA_MIN, nisk),
+             "dol": miedzy(DOL_PRACY, DOL_PRACY_MIN, nisk),
+             "h_stron": miedzy(H_STRON, H_STRON_MIN, nisk)}
+
+        kol = max(KOL_W_MIN, min(KOL_W, KOL_W - max(0, PROG_WASKI - W)))
+        dostepna = W - SZYNA_W - 2 * m["marg"] - m["odstep"]
+        if dostepna - kol < MAPA_W_MIN:      # ekran mniejszy niż minimum okna
+            kol = max(232, dostepna - MAPA_W_MIN)
+        m["kol"] = int(kol)
+        m["x0"] = SZYNA_W + m["marg"]
+        m["y0"] = PASEK_H + m["tasma_h"] + m["przerwa"]
+        m["wys"] = max(220, H - m["dol"] - m["y0"])
+        m["xm"] = m["x0"] + m["kol"] + m["odstep"]
+        m["szer_m"] = max(MAPA_W_MIN, W - m["marg"] - m["xm"])
+        return m
+
+    def _wysokosci_kart(self, wys, odstep_k):
+        """Trzy karty w kolumnie: najpierw minima, nadmiar idzie do kompasu."""
+        minima = (136, 188, 142)
+        cele = (182, 248, 212)
+        wolne = wys - 2 * odstep_k
+        if wolne < sum(minima):
+            skala = wolne / float(sum(minima))
+            return [max(84, int(m * skala)) for m in minima]
+        udzial = min(1.0, (wolne - sum(minima)) / float(sum(cele) - sum(minima)))
+        h = [int(round(mi + (ce - mi) * udzial)) for mi, ce in zip(minima, cele)]
+        nadmiar = wolne - sum(h)
+        if nadmiar > 0:                      # w wysokim oknie karty rosną razem
+            h[0] += min(int(nadmiar * 0.18), 40)
+            h[1] += min(int(nadmiar * 0.20), 46)
+        h[2] = max(minima[2], wolne - h[0] - h[1])
+        return h
+
     def resizeEvent(self, e):
         W, H = self.width(), self.height()
+        m = self._miary()
         self.szyna.setGeometry(0, 0, SZYNA_W, H)
         self.pasek.setGeometry(SZYNA_W, 0, W - SZYNA_W, PASEK_H)
-        self.tasma.setGeometry(SZYNA_W, PASEK_H, W - SZYNA_W, TASMA_H)
+        self.pasek.ustaw_margines(m["marg"])
+        self.tasma.setGeometry(SZYNA_W, PASEK_H, W - SZYNA_W, m["tasma_h"])
 
-        x0 = SZYNA_W + MARG
-        y0 = GORA_PRACY
-        dol = H - DOL_PRACY
-        wys = dol - y0
+        x0, y0, wys = m["x0"], m["y0"], m["wys"]
+        kol, odstep_k = m["kol"], m["odstep_k"]
+        h_prac, h_par, h_komp = self._wysokosci_kart(wys, odstep_k)
 
-        h_prac, h_par = 182, 211
-        nadmiar = max(0, wys - 700)          # w wysokich oknach karty rosną razem
-        h_prac += min(int(nadmiar * 0.20), 40)
-        h_par += min(int(nadmiar * 0.25), 50)
-        zapas = wys - h_prac - h_par - 2 * ODSTEP_K - 190
-        if zapas < 0:
-            ubytek = min(-zapas, 24)
-            h_prac -= ubytek
-            zapas += ubytek
-        if zapas < 0:
-            h_par -= min(-zapas, 27)
-        h_komp = max(190, wys - h_prac - h_par - 2 * ODSTEP_K)
+        self.k_pracownik.setGeometry(x0, y0, kol, h_prac)
+        self.k_parametry.setGeometry(x0, y0 + h_prac + odstep_k, kol, h_par)
+        self.k_kompas.setGeometry(x0, y0 + h_prac + h_par + 2 * odstep_k, kol, h_komp)
 
-        self.k_pracownik.setGeometry(x0, y0, KOL_W, h_prac)
-        self.k_parametry.setGeometry(x0, y0 + h_prac + ODSTEP_K, KOL_W, h_par)
-        self.k_kompas.setGeometry(x0, y0 + h_prac + h_par + 2 * ODSTEP_K, KOL_W, h_komp)
-
-        xm = x0 + KOL_W + ODSTEP
-        szer_m = max(420, W - MARG - xm)
-        h_mapy = max(300, wys - H_STRON)
+        xm, szer_m = m["xm"], m["szer_m"]
+        h_mapy = max(220, wys - m["h_stron"])
         self.mapa.setGeometry(xm, y0, szer_m, h_mapy)
-        self.strony.setGeometry(xm, y0 + h_mapy + 2, szer_m - 18, H_STRON - 4)
+        self.strony.setGeometry(xm, y0 + h_mapy + 2, szer_m - 18, m["h_stron"] - 4)
 
-        szer_k = int(min(KARTKA_W, max(272, szer_m * 0.40)))
-        wys_k = int(min(500, max(330, h_mapy - 108)))
-        self.kartka.setGeometry(xm + szer_m - 18 - szer_k, y0 + 42, szer_k, wys_k)
+        gora_k = 42 if h_mapy >= 392 else 30
+        szer_k = int(min(KARTKA_W, max(252, szer_m * 0.40)))
+        wys_k = int(min(500, max(292, min(h_mapy - 108, h_mapy - gora_k - 14))))
+        self.kartka.setGeometry(xm + szer_m - 18 - szer_k, y0 + gora_k, szer_k, wys_k)
 
-        self.pigulka.setGeometry(xm + 16, y0 + 16,
-                                 int(min(self.pigulka.szerokosc_tresci(), szer_m - 240)), 28)
-        szer_z = int(self.zakres.szerokosc_tresci())
+        szer_z = int(math.ceil(min(self.zakres.szerokosc_tresci(), szer_m * 0.46)))
         self.zakres.setGeometry(xm + szer_m - 18 - szer_z, y0 + 16, szer_z, 28)
+        self._uklad_pigulki()
 
         self.taca.setGeometry(self._geometria_tacy(self._taca_widoczna))
         self._przelicz_kotwice()
@@ -1045,13 +1466,35 @@ class OknoPrototypu(QWidget):
         self._przelicz_teraz()
         self.uruchom_pokaz()
 
+    def _limit_zmieniony(self, wartosc):
+        self._limit_dnia = float(wartosc)
+        self._przelicz_teraz()
+
+    def _maks_miesiaca(self, tryb):
+        """Górna granica kwoty: dni robocze × sufit dnia — wprost z silnika."""
+        wolne = tuple(sorted(self._wolne))
+        try:
+            return float(D.maks_kwota_miesiaca(ROK, MIESIAC, tryb, wolne,
+                                               self._limit_dnia))
+        except (AttributeError, TypeError):
+            return 0.0
+
     def _przelicz_teraz(self, pierwszy=False):
         self._zegar_kwoty.stop()
         if pierwszy:
             self.k_parametry.kwota.ustaw_tekst("1 850")
+            self.k_parametry.limit.ustaw_wartosc(self._limit_dnia)
         tryb = self.k_parametry.tryb.aktywna()
-        self.dni = D.oblicz_miesiac(self._kwota(), ROK, MIESIAC, tryb,
-                                    wolne=tuple(sorted(self._wolne)))
+        self._maks_kwota = self._maks_miesiaca(tryb)
+        self._za_duzo = bool(self._maks_kwota
+                             and self._kwota() > self._maks_kwota + 0.005)
+        try:
+            self.dni = D.oblicz_miesiac(self._kwota(), ROK, MIESIAC, tryb,
+                                        wolne=tuple(sorted(self._wolne)),
+                                        limit_dnia=self._limit_dnia)
+        except TypeError:      # silnik bez limitu dnia — prototyp dalej działa
+            self.dni = D.oblicz_miesiac(self._kwota(), ROK, MIESIAC, tryb,
+                                        wolne=tuple(sorted(self._wolne)))
         if tryb == "Tydzień":
             self.dni_widoczne = [d for d in self.dni if d.data.weekday() < 5]
         else:
@@ -1105,7 +1548,11 @@ class OknoPrototypu(QWidget):
 
     def _odswiez_liczby(self):
         z = D.podsumowanie(self._dni_w_trasie())
-        self.k_parametry.kwota.ustaw_note("%s · realne drogi" % _dni_txt(z["dni"]))
+        if self._za_duzo:
+            self.k_parametry.kwota.ustaw_note(
+                "maks. %s zł" % D.zl(self._maks_kwota, grosze=False), True)
+        else:
+            self.k_parametry.kwota.ustaw_note("%s · realne drogi" % _dni_txt(z["dni"]))
 
     def _odswiez_dzien(self):
         d = self._dzien_wybrany()
@@ -1141,27 +1588,28 @@ class OknoPrototypu(QWidget):
             z = D.podsumowanie(self._dni_w_trasie())
             self.pigulka.ustaw_tekst(
                 "%s %d" % (D.nazwa_miesiaca(MIESIAC).upper(), ROK),
-                "  ·  %s  ·  %s  ·  %s km" % (_dni_txt(z["dni"]), _postoje(z["postoje"]),
-                                              D.zl(z["km"], grosze=False)))
+                [_dni_txt(z["dni"]), _postoje(z["postoje"]),
+                 "%s km" % D.zl(z["km"], grosze=False)])
             return
         if d is None:
-            self.pigulka.ustaw_tekst("", "")
+            self.pigulka.ustaw_tekst("", [])
             return
         glowny = "%s %02d.%02d" % (DNI_PELNE[d.data.weekday()].upper(),
                                    d.data.day, d.data.month)
         if d.wylaczony:
-            reszta = "  ·  wolne"
+            czesci = ["wolne"]
         elif d.wolny:
-            reszta = "  ·  bez trasy"
+            czesci = ["bez trasy"]
         else:
-            reszta = "  ·  %s  ·  %s km  ·  %s" % (_postoje(d.postoje),
-                                                   D.zl(d.km, grosze=False), _czas_dnia(d))
-        self.pigulka.ustaw_tekst(glowny, reszta)
+            czesci = [_postoje(d.postoje), "%s km" % D.zl(d.km, grosze=False),
+                      _czas_dnia(d)]
+        self.pigulka.ustaw_tekst(glowny, czesci)
 
     def _uklad_pigulki(self):
         g = self.mapa.geometry()
-        szer = int(min(self.pigulka.szerokosc_tresci(), g.width() - 240))
-        self.pigulka.setGeometry(g.x() + 16, g.y() + 16, max(60, szer), 28)
+        wolne = g.width() - 16 - 18 - self.zakres.width() - 14
+        szer = int(math.ceil(min(self.pigulka.szerokosc_tresci(), max(90, wolne))))
+        self.pigulka.setGeometry(g.x() + 16, g.y() + 16, max(90, szer), 28)
 
     def _przelicz_kotwice(self):
         punkt = QPointF(self.kartka.x() - self.mapa.x() + 8,
@@ -1217,6 +1665,13 @@ class OknoPrototypu(QWidget):
             return
         if self._kwota() < D.KWOTA_MIN or not self._dni_w_trasie():
             k.ustaw_stan("nieaktywny")
+            self.k_kompas.TYTUL = "Generuj dokumenty"
+            self.k_kompas.ustaw_etapy({n: "czeka" for n in ETAPY})
+        elif self._za_duzo:
+            k.ustaw_stan("ostrzezenie")
+            # łuk pokazuje, jaka część wpisanej kwoty mieści się w miesiącu
+            k.ustaw_postep(max(0.04, min(0.96, self._maks_kwota / max(1.0, self._kwota()))))
+            k.setToolTip("maks. %s zł" % D.zl(self._maks_kwota, grosze=False))
             self.k_kompas.TYTUL = "Generuj dokumenty"
             self.k_kompas.ustaw_etapy({n: "czeka" for n in ETAPY})
         elif self._po_generacji:
@@ -1304,13 +1759,16 @@ class OknoPrototypu(QWidget):
 
     # ── taca ─────────────────────────────────────────────────────────
     def _wysokosc_tacy(self):
-        podpowiedz = self.taca.sizeHint().height()
-        return int(max(352, min(podpowiedz + 40, self.height() * 0.46)))
+        podpowiedz = max(self.taca.sizeHint().height(),
+                         self.taca.minimumSizeHint().height())
+        gorna = max(318, int(self.height() * 0.52))
+        return int(max(318, min(podpowiedz + 40, gorna)))
 
     def _geometria_tacy(self, widoczna):
         h = self._wysokosc_tacy()
-        x = SZYNA_W + 16
-        w = max(400, self.width() - x - 16)
+        marg = self._miary()["marg"]
+        x = SZYNA_W + marg
+        w = max(360, self.width() - x - marg)
         y = self.height() - h if widoczna else self.height() + 4
         return QRect(x, y, w, h)
 
@@ -1405,20 +1863,41 @@ class OknoPrototypu(QWidget):
             self._przesun_wybor(1)
         elif klucz in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.uruchom_pokaz()
+        elif klucz == Qt.Key.Key_F11:
+            self.przelacz_pelny_ekran()
         elif klucz == Qt.Key.Key_Escape:
-            self._schowaj_tace()
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self._schowaj_tace()
         else:
             super().keyPressEvent(e)
 
-    # ── zamknięcie ───────────────────────────────────────────────────
-    def zamroz(self):
-        """Zatrzymuje animacje — powtarzalne zrzuty i czyste wyjście."""
+    # ── animacje i zamknięcie ────────────────────────────────────────
+    def ustaw_animacje(self, wlaczone):
+        """Jeden przełącznik na cały ekran — zrzuty i zamknięcie gaszą wszystko."""
+        self._animacje = bool(wlaczone)
+        if self._animacje:
+            self.k_kompas.wznow_animacje()
+            self.tasma.wznow_animacje()
+            self.mapa.ustaw_animacje(True)
+            self.kartka.ustaw_animacje(True)
+            return
         self._zegar_kwoty.stop()
         self._zegar_gen.stop()
         self._zegar_stanu.stop()
         self._anim_tacy.stop()
         self._dokoncz_tace()
         self.k_kompas.zatrzymaj_animacje()
+        self.tasma.zatrzymaj_animacje()
+        self.mapa.ustaw_animacje(False)
+        self.kartka.ustaw_animacje(False)
+        self.taca.zatrzymaj_animacje()
+        S.Plynnie.zatrzymaj_wszystkie()
+
+    def zamroz(self):
+        """Zatrzymuje animacje — powtarzalne zrzuty i czyste wyjście."""
+        self.ustaw_animacje(False)
 
     def _dokoncz_tace(self):
         """Stawia tacę w położeniu docelowym — po przerwanej animacji."""
@@ -1450,6 +1929,12 @@ def _zrzuty(app, okno):
         okno.grab().save(nazwa)
         zapisane.append(nazwa)
 
+    def ustaw_rozmiar(szer, wys):
+        okno.setMinimumSize(min(ROZMIAR_MIN[0], szer), min(ROZMIAR_MIN[1], wys))
+        okno.resize(szer, wys)
+        odswiez(6)
+
+    ustaw_rozmiar(*ROZMIAR_DOCELOWY)
     zapisz("zrzut_okno_1_start.png")
 
     okno.uruchom_pokaz()
@@ -1464,6 +1949,12 @@ def _zrzuty(app, okno):
     okno._przelicz_teraz()
     zapisz("zrzut_okno_4_pusto.png")
 
+    # najciaśniejszy dopuszczalny układ — wszystko ma się mieścić
+    okno.k_parametry.kwota.ustaw_tekst("1 850")
+    okno._przelicz_teraz()
+    ustaw_rozmiar(*ROZMIAR_MIN)
+    zapisz("zrzut_okno_5_male.png")
+
     for nazwa in zapisane:
         print("zapisano", nazwa)
     return 0
@@ -1475,12 +1966,14 @@ def main(argv=None):
     app.setFont(S.czcionka(13))
     app.setStyleSheet(arkusz())
     okno = OknoPrototypu()
-    okno.resize(1440, 900)
+    okno.dopasuj_do_ekranu()
     okno.show()
     if "--zrzut" in argv:
         kod = _zrzuty(app, okno)
         okno.close()
         return kod
+    if "--pelny" in argv:
+        okno.showFullScreen()
     kod = app.exec()
     okno.zamroz()          # nic nie tyka po wyjściu z pętli zdarzeń
     return kod

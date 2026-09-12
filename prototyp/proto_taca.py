@@ -37,7 +37,7 @@ LINIA_DRUKU   = QColor(24, 36, 60, 46)
 KAFEL_W       = 168.0                  # szerokość wzorcowa kartki na tacy
 KAFEL_H       = 152.0
 ODSTEP_KAFLI  = 10
-KASKADA_MS    = 46                     # opóźnienie kolejnej kartki
+KASKADA_MS    = 38                     # opóźnienie kolejnej kartki
 MARG_SWIATLA  = 7                      # zapas wokół przycisku na poświatę
 
 
@@ -71,6 +71,17 @@ def _sciezka(r, promien):
     s = QPainterPath()
     s.addRoundedRect(r, promien, promien)
     return s
+
+
+def _polecenia(n):
+    """Odmiana rzeczownika przy liczbie — bez tego napis zgrzyta."""
+    n = int(n)
+    if n == 1:
+        return "1 polecenie wyjazdu"
+    r, st = n % 10, n % 100
+    if 2 <= r <= 4 and not (12 <= st <= 14):
+        return "%d polecenia wyjazdu" % n
+    return "%d poleceń wyjazdu" % n
 
 
 def _ogranicz(x, a=0.0, b=1.0):
@@ -115,7 +126,7 @@ class Napis(QWidget):
         self._wyrownanie = wyrownanie
         self._punkt = QColor(punkt) if punkt is not None else None
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     # — zgodność z QLabel —
     def setText(self, tekst):
@@ -142,7 +153,8 @@ class Napis(QWidget):
                      int(m.height() + 2))
 
     def minimumSizeHint(self):
-        return self.sizeHint()
+        p = self.sizeHint()
+        return QSize(min(p.width(), int(48 + self._odstep_punktu())), p.height())
 
     def paintEvent(self, _zdarzenie):
         if not self._tekst:
@@ -151,7 +163,11 @@ class Napis(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         m = _miary(self._rozmiar, self._waga, self._mono, self._naglowek, self._odstep)
-        szer = m.horizontalAdvance(self._tekst)
+        napis = self._tekst
+        wolne = self.width() - self._odstep_punktu()
+        if m.horizontalAdvance(napis) > wolne:
+            napis = m.elidedText(napis, Qt.TextElideMode.ElideRight, max(8.0, wolne))
+        szer = m.horizontalAdvance(napis)
         pelna = szer + self._odstep_punktu()
         if self._wyrownanie & Qt.AlignmentFlag.AlignRight:
             x = self.width() - pelna
@@ -167,7 +183,7 @@ class Napis(QWidget):
             p.setBrush(QBrush(self._punkt))
             p.drawEllipse(sr, 3.0, 3.0)
             x += self._odstep_punktu()
-        S.tekst(p, x, y, self._tekst, self._kolor, self._rozmiar, self._waga,
+        S.tekst(p, x, y, napis, self._kolor, self._rozmiar, self._waga,
                 mono=self._mono, naglowek=self._naglowek, odstep=self._odstep)
         p.end()
 
@@ -183,6 +199,8 @@ class Przycisk(QPushButton):
         self._wysokosc = 40.0
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAutoDefault(False)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._pod = S.Plynnie(0.0, czas=170, krzywa="lagodna", rodzic=self,
                               przy_zmianie=self.update)
 
@@ -195,12 +213,16 @@ class Przycisk(QPushButton):
         self._pod.ustaw(0.0)
 
     def sizeHint(self):
-        waga = 700 if self._rola == "glowny" else 600
-        szer = _szer(self.text(), self._rozmiar, waga) + 2 * 19
+        szer = _szer(self.text(), self._rozmiar, self._waga()) + 2 * 19
         return QSize(int(szer + 2 * MARG_SWIATLA), int(self._wysokosc + 2 * MARG_SWIATLA))
 
     def minimumSizeHint(self):
-        return self.sizeHint()
+        # przy ciasnym oknie przycisk woli przyciąć napis niż rozepchać pasek
+        peln = self.sizeHint()
+        return QSize(min(peln.width(), int(96 + 2 * MARG_SWIATLA)), peln.height())
+
+    def _waga(self):
+        return 700 if self._rola == "glowny" else 600
 
     def enterEvent(self, zdarzenie):
         if self.isEnabled():
@@ -230,9 +252,13 @@ class Przycisk(QPushButton):
         if wcisniety:
             r = r.adjusted(0, 1.0, 0, 1.0)
         s = _sciezka(r, promien)
-        waga = 700 if self._rola == "glowny" else 600
+        waga = self._waga()
         m = _miary(self._rozmiar, waga)
-        tx = r.center().x() - m.horizontalAdvance(self.text()) * 0.5
+        napis = self.text()
+        if m.horizontalAdvance(napis) > r.width() - 20:
+            napis = m.elidedText(napis, Qt.TextElideMode.ElideRight,
+                                 max(10.0, r.width() - 20))
+        tx = r.center().x() - m.horizontalAdvance(napis) * 0.5
         ty = r.center().y() + (m.ascent() - m.descent()) * 0.5
 
         if self._rola == "glowny":
@@ -243,7 +269,7 @@ class Przycisk(QPushButton):
             g = QLinearGradient(r.topLeft(), r.topRight())
             a, b = QColor(S.CYJAN), QColor(S.ZIELEN)
             if not czynny:
-                a, b = a.darker(160), b.darker(160)
+                a, b = a.darker(210), b.darker(210)
             g.setColorAt(0.0, a.lighter(100 + int(8 * pod)))
             g.setColorAt(1.0, b.lighter(100 + int(8 * pod)))
             p.fillPath(s, QBrush(g))
@@ -251,20 +277,21 @@ class Przycisk(QPushButton):
             polysk.setColorAt(0.0, QColor(255, 255, 255, 95))
             polysk.setColorAt(1.0, QColor(255, 255, 255, 0))
             p.fillPath(s, QBrush(polysk))
-            S.tekst(p, tx, ty, self.text(), QColor("#04121A") if czynny else QColor("#1B2A32"),
+            S.tekst(p, tx, ty, napis, QColor("#04121A") if czynny else QColor("#0A1C22"),
                     self._rozmiar, waga)
         elif self._rola == "zielony":
             if pod > 0.01:
                 S.halo(p, r, S.ZIELEN, sila=int(30 * pod), promien=MARG_SWIATLA + 2.0,
                        zaokraglenie=promien, przesun=1.0)
             tlo = QLinearGradient(r.topLeft(), r.bottomLeft())
-            tlo.setColorAt(0.0, S.z_alfa(S.ZIELEN, 34 + 26 * pod))
-            tlo.setColorAt(1.0, S.z_alfa(S.ZIELEN, 14 + 14 * pod))
+            tlo.setColorAt(0.0, S.z_alfa(S.ZIELEN, (34 + 26 * pod) * (1.0 if czynny else 0.4)))
+            tlo.setColorAt(1.0, S.z_alfa(S.ZIELEN, (14 + 14 * pod) * (1.0 if czynny else 0.4)))
             p.fillPath(s, QBrush(tlo))
-            S.obrys_gradientowy(p, s, S.z_alfa(S.CYJAN, 150 + 70 * pod),
-                                S.z_alfa(S.ZIELEN, 190 + 60 * pod), szerokosc=1.2)
-            barwa = QColor(S.MIETA) if czynny else S.z_alfa(S.MIETA, 110)
-            S.tekst(p, tx, ty, self.text(), barwa, self._rozmiar, waga)
+            moc = 1.0 if czynny else 0.34
+            S.obrys_gradientowy(p, s, S.z_alfa(S.CYJAN, (150 + 70 * pod) * moc),
+                                S.z_alfa(S.ZIELEN, (190 + 60 * pod) * moc), szerokosc=1.2)
+            barwa = QColor(S.MIETA) if czynny else S.z_alfa(S.MIETA, 80)
+            S.tekst(p, tx, ty, napis, barwa, self._rozmiar, waga)
         else:
             tlo = QLinearGradient(r.topLeft(), r.bottomLeft())
             tlo.setColorAt(0.0, QColor(36, 52, 76, int(180 + 40 * pod)))
@@ -277,7 +304,7 @@ class Przycisk(QPushButton):
             gora = QRectF(r.x() + promien * 0.6, r.y() + 0.5, r.width() - promien * 1.2, 1.0)
             p.fillRect(gora, QColor(255, 255, 255, int(26 + 30 * pod)))
             barwa = QColor(S.TEKST) if czynny else S.z_alfa(S.TEKST, 110)
-            S.tekst(p, tx, ty, self.text(), barwa, self._rozmiar, waga)
+            S.tekst(p, tx, ty, napis, barwa, self._rozmiar, waga)
         p.end()
 
 
@@ -413,7 +440,7 @@ class KafelLiczby(QWidget):
         self._pl = S.Plynnie(0.0, czas=760, krzywa="wyjscie", rodzic=self,
                              przy_zmianie=self.update)
         self.setFixedHeight(62)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     # — dane —
     def ustaw_format(self, format_):
@@ -458,7 +485,8 @@ class KafelLiczby(QWidget):
         return QSize(int(max(a, b) + 32), 62)
 
     def minimumSizeHint(self):
-        return self.sizeHint()
+        peln = self.sizeHint()
+        return QSize(min(peln.width(), 104), peln.height())
 
     def paintEvent(self, _z):
         p = QPainter(self)
@@ -485,6 +513,9 @@ class KafelLiczby(QWidget):
 
         rozm = self._rozmiar_liczby()
         napis = self._napis()
+        wolne = r.width() - 30
+        while rozm > 12 and _szer(napis, rozm, 700, mono=True) > wolne:
+            rozm -= 0.5
         kolor = S.MIETA if self._wyrozniony else S.TEKST
         S.tekst(p, r.x() + 15, r.y() + 15 + rozm * 0.78, napis, kolor, rozm, 700,
                 mono=True, poswiata=0.7 if self._wyrozniony else 0.0)
@@ -507,13 +538,13 @@ class KafelDokumentu(QWidget):
         los = random.Random("%s-%02d" % (dzien.data.isoformat(), self.numer))
         self._kat = los.uniform(-1.25, 1.25)          # ułamek stopnia przechylenia
         self._przesuw = los.uniform(-1.6, 1.6)
-        self.setMinimumSize(int(KAFEL_W * 0.84), 132)
+        self.setMinimumSize(int(KAFEL_W * 0.84), 140)
         self.setMaximumHeight(int(KAFEL_H))
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._pix = None
         self._klucz_pix = None
-        self._wejscie = S.Plynnie(0.0, czas=430, krzywa="wyjscie", rodzic=self,
+        self._wejscie = S.Plynnie(0.0, czas=380, krzywa="wyjscie", rodzic=self,
                                   przy_zmianie=self.update)
         self._pod = S.Plynnie(0.0, czas=170, rodzic=self, przy_zmianie=self.update)
 
@@ -648,7 +679,7 @@ class KafelDokumentu(QWidget):
         p.drawPath(s)
 
         if self.dzien.podpisany:
-            p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(125), 190), 1.5))
+            p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(125), 150), 1.2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(s)
 
@@ -675,9 +706,13 @@ class KafelDokumentu(QWidget):
         p.setPen(QPen(LINIA_DRUKU, 1.0))
         p.drawLine(QPointF(lewy, r.y() + 44.5), QPointF(prawy, r.y() + 44.5))
 
-        S.tekst(p, lewy, r.y() + 58, "POLECENIE WYJAZDU", ATRAMENT_2, 8, 800, odstep=0.7)
-        nr = "NR %d/%02d/%02d" % (d.data.year, d.data.month, d.dokument or self.numer)
-        S.tekst(p, lewy, r.y() + 69.5, nr, ATRAMENT_3, 8.5, 500, mono=True)
+        ciasno = r.height() < 124
+        nr = "NR %d/%02d/%02d" % (d.data.year, d.data.month, d.data.day)
+        if ciasno:
+            S.tekst(p, lewy, r.y() + 58, nr, ATRAMENT_2, 8.5, 600, mono=True)
+        else:
+            S.tekst(p, lewy, r.y() + 58, "POLECENIE WYJAZDU", ATRAMENT_2, 8, 800, odstep=0.7)
+            S.tekst(p, lewy, r.y() + 69.5, nr, ATRAMENT_3, 8.5, 500, mono=True)
 
         # stopka: kilometry i kwota
         yb = r.bottom() - 12
@@ -687,10 +722,12 @@ class KafelDokumentu(QWidget):
                 ATRAMENT, 11.5, 700, mono=True)
 
         # pole między numerem a stopką: wiersze druku albo pieczęć
-        gora = r.y() + 78.0
+        gora = r.y() + (66.0 if ciasno else 78.0)
         dol = yb - 15.0
         if d.podpisany:
-            self._rysuj_pieczec(p, r, (gora + dol) * 0.5)
+            pasmo = max(8.0, dol - gora + 8.0)
+            self._rysuj_pieczec(p, r, (gora + dol) * 0.5,
+                                min(1.0, pasmo / 30.0))
             return
         y = gora
         i = 0
@@ -700,18 +737,19 @@ class KafelDokumentu(QWidget):
             y += 7.5
             i += 1
 
-    def _rysuj_pieczec(self, p, r, srodek_y):
+    def _rysuj_pieczec(self, p, r, srodek_y, skala=1.0):
         p.save()
         p.translate(r.center().x(), srodek_y)
-        p.rotate(-7)
-        pole = QRectF(-52, -11.5, 104, 23)
-        s = _sciezka(pole, 6.0)
-        p.fillPath(s, QBrush(S.z_alfa(S.ZIELEN, 40)))
+        p.rotate(-5)
+        p.scale(skala, skala)
+        pole = QRectF(-47, -10.5, 94, 21)
+        s = _sciezka(pole, 5.5)
+        p.fillPath(s, QBrush(S.z_alfa(S.ZIELEN, 42)))
         p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(115), 200), 1.3))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(s)
-        S.tekst(p, -44, -1, "PODPISANO", QColor("#0B7A5A"), 10, 800, odstep=0.7)
-        S.tekst(p, -44, 8.5, "profil zaufany · 14:20", QColor("#2E8B72"), 7, 500)
+        S.tekst(p, -39, -1.5, "PODPISANO", QColor("#0B7A5A"), 9.5, 800, odstep=0.7)
+        S.tekst(p, -39, 7.5, "profil zaufany · 14:20", QColor("#2E8B72"), 6.5, 500)
         p.restore()
 
     def paintEvent(self, _z):
@@ -722,7 +760,7 @@ class KafelDokumentu(QWidget):
         pole = self._pole()
         if pod > 0.01:
             S.halo(p, pole.adjusted(0, -3 - 2 * pod, 0, -3 - 2 * pod), S.CYJAN,
-                   sila=int(34 * pod), promien=14.0, zaokraglenie=8.0, przesun=2.0)
+                   sila=int(52 * pod), promien=16.0, zaokraglenie=8.0, przesun=3.0)
         p.save()
         if t < 0.999:
             p.setOpacity(_ogranicz(t * 1.25))
@@ -757,7 +795,7 @@ class PasPapierow(QWidget):
         self._kaskada = QTimer(self)
         self._kaskada.setInterval(KASKADA_MS)
         self._kaskada.timeout.connect(self._nastepna)
-        self.setMinimumHeight(134)
+        self.setMinimumHeight(148)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     # — zawartość —
@@ -788,16 +826,20 @@ class PasPapierow(QWidget):
             self.update()
             return
         szerokosc = float(self.width())
-        wysokosc = min(KAFEL_H, max(132.0, float(self.height())))
+        wysokosc = min(KAFEL_H, max(140.0, float(self.height())))
         gora = (self.height() - wysokosc) * 0.5
-        for szer in (KAFEL_W, 160.0, 152.0, 144.0):
-            ile = int((szerokosc + ODSTEP_KAFLI) // (szer + ODSTEP_KAFLI))
-            if ile >= n:
+        def zmiesci(szer, wolne):
+            return int((wolne + ODSTEP_KAFLI) // (szer + ODSTEP_KAFLI))
+
+        szer, ile = KAFEL_W, 0
+        for kandydat in (KAFEL_W, 160.0, 152.0, 144.0):
+            # najpierw próbujemy pokazać wszystkie kartki, od najszerszej wersji
+            if zmiesci(kandydat, szerokosc) >= n:
+                szer, ile = kandydat, n
                 break
-        ile = max(1, min(n, ile))
-        if ile < n:                      # zostaw miejsce na kafel „reszta”
-            wolne = szerokosc - 74.0
-            ile = max(1, min(n - 1, int((wolne + ODSTEP_KAFLI) // (szer + ODSTEP_KAFLI))))
+        if ile != n:                     # nie wchodzą — zostaw miejsce na „resztę”
+            szer = KAFEL_W
+            ile = max(1, min(n - 1, zmiesci(szer, szerokosc - 74.0)))
         self._ukryte = n - ile
         x = 0.0
         for i, k in enumerate(self._kafle):
@@ -811,6 +853,25 @@ class PasPapierow(QWidget):
         self._x_reszty = x
         self._wys_reszty = (gora, wysokosc)
         self.update()
+
+    # — pusty pas —
+    def _rysuj_pusto(self):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        wysokosc = min(KAFEL_H, max(140.0, float(self.height()))) - 26.0
+        gora = (self.height() - wysokosc) * 0.5
+        x = 10.0
+        while x + KAFEL_W - 20 < self.width():
+            r = QRectF(x, gora, KAFEL_W - 20, wysokosc)
+            s = _sciezka(r, 7.0)
+            p.fillPath(s, QColor(255, 255, 255, 7))
+            pen = QPen(QColor(255, 255, 255, 20), 1.0)
+            pen.setDashPattern([3.0, 4.0])
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(s)
+            x += KAFEL_W + ODSTEP_KAFLI
+        p.end()
 
     # — kaskada —
     def uruchom_kaskade(self):
@@ -843,23 +904,30 @@ class PasPapierow(QWidget):
         super().hideEvent(z)
 
     def paintEvent(self, _z):
+        if not self._kafle:
+            self._rysuj_pusto()
+            return
         if not self._ukryte:
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        gora, wysokosc = getattr(self, "_wys_reszty", (0.0, float(self.height())))
-        r = QRectF(getattr(self, "_x_reszty", 0.0) + 2, gora + 8, 64.0, wysokosc - 30.0)
-        s = _sciezka(r, 7.0)
+        gora, wysokosc = self._wys_reszty
+        r = QRectF(self._x_reszty + 2, gora + 10, 62.0, wysokosc - 34.0)
+        # brzegi kartek leżących dalej w pliku
+        for i, (dx, alfa) in enumerate(((10.0, 34), (6.0, 52), (2.0, 74))):
+            rr = QRectF(r.x() + dx, r.y() + i * 2.0, 5.0, r.height() - i * 4.0)
+            p.fillPath(_sciezka(rr, 2.0), QColor(240, 238, 230, alfa))
+        s = _sciezka(r, 8.0)
         p.fillPath(s, QColor(255, 255, 255, 10))
-        pen = QPen(QColor(255, 255, 255, 42), 1.0)
+        pen = QPen(QColor(255, 255, 255, 46), 1.0)
         pen.setDashPattern([3.0, 3.5])
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(s)
         napis = "+%d" % self._ukryte
-        S.tekst(p, r.center().x() - _szer(napis, 17, 700, mono=True) * 0.5,
-                r.center().y() + 2, napis, S.TEKST_2, 17, 700, mono=True)
-        S.tekst(p, r.center().x() - _szer("PDF", 8, 700, odstep=0.8) * 0.5,
+        S.tekst(p, r.center().x() - _szer(napis, 17, 700, mono=True) * 0.5 + 5,
+                r.center().y() + 2, napis, S.TEKST, 17, 700, mono=True)
+        S.tekst(p, r.center().x() - _szer("PDF", 8, 700, odstep=0.8) * 0.5 + 5,
                 r.center().y() + 18, "PDF", S.TEKST_3, 8, 700, odstep=0.8)
         p.end()
 
@@ -888,9 +956,15 @@ class TacaDokumentow(QWidget):
         lewo = QVBoxLayout()
         lewo.setSpacing(1)
         self.l_tytul = Napis("Otwórz dokumenty", 23, 700, S.TEKST, naglowek=True)
-        self.l_sciezka = Napis("", 11.5, 400, S.TEKST_2)
+        self.l_sciezka = Napis("", 11.5, 600, S.TEKST_2)
+        self.l_folder = Napis("", 11, 400, S.TEKST_3, mono=True)
+        pod = QHBoxLayout()
+        pod.setSpacing(10)
+        pod.addWidget(self.l_sciezka, 0, Qt.AlignmentFlag.AlignVCenter)
+        pod.addWidget(self.l_folder, 0, Qt.AlignmentFlag.AlignVCenter)
+        pod.addStretch(1)
         lewo.addWidget(self.l_tytul)
-        lewo.addWidget(self.l_sciezka)
+        lewo.addLayout(pod)
         gora.addLayout(lewo)
         gora.addStretch(1)
 
@@ -932,21 +1006,34 @@ class TacaDokumentow(QWidget):
     # — dane —
     def ustaw_dni(self, dni, folder="Pulpit / Rozliczenie_Anna_Nowak_wrzesień_2026r"):
         self.dni = [d for d in dni if not d.wolny and not d.wylaczony]
-        p = D.podsumowanie(dni)
-        ile_plikow = len(D.dokumenty(self.dni)) + 1 if self.dni else 0
-        self.l_sciezka.setText("wrzesień 2026 · %d plików PDF w  %s" % (ile_plikow, folder))
+        p = D.podsumowanie(self.dni)          # liczby zgadzają się z kartkami na tacy
+        wszystkie = len(dni)
+        ile_plikow = len(self.dni) + 1 if self.dni else 0
+        self.l_sciezka.setText("wrzesień 2026 · %d plików PDF" % ile_plikow)
+        self.l_folder.setText(folder)
         self.k_kwota.od_zera(p["kwota"])
         self.k_km.od_zera(p["km"])
-        self.k_dni.ustaw_format(lambda v, c=p["dni_wszystkie"]: "%.0f z %d" % (v, c))
+        self.k_dni.ustaw_format(lambda v, c=wszystkie: "%.0f z %d" % (v, c))
         self.k_dni.od_zera(p["dni"])
         self.pas.ustaw_dni(self.dni)
         ile = sum(1 for d in self.dni if d.podpisany)
         self.l_stan.setText("%d z %d podpisanych" % (ile, len(self.dni)) if ile else "")
+        for b in (self.b_podpis, self.b_mail, self.b_wszystkie):
+            b.setEnabled(bool(self.dni))
         if self.isVisible():
             self.pas.uruchom_kaskade()
             self._czeka_kaskada = False
         else:
             self._czeka_kaskada = True
+
+    def resizeEvent(self, z):
+        # przy wąskim oknie znikają rzeczy najmniej ważne — pasek ma się zmieścić
+        w = self.width()
+        self.l_folder.setVisible(w >= 1000)
+        self.b_folder.setVisible(w >= 920)
+        self.k_dni.setVisible(w >= 800)
+        self.k_km.setVisible(w >= 700)
+        super().resizeEvent(z)
 
     def _kartka_klikieta(self, dzien):
         self.l_stan.setText("%02d.%02d · otwarto" % (dzien.data.day, dzien.data.month))
@@ -968,7 +1055,7 @@ class TacaDokumentow(QWidget):
             self.pas.uruchom_kaskade()
 
     def hideEvent(self, z):
-        self.pas.zatrzymaj_animacje()
+        self.zatrzymaj_animacje()
         super().hideEvent(z)
 
     def closeEvent(self, z):
@@ -998,6 +1085,21 @@ class TacaDokumentow(QWidget):
         p.fillRect(r, QBrush(rg))
         S.ziarno(p, r, sila=9, skala=1.0, ciemne=0.5)
         p.restore()
+
+        # rowek, w którym leżą kartki — taca ma dno
+        g_pas = QRectF(self.pas.geometry()).adjusted(-12, -10, 12, 12)
+        if g_pas.width() > 20 and g_pas.height() > 20:
+            sp = _sciezka(g_pas, 16.0)
+            gr = QLinearGradient(g_pas.topLeft(), g_pas.bottomLeft())
+            gr.setColorAt(0.0, QColor(0, 0, 0, 58))
+            gr.setColorAt(0.35, QColor(0, 0, 0, 26))
+            gr.setColorAt(1.0, QColor(0, 0, 0, 10))
+            p.fillPath(sp, QBrush(gr))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(0, 0, 0, 70), 1.0))
+            p.drawPath(sp)
+            p.setPen(QPen(QColor(255, 255, 255, 16), 1.0))
+            p.drawPath(_sciezka(g_pas.adjusted(0, 1.0, 0, 1.0), 16.0))
 
         _linia_swiatla(p, r.x() + 24, r.right() - 24, r.y() + 0.4, S.CYJAN, 165, 1.2)
         p.setPen(QPen(S.OBRYS_MOCNY, 1.0))
@@ -1044,7 +1146,7 @@ class Panel(QDialog):
         self.b_zamknij.clicked.connect(self.reject)
         naglowek.addWidget(self.b_zamknij, 0, Qt.AlignmentFlag.AlignTop)
         self.z.addLayout(naglowek)
-        self.z.addSpacing(2)
+        self.z.addSpacing(8)
 
     # — pomocniki układu —
     def wiersz(self, etykieta, widget):
@@ -1131,12 +1233,12 @@ class Panel(QDialog):
         # kreska pod nagłówkiem
         y = self.l_podtytul.geometry().bottom() + 12.0
         gk = QLinearGradient(QPointF(r.x(), y), QPointF(r.right(), y))
-        gk.setColorAt(0.0, QColor(255, 255, 255, 0))
-        gk.setColorAt(0.10, QColor(255, 255, 255, 52))
-        gk.setColorAt(0.90, QColor(255, 255, 255, 26))
-        gk.setColorAt(1.0, QColor(255, 255, 255, 0))
+        gk.setColorAt(0.00, QColor(255, 255, 255, 0))
+        gk.setColorAt(0.22, QColor(255, 255, 255, 46))
+        gk.setColorAt(0.90, QColor(255, 255, 255, 28))
+        gk.setColorAt(1.00, QColor(255, 255, 255, 0))
         p.fillRect(QRectF(r.x() + 18, y, r.width() - 36, 1.0), QBrush(gk))
-        _linia_swiatla(p, r.x() + 26, r.x() + 128, y, S.CYJAN, 130, 1.0)
+        _linia_swiatla(p, r.x() + 20, r.x() + 168, y, S.CYJAN, 220, 1.3)
         p.end()
 
 
@@ -1153,11 +1255,13 @@ class KafelSciezki(QWidget):
         self.opis = str(opis)
         self.znak = znak
         self._wybrany = False
+        self._ramka = False              # obwódka tylko przy wędrówce klawiszem
         self._pod = S.Plynnie(0.0, czas=160, rodzic=self, przy_zmianie=self.update)
         self._wybor = S.Plynnie(0.0, czas=240, krzywa="wyjscie", rodzic=self,
                                 przy_zmianie=self.update)
         self.setFixedHeight(64)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def ustaw_wybrany(self, wybrany, animuj=True):
@@ -1190,6 +1294,25 @@ class KafelSciezki(QWidget):
                 and self.rect().contains(z.pos())):
             self.wybrano.emit(self.numer)
         super().mouseReleaseEvent(z)
+
+    def keyPressEvent(self, z):
+        if (self.isEnabled() and z.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return,
+                                             Qt.Key.Key_Enter)):
+            self.wybrano.emit(self.numer)
+            return
+        super().keyPressEvent(z)
+
+    def focusInEvent(self, z):
+        self._ramka = z.reason() in (Qt.FocusReason.TabFocusReason,
+                                     Qt.FocusReason.BacktabFocusReason,
+                                     Qt.FocusReason.ShortcutFocusReason)
+        self.update()
+        super().focusInEvent(z)
+
+    def focusOutEvent(self, z):
+        self._ramka = False
+        self.update()
+        super().focusOutEvent(z)
 
     def _rysuj_znak(self, p, sr, kolor):
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1259,6 +1382,10 @@ class KafelSciezki(QWidget):
             p.drawPath(s)
         gora = QRectF(r.x() + 10, r.y() + 0.6, r.width() - 20, 1.0)
         p.fillRect(gora, QColor(255, 255, 255, int(28 + 26 * (pod + w))))
+        if self._ramka and self.hasFocus():
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(S.z_alfa(S.CYJAN, 150), 1.0))
+            p.drawPath(_sciezka(r.adjusted(2.5, 2.5, -2.5, -2.5), 10.5))
 
         alfa = 255 if czynny else 120
         kolor_znaku = S.z_alfa(S.MIETA if w > 0.4 else S.TEKST_2, alfa)
@@ -1320,6 +1447,8 @@ class PanelPodpisu(Panel):
         self.b_anuluj = Przycisk("Anuluj", "zwykly", 13, self)
         self.b_anuluj.clicked.connect(self.reject)
         self.b_dalej = Przycisk("Dalej", "glowny", 13, self)
+        self.b_dalej.setAutoDefault(True)
+        self.b_dalej.setDefault(True)
         self.b_dalej.clicked.connect(self._dalej)
         self.stopka(self.b_anuluj, self.b_dalej)
 
@@ -1388,29 +1517,32 @@ class PanelPodpisu(Panel):
 
 # ── lista załączników ────────────────────────────────────────────────
 class ListaPlikow(QWidget):
-    def __init__(self, nazwy, reszta=0, rodzic=None):
+    """Wiersze załączników: z plakietką PDF albo bez (wiersz „reszta”)."""
+
+    def __init__(self, wiersze, rodzic=None):
         super().__init__(rodzic)
-        self._nazwy = list(nazwy)
-        self._reszta = int(reszta)
+        self._wiersze = list(wiersze)          # (napis, czy_plakietka)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(int(len(self._nazwy) * 20 + (18 if self._reszta else 0) + 4))
+        self.setFixedHeight(int(len(self._wiersze) * 20 + 4))
 
     def paintEvent(self, _z):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         y = 14.0
-        for nazwa in self._nazwy:
-            r = QRectF(0, y - 9, 24, 13)
-            p.fillPath(_sciezka(r, 3.5), QBrush(S.z_alfa(S.ZIELEN, 46)))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(S.z_alfa(S.ZIELEN, 110), 1.0))
-            p.drawPath(_sciezka(r, 3.5))
-            S.tekst(p, r.x() + 4.5, y + 1.5, "PDF", S.z_alfa(S.MIETA, 220), 7.5, 800, odstep=0.4)
-            S.tekst(p, 32, y + 1.0, nazwa, S.TEKST_2, 11, 500, mono=True)
+        for napis, plakietka in self._wiersze:
+            if plakietka:
+                r = QRectF(0, y - 9, 24, 13)
+                sc = _sciezka(r, 3.5)
+                p.fillPath(sc, QBrush(S.z_alfa(S.ZIELEN, 46)))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(S.z_alfa(S.ZIELEN, 110), 1.0))
+                p.drawPath(sc)
+                S.tekst(p, r.x() + 4.5, y + 1.5, "PDF", S.z_alfa(S.MIETA, 220), 7.5, 800,
+                        odstep=0.4)
+                S.tekst(p, 32, y + 1.0, napis, S.TEKST_2, 11, 500, mono=True)
+            else:
+                S.tekst(p, 32, y + 1.0, napis, S.TEKST_3, 11, 500, mono=True)
             y += 20.0
-        if self._reszta:
-            S.tekst(p, 32, y + 1.0, "… razem %d plików" % self._reszta, S.TEKST_3, 11, 500,
-                    mono=True)
         p.end()
 
 
@@ -1420,7 +1552,7 @@ class PanelWysylki(Panel):
 
     def __init__(self, dni, rodzic=None):
         self.dni = list(dni)
-        ile = len(D.dokumenty(self.dni)) + 1 if self.dni else 1
+        ile = len(self.dni) + 1 if self.dni else 1
         super().__init__("Wyślij e-mailem",
                          "%s · %s 2026 · %d załączników"
                          % (D.PRACOWNIK, D.nazwa_miesiaca(9), ile), rodzic)
@@ -1431,11 +1563,14 @@ class PanelWysylki(Panel):
         self.e_temat = self.wiersz("TEMAT", QLineEdit(temat))
         for pole in (self.e_do, self.e_dw, self.e_temat):
             pole.setMinimumHeight(38)
-        nazwy = ["delegacja_%02d_%s_wrzesień_2026r.pdf"
-                 % (i, D.PRACOWNIK.replace(" ", "_")) for i in range(1, min(ile - 1, 4) + 1)]
-        nazwy.append("ewidencja_przebiegu_%s_wrzesień_2026r.pdf"
-                     % D.PRACOWNIK.replace(" ", "_"))
-        self.wiersz("ZAŁĄCZNIKI", ListaPlikow(nazwy, ile if ile > len(nazwy) else 0, self))
+        pracownik = D.PRACOWNIK.replace(" ", "_")
+        widoczne = min(ile - 1, 4)
+        wiersze = [("delegacja_%02d_%s_wrzesień_2026r.pdf" % (i, pracownik), True)
+                   for i in range(1, widoczne + 1)]
+        if ile - 1 > widoczne:
+            wiersze.append(("+ %s" % _polecenia(ile - 1 - widoczne), False))
+        wiersze.append(("ewidencja_przebiegu_%s_wrzesień_2026r.pdf" % pracownik, True))
+        self.wiersz("ZAŁĄCZNIKI", ListaPlikow(wiersze, self))
         self.z.addSpacing(4)
 
         self.l_stan, self.l_licznik = self.wiersz_stanu(
@@ -1446,6 +1581,8 @@ class PanelWysylki(Panel):
         self.b_anuluj = Przycisk("Anuluj", "zwykly", 13, self)
         self.b_anuluj.clicked.connect(self.reject)
         self.b_wyslij = Przycisk("Wyślij", "glowny", 13, self)
+        self.b_wyslij.setAutoDefault(True)
+        self.b_wyslij.setDefault(True)
         self.b_wyslij.clicked.connect(self._wyslij)
         self.stopka(self.b_anuluj, self.b_wyslij)
 

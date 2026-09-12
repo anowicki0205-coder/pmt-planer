@@ -28,6 +28,7 @@ MAX_KWOTA_DNIA = 587.19
 # realna trasa wychodzi dłuższa niż szacunek.
 ZAPAS_DNIA = 0.85
 MAX_PRZYSTANKOW = 14           # sufit długości trasy dnia
+KARA_POWTORKI = 12.0           # km "kary" za powtórzony przystanek w trasie
 
 PRACOWNIK = "Anna Nowak"
 STANOWISKO = "merchandiser"
@@ -84,7 +85,7 @@ class Dzien:
     kwota: float = 0.0
     start: str = "07:20"
     koniec: str = "15:41"
-    wolny: bool = True           # brak trasy tego dnia
+    wolny: bool = False          # brak trasy tego dnia
     wylaczony: bool = False      # użytkownik sam wyłączył ten dzień
     podpisany: bool = False
 
@@ -172,8 +173,13 @@ def _obrot(lista, ziarno):
     return list(lista[k:]) + list(lista[:k])
 
 def _start_trasy(cel_km, ziarno):
-    """Pętla z PETLE skrócona do kroku, który nie przekracza celu."""
+    """Pętla z PETLE skrócona do kroku, który nie przekracza celu.
+
+    Co drugie okrążenie listy pętla idzie w odwrotną stronę, żeby w długim
+    miesiącu dni nie powtarzały tej samej trasy."""
     petla = PETLE[ziarno % len(PETLE)]
+    if (ziarno // len(PETLE)) % 2:
+        petla = list(reversed(petla))
     najlepsza = []
     for k in range(1, len(petla) + 1):
         if km_petli(petla[:k]) <= cel_km:
@@ -196,14 +202,15 @@ def dobierz_trase(cel_km, ziarno=0):
     if cel_km <= 1.0:
         return []
     trasa = _start_trasy(cel_km, ziarno)
-    miasta = _obrot([m for m in MIASTA if m != BAZA], ziarno)
+    miasta = _obrot([m for m in MIASTA if m != BAZA], ziarno * 5)
     while len(trasa) < MAX_PRZYSTANKOW:
         blad = abs(km_petli(trasa) - cel_km)
         lepsza = None
         for m in miasta:
+            kara = KARA_POWTORKI if m in trasa else 0.0
             for i in range(len(trasa) + 1):
                 kand = trasa[:i] + [m] + trasa[i:]
-                b = abs(km_petli(kand) - cel_km)
+                b = abs(km_petli(kand) - cel_km) + kara
                 if b < blad - 1e-6:
                     blad = b
                     lepsza = kand

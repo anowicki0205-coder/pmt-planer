@@ -154,30 +154,56 @@ def szklo(p: QPainter, rect: QRectF, promien=18.0, mocne=False, obrys=True, rozb
     p.fillPath(sciezka, QBrush(g))
 
     if (refleks or sila_krawedzi > 0) and rect.width() > 6 and rect.height() > 6:
+        # Rysujemy po ścieżce wsuniętej o pół piksela i kreską grubości 1 —
+        # światło zostaje w środku kształtu bez zakładania maski, która
+        # przy kilkudziesięciu kaflach kosztuje więcej niż całe rysowanie.
+        wew = QPainterPath()
+        pw = max(0.0, promien - 0.5)
+        wew.addRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), pw, pw)
         p.save()
-        p.setClipPath(sciezka, Qt.ClipOperation.IntersectClip)
-        if refleks and rect.width() > 26 and rect.height() > 26:
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        # Szczegół idzie za wielkością: drobny kafel dostaje samo górne
+        # światło, bo smugi po przekątnej i tak na nim nie widać, a przy
+        # trzydziestu kaflach naraz liczy się każda kreska.
+        drobny = rect.width() < 64.0 or rect.height() < 64.0
+        if refleks and not drobny:
             a = _ile(13 * min(1.6, max(0.0, sila_krawedzi)))
             sm = QLinearGradient(rect.topLeft(), rect.bottomRight())
             sm.setColorAt(0.00, z_alfa(PAPIER, 0))
-            sm.setColorAt(0.26, z_alfa(PAPIER, 0))
-            sm.setColorAt(0.37, z_alfa(PAPIER, a))
-            sm.setColorAt(0.49, z_alfa(PAPIER, 0))
+            sm.setColorAt(0.29, z_alfa(PAPIER, 0))
+            sm.setColorAt(0.38, z_alfa(PAPIER, a))
+            sm.setColorAt(0.47, z_alfa(PAPIER, 0))
             sm.setColorAt(1.00, z_alfa(PAPIER, 0))
-            p.fillRect(rect, QBrush(sm))
+            p.fillPath(wew, QBrush(sm))
         if sila_krawedzi > 0:
             s = float(sila_krawedzi)
-            kr = QLinearGradient(rect.topLeft(), rect.bottomRight())
-            kr.setColorAt(0.00, z_alfa(PAPIER, 76 * s))
-            kr.setColorAt(0.16, z_alfa(PAPIER, 38 * s))
-            kr.setColorAt(0.42, z_alfa(PAPIER, 8 * s))
-            kr.setColorAt(0.70, z_alfa(PAPIER, 0))
-            kr.setColorAt(1.00, z_alfa(PAPIER, 18 * s))
-            pen = QPen(QBrush(kr), 2.0)
+            # górna krawędź: światło zbiera się tuż pod obrysem i gaśnie w dół,
+            # na samym dole wraca cienkie odbicie
+            h = max(4.0, min(rect.height() * 0.45, promien * 2.2 + 9.0))
+            t = h / rect.height()
+            pion = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            pion.setColorAt(0.00, z_alfa(PAPIER, 84 * s))
+            pion.setColorAt(t * 0.45, z_alfa(PAPIER, 30 * s))
+            pion.setColorAt(min(0.94, t), z_alfa(PAPIER, 0))
+            pion.setColorAt(0.985, z_alfa(PAPIER, 0))
+            pion.setColorAt(1.00, z_alfa(PAPIER, 22 * s))
+            pen = QPen(QBrush(pion), 1.0)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             p.setPen(pen)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawPath(sciezka)
+            p.drawPath(wew)
+            if not drobny:
+                # lewa krawędź: to samo światło, tylko w poprzek
+                w = max(4.0, min(rect.width() * 0.45, promien * 2.2 + 9.0))
+                u = w / rect.width()
+                poziom = QLinearGradient(rect.topLeft(), rect.topRight())
+                poziom.setColorAt(0.00, z_alfa(PAPIER, 50 * s))
+                poziom.setColorAt(min(0.86, u), z_alfa(PAPIER, 0))
+                poziom.setColorAt(0.93, z_alfa(QColor(0, 0, 0), 0))
+                poziom.setColorAt(1.00, z_alfa(QColor(0, 0, 0), 30 * s))  # prawa krawędź się cofa
+                pen2 = QPen(QBrush(poziom), 1.0)
+                pen2.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                p.setPen(pen2)
+                p.drawPath(wew)
         p.restore()
 
     if rozblysk:
@@ -210,12 +236,12 @@ def obrys_gradientowy(p: QPainter, sciezka, kolor_a=CYJAN, kolor_b=ZIELEN, szero
         sr = r.center()
         g = QLinearGradient(QPointF(sr.x() - dx * dl, sr.y() - dy * dl),
                             QPointF(sr.x() + dx * dl, sr.y() + dy * dl))
-    g.setColorAt(0.0, QColor(kolor_a))
-    g.setColorAt(0.5, QColor((QColor(kolor_a).red() + QColor(kolor_b).red()) // 2,
-                             (QColor(kolor_a).green() + QColor(kolor_b).green()) // 2,
-                             (QColor(kolor_a).blue() + QColor(kolor_b).blue()) // 2,
-                             (QColor(kolor_a).alpha() + QColor(kolor_b).alpha()) // 2))
-    g.setColorAt(1.0, QColor(kolor_b))
+    ka, kb = QColor(kolor_a), QColor(kolor_b)
+    srodkowy = QColor((ka.red() + kb.red()) // 2, (ka.green() + kb.green()) // 2,
+                      (ka.blue() + kb.blue()) // 2, (ka.alpha() + kb.alpha()) // 2)
+    g.setColorAt(0.0, ka)
+    g.setColorAt(0.5, srodkowy)
+    g.setColorAt(1.0, kb)
     pen = QPen(QBrush(g), float(szerokosc))
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -278,14 +304,58 @@ def swiatlo_kierunkowe(p: QPainter, rect: QRectF, kat_stopnie=135.0, sila=20,
     p.restore()
 
 
+def _obwod(rect: QRectF, promien):
+    """Opis obwodu zaokrąglonego prostokąta: odcinki i łuki wraz z długościami.
+
+    Zwraca (dlugosc_calkowita, lista_odcinkow). Liczymy sami, bo chodzenie po
+    QPainterPath metodą pointAtPercent jest kilkanaście razy wolniejsze.
+    """
+    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    r = max(0.0, min(float(promien), w * 0.5, h * 0.5))
+    lp, lb = max(0.0, w - 2 * r), max(0.0, h - 2 * r)
+    luk = math.pi * r * 0.5
+    odcinki = (
+        ("p", lp, (x + r, y), (1.0, 0.0), (0.0, 1.0)),                   # góra
+        ("l", luk, (x + w - r, y + r), (0.0, 0.0), r),                   # narożnik PG
+        ("p", lb, (x + w, y + r), (0.0, 1.0), (-1.0, 0.0)),              # prawo
+        ("l", luk, (x + w - r, y + h - r), (1.0, 0.0), r),               # narożnik PD
+        ("p", lp, (x + w - r, y + h), (-1.0, 0.0), (0.0, -1.0)),         # dół
+        ("l", luk, (x + r, y + h - r), (2.0, 0.0), r),                   # narożnik LD
+        ("p", lb, (x, y + h - r), (0.0, -1.0), (1.0, 0.0)),              # lewo
+        ("l", luk, (x + r, y + r), (3.0, 0.0), r),                       # narożnik LG
+    )
+    return sum(o[1] for o in odcinki), odcinki
+
+
+def _punkt_obwodu(odcinki, s):
+    """Punkt na obwodzie w odległości ``s`` od startu + normalna do środka."""
+    for rodzaj, dl, baza, kier, extra in odcinki:
+        if s > dl and dl > 0:
+            s -= dl
+            continue
+        if dl <= 0:
+            continue
+        if rodzaj == "p":
+            return (baza[0] + kier[0] * s, baza[1] + kier[1] * s, extra[0], extra[1])
+        r = extra
+        if r <= 0:
+            return (baza[0], baza[1], 0.0, 0.0)
+        t = (s / dl) * (math.pi * 0.5) + kier[0] * (math.pi * 0.5) - math.pi * 0.5
+        nx, ny = math.cos(t), math.sin(t)
+        return (baza[0] + nx * r, baza[1] + ny * r, -nx, -ny)
+    return None
+
+
 _SZRON = {}
 
 def szron(p: QPainter, rect: QRectF, promien=PROMIEN, sila=30, gestosc=1.0, nasienie=11):
     """Bardzo delikatny, nieregularny szum na krawędzi szkła."""
     if rect.width() < 4 or rect.height() < 4 or sila <= 0:
         return
-    obwod = 2.0 * (rect.width() + rect.height())
-    ile = max(12, min(900, int(obwod * 0.42 * float(gestosc))))
+    dlugosc, odcinki = _obwod(rect, promien)
+    if dlugosc <= 0:
+        return
+    ile = max(12, min(1200, int(dlugosc * 0.42 * float(gestosc))))
     klucz = (ile, int(nasienie))
     wzor = _SZRON.get(klucz)
     if wzor is None:
@@ -293,27 +363,24 @@ def szron(p: QPainter, rect: QRectF, promien=PROMIEN, sila=30, gestosc=1.0, nasi
         wzor = []
         for i in range(ile):
             wzor.append((
-                (i + rnd.random() * 0.9) / float(ile),      # miejsce na obwodzie
-                rnd.uniform(-1.7, 1.1),                     # odchylenie w poprzek
-                rnd.random() ** 2.1,                        # jasność
-                rnd.uniform(0.7, 1.9),                      # wielkość
+                min(0.9995, max(0.0, (i + rnd.random() * 1.8 - 0.4) / float(ile))),
+                rnd.uniform(-0.5, 2.4),                     # odchylenie: głównie do wnętrza
+                rnd.random() ** 2.0,                        # jasność
+                rnd.uniform(0.6, 1.5),                      # wielkość
             ))
         _SZRON[klucz] = wzor
-    s = QPainterPath()
-    s.addRoundedRect(rect, promien, promien)
+    biel = QColor(PAPIER)
     for (pct, odch, jas, wlk) in wzor:
-        try:
-            pkt = s.pointAtPercent(pct)
-            kat = math.radians(s.angleAtPercent(pct))
-        except Exception:
-            continue
-        nx, ny = math.sin(kat), math.cos(kat)
-        x = pkt.x() + nx * odch
-        y = pkt.y() + ny * odch
         a = _ile(sila * jas)
         if a <= 0:
             continue
-        p.fillRect(QRectF(x - wlk * 0.5, y - wlk * 0.5, wlk, wlk), z_alfa(PAPIER, a))
+        pkt = _punkt_obwodu(odcinki, pct * dlugosc)
+        if pkt is None:
+            continue
+        x = pkt[0] + pkt[2] * odch
+        y = pkt[1] + pkt[3] * odch
+        biel.setAlpha(a)
+        p.fillRect(QRectF(x - wlk * 0.5, y - wlk * 0.5, wlk, wlk), biel)
 
 
 def cien(p: QPainter, rect: QRectF, promien=18.0, sila=120, rozmycie=18, przesun=8):
@@ -657,9 +724,9 @@ def _probka_szklo(p, r):
     a = QRectF(r.x(), r.y(), w, r.height() - 18)
     b = QRectF(r.x() + w + 14, r.y(), w, r.height() - 18)
     szklo(p, a, 14, sila_krawedzi=0.0, refleks=False)
-    szklo(p, b, 14, sila_krawedzi=1.6, refleks=True)
+    szklo(p, b, 14, sila_krawedzi=2.2, refleks=True)
     _podpis(p, a.x() + 4, r.bottom() + 12, "sila_krawedzi 0")
-    _podpis(p, b.x() + 4, r.bottom() + 12, "1.6 + refleks", MIETA)
+    _podpis(p, b.x() + 4, r.bottom() + 12, "2.2 + refleks", MIETA)
 
 
 def _probka_obrys(p, r):
@@ -696,8 +763,8 @@ def _probka_swiatlo(p, r):
         k = QRectF(r.x() + i * (w + 10), r.y(), w, h)
         s = QPainterPath()
         s.addRoundedRect(k, 12, 12)
-        p.fillPath(s, POWIERZCHNIA_JASNA)
-        swiatlo_kierunkowe(p, k, kat, 30, sciezka=s)
+        p.fillPath(s, QColor(30, 46, 70, 255))
+        swiatlo_kierunkowe(p, k, kat, 46, sciezka=s)
         p.setPen(QPen(OBRYS, 1.0))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(s)
@@ -712,7 +779,7 @@ def _probka_szron(p, r):
     b = QRectF(r.x() + w + 14, r.y(), w, r.height() - 18)
     szklo(p, a, 14)
     szklo(p, b, 14)
-    szron(p, b, 14, sila=46, gestosc=1.3)
+    szron(p, b, 14, sila=64, gestosc=1.7)
     _podpis(p, a.x() + 4, r.bottom() + 12, "bez")
     _podpis(p, b.x() + 4, r.bottom() + 12, "szron", MIETA)
 
@@ -780,6 +847,11 @@ def _probka_paleta(p, r):
         pr = QRectF(x, y + 1, 26, h - 5)
         s = QPainterPath()
         s.addRoundedRect(pr, 5, 5)
+        p.fillPath(s, QColor(126, 138, 156))               # podkład pod przezroczystość
+        p.save()
+        p.setClipPath(s, Qt.ClipOperation.IntersectClip)
+        p.fillRect(QRectF(pr.x(), pr.y(), pr.width() * 0.5, pr.height()), QColor(14, 22, 36))
+        p.restore()
         p.fillPath(s, QColor(kol))
         p.setPen(QPen(z_alfa(PAPIER, 22), 1.0))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -805,8 +877,8 @@ def _probka_plynnie(p, r):
         for i in range(n + 1):
             t = i / float(n)
             v = max(-0.12, min(1.12, f(t)))
-            x = pole.x() + 6 + (pole.width() - 12) * t
-            y = pole.bottom() - 10 - (pole.height() - 24) * v
+            x = pole.x() + 8 + (pole.width() - 16) * t
+            y = pole.bottom() - 14 - (pole.height() - 38) * v
             if i == 0:
                 kr.moveTo(x, y)
             else:
@@ -834,9 +906,9 @@ def _probka_tekst(p, r):
 
 
 def _arkusz(sciezka_pliku):
-    MARG, ODST = 30, 20
+    MARG, ODST = 26, 20
     KOL, WIE = 4, 3
-    CW, CH = 336, 300
+    CW, CH = 330, 300
     W = MARG * 2 + KOL * CW + (KOL - 1) * ODST
     H = MARG * 2 + 76 + WIE * CH + (WIE - 1) * ODST
 

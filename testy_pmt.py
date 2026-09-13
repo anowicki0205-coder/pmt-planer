@@ -1842,15 +1842,23 @@ if not SZYBKO:
                 and P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_WOLNYCH, {}).get("2026-11") == [5, 6],
                 str((_wolne_grudnia, _okno8c._wolne)))
 
-        # ── kwota, tryb i limit dnia przeżywają zamknięcie okna ───────
+        # ── kwota i tryb przeżywają zamknięcie okna ───────────────────
         _okno8c.k_parametry.kwota.ustaw_tekst("2 500")
         _okno8c._przelicz_teraz()
-        sprawdz("kwota, tryb pracy i limit dnia idą do ~/.pmt_ustawienia.json",
+        sprawdz("kwota i tryb pracy idą do ~/.pmt_ustawienia.json",
                 abs(float(P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_KWOTY, 0)) - 2500.0) < 0.01
                 and P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_TRYBU, "")
-                == _okno8c.k_parametry.tryb.aktywna()
-                and abs(float(P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_LIMITU, 0))
-                        - _okno8c._limit_dnia) < 0.01)
+                == _okno8c.k_parametry.tryb.aktywna())
+        # Limit dnia zniknął z okna, więc nie jest już ani zapisywany, ani
+        # wczytywany — program liczy zawsze kwotą z przepisów.
+        P.zapisz_ustawienie("nowy_limit_dnia", 999.0)
+        _okno8d = _NW.OknoNowegoWygladu(profil=_prof_8c, rok=2026, miesiac=11)
+        _limit_po_wznowieniu = _okno8d._limit_dnia
+        _okno8d.close()
+        sprawdz("limit dnia nie da się już zapisać ani odziedziczyć — zawsze kwota z przepisów",
+                abs(_limit_po_wznowieniu - P.MAX_KWOTA_DNIA) < 0.005
+                and not hasattr(_NW.OknoNowegoWygladu, "USTAWIENIE_LIMITU"),
+                str(_limit_po_wznowieniu))
         _okno_wznowione = _NW.OknoNowegoWygladu(profil=_prof_8c, rok=2026, miesiac=11)
         _kwota_wznowiona = _okno_wznowione._kwota()
         _okno_wznowione.close()
@@ -2397,7 +2405,8 @@ try:
     sprawdz("start programu wciąż rozgrzewa zaplecze, sprawdza wersję i ŻĄDA LOGOWANIA",
             "_rozgrzej_backend()" in _blok10 and "wersja_zablokowana()" in _blok10
             and "dialog_logowania()" in _blok10 and "sys.exit(0)" in _blok10)
-    sprawdz("animacja startowa nadal rusza po zalogowaniu",
+    sprawdz("sekwencja startowa nadal woła intro_po_sprawdzeniu "
+            "(samo intro jest w tej wersji wyłączone — patrz sekcja 11)",
             "intro_po_sprawdzeniu" in _blok10)
     sprawdz("okno główne powstaje na końcu sekwencji, przez zbuduj_okno_glowne()",
             "window = zbuduj_okno_glowne()" in _blok10)
@@ -2580,14 +2589,23 @@ try:
     # ── menu awatara: hasło, tester, intro, wylogowanie ───────────
     _menu10, _akcje_menu10 = _okno10.buduj_menu_konta()
     _pozycje10 = [a.text() for a in _menu10.actions() if a.text()]
-    sprawdz("menu pod inicjałami ma hasło, kartę testera, animację i wylogowanie",
-            _pozycje10 == ["Zmień hasło", "Karta testera", "Animacja startowa",
-                           "Wyloguj"], str(_pozycje10))
+    _oczekiwane10 = ["Zmień hasło", "Karta testera"]
+    if bool(getattr(P, "INTRO_NA_STARCIE", True)):
+        _oczekiwane10.append("Animacja startowa")
+    _oczekiwane10.append("Wyloguj")
+    sprawdz("menu pod inicjałami ma hasło, kartę testera i wylogowanie",
+            _pozycje10 == _oczekiwane10, str(_pozycje10))
     sprawdz("każda pozycja menu awatara ma podpiętą akcję",
             all(callable(_akcje_menu10.get(a)) for a in _menu10.actions() if a.text()))
-    _intro_akcja10 = [a for a in _menu10.actions() if a.text() == "Animacja startowa"][0]
-    sprawdz("pozycja „Animacja startowa” pokazuje stan ustawienia bez_intra",
-            _intro_akcja10.isChecked() == (not bool(P.ustawienie("bez_intra", False))))
+    # Przełącznik animacji pojawia się TYLKO wtedy, gdy animacja startuje —
+    # przy wyłączonym intrze byłby martwą pozycją.
+    _intro_akcje10 = [a for a in _menu10.actions() if a.text() == "Animacja startowa"]
+    sprawdz("przełącznik animacji jest w menu wtedy i tylko wtedy, gdy intro startuje",
+            bool(_intro_akcje10) == bool(getattr(P, "INTRO_NA_STARCIE", True)))
+    if _intro_akcje10:
+        sprawdz("pozycja „Animacja startowa” pokazuje stan ustawienia bez_intra",
+                _intro_akcje10[0].isChecked()
+                == (not bool(P.ustawienie("bez_intra", False))))
     _menu10.deleteLater()
 
     # ── dzwonek: jedna historia powiadomień dla obu okien ─────────
@@ -2625,6 +2643,825 @@ finally:
             open(P.PLIK_STATUSU, "w", encoding="utf-8").write(_s10_status_byl)
     except Exception:
         pass
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("11. Okno bez ramy i bez intra, bez limitu dnia, z dniami bez pracy")
+
+try:
+    from PyQt6.QtWidgets import QApplication as _QA11, QWidget as _QW11
+    from PyQt6.QtCore import Qt as _Qt11, QEvent as _QE11, QPointF as _QP11
+    from PyQt6.QtGui import QKeyEvent as _QKE11, QMouseEvent as _QME11
+    import nowy_wyglad as _NW11
+    import proto_okno as _OK11
+    _app11 = _QA11.instance() or _QA11(sys.argv)
+    _app11.setStyleSheet(_NW11.arkusz())
+
+    _prof11 = _NW11.ProfilWidoku("Jan Testowy", "85010112345",
+                                 "ul. Kwiatowa 5, 26-600 Radom", "KR")
+    _okno11 = _NW11.OknoNowegoWygladu(profil=_prof11, rok=2026, miesiac=10)
+    _okno11._pole_pesel.setText("85010112345")
+    _okno11.show()
+    _app11.processEvents()
+
+    # ── 1. INTRO NIE STARTUJE ─────────────────────────────────────
+    sprawdz("intro startowe jest w tej wersji wyłączone przełącznikiem",
+            P.INTRO_NA_STARCIE is False, repr(P.INTRO_NA_STARCIE))
+    _okno11.intro_po_sprawdzeniu("Jan Testowy")
+    _app11.processEvents()
+    _zywe11 = [c for c in _okno11.findChildren(_QW11)
+               if type(c).__name__ in ("IntroZywaMapa", "AnimacjaStartowa")]
+    sprawdz("po starcie nie ma ani żywej mapy, ani klasycznej animacji",
+            not _zywe11 and _okno11._intro is None
+            and _okno11._intro_gra is False, str([type(c).__name__ for c in _zywe11]))
+    sprawdz("nic nie czeka na koniec intra: ekran główny jest od razu odsłonięty",
+            _okno11._intro_zakonczone is True)
+    _stare11 = _okno11.stare_okno()
+    _okno11._zepnij_ze_starym(_stare11)
+    sprawdz("okno aktualizacji nie wisi na sygnale końca intra",
+            _stare11._intro_gra is False and _stare11._intro_zakonczone is True)
+    _stare11._akt_czekanie = 0
+    _stare11._intro_gra = True          # nawet z zapomnianą flagą
+    _stare11._dialog_akt_byl = True     # (dalej i tak nie budujemy dialogu)
+    _stare11._pokaz_okno_aktualizacji()
+    sprawdz("okno aktualizacji rusza od razu, choćby flaga intra została zapalona",
+            getattr(_stare11, "_akt_czekanie", 0) == 0)
+    _stare11._intro_gra = False
+    sprawdz("kod intra zostaje w programie — wróci przy generowaniu dokumentów",
+            callable(getattr(_okno11, "pokaz_intro", None))
+            and callable(getattr(P, "pokaz_intro", None) or P.App.pokaz_intro)
+            and os.path.exists(os.path.join(KATALOG, "intro_zywa_mapa.py")))
+
+    # ── 2. OKNO BEZ RAMY SYSTEMU, NA PEŁNYM EKRANIE ───────────────
+    sprawdz("okno programu nie ma ramy systemowej",
+            bool(_okno11.windowFlags() & _Qt11.WindowType.FramelessWindowHint))
+    sprawdz("okno programu wstaje na pełnym ekranie", _okno11.isFullScreen())
+    sprawdz("pasek górny ma własne sterowanie oknem po prawej stronie",
+            all(n in _okno11.pasek._pola_prawe
+                for n in ("zamknij", "minimalizuj", "pelny_ekran")),
+            str(list(_okno11.pasek._pola_prawe)))
+    sprawdz("sterowanie oknem melduje kliknięcia osobnymi sygnałami",
+            all(hasattr(_okno11.pasek, s11) for s11 in
+                ("klik_zamkniecia", "klik_minimalizacji", "klik_pelnego_ekranu")))
+
+    def _klik_paska(nazwa, punkt=None):
+        pole = _okno11.pasek._pola_prawe.get(nazwa)
+        pkt = punkt if punkt is not None else pole.center()
+        glob = _okno11.pasek.mapToGlobal(pkt.toPoint()).toPointF()
+        _okno11.pasek.mousePressEvent(
+            _QME11(_QE11.Type.MouseButtonPress, pkt, glob,
+                   _Qt11.MouseButton.LeftButton, _Qt11.MouseButton.LeftButton,
+                   _Qt11.KeyboardModifier.NoModifier))
+        _app11.processEvents()
+
+    _klik_paska("pelny_ekran")
+    _po_kliku11 = _okno11.isFullScreen()
+    _klik_paska("pelny_ekran")
+    sprawdz("przycisk w pasku wychodzi z pełnego ekranu i wraca na niego",
+            _po_kliku11 is False and _okno11.isFullScreen() is True)
+
+    _okno11.keyPressEvent(_QKE11(_QE11.Type.KeyPress, _Qt11.Key.Key_F11,
+                                 _Qt11.KeyboardModifier.NoModifier))
+    _app11.processEvents()
+    _po_f11 = _okno11.isFullScreen()
+    _okno11.keyPressEvent(_QKE11(_QE11.Type.KeyPress, _Qt11.Key.Key_F11,
+                                 _Qt11.KeyboardModifier.NoModifier))
+    _app11.processEvents()
+    _okno11.keyPressEvent(_QKE11(_QE11.Type.KeyPress, _Qt11.Key.Key_Escape,
+                                 _Qt11.KeyboardModifier.NoModifier))
+    _app11.processEvents()
+    sprawdz("F11 i Esc wychodzą z pełnego ekranu",
+            _po_f11 is False and _okno11.isFullScreen() is False)
+
+    # przeciąganie okna za pusty kawałek paska (tylko poza pełnym ekranem)
+    _okno11.resize(1200, 700)
+    _okno11.move(120, 120)
+    _app11.processEvents()
+    _skad11 = _okno11.frameGeometry().topLeft()
+    _lewo11 = _okno11.pasek._pola_zakladek()[-1].right() + 12
+    _prawo11 = min(r.x() for r in _okno11.pasek._pola_prawe.values()) - 12
+    _pusty11 = _QP11((_lewo11 + _prawo11) / 2.0, 18.0)
+    sprawdz("w pasku został pusty kawałek do chwytania okna",
+            _prawo11 > _lewo11 and not _okno11.pasek.pole_prawe(_pusty11),
+            str((_lewo11, _prawo11)))
+    _glob11 = _okno11.pasek.mapToGlobal(_pusty11.toPoint()).toPointF()
+    _okno11.pasek.mousePressEvent(
+        _QME11(_QE11.Type.MouseButtonPress, _pusty11, _glob11,
+               _Qt11.MouseButton.LeftButton, _Qt11.MouseButton.LeftButton,
+               _Qt11.KeyboardModifier.NoModifier))
+    _okno11.pasek.mouseMoveEvent(
+        _QME11(_QE11.Type.MouseMove, _pusty11,
+               _QP11(_glob11.x() + 60, _glob11.y() + 40),
+               _Qt11.MouseButton.NoButton, _Qt11.MouseButton.LeftButton,
+               _Qt11.KeyboardModifier.NoModifier))
+    _app11.processEvents()
+    _dokad11 = _okno11.frameGeometry().topLeft()
+    _okno11.pasek.mouseReleaseEvent(
+        _QME11(_QE11.Type.MouseButtonRelease, _pusty11, _glob11,
+               _Qt11.MouseButton.LeftButton, _Qt11.MouseButton.NoButton,
+               _Qt11.KeyboardModifier.NoModifier))
+    sprawdz("okno bez ramy przesuwa się za pasek górny",
+            (_dokad11.x() - _skad11.x(), _dokad11.y() - _skad11.y()) == (60, 40),
+            str((_skad11, _dokad11)))
+
+    sprawdz("panel działu nadal daje się zamknąć krzyżykiem i Esc",
+            callable(getattr(_okno11.nakladka(), "zamknij", None))
+            and _okno11.nakladka().b_zamknij is not None)
+
+    # ── 3. LIMIT DNIA ZNIKA Z INTERFEJSU ──────────────────────────
+    _kp11 = _okno11.k_parametry
+    sprawdz("karta parametrów nie ma już przełącznika limitu dnia",
+            not hasattr(_kp11, "limit") and not hasattr(_OK11, "WierszLimitu"))
+    _zrodlo11 = open(os.path.join(KATALOG, "prototyp", "proto_okno.py"),
+                     encoding="utf-8").read()
+    sprawdz("w interfejsie nie ma napisu o limicie dnia",
+            '"limit dnia"' not in _zrodlo11 and "'limit dnia'" not in _zrodlo11)
+    _pola11 = [_kp11.kwota, _kp11.pojemnosc, _kp11.tryb, _kp11.wolne]
+    sprawdz("karta parametrów domyka się bez dziury po usuniętym wierszu",
+            _kp11.layout().count() == 4          # kwota, wiersz, dni bez pracy, rozciągnięcie
+            and _kp11.wolne.geometry().bottom() + 26 >= _kp11.layout().sizeHint().height(),
+            str((_kp11.layout().count(), _kp11.wolne.geometry(),
+                 _kp11.layout().sizeHint().height())))
+    sprawdz("reguła limitu dnia zostaje w silniku, tylko bez pokazywania jej",
+            abs(_okno11._limit_dnia - _OK11.LIMITY_DNIA[0]) < 0.005
+            and abs(_NW11.maks_kwota_miesiaca(2026, 10, "Tydzień", (), 200.0, 1.15)
+                    - _NW11.maks_kwota_miesiaca(2026, 10, "Tydzień", (), 999.0, 1.15)) > 1.0)
+
+    # ── 4. DNI BEZ PRACY DZIAŁAJĄ ─────────────────────────────────
+    sprawdz("wiersz „Dni bez pracy” melduje kliknięcie i otwiera wybór dni",
+            hasattr(_kp11.wolne, "kliknieto")
+            and callable(getattr(_okno11, "_wybierz_dni_bez_pracy", None)))
+    _okno11._ustaw_dni_bez_pracy({5, 6, 7, 12, 13})
+    _app11.processEvents()
+    _wylaczone11 = {d.data.day for d in _okno11.dni if getattr(d, "wylaczony", False)}
+    _z_trasa11 = {d.data.day for d in _okno11._dni_w_trasie()}
+    sprawdz("wskazane dni bez pracy wypadają z rozliczenia: są wyłączone i bez tras",
+            _wylaczone11 == {5, 6, 7, 12, 13} and not (_z_trasa11 & {5, 6, 7, 12, 13}),
+            str((sorted(_wylaczone11), sorted(_z_trasa11))))
+    sprawdz("wybrane dni widać w wierszu karty parametrów",
+            _kp11.wolne.dni() == [5, 6, 7, 12, 13], str(_kp11.wolne.dni()))
+    _dane11, _powod11 = _okno11._dane_do_generacji()
+    sprawdz("silnik nie dostaje dni bez pracy do rozliczenia",
+            _dane11 is not None
+            and not ({d.day for d in _dane11["dni_robocze"]} & {5, 6, 7, 12, 13}),
+            _powod11 or "")
+    sprawdz("dni bez pracy zapisują się na dysk od razu po wyborze",
+            P.ustawienie(_NW11.OknoNowegoWygladu.USTAWIENIE_WOLNYCH, {}).get("2026-10")
+            == [5, 6, 7, 12, 13])
+    # licznik w nagłówku taśmy liczy dni DO WYKORZYSTANIA — dzień wyłączony
+    # przez użytkownika nie jest już dniem, w którym można jechać
+    _kafle11 = list(_okno11.tasma._dni)
+    _wszystkie11 = _okno11.tasma._zbior["dni_wszystkie"]
+    _do_uzycia11 = len([d for d in _kafle11 if not getattr(d, "wylaczony", False)])
+    sprawdz("nagłówek taśmy „z N dni” nie liczy dni bez pracy",
+            _wszystkie11 == _do_uzycia11 and _wszystkie11 == len(_kafle11) - 5,
+            str((_wszystkie11, _do_uzycia11, len(_kafle11))))
+
+    # taśma ↔ wiersz: w obie strony
+    for _d11 in _okno11.dni:
+        if _d11.data.day == 20:
+            _d11.wylaczony = True
+    _okno11._przelacz_wolny(20)
+    _app11.processEvents()
+    _po_prawym11 = _kp11.wolne.dni()
+    for _d11 in _okno11.dni:
+        if _d11.data.day == 20:
+            _d11.wylaczony = False
+    _okno11._przelacz_wolny(20)
+    _app11.processEvents()
+    sprawdz("prawy przycisk na taśmie i wiersz karty pokazują tę samą listę",
+            _po_prawym11 == [5, 6, 7, 12, 13, 20]
+            and _kp11.wolne.dni() == [5, 6, 7, 12, 13],
+            str((_po_prawym11, _kp11.wolne.dni())))
+    _okno11._ustaw_dni_bez_pracy({8})
+    _app11.processEvents()
+    sprawdz("wybór z kalendarza wyłącza dzień także na taśmie",
+            {d.data.day for d in _okno11.dni if getattr(d, "wylaczony", False)} == {8}
+            and _kp11.wolne.dni() == [8])
+
+    # panel wyboru dni — kalendarz miesiąca w stylu nowego systemu
+    _panel11 = _OK11.PanelDniBezPracy(2026, 10, {8}, _okno11)
+    _panel11.setStyleSheet(_OK11.arkusz())
+    _panel11.resize(470, max(420, _panel11.sizeHint().height()))
+    _app11.processEvents()
+    _siatka11 = _panel11.siatka
+    sprawdz("wybór dni pokazuje cały miesiąc z zaznaczonymi dniami",
+            len(_siatka11._siatka()) == P.calendar.monthrange(2026, 10)[1]
+            and _siatka11.wybrane == {8}
+            and _panel11.l_podtytul.text() == "październik 2026",
+            str((len(_siatka11._siatka()), _siatka11.wybrane,
+                 _panel11.l_podtytul.text())))
+    _pole11 = _siatka11._siatka()[15]
+    _siatka11.mousePressEvent(
+        _QME11(_QE11.Type.MouseButtonPress, _pole11.center(),
+               _siatka11.mapToGlobal(_pole11.center().toPoint()).toPointF(),
+               _Qt11.MouseButton.LeftButton, _Qt11.MouseButton.LeftButton,
+               _Qt11.KeyboardModifier.NoModifier))
+    _app11.processEvents()
+    sprawdz("klik w dzień kalendarza dopisuje go do dni bez pracy",
+            _panel11.dni() == {8, 15} and _panel11.l_licznik.text() == "2",
+            str((_panel11.dni(), _panel11.l_licznik.text())))
+    _panel11.b_wyczysc.click()
+    _app11.processEvents()
+    sprawdz("„Wyczyść” zdejmuje wszystkie dni bez pracy",
+            _panel11.dni() == set() and _panel11.l_licznik.text() == "0")
+    _panel11.close()
+    _okno11._ustaw_dni_bez_pracy(set())
+    _okno11.close()
+except Exception as _e11:
+    sprawdz("okno bez ramy, bez intra, bez limitu dnia i z dniami bez pracy",
+            False, repr(_e11))
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("12. Mapa na prawdziwych współrzędnych i podziałka, która mierzy prawdę")
+
+try:
+    from PyQt6.QtWidgets import QApplication as _QA12
+    from PyQt6.QtGui import QPixmap as _QPix12, QPainter as _QPaint12
+    import nowy_wyglad as _NW12
+    import proto_mapa as _PM12
+    import proto_dane as _PD12
+    _app12 = _QA12.instance() or _QA12(sys.argv)
+    _app12.setStyleSheet(_NW12.arkusz())
+
+    # ── 1. RANGA I WSPÓŁRZĘDNE Z DANYCH PROGRAMU ──────────────────
+    _rangi12 = _NW12.rangi_miast_programu()
+    sprawdz("rangi miejscowości biorą się z bazy miast silnika, a nie z nazwy",
+            len(_rangi12) > 500
+            and set(_rangi12.values()) <= {_NW12.RANGA_WIES, _NW12.RANGA_MIASTO},
+            str((len(_rangi12), sorted(set(_rangi12.values())))))
+
+    _geo12 = {"Radom": (51.40, 21.15), "Warszawa": (52.23, 21.01),
+              "Zakrzew": (51.44, 20.98)}
+    _dla12 = _NW12.miasta_dla_mapy(_geo12, "Radom")
+    sprawdz("miasta dla mapy niosą szerokość, długość i rangę",
+            set(_dla12) == set(_geo12)
+            and _dla12["Radom"][:2] == (51.40, 21.15)
+            and _dla12["Radom"][2] == _NW12.RANGA_BAZA
+            and _dla12["Warszawa"][2] == _NW12.RANGA_MIASTO
+            and _dla12["Zakrzew"][2] == _NW12.RANGA_WIES,
+            str(_dla12))
+
+    for _opis12, _wej12 in (("napis zamiast pary liczb", {"A": "51.4, 21.1"}),
+                            ("za krótka krotka", {"A": (51.4,)}),
+                            ("zera po nieudanym geokodowaniu",
+                             {"A": (52.2, 21.0), "B": (0.0, 0.0)}),
+                            ("współrzędne spoza globu",
+                             {"A": (52.2, 21.0), "B": (999.0, 21.0)}),
+                            ("pusty słownik", {}), ("brak danych", None)):
+        sprawdz("bez pewnych współrzędnych mapa zostaje przy swoim układzie: %s"
+                % _opis12, _NW12.miasta_dla_mapy(_wej12, "A") == {},
+                str(_NW12.miasta_dla_mapy(_wej12, "A")))
+
+    # ── 2. OKNO PODAJE MAPIE PRAWDZIWY REJON ──────────────────────
+    _prof12 = _NW12.ProfilWidoku("Jan Testowy", "85010112345",
+                                 "ul. Kwiatowa 5, 26-600 Radom", "KR")
+    _okno12 = _NW12.OknoNowegoWygladu(profil=_prof12, rok=2026, miesiac=10)
+    _okno12.showNormal()
+    _okno12.resize(1440, 900)
+    for _ in range(6):
+        _app12.processEvents()
+    _okno12.ustaw_animacje(False)
+    for _ in range(6):
+        _app12.processEvents()
+    _mapa12 = _okno12.mapa
+
+    sprawdz("mapa dostaje te miejscowości, które zna silnik",
+            set(_mapa12._miasta) == set(_okno12.geo)
+            and _mapa12._baza == _okno12.baza_miasto
+            and len(_mapa12._miasta) > 5,
+            str((len(_mapa12._miasta), len(_okno12.geo), _mapa12._baza)))
+    sprawdz("baza pracownika jest na mapie bazą",
+            _mapa12._rangi.get(_okno12.baza_miasto) == _NW12.RANGA_BAZA,
+            str(_mapa12._rangi.get(_okno12.baza_miasto)))
+
+    # ── 3. ODLEGŁOŚCI NA MAPIE TO ODLEGŁOŚCI Z SILNIKA ────────────
+    _pary12 = []
+    _nazwy12 = sorted(_okno12.geo)
+    for _i12 in range(len(_nazwy12)):
+        for _j12 in range(_i12 + 1, len(_nazwy12)):
+            _a12, _b12 = _nazwy12[_i12], _nazwy12[_j12]
+            _la, _ga = _okno12.geo[_a12]
+            _lb, _gb = _okno12.geo[_b12]
+            _prawda12 = P.oblicz_dystans(_la, _ga, _lb, _gb)
+            _ax, _ay = _mapa12._miasta[_a12]
+            _bx, _by = _mapa12._miasta[_b12]
+            _swiat12 = math.hypot(_bx - _ax, _by - _ay) / _mapa12._jedn_na_km
+            _pary12.append((abs(_swiat12 - _prawda12), _a12, _b12,
+                            _prawda12, _swiat12))
+    _najgorsza12 = max(_pary12)
+    sprawdz("odległości w świecie mapy zgadzają się z kilometrami silnika",
+            len(_pary12) > 100 and _najgorsza12[0] < 4.0,
+            "%s–%s: %.1f km na mapie wobec %.1f km naprawdę"
+            % (_najgorsza12[1], _najgorsza12[2], _najgorsza12[4],
+               _najgorsza12[3]))
+
+    _blat12, _blng12 = _okno12.geo[_okno12.baza_miasto]
+    _pb12 = _mapa12._punkt(_okno12.baza_miasto)
+    _rzut12 = _mapa12.rzut()
+    _ox12, _oy12, _sx12, _sy12 = _mapa12._obszar_swiata()
+    _cx12, _cy12 = _ox12 + _sx12 * 0.5, _oy12 + _sy12 * 0.5
+    _poziom12 = (_rzut12.k / max(1.0, _rzut12.glebokosc(_cx12, _cy12, 0.0))
+                 * _mapa12._jedn_na_km)
+    _pol12 = 50.0 * _mapa12._jedn_na_km * 0.5
+    _wglab12 = abs(_rzut12.ekran(_cx12, _cy12 + _pol12, 0.0).y()
+                   - _rzut12.ekran(_cx12, _cy12 - _pol12, 0.0).y()) / 50.0
+    _krzywe12 = []
+    for _n12 in _nazwy12:
+        if _n12 == _okno12.baza_miasto:
+            continue
+        _lat12, _lng12 = _okno12.geo[_n12]
+        _az12 = (math.degrees(math.atan2(
+            (_lng12 - _blng12) * math.cos(math.radians(_blat12)),
+            _lat12 - _blat12)) + 360) % 360
+        _p12 = _mapa12._punkt(_n12)
+        _aze12 = (math.degrees(math.atan2(
+            _p12.x() - _pb12.x(),
+            (_pb12.y() - _p12.y()) * _poziom12 / _wglab12)) + 360) % 360
+        if abs((_az12 - _aze12 + 180) % 360 - 180) > 6.0:
+            _krzywe12.append(_n12)
+    sprawdz("miejscowości leżą na mapie w tym kierunku, co naprawdę",
+            not _krzywe12, str(_krzywe12))
+
+    # ── 4. PODZIAŁKA MA DWA RAMIONA I OBA MÓWIĄ PRAWDĘ ────────────
+    _linie12 = []
+
+    class _Szpieg12(_QPaint12):
+        def drawLine(self, *a):
+            if len(a) == 2:
+                _linie12.append((a[0].x(), a[0].y(), a[1].x(), a[1].y()))
+            return _QPaint12.drawLine(self, *a)
+
+    _napisy12 = []
+    _oryg12 = _PM12._napis
+
+    def _podsluch12(p, x, y, napis, *a, **k):
+        _wynik12 = _oryg12(p, x, y, napis, *a, **k)
+        _napisy12.append(napis)
+        return _wynik12
+
+    _PM12._napis = _podsluch12
+    _pix12 = _QPix12(_mapa12.width(), _mapa12.height())
+    _mal12 = _Szpieg12(_pix12)
+    _mapa12._rysuj_podzialke(_mal12, _mapa12.rzut(),
+                             __import__("PyQt6.QtCore", fromlist=["QRectF"])
+                             .QRectF(_mapa12.rect()))
+    _mal12.end()
+    _PM12._napis = _oryg12
+
+    _dlugie12 = [l for l in _linie12
+                 if abs(l[2] - l[0]) > 25 or abs(l[3] - l[1]) > 25]
+    _poziome12 = [l for l in _dlugie12 if abs(l[3] - l[1]) < 0.5]
+    _pionowe12 = [l for l in _dlugie12 if abs(l[2] - l[0]) < 0.5]
+    _km12 = [n for n in _napisy12 if n.endswith(" km")]
+    sprawdz("podziałka ma ramię w poprzek kadru i ramię w głąb",
+            len(_poziome12) == 1 and len(_pionowe12) == 1 and len(_km12) == 2
+            and _km12[0] == _km12[1], str((len(_poziome12), len(_pionowe12),
+                                           _km12)))
+    _krok12 = int(_km12[0].split()[0])
+    _mierzy_poziom12 = abs(_poziome12[0][2] - _poziome12[0][0]) / _krok12
+    _mierzy_pion12 = abs(_pionowe12[0][3] - _pionowe12[0][1]) / _krok12
+    sprawdz("ramię w poprzek kadru mierzy tyle, ile kamera pokazuje w tę stronę",
+            abs(_mierzy_poziom12 - _poziom12) < _poziom12 * 0.02,
+            "%.4f wobec %.4f px/km" % (_mierzy_poziom12, _poziom12))
+    sprawdz("ramię w głąb mierzy tyle, ile kamera pokazuje w głąb",
+            abs(_mierzy_pion12 - _wglab12) < _wglab12 * 0.02,
+            "%.4f wobec %.4f px/km" % (_mierzy_pion12, _wglab12))
+    sprawdz("ramię w głąb jest krótsze — teren jest pochylony do widza",
+            _mierzy_pion12 < _mierzy_poziom12 * 0.95,
+            "%.4f / %.4f" % (_mierzy_pion12, _mierzy_poziom12))
+
+    _zmierzone12 = []
+    for _roznica12, _a12, _b12, _prawda12, _swiat12 in _pary12:
+        if _prawda12 < 20.0:
+            continue
+        _pa12 = _mapa12._punkt(_a12)
+        _pb2_12 = _mapa12._punkt(_b12)
+        _odczyt12 = math.hypot((_pb2_12.x() - _pa12.x()) / _mierzy_poziom12,
+                               (_pb2_12.y() - _pa12.y()) / _mierzy_pion12)
+        _zmierzone12.append((abs(_odczyt12 - _prawda12) / _prawda12 * 100.0,
+                             _a12, _b12, _prawda12, _odczyt12))
+    _zmierzone12.sort()
+    _srodek12 = _zmierzone12[len(_zmierzone12) // 2]
+    sprawdz("typowa para miast zmierzona podziałką trafia w prawdę z zapasem",
+            _srodek12[0] < 10.0,
+            "mediana %.1f%% (%s–%s: %.1f km wobec %.1f km)"
+            % (_srodek12[0], _srodek12[1], _srodek12[2], _srodek12[4],
+               _srodek12[3]))
+    sprawdz("dziewięć par na dziesięć mieści się w dziesięciu procentach",
+            _zmierzone12[int(len(_zmierzone12) * 0.9)][0] < 10.0,
+            "90. centyl %.1f%%" % _zmierzone12[int(len(_zmierzone12) * 0.9)][0])
+
+    # ── 5. TEN SAM DZIEŃ, TEN SAM OBRAZ; INNY DZIEŃ, INNY ─────────
+    _dni12 = [d for d in _okno12.dni if not d.wolny and len(d.trasa) >= 3]
+    if len(_dni12) >= 2:
+        _mapa12.ustaw_dzien(_dni12[0])
+        _ziarno_a12 = _mapa12._ziarno
+        _uklad_a12 = [(e["napis"], round(e["pole"].x(), 2),
+                       round(e["pole"].y(), 2))
+                      for e in _mapa12._geometria()["etykiety"]]
+        _mapa12.ustaw_dzien(_dni12[1])
+        _ziarno_b12 = _mapa12._ziarno
+        _mapa12.ustaw_dzien(_dni12[0])
+        _mapa12._geo = None
+        _mapa12._geo_klucz = None
+        _uklad_c12 = [(e["napis"], round(e["pole"].x(), 2),
+                       round(e["pole"].y(), 2))
+                      for e in _mapa12._geometria()["etykiety"]]
+        sprawdz("inny dzień to inny krajobraz, ten sam dzień to ten sam",
+                _ziarno_a12 != _ziarno_b12
+                and _mapa12._ziarno == _ziarno_a12,
+                str((_ziarno_a12, _ziarno_b12, _mapa12._ziarno)))
+        sprawdz("podpisy miast nie skaczą: ta sama trasa, ten sam układ tabliczek",
+                _uklad_a12 == _uklad_c12 and len(_uklad_a12) > 1,
+                str(len(_uklad_a12)))
+
+    # ── 6. PRZYSTANEK, KTÓREGO MAPA NIE ZNA, NIE WYWRACA RYSUNKU ──
+    _dzien12 = _dni12[0] if _dni12 else None
+    if _dzien12 is not None:
+        import copy as _copy12
+        _widmo12 = _copy12.deepcopy(_dzien12)
+        _widmo12.przystanki = list(_widmo12.przystanki) + ["Miasto-Widmo"]
+        _mapa12.ustaw_dzien(_widmo12)
+        _mapa12.ustaw_animacje(False)
+        _mapa12.grab()
+        sprawdz("nieznany przystanek nie wywraca rysowania mapy",
+                "Miasto-Widmo" not in _mapa12._miasta)
+        _mapa12.ustaw_dzien(_dzien12)
+
+    _okno12.close()
+except Exception as _e12:
+    sprawdz("mapa na prawdziwych współrzędnych z uczciwą podziałką",
+            False, repr(_e12))
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("13. Kadr należy do trasy dnia, miejscowości widać, tabliczki się rozchodzą")
+
+try:
+    import subprocess as _sub13
+    from PyQt6.QtWidgets import QApplication as _QA13
+    from PyQt6.QtGui import QPixmap as _QPix13, QPainter as _QPaint13
+    from PyQt6.QtCore import QPointF as _QP13, QRectF as _QR13
+    import nowy_wyglad as _NW13          # dokłada katalog prototypu do ścieżki
+    import proto_mapa as _PM13
+    _app13 = _QA13.instance() or _QA13(sys.argv)
+
+    # ── UKŁAD DO BADANIA: baza, przystanki i kilkadziesiąt wsi wokół ──
+    _BAZA13 = "Radom"
+    _BLISKO13 = {"Radom": (51.4025, 21.1471), "Jedlińsk": (51.5352, 21.0842),
+                 "Skaryszew": (51.3131, 21.2500), "Kozłów": (51.4650, 21.3300),
+                 "Gózd": (51.4092, 21.3200), "Głowaczów": (51.5560, 21.2900),
+                 "Stromiec": (51.6167, 21.1500), "Kazanów": (51.2650, 21.4200)}
+    _DALEKO13 = {"Warszawa": (52.2297, 21.0122), "Lublin": (51.2465, 22.5684),
+                 "Kielce": (50.8661, 20.6286), "Łódź": (51.7592, 19.4560),
+                 "Puławy": (51.4167, 21.9690), "Piotrków Tryb.": (51.4050, 19.6930),
+                 "Starachowice": (51.0500, 21.0700)}
+
+
+    def _spis_miast13():
+        """Spis miast, jaki dostaje mapa od programu: przystanki i kilkadziesiąt wsi.
+
+        Wsie stoją w kratce co trzydzieści kilometrów, z dala od siebie —
+        dzięki temu badanie wielkości znaku nie trafia na parę sąsiadek, którym
+        znak celowo przycina granica sąsiedztwa.
+        """
+        miasta = {}
+        for _n, (_la, _lg) in _BLISKO13.items():
+            miasta[_n] = (_la, _lg,
+                          _PM13.RANGA_BAZA if _n == _BAZA13 else _PM13.RANGA_MIASTO)
+        for _n, (_la, _lg) in _DALEKO13.items():
+            miasta[_n] = (_la, _lg, _PM13.RANGA_MIASTO)
+        _lat0, _lng0 = _BLISKO13[_BAZA13]
+        _nr = 0
+        for _i in range(-6, 7):
+            for _j in range(-6, 7):
+                _kmx = (_i + (0.5 if _j % 2 else 0.0)) * 30.0
+                _kmy = _j * 30.0
+                if math.hypot(_kmx, _kmy) > 150.0:
+                    continue
+                _la = _lat0 + _kmy / 110.57
+                _lg = _lng0 + _kmx / (111.32 * math.cos(math.radians(_lat0)))
+                if any(abs(_la - _a) * 110.57 < 26.0
+                       and abs(_lg - _b) * 69.5 < 26.0
+                       for (_a, _b) in list(_BLISKO13.values())
+                       + list(_DALEKO13.values())):
+                    continue
+                _nr += 1
+                miasta["Wólka %02d" % _nr] = (_la, _lg, _PM13.RANGA_WIES)
+        return miasta
+
+    _MIASTA13 = _spis_miast13()
+
+
+    class _Dzien13:
+        """Dzień w takiej postaci, w jakiej mapa go czyta: data, przystanki, trasa."""
+
+        def __init__(self, dzien, przystanki, wolny=False):
+            self.data = datetime.date(2026, 10, dzien)
+            self.przystanki = list(przystanki)
+            self.wolny = wolny
+            self.wylaczony = False
+
+        @property
+        def trasa(self):
+            return [_BAZA13] + list(self.przystanki) + [_BAZA13]
+
+    _CIASNY13 = _Dzien13(1, [n for n in _BLISKO13 if n != _BAZA13])
+    _SZEROKI13 = _Dzien13(8, list(_DALEKO13))
+    _WOLNY13 = _Dzien13(11, [], wolny=True)
+    _KOTWICA13 = (588.0, 68.0)          # kartka delegacji tak, jak stawia ją okno
+
+
+    def _mapa13(dzien, szer=1200, wys=760, kotwica=None, miasta=None, rysuj=False):
+        m = _PM13.MapaDnia()
+        m.ustaw_animacje(False)
+        m.ustaw_miasta(miasta or _MIASTA13, baza=_BAZA13)
+        m.resize(szer, wys)
+        m.ustaw_dzien(dzien)
+        m.ustaw_kotwice_kartki(_QP13(*kotwica) if kotwica else None)
+        m.ustaw_animacje(False)
+        if rysuj:
+            m.grab()                     # cała droga rysowania, jak przy zrzucie
+        return m
+
+
+    def _trasa_na_ekranie13(m):
+        """Prostokąt, jaki zajmują na ekranie najdalsze punkty trasy dnia."""
+        pkt = [m._punkt(n) for n in dict.fromkeys(m._dzien.trasa) if n in m._miasta]
+        return (max(p.x() for p in pkt) - min(p.x() for p in pkt),
+                max(p.y() for p in pkt) - min(p.y() for p in pkt),
+                (max(p.x() for p in pkt) + min(p.x() for p in pkt)) * 0.5)
+
+
+    def _zasieg_znaku13(m, nazwa, znaki):
+        """Najdalszy punkt narysowanego znaku od środka osady, w kilometrach."""
+        mm = [x for x in m._miejscowosci if x["nazwa"] == nazwa][0]
+        wsp = znaki.get(nazwa, 1.0)
+        return max(math.hypot(x - mm["x"], y - mm["y"])
+                   for (x, y) in mm["obrys"]) * wsp / m._jedn_na_km
+
+
+    def _srednica_znaku13(m, nazwa, znaki, odn):
+        """Szerokość znaku miejscowości w pikselach, mierzona w środku kadru."""
+        mm = [x for x in m._miejscowosci if x["nazwa"] == nazwa][0]
+        return 2.0 * mm["promien"] * znaki.get(nazwa, 1.0) * odn
+
+
+    def _odniesienie13(m):
+        """Ile pikseli ma jednostka świata w środku kadru."""
+        _ox, _oy, _sx, _sy = m._obszar_swiata()
+        r = m.rzut()
+        return r.k / max(1.0, r.glebokosc(_ox + _sx * 0.5, _oy + _sy * 0.5, 0.0))
+
+
+    def _ramie_podzialki13(m):
+        """Długość poziomego ramienia podziałki i jej podpis — prosto z rysowania."""
+        _linie13 = []
+
+        class _Szpieg13(_QPaint13):
+            def drawLine(self, *a):
+                if len(a) == 2:
+                    _linie13.append((a[0].x(), a[0].y(), a[1].x(), a[1].y()))
+                return _QPaint13.drawLine(self, *a)
+
+        _napisy13 = []
+        _oryg13 = _PM13._napis
+
+        def _podsluch13(p, x, y, napis, *a, **k):
+            _napisy13.append(napis)
+            return _oryg13(p, x, y, napis, *a, **k)
+
+        _PM13._napis = _podsluch13
+        _pix13 = _QPix13(m.width(), m.height())     # w osobnej zmiennej: malujemy po nim
+        _mal13 = _Szpieg13(_pix13)
+        m._rysuj_podzialke(_mal13, m.rzut(), _QR13(m.rect()))
+        _mal13.end()
+        _PM13._napis = _oryg13
+        _poziome13 = [l for l in _linie13
+                      if abs(l[2] - l[0]) > 25 and abs(l[3] - l[1]) < 0.5]
+        _km13 = [n for n in _napisy13 if n.endswith(" km")]
+        return (round(_poziome13[0][2] - _poziome13[0][0], 4) if _poziome13 else None,
+                _km13[0] if _km13 else None)
+
+    # ── 1. KADR IDZIE ZA TRASĄ, A NIE ZA SPISEM MIAST ─────────────
+    _sam13 = _mapa13(_CIASNY13, miasta={n: _MIASTA13[n] for n in _BLISKO13})
+    _pelny13 = _mapa13(_CIASNY13)
+
+    def _kadr_km13(m):
+        """Kadr w kilometrach: rozmiar i położenie środka względem bazy.
+
+        Liczony względem bazy, bo początek układu świata siedzi w środku
+        SPISU miast — a właśnie o to chodzi, żeby kadr od spisu nie zależał.
+        """
+        _ox, _oy, _sx, _sy = m._obszar_swiata()
+        _bx, _by = m._miasta[_BAZA13]
+        return tuple(round(v / m._jedn_na_km, 2)
+                     for v in (_sx, _sy, _ox + _sx * 0.5 - _bx, _oy + _sy * 0.5 - _by))
+
+    _kadr_sam13 = _kadr_km13(_sam13)
+    _kadr_pelny13 = _kadr_km13(_pelny13)
+    sprawdz("kadr obejmuje trasę dnia, a nie kilkaset miejscowości wokół bazy",
+            len(_pelny13._miasta) > len(_sam13._miasta) + 40
+            and max(abs(a - b) for a, b in zip(_kadr_sam13, _kadr_pelny13)) < 0.5,
+            "%s wobec %s (km)" % (_kadr_sam13, _kadr_pelny13))
+
+    _region13 = _mapa13(_SZEROKI13)
+    _widzet13 = _QR13(0.0, 0.0, float(_region13.width()), float(_region13.height()))
+    _w_kadrze13 = [n for n in _region13._miasta
+                   if _widzet13.contains(_region13._punkt(n))]
+    _obce13 = [n for n in _w_kadrze13 if n not in _SZEROKI13.trasa]
+    sprawdz("miejscowości spoza trasy dalej stoją w kadrze — krajobraz jest zamieszkany",
+            len(_obce13) > 20, "%d miejscowości spoza trasy w kadrze" % len(_obce13))
+
+    _kadry13 = []
+    for _opis13, _dz13, _sz13, _wy13, _kot13 in (
+            ("dzień ciasny 1200×760", _CIASNY13, 1200, 760, None),
+            ("dzień rozrzucony 1200×760", _SZEROKI13, 1200, 760, None),
+            ("dzień ciasny w oknie z kartką", _CIASNY13, 940, 640, _KOTWICA13),
+            ("dzień rozrzucony w oknie z kartką", _SZEROKI13, 940, 640, _KOTWICA13),
+            ("dzień ciasny 520×380", _CIASNY13, 520, 380, None),
+            ("dzień rozrzucony 520×380", _SZEROKI13, 520, 380, None)):
+        _m13 = _mapa13(_dz13, _sz13, _wy13, _kot13, rysuj=True)
+        _dx13, _dy13, _srx13 = _trasa_na_ekranie13(_m13)
+        # kartka delegacji leży NA mapie, więc trasa ma wypełnić to, co po niej
+        # zostaje — mierzymy udział w kadrze dostępnym, nie w zasłoniętym
+        _dost13 = _sz13 if _kot13 is None else _kot13[0]
+        _kadry13.append((_opis13, _m13, _dx13, _dy13, _srx13,
+                         max(_dx13 / _dost13, _dy13 / _wy13)))
+    _najciasniej13 = min(_kadry13, key=lambda z: z[5])
+    sprawdz("najdalsze punkty trasy zajmują ponad połowę kadru przy każdym rozmiarze",
+            all(z[5] >= 0.55 for z in _kadry13),
+            "najgorszy: %s — %.0f%% kadru" % (_najciasniej13[0],
+                                              100.0 * _najciasniej13[5]))
+
+    _bliziutko13 = _Dzien13(15, ["Wólka bliska", "Wólka bliższa"])
+    _lat13, _lng13 = _BLISKO13[_BAZA13]
+    _male13 = dict(_MIASTA13)
+    _male13["Wólka bliska"] = (_lat13 + 0.030, _lng13 + 0.020, _PM13.RANGA_WIES)
+    _male13["Wólka bliższa"] = (_lat13 - 0.020, _lng13 + 0.040, _PM13.RANGA_WIES)
+    _m_blisko13 = _mapa13(_bliziutko13, miasta=_male13, rysuj=True)
+    _rozpietosc13 = max(_m_blisko13._obszar_swiata()[2:]) / _m_blisko13._jedn_na_km
+    sprawdz("dzień z przystankami o rzut beretem nie daje absurdalnego zbliżenia",
+            25.0 <= _rozpietosc13 <= 42.0, "kadr ma %.1f km" % _rozpietosc13)
+
+    _m_wolny13 = _mapa13(_WOLNY13, rysuj=True)
+    _poza13 = [n for n in _m_wolny13._miasta
+               if not _QR13(*_m_wolny13._obszar_swiata()).contains(
+                   _QP13(*_m_wolny13._miasta[n]))]
+    sprawdz("dzień bez trasy zostawia kadr całemu układowi miast, jak dotąd",
+            not _poza13, str(_poza13[:4]))
+
+    # ── 2. KARTKA DELEGACJI NIE ZASŁANIA TRASY ───────────────────
+    _z_kartka13 = [z for z in _kadry13 if z[1]._kotwica is not None]
+    _srodki13 = [(z[0], z[4], z[1]._kotwica.x()) for z in _z_kartka13]
+    sprawdz("środek trasy wypada w tej części kadru, której kartka nie zasłania",
+            all(_sr13 < _kx13 - 20.0 for (_o13, _sr13, _kx13) in _srodki13),
+            str([(o, round(s), round(k)) for (o, s, k) in _srodki13]))
+
+    _kolizje13 = []
+    for _opis13, _m13, _dx13, _dy13, _srx13, _udzial13 in _kadry13:
+        _kar13 = _m13._pole_kartki()
+        _widzet13 = _QR13(0.0, 0.0, float(_m13.width()), float(_m13.height()))
+        for _e13 in _m13._geometria()["etykiety"]:
+            if not _widzet13.contains(_e13["pole"]):
+                _kolizje13.append((_opis13, _e13["napis"], "poza widżetem"))
+            if _kar13 is not None and not _e13["pole"].intersected(_kar13).isEmpty():
+                _kolizje13.append((_opis13, _e13["napis"], "pod kartką"))
+    sprawdz("żadna tabliczka nie wychodzi poza widżet ani nie wchodzi pod kartkę",
+            not _kolizje13, str(_kolizje13[:4]))
+
+    # ── 3. MIEJSCOWOŚCI WIDAĆ, A SĄSIADKI SIĘ NIE ZLEWAJĄ ────────
+    _m_region13 = [z[1] for z in _kadry13 if z[0] == "dzień rozrzucony 1200×760"][0]
+    _odn13 = _odniesienie13(_m_region13)
+    _znaki13 = _m_region13._znaki_miejscowosci(_m_region13.rzut())
+    _wies13 = sorted(n for n in _m_region13._miasta if n.startswith("Wólka"))[0]
+    _miary13 = {"baza": _srednica_znaku13(_m_region13, _BAZA13, _znaki13, _odn13),
+                "miasto": _srednica_znaku13(_m_region13, "Lublin", _znaki13, _odn13),
+                "wieś": _srednica_znaku13(_m_region13, _wies13, _znaki13, _odn13)}
+    sprawdz("w kadrze regionu baza, miasto powiatowe i wieś mają czytelne znaki",
+            40.0 <= _miary13["baza"] <= 60.0
+            and 22.0 <= _miary13["miasto"] <= 32.0
+            and 12.0 <= _miary13["wieś"] <= 18.0,
+            "baza %.0f px, miasto %.0f px, wieś %.0f px"
+            % (_miary13["baza"], _miary13["miasto"], _miary13["wieś"]))
+
+    _m_ciasny13 = [z[1] for z in _kadry13 if z[0] == "dzień ciasny 1200×760"][0]
+    _znaki_c13 = _m_ciasny13._znaki_miejscowosci(_m_ciasny13.rzut())
+    # znak wolno przyciąć TYLKO sąsiadce; z daleka od innych osad ma być
+    # co najmniej tak duży, jak prawdziwy obrys miejscowości
+    _samotne13 = [n for n in _m_ciasny13._miasta
+                  if _m_ciasny13._sasiedztwo.get(n, [(0.0, "")])[0][0]
+                  / _m_ciasny13._jedn_na_km > 30.0]
+    _skurczone13 = [n for n in _samotne13 if _znaki_c13.get(n, 1.0) < 1.0]
+    sprawdz("znak nie schodzi poniżej prawdziwego obrysu — zmniejsza go tylko sąsiad",
+            not _skurczone13 and len(_samotne13) > 10,
+            "%d z %d" % (len(_skurczone13), len(_samotne13)))
+
+    _pary13 = []
+    _nazwy13 = sorted(_m_ciasny13._miasta)
+    for _i13 in range(len(_nazwy13)):
+        _ax13, _ay13 = _m_ciasny13._miasta[_nazwy13[_i13]]
+        for _j13 in range(_i13 + 1, len(_nazwy13)):
+            _bx13, _by13 = _m_ciasny13._miasta[_nazwy13[_j13]]
+            _d13 = math.hypot(_bx13 - _ax13, _by13 - _ay13) / _m_ciasny13._jedn_na_km
+            _pary13.append((_d13, _nazwy13[_i13], _nazwy13[_j13]))
+    _pary13.sort()
+    _trasa13 = [n for n in dict.fromkeys(_CIASNY13.trasa) if n in _m_ciasny13._miasta]
+    _para_trasy13 = min((p for p in _pary13
+                         if p[1] in _trasa13 and p[2] in _trasa13), key=lambda z: z[0])
+    _luka13 = (_para_trasy13[0]
+               - _zasieg_znaku13(_m_ciasny13, _para_trasy13[1], _znaki_c13)
+               - _zasieg_znaku13(_m_ciasny13, _para_trasy13[2], _znaki_c13))
+    sprawdz("znaki dwóch najbliższych miejscowości trasy nie zachodzą na siebie",
+            _luka13 > 0.0, "%s–%s: %.1f km odstępu przy %.1f km odległości"
+            % (_para_trasy13[1], _para_trasy13[2], _luka13, _para_trasy13[0]))
+
+    _zlane13 = []
+    for _d13, _a13, _b13 in _pary13[:400]:
+        if (_zasieg_znaku13(_m_ciasny13, _a13, _znaki_c13)
+                + _zasieg_znaku13(_m_ciasny13, _b13, _znaki_c13)) >= _d13:
+            _zlane13.append((_a13, _b13, round(_d13, 1)))
+    sprawdz("żadne dwa znaki na mapie nie zlewają się w jedną plamę zabudowy",
+            not _zlane13, str(_zlane13[:4]))
+
+    _ramie_przed13 = _ramie_podzialki13(_m_region13)
+    _progi13 = dict(_PM13.PROG_ZNAKU_PX)
+    try:
+        for _r13 in _PM13.PROG_ZNAKU_PX:
+            _PM13.PROG_ZNAKU_PX[_r13] = _progi13[_r13] * 2.0
+        _m_region13._znaki = None
+        _znaki_po13 = _m_region13._znaki_miejscowosci(_m_region13.rzut())
+        _ramie_po13 = _ramie_podzialki13(_m_region13)
+    finally:
+        _PM13.PROG_ZNAKU_PX.update(_progi13)
+        _m_region13._znaki = None
+    sprawdz("podziałka mierzy teren: próg czytelności znaku nie rusza jej ani o piksel",
+            _ramie_przed13 == _ramie_po13
+            and _znaki_po13[_wies13] > _znaki13[_wies13] * 1.9,
+            "%s wobec %s; znak wsi ×%.2f" % (_ramie_przed13, _ramie_po13,
+                                             _znaki_po13[_wies13] / _znaki13[_wies13]))
+
+    # ── 4. TABLICZKI ROZCHODZĄ SIĘ I NIE SKACZĄ ──────────────────
+    _nachodzace13 = []
+    for _opis13, _m13, _dx13, _dy13, _srx13, _udzial13 in _kadry13:
+        _pola13 = [(e["napis"], e["pole"]) for e in _m13._geometria()["etykiety"]]
+        for _i13 in range(len(_pola13)):
+            for _j13 in range(_i13 + 1, len(_pola13)):
+                if not _pola13[_i13][1].intersected(_pola13[_j13][1]).isEmpty():
+                    _nachodzace13.append((_opis13, _pola13[_i13][0], _pola13[_j13][0]))
+    sprawdz("żadne dwie tabliczki nie mają części wspólnej — ani ciasny dzień, ani szeroki",
+            not _nachodzace13 and len(_kadry13) == 6, str(_nachodzace13[:4]))
+
+    _uklad13 = [(e["napis"], round(e["pole"].x(), 2), round(e["pole"].y(), 2))
+                for e in _mapa13(_CIASNY13, 940, 640, _KOTWICA13)
+                ._geometria()["etykiety"]]
+    _plik13 = os.path.join(_TMP_HOME, "uklad_mapy.json")
+    with open(_plik13, "w", encoding="utf-8") as _f13:
+        json.dump({"miasta": {k: list(v) for k, v in _MIASTA13.items()},
+                   "przystanki": list(_CIASNY13.przystanki), "dzien": 1},
+                  _f13)
+    _skrypt13 = os.path.join(_TMP_HOME, "uklad_mapy.py")
+    with open(_skrypt13, "w", encoding="utf-8") as _f13:
+        _f13.write(
+            "# -*- coding: utf-8 -*-\n"
+            "import os, sys, json, datetime\n"
+            "sys.path.insert(0, %r)\n"
+            "sys.path.insert(0, %r)\n"
+            "os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')\n"
+            "from PyQt6.QtWidgets import QApplication\n"
+            "from PyQt6.QtCore import QPointF\n"
+            "app = QApplication([])\n"
+            "import proto_mapa as PM\n"
+            "d = json.load(open(sys.argv[1], encoding='utf-8'))\n"
+            "class Dzien:\n"
+            "    data = datetime.date(2026, 10, d['dzien'])\n"
+            "    wolny = False\n"
+            "    przystanki = d['przystanki']\n"
+            "    @property\n"
+            "    def trasa(self):\n"
+            "        return ['Radom'] + list(self.przystanki) + ['Radom']\n"
+            "m = PM.MapaDnia()\n"
+            "m.ustaw_animacje(False)\n"
+            "m.ustaw_miasta({k: tuple(v) for k, v in d['miasta'].items()},"
+            " baza='Radom')\n"
+            "m.resize(940, 640)\n"
+            "m.ustaw_dzien(Dzien())\n"
+            "m.ustaw_kotwice_kartki(QPointF(588.0, 68.0))\n"
+            "m.ustaw_animacje(False)\n"
+            "print(json.dumps([[e['napis'], round(e['pole'].x(), 2),"
+            " round(e['pole'].y(), 2)] for e in m._geometria()['etykiety']]))\n"
+            % (KATALOG, os.path.join(KATALOG, "prototyp")))
+    _srodowisko13 = dict(os.environ)
+    _srodowisko13["PYTHONHASHSEED"] = "31337"
+    _wynik13 = _sub13.run([sys.executable, _skrypt13, _plik13], env=_srodowisko13,
+                          capture_output=True, text=True, timeout=180)
+    _obcy13 = [tuple(w) for w in json.loads(_wynik13.stdout.strip().splitlines()[-1])] \
+        if _wynik13.returncode == 0 and _wynik13.stdout.strip() else []
+    sprawdz("ta sama trasa daje ten sam układ tabliczek przy innym PYTHONHASHSEED",
+            _obcy13 == _uklad13 and len(_uklad13) > 4,
+            (_wynik13.stderr or "")[-200:] if _obcy13 != _uklad13 else "")
+except Exception as _e13:
+    sprawdz("kadr za trasą, widoczne miejscowości i rozstawione tabliczki",
+            False, repr(_e13))
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

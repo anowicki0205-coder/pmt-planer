@@ -7,6 +7,7 @@ z kartką delegacji oraz tacę dokumentów wysuwaną od dołu.
 
 Nic tu nie jest tłumaczone słowami — są nazwy, liczby i stany.
 """
+import calendar
 import math
 import sys
 
@@ -23,7 +24,8 @@ import proto_dane as D
 from proto_mapa import MapaDnia, KartkaDelegacji
 from proto_tasma import TasmaMiesiaca
 from proto_kompas import KartaKompasu
-from proto_taca import TacaDokumentow, PanelPodpisu, PanelWysylki
+from proto_taca import (TacaDokumentow, Panel, PanelPodpisu, PanelWysylki,
+                        Przycisk)
 
 # ── miary układu (wprost z zatwierdzonego projektu) ───────────────────
 SZYNA_W    = 72
@@ -59,6 +61,10 @@ CZAS_GENERACJI_MS = 5000
 CZAS_TACY_MS = 350
 
 LIMITY_DNIA = (D.MAX_KWOTA_DNIA, 999.00)
+
+# sterowanie oknem w pasku górnym (okno nie ma ramy systemowej)
+PRZYCISK_OKNA_W = 30
+PRZYCISK_OKNA_H = 28
 
 DNI_PELNE = ["poniedziałek", "wtorek", "środa", "czwartek",
              "piątek", "sobota", "niedziela"]
@@ -441,6 +447,14 @@ class PasekGorny(QWidget):
         # — prawa strona: w ciasnym oknie znikają kolejne części, nic nie nachodzi —
         granica = pola[-1].right() + 24
         x = self.width() - self.marg
+        # Okno programu nie ma ramy systemowej, więc sterowanie oknem stoi
+        # tutaj — skrajnie z prawej i zawsze, także w najciaśniejszym układzie.
+        for nazwa in ("zamknij", "pelny_ekran", "minimalizuj"):
+            szer = self._przycisk_okna(p, x, sr, nazwa)
+            self._pola_prawe[nazwa] = QRectF(x - szer, sr - PRZYCISK_OKNA_H / 2.0,
+                                             szer, PRZYCISK_OKNA_H)
+            x -= szer + 6
+        x -= 10
         d = self._awatar(p, x, sr)
         self._pola_prawe["awatar"] = QRectF(x - d, sr - d / 2.0, d, d)
         x -= d
@@ -494,6 +508,46 @@ class PasekGorny(QWidget):
         _pigulka(p, r, 10, QColor(17, 28, 46, 200), S.OBRYS_MOCNY)
         S.tekst(p, r.center().x() - _szerokosc(napis, 13, 500) / 2.0,
                 r.center().y() + 5, napis, S.TEKST, 13, 500)
+        return szer
+
+    def _przycisk_okna(self, p, prawy, sr, nazwa):
+        """Sterowanie oknem bez ramy systemu: minimalizuj, pełny ekran, zamknij."""
+        szer = PRZYCISK_OKNA_W
+        r = QRectF(prawy - szer, sr - PRZYCISK_OKNA_H / 2.0, szer, PRZYCISK_OKNA_H)
+        pod = (self._pod_prawe == nazwa)
+        if nazwa == "zamknij" and pod:
+            tlo, obrys, kolor = S.z_alfa(S.BLAD, 190), S.z_alfa(S.BLAD, 220), S.TEKST
+        elif pod:
+            tlo, obrys, kolor = QColor(30, 48, 74, 235), S.OBRYS_MOCNY, S.TEKST
+        else:
+            tlo, obrys, kolor = QColor(17, 28, 46, 160), S.OBRYS, S.TEKST_2
+        _pigulka(p, r, 9, tlo, obrys)
+        c = r.center()
+        pen = QPen(kolor, 1.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        if nazwa == "minimalizuj":
+            p.drawLine(QPointF(c.x() - 5.5, c.y() + 3.5), QPointF(c.x() + 5.5, c.y() + 3.5))
+        elif nazwa == "zamknij":
+            p.drawLine(QPointF(c.x() - 4.6, c.y() - 4.6), QPointF(c.x() + 4.6, c.y() + 4.6))
+            p.drawLine(QPointF(c.x() + 4.6, c.y() - 4.6), QPointF(c.x() - 4.6, c.y() + 4.6))
+        else:
+            okno = self.window()
+            if okno is not None and okno.isFullScreen():
+                # na pełnym ekranie przycisk wraca do okna: prostokąt okna
+                okienko = QPainterPath()
+                okienko.addRoundedRect(QRectF(c.x() - 5.5, c.y() - 4.5, 11, 9), 2.0, 2.0)
+                p.drawPath(okienko)
+            else:
+                # w oknie przycisk idzie na pełny ekran: rozchodzące się narożniki
+                a, b = 5.4, 1.8
+                for zx, zy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+                    p.drawLine(QPointF(c.x() + zx * a, c.y() + zy * a),
+                               QPointF(c.x() + zx * b, c.y() + zy * a))
+                    p.drawLine(QPointF(c.x() + zx * a, c.y() + zy * a),
+                               QPointF(c.x() + zx * a, c.y() + zy * b))
         return szer
 
     def _dzwonek(self, p, prawy, sr):
@@ -937,108 +991,166 @@ class PoleKwoty(QWidget):
 
 
 class WierszWolnych(QWidget):
-    """Wiersz „Dni bez pracy” z listą dni wyłączonych przez użytkownika."""
+    """Wiersz „Dni bez pracy”: lista dni wyłączonych i wejście do ich wyboru."""
+
+    kliknieto = pyqtSignal()
 
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
         self._dni = []
+        self._miesiac = MIESIAC
+        self._pod = False
+        self.setMouseTracking(True)
         self.setMinimumHeight(28)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-    def ustaw_dni(self, dni):
-        self._dni = sorted(dni)
+    def ustaw_dni(self, dni, miesiac=None):
+        if miesiac:
+            self._miesiac = int(miesiac)
+        self._dni = sorted(int(d) for d in dni)
         self.update()
+
+    def dni(self):
+        return list(self._dni)
+
+    # — zdarzenia —
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.kliknieto.emit()
+        super().mousePressEvent(e)
+
+    def enterEvent(self, e):
+        self._pod = True
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._pod = False
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.update()
+        super().leaveEvent(e)
+
+    # — napis po prawej: pełna lista, a gdy nie mieści się — reszta liczbą —
+    def _napis(self, zapas):
+        if not self._dni:
+            return "brak"
+        pelny = [("%02d.%02d" % (d, self._miesiac)) for d in self._dni]
+        napis = ", ".join(pelny)
+        if _szerokosc(napis, 12, 700, mono=True) <= zapas:
+            return napis
+        for ile in range(len(pelny) - 1, 0, -1):
+            proba = ", ".join(pelny[:ile]) + "  +%d" % (len(pelny) - ile)
+            if _szerokosc(proba, 12, 700, mono=True) <= zapas:
+                return proba
+        return "%d dni" % len(pelny)
 
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        _pigulka(p, r, 10, QColor(9, 16, 28, 190), S.OBRYS)
+        _pigulka(p, r, 10, QColor(16, 27, 44, 225) if self._pod
+                 else QColor(9, 16, 28, 190),
+                 S.OBRYS_MOCNY if self._pod else S.OBRYS)
         S.tekst(p, r.x() + 14, r.center().y() + 5, "Dni bez pracy", S.TEKST_2, 12, 500)
-        if self._dni:
-            napis = ", ".join("%02d.%02d" % (d, MIESIAC) for d in self._dni)
-            kolor = S.BURSZTYN
-        else:
-            napis = "brak"
-            kolor = S.TEKST_3
-        _napis_prawy(p, r.right() - 14, r.center().y() + 5, napis, kolor, 12, 700, mono=True)
+        podpis = _szerokosc("Dni bez pracy", 12, 500)
+        napis = self._napis(max(40.0, r.width() - podpis - 52))
+        kolor = S.BURSZTYN if self._dni else S.TEKST_3
+        prawy = r.right() - 22
+        _napis_prawy(p, prawy, r.center().y() + 5, napis, kolor, 12, 700, mono=True)
+        # strzałka: wiersz otwiera wybór dni
+        pen = QPen(S.TEKST_3 if not self._pod else S.TEKST_2, 1.4)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        sx, sy = r.right() - 13.0, r.center().y()
+        p.drawLine(QPointF(sx - 2.6, sy - 3.6), QPointF(sx + 1.0, sy))
+        p.drawLine(QPointF(sx + 1.0, sy), QPointF(sx - 2.6, sy + 3.6))
         p.end()
 
 
-class WierszLimitu(QWidget):
-    """Wybór limitu kwoty jednego dnia — podpis i dwie wartości w jednym wierszu."""
+class SiatkaDni(QWidget):
+    """Kalendarz miesiąca do zaznaczania dni bez pracy — klik przełącza dzień."""
 
-    wybrano = pyqtSignal(float)
+    SKROTY = ("pn", "wt", "śr", "cz", "pt", "sb", "nd")
+    KOMORKA = 38.0
+    ODSTEP = 6.0
+    NAGLOWEK = 22.0
 
-    def __init__(self, wartosci=LIMITY_DNIA, rodzic=None):
+    zmieniono = pyqtSignal()
+
+    def __init__(self, rok=ROK, miesiac=MIESIAC, wybrane=(), rodzic=None):
         super().__init__(rodzic)
-        self.wartosci = tuple(float(w) for w in wartosci)
-        self._aktywna = 0
-        self._pod = -1
+        self._pod = 0
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setMinimumHeight(26)
+        self.ustaw(rok, miesiac, wybrane)
 
     # — stan —
-    def wartosc(self):
-        return self.wartosci[self._aktywna]
+    def ustaw(self, rok, miesiac, wybrane=()):
+        self.rok = int(rok)
+        self.miesiac = int(miesiac)
+        self.ile_dni = calendar.monthrange(self.rok, self.miesiac)[1]
+        self.pierwszy = calendar.monthrange(self.rok, self.miesiac)[0]
+        self.wybrane = {int(d) for d in wybrane if 1 <= int(d) <= self.ile_dni}
+        self._wiersze = int(math.ceil((self.pierwszy + self.ile_dni) / 7.0))
+        self.setMinimumHeight(int(self.NAGLOWEK + self._wiersze * self.KOMORKA
+                                  + (self._wiersze - 1) * self.ODSTEP + 6))
+        self.setMinimumWidth(int(7 * self.KOMORKA + 6 * self.ODSTEP))
+        self.update()
 
-    def ustaw_wartosc(self, wartosc):
-        for i, w in enumerate(self.wartosci):
-            if abs(w - float(wartosc)) < 0.005:
-                if i != self._aktywna:
-                    self._aktywna = i
-                    self.update()
-                return
+    def wyczysc(self):
+        if self.wybrane:
+            self.wybrane = set()
+            self.update()
+            self.zmieniono.emit()
 
     # — układ —
-    def _z_jednostka(self):
-        pelne = sum(_szerokosc(D.zl(w) + " zł", 12, 600, mono=True) + 18
-                    for w in self.wartosci)
-        return pelne + 6 + _szerokosc("limit dnia", 12, 500) + 34 <= self.width()
-
-    def _napis(self, i):
-        return D.zl(self.wartosci[i]) + (" zł" if self._z_jednostka() else "")
-
-    def _pola(self):
-        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        h = min(22.0, r.height() - 6)
-        y = r.center().y() - h / 2.0
-        pola = []
-        x = r.right() - 8
-        for i in range(len(self.wartosci) - 1, -1, -1):
-            szer = _szerokosc(self._napis(i), 12, 600, mono=True) + 18
-            x -= szer
-            pola.insert(0, QRectF(x, y, szer, h))
-            x -= 6
+    def _siatka(self):
+        """Pole rysowania jednej komórki: {numer dnia: QRectF}."""
+        szer = 7 * self.KOMORKA + 6 * self.ODSTEP
+        x0 = (self.width() - szer) / 2.0
+        y0 = self.NAGLOWEK
+        pola = {}
+        for dzien in range(1, self.ile_dni + 1):
+            miejsce = self.pierwszy + dzien - 1
+            kol, wiersz = miejsce % 7, miejsce // 7
+            pola[dzien] = QRectF(x0 + kol * (self.KOMORKA + self.ODSTEP),
+                                 y0 + wiersz * (self.KOMORKA + self.ODSTEP),
+                                 self.KOMORKA, self.KOMORKA)
         return pola
+
+    def _dzien_pod(self, punkt):
+        for dzien, pole in self._siatka().items():
+            if pole.contains(punkt):
+                return dzien
+        return 0
 
     # — zdarzenia —
     def mousePressEvent(self, e):
-        for i, pole in enumerate(self._pola()):
-            if pole.adjusted(-3, -4, 3, 4).contains(e.position()):
-                if i != self._aktywna:
-                    self._aktywna = i
-                    self.update()
-                    self.wybrano.emit(self.wartosci[i])
-                break
+        dzien = self._dzien_pod(e.position())
+        if dzien:
+            if dzien in self.wybrane:
+                self.wybrane.discard(dzien)
+            else:
+                self.wybrane.add(dzien)
+            self.update()
+            self.zmieniono.emit()
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
-        i = -1
-        for k, pole in enumerate(self._pola()):
-            if pole.adjusted(-3, -4, 3, 4).contains(e.position()):
-                i = k
-        if i != self._pod:
-            self._pod = i
-            self.setCursor(Qt.CursorShape.PointingHandCursor if i >= 0
+        dzien = self._dzien_pod(e.position())
+        if dzien != self._pod:
+            self._pod = dzien
+            self.setCursor(Qt.CursorShape.PointingHandCursor if dzien
                            else Qt.CursorShape.ArrowCursor)
             self.update()
         super().mouseMoveEvent(e)
 
     def leaveEvent(self, e):
-        self._pod = -1
+        self._pod = 0
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.update()
         super().leaveEvent(e)
@@ -1048,28 +1160,63 @@ class WierszLimitu(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        _pigulka(p, r, 10, QColor(9, 16, 28, 190), S.OBRYS)
-        S.tekst(p, r.x() + 14, r.center().y() + 5, "limit dnia", S.TEKST_2, 12, 500)
-        for i, pole in enumerate(self._pola()):
-            czynna = (i == self._aktywna)
-            promien = pole.height() / 2.0
-            if czynna:
-                g = QLinearGradient(pole.topLeft(), pole.topRight())
-                g.setColorAt(0.0, S.z_alfa(S.CYJAN, 58))
-                g.setColorAt(1.0, S.z_alfa(S.ZIELEN, 46))
-                _pigulka(p, pole, promien, g, S.z_alfa(S.CYJAN, 150))
-                kolor = S.TEKST
+        pola = self._siatka()
+        szer = 7 * self.KOMORKA + 6 * self.ODSTEP
+        x0 = (self.width() - szer) / 2.0
+        for kol, skrot in enumerate(self.SKROTY):
+            sx = x0 + kol * (self.KOMORKA + self.ODSTEP) + self.KOMORKA / 2.0
+            S.tekst(p, sx - _szerokosc(skrot, 10, 700) / 2.0, self.NAGLOWEK - 8,
+                    skrot, S.TEKST_3 if kol < 5 else S.z_alfa(S.TEKST_3, 150),
+                    10, 700)
+        for dzien, pole in pola.items():
+            wybrany = dzien in self.wybrane
+            weekend = (self.pierwszy + dzien - 1) % 7 >= 5
+            if wybrany:
+                g = QLinearGradient(pole.topLeft(), pole.bottomRight())
+                g.setColorAt(0.0, S.z_alfa(S.BURSZTYN, 70))
+                g.setColorAt(1.0, S.z_alfa(S.BURSZTYN, 40))
+                _pigulka(p, pole, 11, g, S.z_alfa(S.BURSZTYN, 190))
+                kolor, waga = S.TEKST, 700
             else:
-                _pigulka(p, pole, promien,
-                         QColor(17, 28, 46, 215 if i == self._pod else 150), S.OBRYS)
-                kolor = S.TEKST_3
-            napis = self._napis(i)
-            waga = 700 if czynna else 500
-            szer = _szerokosc(napis, 12, waga, mono=True)
-            S.tekst(p, pole.center().x() - szer / 2.0, pole.center().y() + 4,
-                    napis, kolor, 12, waga, mono=True)
+                _pigulka(p, pole, 11,
+                         QColor(22, 36, 56, 235) if dzien == self._pod
+                         else QColor(12, 21, 35, 200),
+                         S.OBRYS_MOCNY if dzien == self._pod else S.OBRYS)
+                kolor = S.TEKST_2 if not weekend else S.TEKST_3
+                waga = 600
+            napis = str(dzien)
+            S.tekst(p, pole.center().x() - _szerokosc(napis, 13, waga, mono=True) / 2.0,
+                    pole.center().y() + 5, napis, kolor, 13, waga, mono=True)
         p.end()
+
+
+class PanelDniBezPracy(Panel):
+    """Wybór dni bez pracy — kalendarz miesiąca w materiale nowego systemu."""
+
+    def __init__(self, rok=ROK, miesiac=MIESIAC, wybrane=(), rodzic=None):
+        super().__init__("Dni bez pracy",
+                         "%s %d" % (D.nazwa_miesiaca(miesiac), int(rok)), rodzic)
+        self.setMinimumWidth(430)
+        self.siatka = SiatkaDni(rok, miesiac, wybrane, self)
+        self.siatka.zmieniono.connect(self._odswiez)
+        self.z.addWidget(self.siatka)
+        self.z.addSpacing(4)
+        self.l_stan, self.l_licznik = self.wiersz_stanu("wybrane", "0")
+
+        self.b_wyczysc = Przycisk("Wyczyść", "zwykly", 13, self)
+        self.b_wyczysc.clicked.connect(self.siatka.wyczysc)
+        self.b_gotowe = Przycisk("Gotowe", "glowny", 13, self)
+        self.b_gotowe.setAutoDefault(True)
+        self.b_gotowe.setDefault(True)
+        self.b_gotowe.clicked.connect(self.accept)
+        self.stopka(self.b_wyczysc, self.b_gotowe)
+        self._odswiez()
+
+    def _odswiez(self):
+        self.l_licznik.setText(str(len(self.siatka.wybrane)))
+
+    def dni(self):
+        return set(self.siatka.wybrane)
 
 
 class KartaParametrow(Karta):
@@ -1104,14 +1251,11 @@ class KartaParametrow(Karta):
         wiersz.addWidget(self.tryb, 1)
         z.addLayout(wiersz)
 
-        self.limit = WierszLimitu()
-        self.limit.setMinimumHeight(26)
-        self.limit.setMaximumHeight(30)
-        z.addWidget(self.limit)
-
+        # Limit dnia jest regułą silnika, nie ustawieniem użytkownika —
+        # w karcie parametrów go nie ma.
         self.wolne = WierszWolnych()
-        self.wolne.setMinimumHeight(26)
-        self.wolne.setMaximumHeight(32)
+        self.wolne.setMinimumHeight(28)
+        self.wolne.setMaximumHeight(34)
         z.addWidget(self.wolne)
         z.addStretch(1)
 
@@ -1129,7 +1273,7 @@ class KartaParametrow(Karta):
 
     def resizeEvent(self, e):
         """Karta sama się kurczy — w niskim oknie schodzą odstępy, nie treść."""
-        ciasno = self.height() < 226
+        ciasno = self.height() < 186
         wasko = self.width() < 344
         z = self.layout()
         z.setContentsMargins(14 if wasko else 18, 30 if ciasno else 36,
@@ -1140,8 +1284,7 @@ class KartaParametrow(Karta):
         self.pojemnosc.setFixedWidth(132 if wasko else 168)
         for w in (self.pojemnosc, self.tryb):
             w.setMaximumHeight(28 if ciasno else 36)
-        self.limit.setMaximumHeight(26 if ciasno else 30)
-        self.wolne.setMaximumHeight(26 if ciasno else 32)
+        self.wolne.setMaximumHeight(28 if ciasno else 34)
         z.activate()
         _wciecie_pola(self.pojemnosc, self.pojemnosc.height())
         super().resizeEvent(e)
@@ -1381,7 +1524,7 @@ class OknoPrototypu(QWidget):
         self.k_parametry.kwota.zmieniono.connect(self._kwota_zmieniona)
         self.k_parametry.kwota.zatwierdzono.connect(self._enter_w_kwocie)
         self.k_parametry.tryb.wybrano.connect(lambda _n: self._przelicz_teraz())
-        self.k_parametry.limit.wybrano.connect(self._limit_zmieniony)
+        self.k_parametry.wolne.kliknieto.connect(self._wybierz_dni_bez_pracy)
         self.tasma.wybrano.connect(self._wybierz_dzien)
         self.tasma.przelaczono_wolny.connect(self._przelacz_wolny)
         self.mapa.klikniete_miasto.connect(self._klik_miasto)
@@ -1434,8 +1577,9 @@ class OknoPrototypu(QWidget):
 
     def _wysokosci_kart(self, wys, odstep_k):
         """Trzy karty w kolumnie: najpierw minima, nadmiar idzie do kompasu."""
-        minima = (136, 188, 142)
-        cele = (182, 248, 212)
+        # karta parametrów jest o wiersz niższa, odkąd limit dnia zniknął
+        minima = (136, 156, 142)
+        cele = (182, 202, 212)
         wolne = wys - 2 * odstep_k
         if wolne < sum(minima):
             skala = wolne / float(sum(minima))
@@ -1511,11 +1655,6 @@ class OknoPrototypu(QWidget):
         self._przelicz_teraz()
         self.uruchom_pokaz()
 
-    def _limit_zmieniony(self, wartosc):
-        self._limit_dnia = float(wartosc)
-        self.k_parametry.limit.ustaw_wartosc(self._limit_dnia)
-        self._przelicz_teraz()
-
     def _maks_miesiaca(self, tryb):
         """Górna granica kwoty: dni robocze × sufit dnia — wprost z silnika."""
         wolne = tuple(sorted(self._wolne))
@@ -1529,7 +1668,6 @@ class OknoPrototypu(QWidget):
         self._zegar_kwoty.stop()
         if pierwszy:
             self.k_parametry.kwota.ustaw_tekst("1 850")
-            self.k_parametry.limit.ustaw_wartosc(self._limit_dnia)
         tryb = self.k_parametry.tryb.aktywna()
         self._maks_kwota = self._maks_miesiaca(tryb)
         self._za_duzo = bool(self._maks_kwota
@@ -1556,7 +1694,7 @@ class OknoPrototypu(QWidget):
             self._wybrany = widoczne[0] if widoczne else 1
         self.tasma.ustaw_wybrany(self._wybrany)
 
-        self.k_parametry.wolne.ustaw_dni(self._wolne)
+        self.k_parametry.wolne.ustaw_dni(self._wolne, self._rok_miesiac()[1])
         if self._po_generacji and not pierwszy:
             self._po_zmianie_danych()
         self._odswiez_liczby()
@@ -1696,6 +1834,29 @@ class OknoPrototypu(QWidget):
             self._wolne.add(numer)
         else:
             self._wolne.discard(numer)
+        self._przelicz_teraz()
+
+    # ── dni bez pracy ────────────────────────────────────────────────
+    def _rok_miesiac(self):
+        """Miesiąc pokazywany na taśmie — program podstawia swój."""
+        return ROK, MIESIAC
+
+    def _wybierz_dni_bez_pracy(self):
+        """Wiersz „Dni bez pracy” otwiera kalendarz miesiąca."""
+        rok, miesiac = self._rok_miesiac()
+        panel = PanelDniBezPracy(rok, miesiac, self._wolne, self)
+        panel.setStyleSheet(arkusz())
+        if panel.exec() == int(1):
+            self._ustaw_dni_bez_pracy(panel.dni())
+
+    def _ustaw_dni_bez_pracy(self, dni):
+        """Jedno źródło prawdy dla taśmy, wiersza i silnika."""
+        rok, miesiac = self._rok_miesiac()
+        ile = calendar.monthrange(int(rok), int(miesiac))[1]
+        nowe = {int(d) for d in dni if 1 <= int(d) <= ile}
+        if nowe == set(self._wolne):
+            return
+        self._wolne = nowe
         self._przelicz_teraz()
 
     def _klik_miasto(self, nazwa):

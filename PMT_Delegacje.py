@@ -4001,6 +4001,15 @@ def _losowa_trasa_pokazowa(miasto="") -> list:
     return wezly
 
 
+# ── INTRO PRZY STARCIE: W TEJ WERSJI WYŁĄCZONE ────────────────────────
+# Program wstaje od razu w oknie głównym — bez żywej mapy i bez czekania.
+# Kod intra (intro_zywa_mapa.py, AnimacjaStartowa, pokaz_intro) zostaje
+# NIETKNIĘTY: intro wróci, ale nie na starcie — będzie pojawiać się
+# PODCZAS GENEROWANIA DOKUMENTÓW DELEGACJI. Żeby je z powrotem zobaczyć
+# przy starcie, wystarczy ustawić tu True.
+INTRO_NA_STARCIE = False
+
+
 def _intro_wylaczone_plikiem(katalog: str = "") -> bool:
     """Plik BEZ_INTRA.txt (obok programu albo w katalogu użytkownika)
     wyłącza KAŻDE intro — bez niego użytkownik zamiast żywej mapy dostawał
@@ -20210,7 +20219,8 @@ class App(QMainWindow):
         # CZEKAMY, az intro zejdzie ze sceny; dopiero wtedy korytarz
         # rusza z widocznego logo przy bocznym menu.
         intro = getattr(self, "_intro", None)
-        if getattr(self, "_intro_gra", False) or (intro is not None and intro.isVisible()):
+        if INTRO_NA_STARCIE and (getattr(self, "_intro_gra", False)
+                                 or (intro is not None and intro.isVisible())):
             # TWARDY LIMIT czekania. Gdy intro nie zgłosi końca (u jednego
             # użytkownika 3.21.0 skończyło się ciemnym ekranem), flaga
             # _intro_gra zostaje na zawsze — a ta pętla razem z nią: okno
@@ -21469,6 +21479,16 @@ class App(QMainWindow):
         ekran przed intrem. Werdykt przychodzi w tle, a okno aktualizacji
         samo czeka, aż intro zejdzie (_pokaz_okno_aktualizacji)."""
         self._kurtyna_start = None
+        if not INTRO_NA_STARCIE:
+            # Intro startowe wyłączone w tej wersji — wraca przy generowaniu
+            # dokumentów. Nic nie ma prawa czekać na jego koniec, więc od razu
+            # przechodzimy tam, gdzie doprowadziłby sygnał końca animacji.
+            self._intro = None
+            self._intro_gra = False
+            self._intro_zakonczone = False
+            _dziennik_animacji("intro na starcie wyłączone — od razu program")
+            self._intro_koniec()
+            return
         self.pokaz_intro(imie)
 
     def pokaz_intro(self, imie: str = ""):

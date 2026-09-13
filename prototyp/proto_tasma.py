@@ -168,7 +168,7 @@ class TasmaMiesiaca(QWidget):
         # dni wyłączone przez użytkownika nie wchodzą do sum w nagłówku
         licz = [d for d in self._dni if not self._wylaczony(d)]
         z = dane.podsumowanie(licz)
-        z["dni_wszystkie"] = len(self._dni)
+        z["dni_wszystkie"] = len(licz)   # „z N dni" to dni do wykorzystania
         self._zbior = z
         kwoty = [d.kwota for d in licz if not d.wolny and d.postoje > 0]
         self._maks_kwota = max(kwoty) if kwoty else 0.0

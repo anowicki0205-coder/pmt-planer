@@ -29,6 +29,9 @@ CO JEST PRAWDZIWE
     · pracownik            profil z ~/.pmt_uzytkownicy.json (zapisz_profil)
     · dni robocze          pobierz_dni_robocze + ustaw_tryb_pracy
     · miasta i odległości  zaladuj_baze, coords_z_miasta, oblicz_dystans
+    · rejon na mapie       prawdziwa szerokość i długość każdej miejscowości
+                           (miasta_dla_mapy → MapaDnia.ustaw_miasta), ranga
+                           z liczby sieci w bazie miast i ze STOLICE
     · trasy, km i kwoty    generuj_trasy  (w osobnym wątku, GeneratorThread)
     · dokumenty PDF        generuj_pdfy + generuj_mape_html (ten sam wątek)
     · pliki na tacy        pmt_dokumenty.dokumenty_w_folderze(folder wyniku)
@@ -36,8 +39,8 @@ CO JEST PRAWDZIWE
     · wysyłka pocztą       PMT.DialogWysylka nad modułem pmt_wysylka
     · dane pracownika      pola karty PRACOWNIK ↔ zapisz_profil / _wczytaj_store
     · wybór miesiąca       zakładki paska górnego (także PgUp / PgDn)
-    · ustawienia widoku    kwota, tryb, limit dnia i dni bez pracy w
-                           ~/.pmt_ustawienia.json (ustawienie / zapisz_ustawienie)
+    · ustawienia widoku    kwota, tryb i dni bez pracy w ~/.pmt_ustawienia.json
+                           (ustawienie / zapisz_ustawienie)
     · stan odległości      stan_zrodla_odleglosci przy kwocie i na tacy
 
 CO JEST SZACUNKIEM (do chwili wygenerowania)
@@ -118,7 +121,8 @@ from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,       # noqa: E402
 import proto_styl as S                                             # noqa: E402
 import proto_dane as D                                             # noqa: E402
 import proto_okno as OK                                            # noqa: E402
-from proto_mapa import MapaDnia                                    # noqa: E402
+from proto_mapa import (MapaDnia, RANGA_BAZA, RANGA_MIASTO,       # noqa: E402
+                        RANGA_WIES)
 from proto_okno import OknoPrototypu, arkusz                       # noqa: E402
 from proto_taca import (KafelLiczby, Napis, Panel, PanelPodpisu,   # noqa: E402
                         PanelWysylki, Przycisk)
@@ -312,6 +316,85 @@ def miasta_w_ukladzie_mapy(geo, baza_nazwa, baza_lat, baza_lng):
     if zasieg * skala > 0.46:                     # 0,5 to krawędź kadru
         skala = 0.46 / max(zasieg, 1.0)
     return {n: (0.5 + x * skala, 0.5 + y * skala) for n, (x, y) in punkty.items()}
+
+
+# ── ranga miejscowości: z bazy miast programu, a nie z nazwy ─────────
+PROG_SIECI_MIASTA = 4          # tyle sieci handlowych ma już miasto, nie wieś
+_RANGI_Z_BAZY = {}
+
+
+def rangi_miast_programu():
+    """{nazwa: ranga} z bazy miast silnika — liczone raz i pamiętane.
+
+    Wielkości miejscowości program nigdzie nie trzyma wprost. Ma za to przy
+    każdym mieście liczbę sieci handlowych i typ jednostki — i to jedyna
+    miara, jaką da się uczciwie podać mapie: cztery sieci albo miasto
+    powiatowe rysują się plamą miasta, mniej — plamą wsi."""
+    if _RANGI_Z_BAZY:
+        return _RANGI_Z_BAZY
+    try:
+        for lista in PMT.MIASTA_RAW.values():
+            for miasto in lista:
+                nazwa = miasto.get("n")
+                if not nazwa:
+                    continue
+                duze = (str(miasto.get("typ", "")) == "powiat"
+                        or int(miasto.get("sieci", 0) or 0) >= PROG_SIECI_MIASTA)
+                ranga = RANGA_MIASTO if duze else RANGA_WIES
+                _RANGI_Z_BAZY[nazwa] = max(ranga, _RANGI_Z_BAZY.get(nazwa, 0))
+    except Exception:
+        _RANGI_Z_BAZY.clear()
+    return _RANGI_Z_BAZY
+
+
+PROMIEN_STOLICY = 0.10         # stopnia szerokości — tyle wystarczy na stolicę
+
+
+def _stolica_wojewodztwa(lat, lng):
+    """Czy ten punkt to stolica województwa.
+
+    Baza miast silnika to miejscowości DO OBJAZDU — wielkich miast w niej nie
+    ma wcale, więc sama Warszawa czy Kraków wypadłyby na mapie jako wieś.
+    Rozpoznajemy je po współrzędnych z PMT.STOLICE."""
+    try:
+        for (slat, slng) in PMT.STOLICE.values():
+            if (abs(lat - slat) <= PROMIEN_STOLICY
+                    and abs(lng - slng) <= PROMIEN_STOLICY * 1.6):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def miasta_dla_mapy(geo, baza_nazwa):
+    """{nazwa: (szerokość, długość, ranga)} — to, co przyjmuje MapaDnia.
+
+    Współrzędne są te same, z których silnik liczy kilometry: pamięć
+    geokodowania i offline'owy indeks miast programu. Gdy choć jednej
+    miejscowości ich brakuje, zwracamy pusty słownik — mapa zostaje wtedy
+    przy układzie z proto_dane i nie ma prawa trafić na nazwę, której nie zna."""
+    rangi = rangi_miast_programu()
+    wynik = {}
+    for nazwa, wspolrzedne in (geo or {}).items():
+        if isinstance(wspolrzedne, (str, bytes)):
+            return {}          # napis rozpadłby się na znaki: "52.2" → 5 i 2
+        try:
+            lat = float(wspolrzedne[0])
+            lng = float(wspolrzedne[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return {}
+        if not (-90.0 < lat < 90.0 and -180.0 < lng < 180.0):
+            return {}
+        if abs(lat) < 0.001 and abs(lng) < 0.001:
+            return {}      # zera wpisuje silnik tam, gdzie adres się nie zgeokodował
+        if nazwa == baza_nazwa:
+            ranga = RANGA_BAZA
+        else:
+            ranga = rangi.get(nazwa, RANGA_WIES)
+            if ranga < RANGA_MIASTO and _stolica_wojewodztwa(lat, lng):
+                ranga = RANGA_MIASTO
+        wynik[nazwa] = (lat, lng, ranga)
+    return wynik
 
 
 def _petle_z_miast(miasta, baza_nazwa):
@@ -1445,6 +1528,20 @@ class PasekMiesiecy(OK.PasekGorny):
     klik_dzwonka = pyqtSignal()
     klik_bledu = pyqtSignal()
     klik_awatara = pyqtSignal()
+    klik_zamkniecia = pyqtSignal()
+    klik_minimalizacji = pyqtSignal()
+    klik_pelnego_ekranu = pyqtSignal()
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self._ciagniecie = None       # okno przeciągane za pasek górny
+
+    def _sygnaly(self):
+        return {"konto": self.klik_konta, "dzwonek": self.klik_dzwonka,
+                "blad": self.klik_bledu, "awatar": self.klik_awatara,
+                "zamknij": self.klik_zamkniecia,
+                "minimalizuj": self.klik_minimalizacji,
+                "pelny_ekran": self.klik_pelnego_ekranu}
 
     def mousePressEvent(self, zdarzenie):
         trafiona = None
@@ -1453,13 +1550,40 @@ class PasekMiesiecy(OK.PasekGorny):
                 trafiona = numer
                 break
         prawe = self.pole_prawe(zdarzenie.position())
+        # Okno nie ma ramy systemowej — pustym miejscem paska się je przesuwa.
+        okno = self.window()
+        if (zdarzenie.button() == Qt.MouseButton.LeftButton and trafiona is None
+                and not prawe and okno is not None and not okno.isFullScreen()):
+            self._ciagniecie = (zdarzenie.globalPosition().toPoint()
+                                - okno.frameGeometry().topLeft())
         super().mousePressEvent(zdarzenie)
         if trafiona is not None:
             self.wybrano_zakladke.emit(trafiona)
-        sygnal = {"konto": self.klik_konta, "dzwonek": self.klik_dzwonka,
-                  "blad": self.klik_bledu, "awatar": self.klik_awatara}.get(prawe)
+        sygnal = self._sygnaly().get(prawe)
         if sygnal is not None:
             sygnal.emit()
+
+    def mouseMoveEvent(self, zdarzenie):
+        okno = self.window()
+        if self._ciagniecie is not None and okno is not None \
+                and zdarzenie.buttons() & Qt.MouseButton.LeftButton:
+            if okno.isFullScreen():
+                self._ciagniecie = None
+            else:
+                okno.move(zdarzenie.globalPosition().toPoint() - self._ciagniecie)
+        super().mouseMoveEvent(zdarzenie)
+
+    def mouseReleaseEvent(self, zdarzenie):
+        self._ciagniecie = None
+        super().mouseReleaseEvent(zdarzenie)
+
+    def mouseDoubleClickEvent(self, zdarzenie):
+        """Podwójny klik w pasek — jak w każdym oknie: pełny ekran i z powrotem."""
+        if zdarzenie.button() == Qt.MouseButton.LeftButton \
+                and not self.pole_prawe(zdarzenie.position()):
+            self._ciagniecie = None
+            self.klik_pelnego_ekranu.emit()
+        super().mouseDoubleClickEvent(zdarzenie)
 
 
 class OknoNowegoWygladu(OknoPrototypu):
@@ -1480,7 +1604,6 @@ class OknoNowegoWygladu(OknoPrototypu):
     # klucze w ~/.pmt_ustawienia.json — tym samym plikiem, co reszta programu
     USTAWIENIE_KWOTY = "nowy_kwota"
     USTAWIENIE_TRYBU = "nowy_tryb"
-    USTAWIENIE_LIMITU = "nowy_limit_dnia"
     USTAWIENIE_WOLNYCH = "nowy_dni_wolne"
     PAMIEC_MIESIECY = 12          # ile miesięcy dni bez pracy zostaje w pliku
 
@@ -1531,7 +1654,12 @@ class OknoNowegoWygladu(OknoPrototypu):
 
         super().__init__(rodzic)
 
+        # Okno programu nie ma ramy systemowej (górnego paska Windows) —
+        # tytuł, przesuwanie i sterowanie oknem są w pasku nowego systemu.
+        if rodzic is None:
+            self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowTitle(PMT.tytul_okna())
+        self._podaj_miasta_mapie()
         self._uzupelnij_karty()
         self._polacz_nowe()
         self._dodaj_mape_na_tace()
@@ -1572,6 +1700,10 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.pasek.klik_dzwonka.connect(self.przelacz_powiadomienia)
         self.pasek.klik_bledu.connect(self.zglos_blad)
         self.pasek.klik_awatara.connect(self.menu_konta)
+        # okno bez ramy systemowej: własne sterowanie po prawej stronie paska
+        self.pasek.klik_zamkniecia.connect(self.close)
+        self.pasek.klik_minimalizacji.connect(self.showMinimized)
+        self.pasek.klik_pelnego_ekranu.connect(self.przelacz_pelny_ekran)
 
         stara_szyna = self.szyna
         self.szyna = SzynaDzialow(self)
@@ -1788,16 +1920,12 @@ class OknoNowegoWygladu(OknoPrototypu):
             PMT.zapisz_ustawienie(self.USTAWIENIE_WOLNYCH, nowy)
 
     def _wczytaj_widok(self):
-        """Kwota, tryb pracy i limit dnia z ostatniego uruchomienia."""
-        limit = PMT.ustawienie(self.USTAWIENIE_LIMITU, None)
-        try:
-            limit = float(limit)
-        except (TypeError, ValueError):
-            limit = None
-        if limit is not None:
-            for dopuszczalny in OK.LIMITY_DNIA:
-                if abs(dopuszczalny - limit) < 0.005:
-                    self._limit_dnia = dopuszczalny
+        """Kwota i tryb pracy z ostatniego uruchomienia.
+
+        Limitu dnia nie wczytujemy: nie ma go już w oknie, więc pracujemy
+        zawsze na kwocie z przepisów (OK.LIMITY_DNIA[0] = PMT.MAX_KWOTA_DNIA).
+        Inaczej zostałby na stałe ten, kto raz zapisał sobie inny.
+        """
         tryb = str(PMT.ustawienie(self.USTAWIENIE_TRYBU, "") or "")
         if tryb in self.k_parametry.tryb.pozycje:
             self.k_parametry.tryb.ustaw_aktywna(tryb)
@@ -1809,14 +1937,23 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     def _zapamietaj_widok(self):
         pary = ((self.USTAWIENIE_KWOTY, round(self._kwota(), 2)),
-                (self.USTAWIENIE_TRYBU, self.k_parametry.tryb.aktywna()),
-                (self.USTAWIENIE_LIMITU, round(float(self._limit_dnia), 2)))
+                (self.USTAWIENIE_TRYBU, self.k_parametry.tryb.aktywna()))
         for klucz, wartosc in pary:
             if PMT.ustawienie(klucz, None) != wartosc:
                 PMT.zapisz_ustawienie(klucz, wartosc)
 
+    def _rok_miesiac(self):
+        """Dni bez pracy dotyczą miesiąca POKAZYWANEGO, nie miesiąca prototypu."""
+        return self.rok, self.miesiac
+
     def _przelacz_wolny(self, numer):
+        """Prawy przycisk na taśmie — ta sama lista, co w karcie parametrów."""
         super()._przelacz_wolny(numer)
+        self._zapamietaj_wolne()
+
+    def _ustaw_dni_bez_pracy(self, dni):
+        """Wybór z kalendarza — ta sama lista, co prawy przycisk na taśmie."""
+        super()._ustaw_dni_bez_pracy(dni)
         self._zapamietaj_wolne()
 
     # ── podgląd (zamiast uproszczonego silnika prototypu) ────────────
@@ -1831,7 +1968,6 @@ class OknoNowegoWygladu(OknoPrototypu):
         if pierwszy:
             self.k_parametry.kwota.ustaw_tekst(
                 D.zl(self._wczytaj_widok(), grosze=False))
-            self.k_parametry.limit.ustaw_wartosc(self._limit_dnia)
         tryb = self.k_parametry.tryb.aktywna()
         self._maks_kwota = self._maks_miesiaca(tryb)
         self._za_duzo = bool(self._maks_kwota
@@ -1866,7 +2002,7 @@ class OknoNowegoWygladu(OknoPrototypu):
             self._wybrany = widoczne[0] if widoczne else 1
         self.tasma.ustaw_wybrany(self._wybrany)
 
-        self.k_parametry.wolne.ustaw_dni(self._wolne)
+        self.k_parametry.wolne.ustaw_dni(self._wolne, self.miesiac)
         # Prototyp cofał ekran po KAŻDYM przeliczeniu; tutaj wynik silnika
         # znika dopiero wtedy, gdy naprawdę przestał opisywać formularz —
         # i wraca, gdy wrócą dane, przy których powstały dokumenty.
@@ -2134,6 +2270,24 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._odswiez_dzien()
         self.zakoncz_pokaz(animacja=self._animacje)
 
+    def _podaj_miasta_mapie(self):
+        """Prawdziwe współrzędne i rangi miejscowości do mapy.
+
+        Mapa dostawała dotąd same ułamki 0..1 z proto_dane i sama nic nie
+        wiedziała o kilometrach. Teraz bierze szerokość i długość wprost z
+        geokodowania silnika, więc odległości na rysunku i podziałka
+        odpowiadają kilometrom, które program liczy do rozliczenia. Bez
+        współrzędnych nic się nie dzieje — mapa rysuje tak jak dotąd."""
+        miasta = miasta_dla_mapy(getattr(self, "geo", None),
+                                 getattr(self, "baza_miasto", ""))
+        if not miasta:
+            return False
+        try:
+            self.mapa.ustaw_miasta(miasta, baza=self.baza_miasto)
+        except Exception:
+            return False
+        return True
+
     def _przebuduj_mape(self):
         """Mapa buduje świat w konstruktorze — po zmianie miast stawiamy nową."""
         stara = self.mapa
@@ -2144,6 +2298,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         nowa.klikniete_miasto.connect(self._klik_miasto)
         nowa.ustaw_animacje(self._animacje)
         self.mapa = nowa
+        self._podaj_miasta_mapie()
         stara.ustaw_animacje(False)
         stara.setParent(None)
         stara.deleteLater()
@@ -2449,15 +2604,20 @@ class OknoNowegoWygladu(OknoPrototypu):
             " margin:5px 8px; }")
         akcja_haslo = menu.addAction("Zmień hasło")
         akcja_tester = menu.addAction("Karta testera")
-        akcja_intro = menu.addAction("Animacja startowa")
-        akcja_intro.setCheckable(True)
-        akcja_intro.setChecked(not bool(PMT.ustawienie("bez_intra", False)))
+        akcje = {akcja_haslo: self.zmien_haslo,
+                 akcja_tester: lambda: PMT.uruchom_karte_testera(self)}
+        # Przełącznik animacji pokazujemy tylko wtedy, gdy animacja w ogóle
+        # startuje. Przy PMT.INTRO_NA_STARCIE = False nie zmieniałby niczego,
+        # a martwa pozycja w menu jest gorsza niż jej brak.
+        if bool(getattr(PMT, "INTRO_NA_STARCIE", True)):
+            akcja_intro = menu.addAction("Animacja startowa")
+            akcja_intro.setCheckable(True)
+            akcja_intro.setChecked(not bool(PMT.ustawienie("bez_intra", False)))
+            akcje[akcja_intro] = lambda: self.przelacz_intro(akcja_intro.isChecked())
         menu.addSeparator()
         akcja_wyloguj = menu.addAction("Wyloguj")
-        return menu, {akcja_haslo: self.zmien_haslo,
-                      akcja_tester: lambda: PMT.uruchom_karte_testera(self),
-                      akcja_intro: lambda: self.przelacz_intro(akcja_intro.isChecked()),
-                      akcja_wyloguj: self.wyloguj}
+        akcje[akcja_wyloguj] = self.wyloguj
+        return menu, akcje
 
     def zmien_haslo(self):
         PMT.zmien_haslo_w_programie(
@@ -2609,9 +2769,11 @@ class OknoNowegoWygladu(OknoPrototypu):
             stare._imie_zalogowany = self._imie_zal
             stare._demo_pozostalo = self._pozostalo_dni
             # Okno aktualizacji czeka na koniec animacji startowej — ta gra
-            # teraz w nowym oknie, więc stare musi o niej wiedzieć.
-            stare._intro_gra = not self._intro_zakonczone
-            stare._intro_zakonczone = self._intro_zakonczone
+            # teraz w nowym oknie, więc stare musi o niej wiedzieć. Bez intra
+            # na starcie nie ma na co czekać ani chwili.
+            gra = bool(PMT.INTRO_NA_STARCIE) and not self._intro_zakonczone
+            stare._intro_gra = gra
+            stare._intro_zakonczone = self._intro_zakonczone or not gra
         except Exception:
             pass
         try:
@@ -2879,7 +3041,24 @@ class OknoNowegoWygladu(OknoPrototypu):
     def intro_po_sprawdzeniu(self, imie="", limit_ms=0):
         if imie:
             self._imie_zalogowany = imie
+        if not PMT.INTRO_NA_STARCIE:
+            self._bez_intra()
+            return
         self.pokaz_intro(imie or self._imie_zal)
+
+    def _bez_intra(self):
+        """Start bez animacji — program od razu w oknie głównym.
+
+        Intro NIE ZNIKA z programu: moduł intro_zywa_mapa i pokaz_intro
+        zostają nietknięte i wrócą PODCZAS GENEROWANIA DOKUMENTÓW.
+        Wyłączone jest tylko wywołanie na starcie (PMT.INTRO_NA_STARCIE).
+        Idziemy prosto tam, dokąd doprowadziłby sygnał końca animacji, żeby
+        nic — ani okno aktualizacji, ani zaproszenie testera — nie wisiało
+        na zdarzeniu, które już nie nadejdzie."""
+        self._intro = None
+        self._intro_gra = False
+        self._intro_zakonczone = False
+        self._intro_koniec()
 
     def pokaz_intro(self, imie=""):
         """Animacja startowa jako nakładka — teraz nad nowym ekranem."""
@@ -2962,9 +3141,19 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     # ── okno jako główne okno programu ───────────────────────────────
     def show(self):
+        """Program wstaje na PEŁNYM EKRANIE, bez ramy systemowej.
+
+        dopasuj_do_ekranu() zostaje: to rozmiar, do którego okno wraca po
+        wyjściu z pełnego ekranu (przycisk w pasku, F11 albo Esc)."""
         if not self._dopasowane and self.parent() is None:
             self._dopasowane = True
             self.dopasuj_do_ekranu()
+            # showFullScreen() woła show() — tu weszlibyśmy w pętlę; stan
+            # okna ustawiamy więc wprost, dokładnie tak jak robi to Qt.
+            self.setWindowState((self.windowState()
+                                 & ~(Qt.WindowState.WindowMinimized
+                                     | Qt.WindowState.WindowMaximized))
+                                | Qt.WindowState.WindowFullScreen)
         super().show()
 
     # ── klawiatura ───────────────────────────────────────────────────
@@ -3063,6 +3252,7 @@ def _zrzuty(app, okno):
         okno.grab().save(nazwa)
         zapisane.append(nazwa)
 
+    okno.showNormal()          # zrzuty robimy w rozmiarze docelowym, nie na pełnym ekranie
     okno.resize(*OK.ROZMIAR_DOCELOWY)
     for _ in range(8):
         app.processEvents()

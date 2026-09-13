@@ -1,14 +1,23 @@
 # -*- coding: utf-8 -*-
-"""PMT PLANER — NOWY WYGLĄD NA PRAWDZIWYM SILNIKU.
+"""PMT PLANER — EKRAN PROGRAMU.
 
-Pierwszy krok wdrożenia nowego wyglądu: ekran złożony z widżetów prototypu
-(prototyp/proto_*.py), ale zasilany danymi i silnikiem z PMT_Delegacje.py.
+Okno główne programu: widżety prototypu (prototyp/proto_*.py) na danych
+i silniku z PMT_Delegacje.py.
 
-    python PMT_Delegacje.py --nowy      (tak uruchamia go program)
+    python PMT_Delegacje.py             (program: logowanie → to okno)
+    python PMT_Delegacje.py --stary     (awaryjnie dawne okno App)
     python nowy_wyglad.py               (samodzielnie, do pracy nad wyglądem)
     python nowy_wyglad.py --zrzut       (bez ekranu: zrzuty do plików PNG)
 
 CO JEST PRAWDZIWE
+    · konto                logowanie programu; imię, ważność i inicjały
+                           w pasku górnym z pliku statusu
+    · szyna po lewej       każda ikona otwiera panel programu (Nowa wyprawa,
+                           Plan wizyt, Bilans miesiąca, Twoja praca, Kopia
+                           zapasowa, Ustawienia, O programie)
+    · pasek górny          dzwonek z historią komunikatów, zgłaszanie błędu,
+                           awatar (hasło, karta testera, intro, wylogowanie)
+    · animacja startowa    intro_zywa_mapa nad tym oknem (jak dotąd)
     · pracownik            profil z ~/.pmt_uzytkownicy.json (zapisz_profil)
     · dni robocze          pobierz_dni_robocze + ustaw_tryb_pracy
     · miasta i odległości  zaladuj_baze, coords_z_miasta, oblicz_dystans
@@ -44,8 +53,8 @@ import sys
 def modul_programu():
     """Moduł PMT_Delegacje — bez wczytywania go drugi raz.
 
-    Gdy to program nas uruchomił (python PMT_Delegacje.py --nowy), jest on
-    pod nazwą „__main__". Zwykły import zrobiłby wtedy DRUGĄ kopię modułu
+    Gdy to program nas uruchomił (python PMT_Delegacje.py), jest on pod
+    nazwą „__main__". Zwykły import zrobiłby wtedy DRUGĄ kopię modułu
     z własnymi stałymi i własnym cache miast. Rejestrujemy więc ten sam
     moduł pod obiema nazwami."""
     modul = sys.modules.get("PMT_Delegacje")
@@ -88,8 +97,11 @@ def _wepnij_prototyp():
 PMT = modul_programu()
 KATALOG_PROTOTYPU = _wepnij_prototyp()
 
-from PyQt6.QtCore import Qt, pyqtSignal                           # noqa: E402
-from PyQt6.QtWidgets import QApplication, QLineEdit                # noqa: E402
+from PyQt6.QtCore import (Qt, QPoint, QPointF, QRectF, QTimer,      # noqa: E402
+                          pyqtSignal)
+from PyQt6.QtGui import QBrush, QCursor, QPainterPath, QPen        # noqa: E402
+from PyQt6.QtWidgets import (QApplication, QLineEdit, QMenu,       # noqa: E402
+                             QMessageBox, QWidget)
 
 import proto_styl as S                                             # noqa: E402
 import proto_dane as D                                             # noqa: E402
@@ -185,15 +197,73 @@ def pusty_profil_pracownika():
     return ProfilWidoku("", "", "", "KR", 1, "pusty")
 
 
+def profil_konta():
+    """Profil osoby ZALOGOWANEJ w programie albo None.
+
+    Magazyn profili jest wspólny dla komputera, więc po zalogowaniu bierzemy
+    wpis tej osoby — nie ostatni z brzegu. Bez wpisu zostaje samo imię z konta
+    i puste rubryki do uzupełnienia."""
+    imie = PMT.online_imie_uzytkownika()
+    if not imie:
+        return None
+    try:
+        wpis = PMT.szukaj_profilu_po_nazwisku(imie)
+    except Exception:
+        wpis = None
+    if wpis:
+        return ProfilWidoku(wpis.get("imie", imie), wpis.get("pesel", ""),
+                            wpis.get("adres", ""), wpis.get("stanowisko", "KR"),
+                            wpis.get("silnik_idx", 1), "profil")
+    return ProfilWidoku(imie, "", "", "KR", 1, "konto")
+
+
 def dane_pracownika():
-    """Profil do ekranu: zapisany na dysku, a gdy go nie ma — pusty."""
+    """Profil do ekranu: konto, potem dysk, a gdy nic — puste rubryki."""
+    profil = profil_konta()
+    if profil is not None:
+        return profil
     profil = profil_z_programu()
     if profil is None:
         return pusty_profil_pracownika()
-    imie = PMT.online_imie_uzytkownika()
-    if imie and not profil.imie:
-        profil.imie = imie
     return profil
+
+
+def inicjaly_konta(imie):
+    """Dwie pierwsze litery imienia i nazwiska — do awatara w pasku."""
+    czesci = [czesc for czesc in str(imie or "").split() if czesc]
+    return "".join(czesc[0] for czesc in czesci[:2]).upper()
+
+
+def waznosc_konta(pozostalo=None):
+    """(napis do paska górnego, czy konto jest jeszcze ważne).
+
+    Data bierze się z tego samego pliku statusu, po którym program decyduje
+    o dostępie (kolumna „Ważne do" w arkuszu użytkowników)."""
+    try:
+        stan = PMT._wczytaj(PMT.PLIK_STATUSU, {}) or {}
+    except Exception:
+        stan = {}
+    zapis = str(stan.get("wazne_do", "") or "")
+    if zapis:
+        try:
+            dzien = datetime.date.fromisoformat(zapis)
+        except ValueError:
+            dzien = None
+        if dzien is not None:
+            return ("Konto ważne do %s" % dzien.strftime("%d.%m.%Y"),
+                    dzien >= datetime.date.today())
+    dni = pozostalo
+    if dni is None:
+        try:
+            _wazne, dni = PMT.demo_status()
+        except Exception:
+            dni = None
+    if dni is None:
+        return "Konto bez daty ważności", False
+    dni = int(dni)
+    if dni <= 0:
+        return "Konto ważne tylko dziś", True
+    return "Konto ważne jeszcze %d dni" % dni, True
 
 
 def miesiac_biezacy():
@@ -596,13 +666,82 @@ def etap_silnika(opis):
 #  OKNO
 # ═══════════════════════════════════════════════════════════════════════
 
-class PasekMiesiecy(OK.PasekGorny):
-    """Pasek górny prototypu, który MELDUJE kliknięcie w zakładkę miesiąca.
+class SzynaDzialow(OK.Szyna):
+    """Szyna prototypu z DZIAŁAJĄCYMI ikonami — każda otwiera panel programu.
 
-    Prototyp tylko podświetlał klikniętą zakładkę — miesiąc był ozdobą.
-    Numer w sygnale: 0 = poprzedni, 1 = pokazywany, 2 = następny."""
+    Numer w sygnale: 0–5 to ikony górne, 100 i 101 — dolne."""
+
+    wybrano = pyqtSignal(int)
+
+    IKONY = ("pinezka", "kalendarz", "wykres", "trend", "tarcza", "warstwy")
+    DOLNE = ("dom", "info")
+    NAZWY = ("Nowa wyprawa", "Plan wizyt", "Bilans miesiąca — pełny formularz",
+             "Twoja praca", "Kopia zapasowa", "Ustawienia")
+    NAZWY_DOLNE = ("Ekran główny", "O programie")
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self._aktywna = -1        # na ekranie głównym żadna ikona nie świeci
+
+    def nazwa(self, numer):
+        numer = int(numer)
+        if numer >= 100:
+            dolny = numer - 100
+            return self.NAZWY_DOLNE[dolny] if dolny < len(self.NAZWY_DOLNE) else ""
+        return self.NAZWY[numer] if 0 <= numer < len(self.NAZWY) else ""
+
+    def ustaw_aktywna(self, numer):
+        self._aktywna = int(numer)
+        self.update()
+
+    def mousePressEvent(self, zdarzenie):
+        numer = self._trafienie(zdarzenie.position())
+        super().mousePressEvent(zdarzenie)
+        if numer >= 0:
+            self.wybrano.emit(numer)
+
+    def mouseMoveEvent(self, zdarzenie):
+        self.setToolTip(self.nazwa(self._trafienie(zdarzenie.position())))
+        super().mouseMoveEvent(zdarzenie)
+
+    def _ikona(self, malarz, rodzaj, pole, kolor):
+        if rodzaj not in ("dom", "info"):
+            super()._ikona(malarz, rodzaj, pole, kolor)
+            return
+        srodek = pole.center()
+        pioro = QPen(kolor, 1.8)
+        pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pioro.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        malarz.setPen(pioro)
+        malarz.setBrush(Qt.BrushStyle.NoBrush)
+        if rodzaj == "dom":
+            dach = QPainterPath()
+            dach.moveTo(srodek.x() - 9.0, srodek.y() + 0.5)
+            dach.lineTo(srodek.x(), srodek.y() - 8.5)
+            dach.lineTo(srodek.x() + 9.0, srodek.y() + 0.5)
+            malarz.drawPath(dach)
+            malarz.drawRect(QRectF(srodek.x() - 6.0, srodek.y() + 0.5, 12.0, 8.0))
+            return
+        malarz.drawEllipse(srodek, 8.4, 8.4)
+        malarz.drawLine(QPointF(srodek.x(), srodek.y() - 1.0),
+                        QPointF(srodek.x(), srodek.y() + 4.6))
+        malarz.setPen(Qt.PenStyle.NoPen)
+        malarz.setBrush(QBrush(kolor))
+        malarz.drawEllipse(QPointF(srodek.x(), srodek.y() - 4.6), 1.4, 1.4)
+
+
+class PasekMiesiecy(OK.PasekGorny):
+    """Pasek górny prototypu, który MELDUJE kliknięcia.
+
+    Prototyp tylko podświetlał klikniętą zakładkę — miesiąc był ozdobą, a
+    prawa strona (konto, dzwonek, zgłoszenie błędu, awatar) tylko rysunkiem.
+    Numer w sygnale zakładki: 0 = poprzedni, 1 = pokazywany, 2 = następny."""
 
     wybrano_zakladke = pyqtSignal(int)
+    klik_konta = pyqtSignal()
+    klik_dzwonka = pyqtSignal()
+    klik_bledu = pyqtSignal()
+    klik_awatara = pyqtSignal()
 
     def mousePressEvent(self, zdarzenie):
         trafiona = None
@@ -610,9 +749,14 @@ class PasekMiesiecy(OK.PasekGorny):
             if pole.contains(zdarzenie.position()):
                 trafiona = numer
                 break
+        prawe = self.pole_prawe(zdarzenie.position())
         super().mousePressEvent(zdarzenie)
         if trafiona is not None:
             self.wybrano_zakladke.emit(trafiona)
+        sygnal = {"konto": self.klik_konta, "dzwonek": self.klik_dzwonka,
+                  "blad": self.klik_bledu, "awatar": self.klik_awatara}.get(prawe)
+        if sygnal is not None:
+            sygnal.emit()
 
 
 class OknoNowegoWygladu(OknoPrototypu):
@@ -627,8 +771,22 @@ class OknoNowegoWygladu(OknoPrototypu):
     USTAWIENIE_WOLNYCH = "nowy_dni_wolne"
     PAMIEC_MIESIECY = 12          # ile miesięcy dni bez pracy zostaje w pliku
 
-    def __init__(self, profil=None, rok=None, miesiac=None, rodzic=None):
+    def __init__(self, profil=None, rok=None, miesiac=None, rodzic=None,
+                 stare_okno=None):
         self.profil = profil or dane_pracownika()
+        # Imię z konta wiąże TYLKO wtedy, gdy profil nie został podany z
+        # zewnątrz (tak robi program po zalogowaniu) — dokument wystawia się
+        # na siebie, nie na kolegę.
+        self._konto_wiaze = profil is None
+        self._stare = stare_okno
+        self._kod_uzytkownika = ""
+        self._imie_zal = ""
+        self._pozostalo_dni = None
+        self._nieprzeczytane = 0
+        self._intro = None
+        self._intro_gra = False
+        self._intro_zakonczone = False
+        self._dopasowane = False
         biezacy = miesiac_biezacy()
         self.rok = int(rok or biezacy[0])
         self.miesiac = int(miesiac or biezacy[1])
@@ -655,15 +813,27 @@ class OknoNowegoWygladu(OknoPrototypu):
 
         super().__init__(rodzic)
 
-        self.setWindowTitle("PMT Planer %s — nowy wygląd" % PMT.WERSJA_PROGRAMU)
+        self.setWindowTitle(PMT.tytul_okna())
         self._uzupelnij_karty()
         self._polacz_nowe()
+        self._zastosuj_konto()
         self._wolne = self._wolne_z_ustawien()
         self._przelicz_teraz(pierwszy=True)
 
+        # Powiadomienia i komunikaty programu — ten sam mechanizm, co w starym
+        # oknie; obie strony dzielą jedną historię (patrz _zepnij_ze_starym).
+        self.toast = PMT.ToastNotification(self)
+        self.toast.on_nowe_powiadomienie = self._nowe_powiadomienie
+        self.panel_powiadomien = PMT.PanelPowiadomien(self)
+        self.panel_powiadomien.podepnij_historie(self.toast.historia)
+        self.panel_powiadomien.update_theme(True)
+        if stare_okno is not None:
+            self._zepnij_ze_starym(stare_okno)
+        self._odswiez_pasek_konta()
+
     # ── budowa: pasek miesięcy zamiast ozdobnego ─────────────────────
     def _buduj(self):
-        """Pasek górny prototypu wymieniamy na taki, który melduje kliknięcia."""
+        """Pasek górny i szynę prototypu wymieniamy na takie, które działają."""
         super()._buduj()
         stary = self.pasek
         self.pasek = PasekMiesiecy(self)
@@ -672,6 +842,17 @@ class OknoNowegoWygladu(OknoPrototypu):
         stary.setParent(None)
         stary.deleteLater()
         self.pasek.wybrano_zakladke.connect(self._zakladka_miesiaca)
+        self.pasek.klik_konta.connect(self.pokaz_stan_konta)
+        self.pasek.klik_dzwonka.connect(self.przelacz_powiadomienia)
+        self.pasek.klik_bledu.connect(self.zglos_blad)
+        self.pasek.klik_awatara.connect(self.menu_konta)
+
+        stara_szyna = self.szyna
+        self.szyna = SzynaDzialow(self)
+        self.szyna.setGeometry(stara_szyna.geometry())
+        stara_szyna.setParent(None)
+        stara_szyna.deleteLater()
+        self.szyna.wybrano.connect(self.otworz_dzial)
 
     def _polacz_nowe(self):
         """Połączenia, których prototyp mieć nie mógł — nie miał co podłączać."""
@@ -1410,6 +1591,479 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._wczytaj_podpisy()
         self._odswiez_stan_tacy()
 
+    # ═══════════════════════════════════════════════════════════════
+    #  KONTO ZALOGOWANEJ OSOBY (pasek górny, prawa strona)
+    # ═══════════════════════════════════════════════════════════════
+
+    @property
+    def _imie_zalogowany(self):
+        return self._imie_zal
+
+    @_imie_zalogowany.setter
+    def _imie_zalogowany(self, imie):
+        self._imie_zal = str(imie or "")
+        self._zastosuj_konto()
+        self._odswiez_pasek_konta()
+
+    @property
+    def _demo_pozostalo(self):
+        return self._pozostalo_dni
+
+    @_demo_pozostalo.setter
+    def _demo_pozostalo(self, dni):
+        self._pozostalo_dni = dni
+        if self._stare is not None:
+            self._stare._demo_pozostalo = dni
+        self._odswiez_pasek_konta()
+
+    def _zastosuj_konto(self):
+        """Imię z konta w karcie PRACOWNIK — i zamknięte na klucz.
+
+        Ta sama zasada, co w starym oknie: pole z imieniem jest wypełnione
+        z konta i nieedytowalne."""
+        if not self._konto_wiaze or not hasattr(self, "k_pracownik"):
+            return
+        imie = PMT.online_imie_uzytkownika() or self._imie_zal
+        if not imie:
+            return
+        pole = self.k_pracownik.imie
+        if pole.text().strip() != imie:
+            pole.blockSignals(True)
+            pole.setText(imie)
+            pole.blockSignals(False)
+            self.profil.imie = imie
+            D.PRACOWNIK = imie
+        pole.setReadOnly(True)
+        pole.setToolTip("Konto %s" % (PMT.online_kod_uzytkownika() or "?"))
+        self.k_pracownik.nota = "konto"
+        self.k_pracownik.update()
+
+    def _odswiez_pasek_konta(self):
+        """Prawa strona paska: ważność konta, licznik dzwonka, inicjały."""
+        pasek = getattr(self, "pasek", None)
+        if pasek is None:
+            return
+        napis, wazne = waznosc_konta(self._pozostalo_dni)
+        pasek.konto_napis = napis
+        pasek.konto_ok = bool(wazne)
+        pasek.inicjaly = inicjaly_konta(
+            PMT.online_imie_uzytkownika() or self._imie_zal or self.profil.imie)
+        pasek.powiadomienia = self._nieprzeczytane
+        pasek.update()
+
+    def _nowe_powiadomienie(self, _tytul="", _opis="", _sukces=True):
+        self._nieprzeczytane += 1
+        if getattr(self, "panel_powiadomien", None) is not None \
+                and self.panel_powiadomien.isVisible():
+            self.panel_powiadomien.odswiez()
+        self._odswiez_pasek_konta()
+
+    def pokaz_stan_konta(self):
+        """Kto jest zalogowany i do kiedy — prosto z pliku statusu."""
+        kod = self._kod_uzytkownika or PMT.online_kod_uzytkownika() or "—"
+        imie = PMT.online_imie_uzytkownika() or self._imie_zal or "—"
+        napis, wazne = waznosc_konta(self._pozostalo_dni)
+        self.toast.show_toast("Konto %s" % kod, "%s\n%s" % (imie, napis),
+                              success=bool(wazne))
+
+    def przelacz_powiadomienia(self):
+        """Dzwonek: lista ostatnich komunikatów pod paskiem górnym."""
+        panel = self.panel_powiadomien
+        if panel.isVisible():
+            panel.hide()
+            return
+        self._nieprzeczytane = 0
+        panel.update_theme(True)
+        panel.odswiez()
+        pole = self.pasek._pola_prawe.get("dzwonek")
+        x = self.width() - panel.width() - 24
+        y = OK.PASEK_H + 8
+        if pole is not None:
+            x = int(self.pasek.x() + pole.right() - panel.width())
+            y = int(self.pasek.y() + pole.bottom() + 8)
+        panel.move(max(8, min(x, self.width() - panel.width() - 8)), max(8, y))
+        panel.raise_()
+        panel.show()
+        self._odswiez_pasek_konta()
+
+    def zglos_blad(self):
+        import webbrowser
+        webbrowser.open("mailto:" + PMT._adres_zgloszen())
+
+    def menu_konta(self):
+        """Awatar: hasło, karta testera, animacja startowa, wylogowanie."""
+        menu, akcje = self.buduj_menu_konta()
+        pole = self.pasek._pola_prawe.get("awatar")
+        if pole is not None:
+            punkt = self.pasek.mapToGlobal(QPoint(int(pole.x()) - 90,
+                                                  int(pole.bottom()) + 8))
+        else:
+            punkt = QCursor.pos()
+        wybor = menu.exec(punkt)
+        if wybor is None:
+            return
+        akcja = akcje.get(wybor)
+        if akcja is not None:
+            akcja()
+
+    def buduj_menu_konta(self):
+        """Menu awatara i akcje pod jego pozycjami — jedno miejsce prawdy."""
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background:#0E1726; color:#E8EEF8; border:1px solid "
+            "rgba(255,255,255,0.14); border-radius:10px; padding:6px; }"
+            "QMenu::item { padding:7px 18px; border-radius:7px; }"
+            "QMenu::item:selected { background:rgba(0,240,255,0.16); }"
+            "QMenu::separator { height:1px; background:rgba(255,255,255,0.10);"
+            " margin:5px 8px; }")
+        akcja_haslo = menu.addAction("Zmień hasło")
+        akcja_tester = menu.addAction("Karta testera")
+        akcja_intro = menu.addAction("Animacja startowa")
+        akcja_intro.setCheckable(True)
+        akcja_intro.setChecked(not bool(PMT.ustawienie("bez_intra", False)))
+        menu.addSeparator()
+        akcja_wyloguj = menu.addAction("Wyloguj")
+        return menu, {akcja_haslo: self.zmien_haslo,
+                      akcja_tester: lambda: PMT.uruchom_karte_testera(self),
+                      akcja_intro: lambda: self.przelacz_intro(akcja_intro.isChecked()),
+                      akcja_wyloguj: self.wyloguj}
+
+    def zmien_haslo(self):
+        PMT.zmien_haslo_w_programie(
+            self, self._kod_uzytkownika or PMT.online_kod_uzytkownika(), True)
+
+    def przelacz_intro(self, wlaczona):
+        PMT.zapisz_ustawienie("bez_intra", not bool(wlaczona))
+
+    def wyloguj(self):
+        """Wylogowanie i logowanie na inne konto — bez zamykania programu."""
+        kod = PMT.online_kod_uzytkownika() or "—"
+        pytanie = QMessageBox(self)
+        pytanie.setWindowTitle("Wylogowanie")
+        pytanie.setText("Wylogować użytkownika %s?" % kod)
+        pytanie.setInformativeText("Pojawi się ekran logowania — możesz od razu "
+                                   "zalogować się na inne konto. Plany i dokumenty "
+                                   "zostają nienaruszone.")
+        pytanie.setIcon(QMessageBox.Icon.Question)
+        pytanie.setStandardButtons(QMessageBox.StandardButton.Yes
+                                   | QMessageBox.StandardButton.No)
+        pytanie.setDefaultButton(QMessageBox.StandardButton.No)
+        pytanie.button(QMessageBox.StandardButton.Yes).setText("Wyloguj")
+        pytanie.button(QMessageBox.StandardButton.No).setText("Anuluj")
+        if pytanie.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            minuty = 0.0
+            start = getattr(PMT, "_START_SESJI", None)
+            if start is not None:
+                minuty = (datetime.datetime.now() - start).total_seconds() / 60.0
+            PMT.online_zdarzenie_sesji("wylogowanie", minuty)
+            PMT.online_synchronizuj()
+        except Exception:
+            pass
+        PMT.online_wyloguj()
+        self.hide()
+        if self._stare is not None:
+            self._stare.hide()
+        kod, imie = PMT.dialog_logowania()
+        if not kod:
+            QApplication.quit()
+            return
+        PMT.online_zapisz_kod(kod)
+        try:
+            PMT.ustaw_uzytkownika_planu(imie or "", kod or "")
+        except Exception:
+            pass
+        self._kod_uzytkownika = kod
+        self._imie_zal = imie or ""
+        if self._stare is not None:
+            self._stare._kod_uzytkownika = kod
+            self._stare._imie_zalogowany = imie or ""
+            try:
+                PMT.App._po_zmianie_konta(self._stare, imie or "")
+            except Exception:
+                pass
+        self.przejmij_konto()
+        PMT.online_zdarzenie(uruchomienia=1)
+        PMT.online_synchronizuj_w_tle()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.toast.show_toast(
+            "Zalogowano",
+            ("Witaj, " + imie.split()[0] + "!") if imie else ("Kod " + str(kod)),
+            success=True)
+
+    def przejmij_konto(self):
+        """Po zmianie konta ekran pokazuje dane NOWEJ osoby, nie poprzedniej."""
+        self.zatrzymaj_watek()
+        self.profil = dane_pracownika()
+        self._konto_wiaze = True
+        self._ustaw_baze_z_profilu()
+        self._odswiez_karte_pracownika()
+        self._zastosuj_konto()
+        self.folder_wyniku = ""
+        self.pliki_wyniku = []
+        self._dni_silnika = []
+        self._po_generacji = False
+        self._przebuduj_mape()
+        self._wolne = self._wolne_z_ustawien()
+        self._przelicz_teraz()
+        self._odswiez_pasek_konta()
+
+    def _odswiez_karte_pracownika(self):
+        """Pola karty PRACOWNIK z bieżącego profilu (bez budzenia zapisu)."""
+        karta = self.k_pracownik
+        for pole, tekst in ((karta.imie, self.profil.imie),
+                            (karta.adres, self.profil.adres),
+                            (self._pole_pesel, self.profil.pesel)):
+            if pole is None:
+                continue
+            pole.blockSignals(True)
+            pole.setReadOnly(False)
+            pole.setText(tekst)
+            pole.blockSignals(False)
+        karta.stanowisko.blockSignals(True)
+        karta.stanowisko.setCurrentIndex(
+            max(0, karta.stanowisko.findText(self.profil.stanowisko)))
+        karta.stanowisko.blockSignals(False)
+        self.k_parametry.pojemnosc.blockSignals(True)
+        self.k_parametry.pojemnosc.setCurrentIndex(self.profil.silnik_idx)
+        self.k_parametry.pojemnosc.blockSignals(False)
+        D.PRACOWNIK = self.profil.imie or "—"
+        D.STANOWISKO = self.profil.stanowisko or "—"
+        D.ADRES = self.profil.adres or "—"
+        D.STAWKA = self.profil.stawka
+
+    # ═══════════════════════════════════════════════════════════════
+    #  SZYNA: KAŻDA IKONA OTWIERA PRAWDZIWY PANEL
+    # ═══════════════════════════════════════════════════════════════
+
+    def akcje_szyny(self):
+        """Numer ikony → akcja. Żadna ikona nie może zostać bez wpisu."""
+        return {0: self.dzial_nowa_wyprawa,
+                1: self.dzial_plan_wizyt,
+                2: self.dzial_bilans_miesiaca,
+                3: self.dzial_twoja_praca,
+                4: self.dzial_kopia_zapasowa,
+                5: self.dzial_ustawienia,
+                100: self.dzial_ekran_glowny,
+                101: self.dzial_o_programie}
+
+    def otworz_dzial(self, numer):
+        akcja = self.akcje_szyny().get(int(numer))
+        if akcja is not None:
+            akcja()
+
+    def stare_okno(self):
+        """Egzemplarz App — gospodarz paneli, których nowy ekran sam nie rysuje.
+
+        Panele (Planer, Plan Wizyt, Twoja praca, Ustawienia) to widżety potomne
+        tamtego okna, spięte z jego dymkami, paskiem postępu i Trybem Trasy.
+        Trzymamy więc jeden egzemplarz i pokazujemy go z żądanym panelem."""
+        if self._stare is None:
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+            try:
+                self._stare = PMT.App()
+            finally:
+                QApplication.restoreOverrideCursor()
+            self._zepnij_ze_starym(self._stare)
+        return self._stare
+
+    def _zepnij_ze_starym(self, stare):
+        """Jedno konto, jedna historia powiadomień, jedna ścieżka wylogowania."""
+        try:
+            stare._kod_uzytkownika = self._kod_uzytkownika or PMT.online_kod_uzytkownika()
+            stare._imie_zalogowany = self._imie_zal
+            stare._demo_pozostalo = self._pozostalo_dni
+            # Okno aktualizacji czeka na koniec animacji startowej — ta gra
+            # teraz w nowym oknie, więc stare musi o niej wiedzieć.
+            stare._intro_gra = not self._intro_zakonczone
+            stare._intro_zakonczone = self._intro_zakonczone
+        except Exception:
+            pass
+        try:
+            stare.toast.historia = self.toast.historia
+            stare.panel_powiadomien.podepnij_historie(self.toast.historia)
+            poprzednie = stare.toast.on_nowe_powiadomienie
+
+            def _obie_strony(tytul, opis, sukces, _p=poprzednie):
+                if _p is not None:
+                    _p(tytul, opis, sukces)
+                self._nowe_powiadomienie(tytul, opis, sukces)
+
+            stare.toast.on_nowe_powiadomienie = _obie_strony
+        except Exception:
+            pass
+        try:
+            # Ekran powitalny tamtego okna animuje się w ukryciu — zatrzymujemy
+            # go do czasu, aż okno paneli naprawdę stanie na wierzchu
+            # (_powrot_do_powitalnego uruchomi go z powrotem).
+            QTimer.singleShot(0, stare.ekran_powitalny.stop)
+        except Exception:
+            pass
+        try:
+            oryginalne = stare._wyloguj_uzytkownika
+
+            def _wylogowanie(_o=oryginalne):
+                _o()
+                self.przejmij_konto()
+
+            stare._wyloguj_uzytkownika = _wylogowanie
+            stare.btn_wyloguj.clicked.disconnect()
+            stare.btn_wyloguj.clicked.connect(_wylogowanie)
+        except Exception:
+            pass
+
+    def _panel_starego(self, przycisk, metoda, numer=None):
+        okno = self.stare_okno()
+        if numer is not None:
+            self.szyna.ustaw_aktywna(numer)
+        okno._demo_pozostalo = self._pozostalo_dni
+        if self.panel_powiadomien.isVisible():
+            self.panel_powiadomien.hide()
+        if not okno.isVisible():
+            okno.show()
+            # Głębia 3D nakłada się na GOTOWE okno — w starym przebiegu robiło
+            # to zakończenie animacji startowej, tutaj pierwsze pokazanie.
+            if not getattr(okno, "_glebia_nalozona", False):
+                okno._glebia_nalozona = True
+                QTimer.singleShot(80, lambda: PMT.zastosuj_glebie_interfejsu(okno))
+        okno.raise_()
+        okno.activateWindow()
+        PMT.App._nav_klik(okno, getattr(okno, przycisk), getattr(okno, metoda))
+        return okno
+
+    def dzial_nowa_wyprawa(self):
+        """Planer Nowej Wyprawy — przystanki, import z Excela, planowanie."""
+        return self._panel_starego("btn_nav_kokpit", "_pokaz_planer", 0)
+
+    def dzial_plan_wizyt(self):
+        return self._panel_starego("btn_nav_plan", "_pokaz_ostatni_plan", 1)
+
+    def dzial_bilans_miesiaca(self):
+        """Pełny formularz rozliczenia (dane pracownika, tryb, dni bez pracy)."""
+        return self._panel_starego("btn_nav_archiwum", "_fokus_kokpit", 2)
+
+    def dzial_twoja_praca(self):
+        return self._panel_starego("btn_nav_staty", "_pokaz_statystyki", 3)
+
+    def dzial_ustawienia(self):
+        return self._panel_starego("btn_nav_ustaw", "_pokaz_panel_admina", 5)
+
+    def dzial_kopia_zapasowa(self):
+        self.szyna.ustaw_aktywna(4)
+        okno = PMT.DialogKopiaZapasowa(self, is_dark=True)
+        okno.exec()
+        return okno
+
+    def dzial_o_programie(self):
+        PMT.App._pokaz_o_programie(self)
+
+    def dzial_ekran_glowny(self):
+        """Powrót na ekran główny — panele starego okna schodzą ze sceny."""
+        if self._stare is not None and self._stare.isVisible():
+            self._stare.hide()
+        self.szyna.ustaw_aktywna(-1)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    # ═══════════════════════════════════════════════════════════════
+    #  ANIMACJA STARTOWA (ta sama, co w starym oknie)
+    # ═══════════════════════════════════════════════════════════════
+
+    def intro_po_sprawdzeniu(self, imie="", limit_ms=0):
+        if imie:
+            self._imie_zalogowany = imie
+        self.pokaz_intro(imie or self._imie_zal)
+
+    def pokaz_intro(self, imie=""):
+        """Animacja startowa jako nakładka — teraz nad nowym ekranem."""
+        try:
+            PMT._dziennik_animacji("nowy wygląd: start intro w wersji %s"
+                                   % PMT.WERSJA_PROGRAMU)
+        except Exception:
+            pass
+        self._intro = None
+        self._intro_gra = False
+        self._intro_zakonczone = False
+        QTimer.singleShot(50000, self._intro_straznik)
+        katalog = PMT._katalog_programu()
+        if bool(PMT.ustawienie("bez_intra", False)) \
+                or PMT._intro_wylaczone_plikiem(katalog):
+            self._intro_koniec()
+            return
+        try:
+            from intro_zywa_mapa import sprobuj_intro
+            dane = PMT.dane_intra_z_dysku(imie or "")
+            if imie:
+                dane["imie"] = str(imie).split()[0]
+            self._intro_gra = True
+            if sprobuj_intro(self, dane=dane, po_zakonczeniu=self._intro_koniec,
+                             katalog_zasobow=katalog, ciemny=True):
+                return
+            self._intro_gra = False
+        except Exception:
+            self._intro_gra = False
+        try:
+            self._intro = PMT.AnimacjaStartowa(imie, is_dark=True, parent=self)
+            self._intro.zakonczony.connect(self._intro_koniec)
+            self._intro.setGeometry(self.rect())
+            self._intro.raise_()
+            self._intro.show()
+        except Exception:
+            self._intro_koniec()
+
+    def _intro_koniec(self):
+        if self._intro_zakonczone:
+            return
+        self._intro_gra = False
+        self._intro_zakonczone = True
+        nakladka = self._intro
+        self._intro = None
+        if nakladka is not None:
+            try:
+                nakladka._zapisz_diag()
+            except Exception:
+                pass
+            nakladka.hide()
+            nakladka.deleteLater()
+        self._zdejmij_intro_zywej_mapy()
+        if self._stare is not None:
+            self._stare._intro_gra = False
+            self._stare._intro_zakonczone = True
+        try:
+            PMT._dziennik_animacji("nowy wygląd: intro zakończone — ekran główny")
+        except Exception:
+            pass
+        QTimer.singleShot(900, lambda: PMT.zaproszenie_testera(
+            self, self._imie_zal or "", True))
+
+    def _zdejmij_intro_zywej_mapy(self):
+        for dziecko in self.findChildren(QWidget):
+            if type(dziecko).__name__ != "IntroZywaMapa":
+                continue
+            try:
+                dziecko._koniec_wyslany = True
+                dziecko._timer.stop()
+            except Exception:
+                pass
+            dziecko.hide()
+            dziecko.deleteLater()
+
+    def _intro_straznik(self):
+        """Gdy animacja nie zgłosi końca, i tak odsłaniamy program."""
+        if not self._intro_zakonczone:
+            self._intro_koniec()
+
+    # ── okno jako główne okno programu ───────────────────────────────
+    def show(self):
+        if not self._dopasowane and self.parent() is None:
+            self._dopasowane = True
+            self.dopasuj_do_ekranu()
+        super().show()
+
     # ── klawiatura ───────────────────────────────────────────────────
     def keyPressEvent(self, zdarzenie):
         klucz = zdarzenie.key()
@@ -1466,6 +2120,13 @@ class OknoNowegoWygladu(OknoPrototypu):
     def closeEvent(self, zdarzenie):
         self.zamknij_okna_pomocnicze()
         self.zatrzymaj_watek()
+        stare = self._stare
+        self._stare = None
+        if stare is not None:
+            try:
+                stare.close()
+            except Exception:
+                pass
         super().closeEvent(zdarzenie)
 
 
@@ -1521,6 +2182,10 @@ def _zrzuty(app, okno):
 
 
 def main(argv=None):
+    """Samodzielne uruchomienie — do pracy nad samym wyglądem.
+
+    Program uruchamia nowy wygląd przez PMT_Delegacje.zbuduj_okno_glowne()
+    (po zalogowaniu i z egzemplarzem starego okna pod panele)."""
     argv = list(sys.argv if argv is None else argv)
     app = QApplication.instance() or QApplication(argv)
     app.setFont(S.czcionka(13))
@@ -1544,17 +2209,16 @@ def main(argv=None):
 # ═══════════════════════════════════════════════════════════════════════
 #  NIEPODŁĄCZONE — stan na dziś, uczciwie
 #
-#  1. Logowanie i konto. Nowy wygląd nie ma okna logowania ani kodu dostępu;
-#     pracownika bierze z profilu zapisanego na dysku, a gdy go nie ma —
-#     z pól, które użytkownik sam wypełni (imię, PESEL, adres, stanowisko).
-#     Napis „Konto ważne do…" w pasku górnym to nadal tekst z prototypu.
-#  2. Plan wizyt, statystyki, kalendarz, aktualizacje, panel administratora —
-#     w nowym wyglądzie nie istnieją; szyna ikon po lewej nic nie przełącza.
-#  3. Podgląd przed generowaniem to szacunek (podglad_miesiaca) — prawdziwe
+#  1. Panele Nowa wyprawa, Plan wizyt, Bilans miesiąca, Twoja praca
+#     i Ustawienia są PRAWDZIWE, ale rysuje je okno App (gospodarz paneli):
+#     klik w ikonę szyny podnosi tamto okno z otwartym panelem. Nie zostały
+#     przerysowane w stylu nowego ekranu.
+#  2. Podgląd przed generowaniem to szacunek (podglad_miesiaca) — prawdziwe
 #     trasy powstają dopiero po naciśnięciu kompasu.
-#  4. Mapa tras (Trasy_Mapa.html) powstaje razem z dokumentami, ale nowy
+#  3. Mapa tras (Trasy_Mapa.html) powstaje razem z dokumentami, ale nowy
 #     wygląd nie ma jeszcze przycisku, który by ją otwierał — plik leży
 #     w folderze wyniku i otwiera go „Otwórz folder".
+#  4. Motyw jasny działa tylko w oknie paneli; nowy ekran jest ciemny.
 # ═══════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":

@@ -354,6 +354,23 @@ class PasekGorny(QWidget):
         self._aktywny = 1
         self._pod = -1
         self.marg = MARG
+        # Napisy i stany prawej strony — ustawia je program. Wartości poniżej
+        # są wyłącznie po to, żeby sam prototyp dało się uruchomić bez niego.
+        self.tytul = "Bilans miesiąca"
+        self.konto_napis = "Konto ważne do 31.12.2026"
+        self.konto_ok = True
+        self.inicjaly = ""
+        self.powiadomienia = 0
+        self._pola_prawe = {}      # nazwa → QRectF (wypełniane przy rysowaniu)
+        self._pod_prawe = ""
+
+    # — prawa strona: konto, dzwonek, zgłoszenie błędu, awatar —
+    def pole_prawe(self, punkt):
+        """Nazwa elementu prawej strony pod kursorem albo pusty napis."""
+        for nazwa, pole in self._pola_prawe.items():
+            if pole.contains(punkt):
+                return nazwa
+        return ""
 
     def ustaw_margines(self, marg):
         if int(marg) != self.marg:
@@ -361,7 +378,7 @@ class PasekGorny(QWidget):
             self.update()
 
     def _pola_zakladek(self):
-        x = self.marg + _szerokosc("Bilans miesiąca", 19, 700, naglowek=True) + 22
+        x = self.marg + _szerokosc(self.tytul, 19, 700, naglowek=True) + 22
         pola = []
         for nazwa in self.MIESIACE:
             szer = _szerokosc(nazwa, 13, 600) + 26
@@ -382,15 +399,18 @@ class PasekGorny(QWidget):
         for k, r in enumerate(self._pola_zakladek()):
             if r.contains(e.position()):
                 i = k
-        if i != self._pod:
+        prawe = self.pole_prawe(e.position())
+        if i != self._pod or prawe != self._pod_prawe:
             self._pod = i
-            self.setCursor(Qt.CursorShape.PointingHandCursor if i >= 0
+            self._pod_prawe = prawe
+            self.setCursor(Qt.CursorShape.PointingHandCursor if (i >= 0 or prawe)
                            else Qt.CursorShape.ArrowCursor)
             self.update()
         super().mouseMoveEvent(e)
 
     def leaveEvent(self, e):
         self._pod = -1
+        self._pod_prawe = ""
         self.update()
         super().leaveEvent(e)
 
@@ -400,7 +420,8 @@ class PasekGorny(QWidget):
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         sr = PASEK_H / 2.0
 
-        S.tekst(p, self.marg, sr + 7, "Bilans miesiąca", S.TEKST, 19, 700, naglowek=True)
+        self._pola_prawe = {}
+        S.tekst(p, self.marg, sr + 7, self.tytul, S.TEKST, 19, 700, naglowek=True)
 
         pola = self._pola_zakladek()
         obwoluta = QRectF(pola[0].x() - 5, pola[0].y() - 4,
@@ -420,24 +441,34 @@ class PasekGorny(QWidget):
         # — prawa strona: w ciasnym oknie znikają kolejne części, nic nie nachodzi —
         granica = pola[-1].right() + 24
         x = self.width() - self.marg
-        x -= self._awatar(p, x, sr)
+        d = self._awatar(p, x, sr)
+        self._pola_prawe["awatar"] = QRectF(x - d, sr - d / 2.0, d, d)
+        x -= d
         x -= 12
         szer = _szerokosc("Zgłoś błąd", 13, 500) + 30
         if x - szer > granica:
-            x -= self._przycisk(p, x, sr, "Zgłoś błąd")
+            szer = self._przycisk(p, x, sr, "Zgłoś błąd")
+            self._pola_prawe["blad"] = QRectF(x - szer, sr - 17, szer, 34)
+            x -= szer
             x -= 12
         if x - 34 > granica:
-            x -= self._dzwonek(p, x, sr)
+            szer = self._dzwonek(p, x, sr)
+            self._pola_prawe["dzwonek"] = QRectF(x - szer, sr - 17, szer, 34)
+            x -= szer
             x -= 16
-        napis = "Konto ważne do 31.12.2026"
+        napis = self.konto_napis
         szer = _szerokosc(napis, 12, 500) + 16
-        if x - szer > granica:
+        if napis and x - szer > granica:
+            kolor_k = S.ZIELEN if self.konto_ok else S.BURSZTYN
             szer = _napis_prawy(p, x, sr + 5, napis, S.TEKST_2, 12, 500)
+            prawy_k = x
             x -= szer + 10
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(S.ZIELEN))
+            p.setBrush(QBrush(kolor_k))
             p.drawEllipse(QPointF(x, sr), 3.4, 3.4)
-            S.punkt_swiatla(p, QPointF(x, sr), 9, S.ZIELEN, 120)
+            S.punkt_swiatla(p, QPointF(x, sr), 9, kolor_k, 120)
+            self._pola_prawe["konto"] = QRectF(x - 6, sr - 12,
+                                               prawy_k - x + 6, 24)
         p.end()
 
     def _awatar(self, p, prawy, sr):
@@ -449,7 +480,9 @@ class PasekGorny(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(g))
         p.drawEllipse(r)
-        inicjaly = "".join(cz[0] for cz in D.PRACOWNIK.split()[:2]).upper()
+        zrodlo = self.inicjaly if self.inicjaly else \
+            "".join(cz[0] for cz in D.PRACOWNIK.split()[:2])
+        inicjaly = str(zrodlo).upper()[:2] or "?"
         szer = _szerokosc(inicjaly, 13, 700)
         S.tekst(p, r.center().x() - szer / 2.0, r.center().y() + 5, inicjaly,
                 QColor("#04121A"), 13, 700)
@@ -481,6 +514,14 @@ class PasekGorny(QWidget):
         s.closeSubpath()
         p.drawPath(s)
         p.drawLine(QPointF(c.x() - 1.8, c.y() + 6), QPointF(c.x() + 1.8, c.y() + 6))
+        if self.powiadomienia > 0:
+            bx, by = r.right() - 7.0, r.y() + 7.0
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(S.BLAD))
+            p.drawEllipse(QPointF(bx, by), 7.0, 7.0)
+            liczba = str(self.powiadomienia) if self.powiadomienia < 10 else "9+"
+            S.tekst(p, bx - _szerokosc(liczba, 10, 700) / 2.0, by + 3.6,
+                    liczba, QColor("#FFFFFF"), 10, 700)
         return szer
 
 

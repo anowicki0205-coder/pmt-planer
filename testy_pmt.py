@@ -2376,6 +2376,155 @@ sprawdz("animacja startowa czyta dokładnie ten klucz, który zapisuje przycisk"
 shutil.rmtree(_S9, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("10. Nowy wygląd jako JEDYNY interfejs programu")
+
+_s10_status_byl = None
+try:
+    if os.path.exists(P.PLIK_STATUSU):
+        _s10_status_byl = open(P.PLIK_STATUSU, encoding="utf-8").read()
+except Exception:
+    _s10_status_byl = None
+
+try:
+    from PyQt6.QtWidgets import QApplication as _QA10
+    _app10 = _QA10.instance() or _QA10(sys.argv)
+
+    _zrodlo10 = open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+    _blok10 = _zrodlo10.split('if __name__ == "__main__":')[1]
+
+    # ── sekwencja startowa NIETKNIĘTA ─────────────────────────────
+    sprawdz("start programu wciąż rozgrzewa zaplecze, sprawdza wersję i ŻĄDA LOGOWANIA",
+            "_rozgrzej_backend()" in _blok10 and "wersja_zablokowana()" in _blok10
+            and "dialog_logowania()" in _blok10 and "sys.exit(0)" in _blok10)
+    sprawdz("animacja startowa nadal rusza po zalogowaniu",
+            "intro_po_sprawdzeniu" in _blok10)
+    sprawdz("okno główne powstaje na końcu sekwencji, przez zbuduj_okno_glowne()",
+            "window = zbuduj_okno_glowne()" in _blok10)
+    sprawdz("przełącznik --nowy zniknął jako droga wejścia",
+            "--nowy" not in _zrodlo10)
+    sprawdz("wyjście awaryjne --stary istnieje, ale nigdzie się nim nie chwalimy "
+            "(jedno wystąpienie: sama decyzja w zbuduj_okno_glowne)",
+            _zrodlo10.count('"--stary"') == 1)
+
+    # ── które okno powstaje ───────────────────────────────────────
+    _okno10 = P.zbuduj_okno_glowne(["prog"])
+    sprawdz("program domyślnie buduje NOWE okno",
+            type(_okno10).__name__ == "OknoNowegoWygladu", type(_okno10).__name__)
+    sprawdz("stare okno żyje pod nim jako gospodarz paneli (nic nie ginie)",
+            isinstance(getattr(_okno10, "_stare", None), P.App))
+    _okno10_stare = P.zbuduj_okno_glowne(["prog", "--stary"])
+    sprawdz("argument awaryjny --stary nadal oddaje dawne okno",
+            isinstance(_okno10_stare, P.App), type(_okno10_stare).__name__)
+    try:
+        _okno10_stare.close()
+    except Exception:
+        pass
+
+    # ── szyna: żadnej martwej ikony ───────────────────────────────
+    _szyna10 = _okno10.szyna
+    _akcje10 = _okno10.akcje_szyny()
+    _numery10 = list(range(len(_szyna10.IKONY))) + \
+                [100 + i for i in range(len(_szyna10.DOLNE))]
+    _martwe10 = [n for n in _numery10 if not callable(_akcje10.get(n))]
+    sprawdz("każda ikona szyny ma podpiętą akcję (żadnej martwej)",
+            not _martwe10 and len(_akcje10) == len(_numery10), str(_martwe10))
+    sprawdz("każda ikona szyny ma nazwę pod kursorem",
+            all(_szyna10.nazwa(n) for n in _numery10))
+    sprawdz("szyna melduje kliknięcie sygnałem, a nie tylko się podświetla",
+            hasattr(_szyna10, "wybrano"))
+
+    # ── panele z szyny naprawdę się pokazują ──────────────────────
+    _stare10 = _okno10.stare_okno()
+    _okno10.dzial_twoja_praca()
+    _app10.processEvents()
+    sprawdz("ikona „Twoja praca” otwiera prawdziwy panel statystyk",
+            _stare10.overlay_staty.isVisible())
+    _okno10.dzial_nowa_wyprawa()
+    _app10.processEvents()
+    sprawdz("ikona „Nowa wyprawa” otwiera planer przystanków",
+            _stare10.overlay_planer.isVisible())
+    _okno10.dzial_ustawienia()
+    _app10.processEvents()
+    sprawdz("ikona „Ustawienia” otwiera panel administratora",
+            _stare10.overlay_admin.isVisible())
+    _okno10.dzial_bilans_miesiaca()
+    _app10.processEvents()
+    sprawdz("ikona „Bilans miesiąca” pokazuje pełny formularz rozliczenia",
+            _stare10.body.isVisible())
+    _okno10.dzial_ekran_glowny()
+    _app10.processEvents()
+    sprawdz("ikona „Ekran główny” zdejmuje okno paneli i wraca na nowy ekran",
+            not _stare10.isVisible() and _okno10.isVisible())
+
+    # ── pasek górny: prawdziwe konto ──────────────────────────────
+    json.dump({"kod": "12345", "imie": "Jan Kowalski", "wazne_do": "2031-03-31"},
+              open(P.PLIK_STATUSU, "w", encoding="utf-8"))
+    _napis10, _wazne10 = None, None
+    import nowy_wyglad as _NW10
+    _napis10, _wazne10 = _NW10.waznosc_konta()
+    sprawdz("pasek górny bierze ważność konta z pliku statusu, nie z prototypu",
+            _napis10 == "Konto ważne do 31.03.2031" and _wazne10 is True, repr(_napis10))
+    _okno10._imie_zalogowany = "Jan Kowalski"
+    sprawdz("inicjały w pasku to inicjały ZALOGOWANEJ osoby",
+            _okno10.pasek.inicjaly == "JK", repr(_okno10.pasek.inicjaly))
+    sprawdz("pasek górny ma podpięte: konto, dzwonek, zgłoszenie błędu i awatar",
+            all(callable(getattr(_okno10, m, None)) for m in
+                ("pokaz_stan_konta", "przelacz_powiadomienia", "zglos_blad",
+                 "menu_konta", "wyloguj", "zmien_haslo")))
+    sprawdz("kliknięcia prawej strony paska mają własne sygnały",
+            all(hasattr(_okno10.pasek, s10) for s10 in
+                ("klik_konta", "klik_dzwonka", "klik_bledu", "klik_awatara")))
+
+    # ── menu awatara: hasło, tester, intro, wylogowanie ───────────
+    _menu10, _akcje_menu10 = _okno10.buduj_menu_konta()
+    _pozycje10 = [a.text() for a in _menu10.actions() if a.text()]
+    sprawdz("menu pod inicjałami ma hasło, kartę testera, animację i wylogowanie",
+            _pozycje10 == ["Zmień hasło", "Karta testera", "Animacja startowa",
+                           "Wyloguj"], str(_pozycje10))
+    sprawdz("każda pozycja menu awatara ma podpiętą akcję",
+            all(callable(_akcje_menu10.get(a)) for a in _menu10.actions() if a.text()))
+    _intro_akcja10 = [a for a in _menu10.actions() if a.text() == "Animacja startowa"][0]
+    sprawdz("pozycja „Animacja startowa” pokazuje stan ustawienia bez_intra",
+            _intro_akcja10.isChecked() == (not bool(P.ustawienie("bez_intra", False))))
+    _menu10.deleteLater()
+
+    # ── dzwonek: jedna historia powiadomień dla obu okien ─────────
+    _ile10 = _okno10._nieprzeczytane
+    _stare10.toast.show_toast("Próba", "Komunikat kontrolny", success=True)
+    _app10.processEvents()
+    sprawdz("komunikat ze starego okna trafia do dzwonka nowego ekranu",
+            _okno10._nieprzeczytane > _ile10
+            and _okno10.toast.historia is _stare10.toast.historia)
+    _okno10.przelacz_powiadomienia()
+    _app10.processEvents()
+    sprawdz("dzwonek rozwija panel powiadomień z historią komunikatów",
+            _okno10.panel_powiadomien.isVisible()
+            and _okno10._nieprzeczytane == 0)
+    _okno10.przelacz_powiadomienia()
+    _app10.processEvents()
+
+    # ── konto wiąże dane pracownika ───────────────────────────────
+    _prof10 = _NW10.dane_pracownika()
+    sprawdz("pracownik na nowym ekranie bierze się z ZALOGOWANEGO konta",
+            _prof10.imie == "Jan Kowalski", repr(_prof10.imie))
+
+    try:
+        _okno10.close()
+    except Exception:
+        pass
+except Exception as _e10:
+    sprawdz("nowy wygląd jest jedynym interfejsem programu", False, repr(_e10))
+finally:
+    try:
+        if _s10_status_byl is None:
+            if os.path.exists(P.PLIK_STATUSU):
+                os.remove(P.PLIK_STATUSU)
+        else:
+            open(P.PLIK_STATUSU, "w", encoding="utf-8").write(_s10_status_byl)
+    except Exception:
+        pass
+
+# ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)
 print("  WYNIK: %d / %d testów przeszło" % (len(WYNIKI) - len(_bledy), len(WYNIKI)))

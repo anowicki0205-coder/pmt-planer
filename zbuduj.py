@@ -21,7 +21,7 @@ import sys
 KATALOG = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 
-# Widżety nowego wyglądu (uruchamiany przez „PMT_Planer.exe --nowy").
+# Widżety nowego wyglądu — to on jest ekranem programu.
 # Leżą w podfolderze prototyp\ — PyInstaller znajduje je dzięki --paths
 # (patrz buduj()), a do paczki wchodzą jako zwykłe moduły.
 PROTOTYP = ["proto_styl", "proto_dane", "proto_mapa", "proto_tasma",
@@ -184,7 +184,7 @@ def buduj(py, folderowo=True):
     for m in UKRYTE:
         args += ["--hidden-import", m]
     # Moduły nowego wyglądu siedzą w podfolderze — bez tego PyInstaller
-    # nie znalazłby proto_okno i „--nowy" padłoby dopiero u użytkownika.
+    # nie znalazłby proto_okno i program padłby dopiero u użytkownika.
     katalog_prototypu = os.path.join(KATALOG, "prototyp")
     if os.path.isdir(katalog_prototypu):
         args += ["--paths", katalog_prototypu]

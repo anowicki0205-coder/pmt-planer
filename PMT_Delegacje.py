@@ -22103,13 +22103,23 @@ class App(QMainWindow):
         self._pokaz_dokumenty(folder)
 
 
-if __name__ == "__main__":
-    # NOWY WYGLĄD: osobne okno na tym samym silniku (nowy_wyglad.py).
-    # Bez tego argumentu program zachowuje się dokładnie jak dotąd.
-    if "--nowy" in sys.argv:
-        import nowy_wyglad
-        sys.exit(nowy_wyglad.main(sys.argv))
+def zbuduj_okno_glowne(argv=None):
+    """Okno główne programu — powstaje na KOŃCU sekwencji startowej.
 
+    Domyślnie jest to nowy ekran (nowy_wyglad.OknoNowegoWygladu). Stary
+    interfejs (klasa App) powstaje zawsze: to on gospodaruje panelami
+    otwieranymi z szyny nowego ekranu, pilnuje aktualizacji i trzyma
+    centrum powiadomień. Argument --stary jest wyjściem awaryjnym: oddaje
+    dawne okno jako główne. Nigdzie w programie go nie pokazujemy."""
+    argv = list(sys.argv if argv is None else argv)
+    stare = App()
+    if "--stary" in argv:
+        return stare
+    import nowy_wyglad
+    return nowy_wyglad.OknoNowegoWygladu(stare_okno=stare)
+
+
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     _rozgrzej_backend()   # zbudź backend od razu — nim użytkownik wpisze hasło,
                           # serwer będzie ciepły i logowanie odpowie od ręki
@@ -22361,7 +22371,7 @@ if __name__ == "__main__":
             pass
     atexit.register(_pmt_zamkniecie)
     try:
-        window = App()
+        window = zbuduj_okno_glowne()
     except Exception:
         # Pancerz startu: zamiast zrzutu w konsoli — czytelne okno z wersją
         # programu i pełnym opisem błędu + zapis do pliku do diagnozy.

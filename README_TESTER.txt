@@ -46,11 +46,10 @@ GDZIE LĄDUJĄ DOKUMENTY
   rozliczenie wydatków i podgląd tras w pliku HTML.
 
 NOWY WYGLĄD — URUCHOMIENIE
-  Ze źródeł:     py -3.13 PMT_Delegacje.py --nowy
-  Z pliku .exe:  PMT_Planer.exe --nowy
-  Bez --nowy program otwiera się jak dotąd.
-  Skrót na Pulpicie: prawy przycisk → Właściwości → pole „Element
-  docelowy" → na końcu spacja i --nowy.
+  Ze źródeł:     py -3.13 PMT_Delegacje.py
+  Z pliku .exe:  PMT_Planer.exe
+  Nowy wygląd jest jedynym ekranem programu — otwiera się sam, po
+  zalogowaniu i animacji startowej.
 
 NOWY WYGLĄD — CO W NIM DZIAŁA
   Dane pracownika   imię, PESEL, adres, stanowisko, pojemność silnika;
@@ -139,12 +138,13 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
   20. Wejdź w „O programie". Oczekiwane: numer wersji 3.22.0.
 
 
-  ── NOWY WYGLĄD (--nowy) ──────────────────────────────────────────────
-  21. Uruchom program z --nowy. Oczekiwane: okno nowego wyglądu; bez
-      logowania, bez animacji startowej.
-  22. Wypełnij imię i nazwisko, PESEL, adres i stanowisko, ustaw
-      pojemność silnika. Zamknij program i uruchom go ponownie z --nowy.
-      Oczekiwane: wszystkie cztery pola i pojemność na swoim miejscu.
+  ── NOWY WYGLĄD ───────────────────────────────────────────────────────
+  21. Uruchom program zwyczajnie. Oczekiwane: logowanie, animacja
+      startowa, a po niej nowy ekran; w pasku górnym Twoje inicjały
+      i data ważności konta.
+  22. Uzupełnij PESEL, adres i stanowisko, ustaw pojemność silnika
+      (imię jest z konta). Zamknij program i uruchom go ponownie.
+      Oczekiwane: wszystkie pola i pojemność na swoim miejscu.
   23. Kliknij lewą, a potem prawą zakładkę paska górnego. To samo
       klawiszami PgUp i PgDn. Oczekiwane: zmienia się miesiąc na pasku
       i dni na taśmie; grudzień cofa się do listopada, styczeń do grudnia
@@ -162,6 +162,13 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
       z dokumentami, okno podpisu i okno wysyłki.
   28. Porównaj kwotę na tacy z sumą delegacji z punktu 7. Oczekiwane:
       ta sama liczba co do grosza.
+  29. Kliknij po kolei ikony szyny po lewej — od góry: pinezka, kalendarz,
+      słupki, strzałka, tarcza, warstwy; na dole domek i „i". Oczekiwane:
+      Nowa wyprawa, Plan wizyt, Bilans miesiąca, Twoja praca, Kopia
+      zapasowa, Ustawienia, powrót na ekran główny, O programie.
+  30. W pasku górnym kliknij dzwonek, „Zgłoś błąd" i swoje inicjały.
+      Oczekiwane: lista komunikatów, nowa wiadomość do zgłoszeń oraz menu
+      z pozycjami: hasło, karta testera, animacja startowa, wylogowanie.
 
   Co zgłaszać: numer punktu, co kliknąłeś, co się stało, a czego
   oczekiwałeś. Jeśli program się zamknął, dołącz plik

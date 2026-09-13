@@ -113,12 +113,14 @@ STAWKA_ZA_KM        = 0.60
 SREDNIA_PREDKOSC    = 65.0 
 LIMIT_CZASU_MINUTY  = 8 * 60   # sufit dnia; ustaw_tryb_pracy() zmienia go w trybie wieczornym
 # ── SUFITY KWOTOWE ──────────────────────────────────────────────────
-# MAX_KWOTA_DOKUMENTU — maksymalna kwota JEDNEJ delegacji (jednego PDF).
+# MAX_KWOTA_DOKUMENTU — sufit JEDNEGO DOKUMENTU (jednego polecenia wyjazdu,
+#   jednego PDF-a). Jeden dokument obejmuje KILKA DNI, więc to z niego wynika
+#   liczba dokumentów: sufit z kwoty podzielonej przez ten limit (ile_dokumentow).
 # MAX_ETAPOW_DOKUMENTU — ile wierszy mieści strona A4 (zmierzone: 33,
-#   przyjęte 30 z zapasem na długie nazwy).
-# MAX_KWOTA_DNIA — ile realnie da się wyjeździć w ciągu dnia przy 8 h.
-#   To ona decyduje o liczbie potrzebnych dni; sufit dokumentu decyduje
-#   wyłącznie o tym, ile dni zmieści się na jednym PDF-ie.
+#   przyjęte 30 z zapasem na długie nazwy). Druga granica dokumentu.
+# MAX_KWOTA_DNIA — regulaminowy sufit JEDNEGO DNIA. Dzień ogranicza jednak
+#   przede wszystkim FIZYKA doby: posiłek + jazda + postoje (pojemnosc_dnia_zl).
+#   Obowiązuje mniejsza z tych dwóch wartości.
 MAX_KWOTA_DOKUMENTU  = 986.34
 MAX_ETAPOW_DOKUMENTU = 30
 MAX_KWOTA_DNIA       = 587.19
@@ -316,6 +318,45 @@ POSTOJ_MIN_MIN         = 12      # min. czas w miejscowości
 POSTOJ_MAX_MIN         = 23      # max. czas w miejscowości
 MAX_MIEJSCOWOSCI_DZIEN = 7       # górny limit punktów dziennie
 MIN_MIEJSCOWOSCI_DZIEN = 4       # dolny cel punktów dziennie
+POSTOJ_SREDNI_MIN      = (POSTOJ_MIN_MIN + POSTOJ_MAX_MIN) / 2.0   # 17,5 min
+POSTOJE_TYPOWE         = 5       # tyle postojów ma przeciętny dzień (zakres 4–7)
+
+# ── POJEMNOŚĆ DOBY I LICZBA DOKUMENTÓW ─────────────────────────────────
+# Doba to posiłek + jazda + postoje. Każdy przystanek zjada kilkanaście minut,
+# więc im więcej wizyt, tym mniej kilometrów mieści się w dniu. Te same
+# składniki co weryfikacja czasowa dnia w generuj_trasy() — jeden rachunek,
+# używany i przy planowaniu, i przy walidacji kwoty.
+
+def pojemnosc_dnia_km(postoje: int = None) -> float:
+    """Ile kilometrów mieści się w jednej dobie przy takiej liczbie postojów."""
+    if postoje is None: postoje = POSTOJE_TYPOWE
+    minuty = (LIMIT_CZASU_MINUTY - PRZERWA_JEDZENIE_MIN
+              - max(0, int(postoje)) * POSTOJ_SREDNI_MIN)
+    return max(0.0, (minuty / 60.0) * SREDNIA_PREDKOSC)
+
+def pojemnosc_dnia_zl(postoje: int = None, stawka: float = None,
+                      limit_dnia: float = None) -> float:
+    """Sufit kwoty jednego dnia: mniejsza z dwóch — fizyczna i regulaminowa."""
+    if stawka is None: stawka = STAWKA_ZA_KM
+    if limit_dnia is None: limit_dnia = MAX_KWOTA_DNIA
+    return round(min(pojemnosc_dnia_km(postoje) * float(stawka), float(limit_dnia)), 2)
+
+def maks_kwota_miesiaca(ile_dni: int, stawka: float = None, postoje: int = None,
+                        limit_dnia: float = None) -> float:
+    """Górna granica kwoty miesiąca: dni robocze × realny sufit dnia."""
+    return round(max(0, int(ile_dni)) * pojemnosc_dnia_zl(postoje, stawka, limit_dnia), 2)
+
+def ile_dokumentow(kwota_zl: float) -> int:
+    """Ile poleceń wyjazdu wychodzi z kwoty — sufit z kwoty przez sufit dokumentu."""
+    return max(1, math.ceil((float(kwota_zl) - 0.005) / MAX_KWOTA_DOKUMENTU))
+
+def rozdziel_rowno(kwota_zl: float, ile: int) -> List[float]:
+    """Kwota na `ile` części równych CO DO GROSZA — suma części równa się kwocie."""
+    ile = max(1, int(ile))
+    grosze = int(round(float(kwota_zl) * 100))
+    baza, reszta = divmod(grosze, ile)
+    return [(baza + (1 if i < reszta else 0)) / 100.0 for i in range(ile)]
+
 # Kolejny przystanek musi leżeć "po drodze": maksymalny skok między sąsiednimi
 # punktami trasy. Trzyma pętlę zwartą — koniec z Ciechanów→Małdyty→Strzegowo→Iława.
 MAX_SKOK_MIEDZY_PUNKTAMI_KM = 35.0
@@ -353,6 +394,10 @@ BASE_DIR  = os.path.dirname(os.path.abspath(sys.argv[0]))
 LOGS_DIR  = os.path.join(BASE_DIR, "logs") 
 LOG_FILE  = os.path.join(LOGS_DIR, "error.log") 
 GEO_CACHE = os.path.join(os.path.expanduser("~"), ".pmt_geo_cache.json")
+# Adresy, których serwer NIE ZNA — zapamiętane trwale, żeby nie pytać o nie
+# drugi raz. Zapisujemy TYLKO odpowiedź „nie znam"; awaria sieci nie trafia
+# tutaj nigdy, bo po powrocie internetu adres trzeba jeszcze raz spróbować.
+GEO_BRAKI = os.path.join(os.path.expanduser("~"), ".pmt_geo_braki.json")
 NOTATKI_DNI_STORE = os.path.join(os.path.expanduser("~"), ".pmt_notatki_dni.json")
 # Notatka dnia i "dzień wolny" — OGÓLNE, powiązane wyłącznie z datą (nie z
 # imieniem/PESEL jak w starym kalendarzu delegacji). Dzięki temu: (1) nie
@@ -4661,6 +4706,8 @@ def wszystkie_magazyny() -> dict:
         "wizyty": _plik_wizyt(),
         "ustawienia": USTAWIENIA_STORE,
         "geo_cache": GEO_CACHE,
+        "geo_braki": GEO_BRAKI,
+        "road_cache": ROAD_CACHE_FILE,
         "uzytkownicy": USER_STORE,
         "notatki_dni": _plik_notatek(),
     }
@@ -4704,7 +4751,7 @@ def przywroc_z_kopii(sciezka_zip: str) -> int:
     Zwraca liczbę przywróconych plików. Czyści też cache w pamięci (dziennik,
     ustawienia, geokodowanie), żeby program od razu widział świeże dane —
     bez tego stare wartości zostałyby w pamięci aż do restartu."""
-    global _dziennik, _ustawienia, _geo_cache, _notatki_dni
+    global _dziennik, _ustawienia, _geo_cache, _notatki_dni, _geo_braki
     ile = 0
     # Nazwy plikow w kopii zapasowej zaleza od wersji, ktora ja zrobila:
     # do 3.20.57 byly wspolne (.pmt_punkty.json), od 3.21.0 sa podpisane
@@ -4730,15 +4777,108 @@ def przywroc_z_kopii(sciezka_zip: str) -> int:
     # unieważnij cache w pamięci — kolejne odczyty wezmą świeże dane z dysku
     _dziennik = None
     _ustawienia = None
-    _geo_cache = {}
     _notatki_dni = None
+    _geo_braki = None
+    _geo_pytane.clear()
+    _wczytaj_geo_cache()
+    _wczytaj_road_cache()
     return ile
 
 
-if os.path.exists(GEO_CACHE):
+def _klucz_geo(adres) -> str:
+    """Jeden adres = jeden klucz. Różnice w wielkości liter i w odstępach
+    (także twarda spacja z Worda) nie mogą rodzić drugiego wpisu i drugiego
+    zapytania do serwera."""
+    return " ".join(str(adres or "").replace("\u00a0", " ").lower().split())
+
+
+def _oczysc_geo_cache(surowe) -> dict:
+    """Zostawia wyłącznie wpisy „adres → [lat, lng]" z sensownymi liczbami."""
+    czysty = {}
+    if not isinstance(surowe, dict):
+        return czysty
+    for klucz, wartosc in surowe.items():
+        # napis też da się indeksować ("51.4,21.1"[0] == "5"), więc wpis musi
+        # być PARĄ LICZB, a nie czymkolwiek o dwóch elementach
+        if not isinstance(wartosc, (list, tuple)) or len(wartosc) < 2:
+            continue
+        try:
+            lat, lng = float(wartosc[0]), float(wartosc[1])
+        except (TypeError, ValueError):
+            continue
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            continue
+        czysty[_klucz_geo(klucz)] = [lat, lng]
+    return czysty
+
+
+def _wczytaj_geo_cache(sciezka=None):
+    """Uszkodzony plik (pad w trakcie zapisu, obcy plik) nie może wywrócić
+    programu — sięgamy wtedy po kopię .bak, a gdy i ona jest zła, zaczynamy
+    od pustej pamięci."""
+    global _geo_cache
+    sciezka = sciezka or GEO_CACHE
+    _geo_cache = {}
+    for plik, z_baku in ((sciezka, False), (sciezka + ".bak", True)):
+        try:
+            if not os.path.exists(plik):
+                continue
+            with open(plik, "r", encoding="utf-8") as f:
+                dane = json.load(f)
+        except Exception:
+            continue
+        czysty = _oczysc_geo_cache(dane)
+        if czysty:
+            _geo_cache = czysty
+            if z_baku:
+                try:
+                    zapisz_geo_cache(sciezka)   # odtwórz główny plik z kopii
+                except Exception:
+                    pass                        # przy starcie modułu jeszcze go nie ma
+            break
+        if isinstance(dane, dict):
+            break
+    return _geo_cache
+
+
+_geo_braki = None          # adresy nieznane serwerowi (trwale)
+_geo_pytane = set()        # adresy odpytane w TEJ sesji bez wyniku
+
+
+def _wczytaj_geo_braki(sciezka=None):
+    global _geo_braki
+    if _geo_braki is not None:
+        return _geo_braki
+    _geo_braki = {}
     try:
-        with open(GEO_CACHE, 'r', encoding='utf-8') as f: _geo_cache = json.load(f)
-    except Exception: pass
+        sciezka = sciezka or GEO_BRAKI
+        if os.path.exists(sciezka):
+            with open(sciezka, "r", encoding="utf-8") as f:
+                dane = json.load(f)
+            if isinstance(dane, dict):
+                _geo_braki = {str(k): str(v) for k, v in dane.items()}
+    except Exception:
+        _geo_braki = {}
+    return _geo_braki
+
+
+def _zapamietaj_geo_brak(klucz):
+    braki = _wczytaj_geo_braki()
+    braki[klucz] = datetime.datetime.now().isoformat(timespec="seconds")
+    try:
+        tmp = GEO_BRAKI + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(braki, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, GEO_BRAKI)
+    except Exception:
+        pass
+
+
+def _geo_brak_znany(klucz) -> bool:
+    return klucz in _wczytaj_geo_braki() or klucz in _geo_pytane
+
+
+_wczytaj_geo_cache()
 
 MIESIACE_PL = ["styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec", "sierpień", "wrzesień", "październik", "listopad", "grudzień"] 
 WSZYSTKIE_WOJEWODZTWA = ["dolnośląskie", "kujawsko-pomorskie", "lubelskie", "lubuskie", "łódzkie", "małopolskie", "mazowieckie", "opolskie", "podkarpackie", "podlaskie", "pomorskie", "śląskie", "świętokrzyskie", "warmińsko-mazurskie", "wielkopolskie", "zachodniopomorskie"] 
@@ -4828,6 +4968,8 @@ class DzienTrasy:
     data: datetime.date
     etapy_surowe: List[RawEtap] = field(default_factory=list)
     etapy: List[Etap] = field(default_factory=list)
+    # numer polecenia wyjazdu, do którego trafia ten dzień (0 = jeszcze nieznany)
+    dokument: int = 0
 
     @property
     def suma(self) -> float:
@@ -4855,54 +4997,313 @@ def oblicz_dystans(lat1, lon1, lat2, lon2) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-# --- Realne odległości drogowe (OSRM) z cache dyskowym i fallbackiem offline ---
+# ── ODLEGŁOŚCI: ŹRÓDŁO, PAMIĘĆ PODRĘCZNA, KLUCZ GOOGLE ────────────────────
+# Kilometr w dokumencie pochodzi z jednego z trzech miejsc i program MUSI
+# wiedzieć, z którego. Dotąd przy braku sieci po cichu wchodziła linia prosta
+# × krętość — nierealne kilometry bez śladu w interfejsie i w dokumencie.
+ZRODLO_DROGI = "drogi"          # policzone teraz po drogach (Google albo OSRM)
+ZRODLO_PAMIEC = "pamiec"        # z pamięci podręcznej (kiedyś policzone po drogach)
+ZRODLO_SZACUNEK = "szacunek"    # linia prosta × krętość — brak sieci albo błąd
+
+ETYKIETY_ZRODLA = {
+    ZRODLO_DROGI: "realne drogi",
+    ZRODLO_PAMIEC: "drogi z pamięci",
+    ZRODLO_SZACUNEK: "szacunek",
+}
+
 ROAD_CACHE_FILE = os.path.join(os.path.expanduser("~"), ".pmt_road_cache.json")
 _road_cache = {}
 _osrm_dostepny = None    # None=niesprawdzone, True/False po pierwszej próbie
+_google_dostepny = None  # jak wyżej, dla Google (gdy klucz w ogóle jest)
+_zrodlo_licznik = {ZRODLO_DROGI: 0, ZRODLO_PAMIEC: 0, ZRODLO_SZACUNEK: 0}
 
-def _wczytaj_road_cache():
-    global _road_cache
-    if os.path.exists(ROAD_CACHE_FILE):
+
+def _klucz_drogi(lat1, lon1, lat2, lon2) -> str:
+    """Klucz pamięci podręcznej WSPÓLNY DLA OBU KIERUNKÓW. Droga A→B i B→A to
+    ta sama droga, a dotąd każdy kierunek zajmował osobny wpis i osobne
+    zapytanie do sieci — dzień jadący pętlę w drugą stronę liczył wszystko
+    jeszcze raz."""
+    a = "%.4f,%.4f" % (lat1, lon1)
+    b = "%.4f,%.4f" % (lat2, lon2)
+    return ("%s;%s" % (a, b)) if a <= b else ("%s;%s" % (b, a))
+
+
+def _oczysc_road_cache(surowe) -> dict:
+    """Z wczytanego pliku zostaje tylko to, czego da się użyć: klucz w postaci
+    „lat,lng;lat,lng" i dodatnia liczba kilometrów. Stare klucze kierunkowe
+    sprowadzamy do klucza wspólnego dla obu kierunków."""
+    czysty = {}
+    if not isinstance(surowe, dict):
+        return czysty
+    for klucz, wartosc in surowe.items():
         try:
-            with open(ROAD_CACHE_FILE, "r", encoding="utf-8") as f: _road_cache = json.load(f)
-        except Exception: _road_cache = {}
+            km = float(wartosc)
+        except (TypeError, ValueError):
+            continue
+        if not (0 < km < 1e6):          # odsiewa też NaN i nieskończoność
+            continue
+        try:
+            a, b = str(klucz).split(";")
+            la1, lg1 = [float(x) for x in a.split(",")]
+            la2, lg2 = [float(x) for x in b.split(",")]
+        except Exception:
+            continue
+        k = _klucz_drogi(la1, lg1, la2, lg2)
+        if k not in czysty or km < czysty[k]:
+            czysty[k] = round(km, 2)
+    return czysty
+
+
+def _zapisz_road_cache(sciezka=None):
+    """Zapis atomowy: plik tymczasowy → podmiana, poprzedni ląduje w .bak.
+    Pad w trakcie zapisu nie zostawia uciętego pliku bez kopii."""
+    sciezka = sciezka or ROAD_CACHE_FILE
+    try:
+        tmp = sciezka + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_road_cache, f)
+        try:
+            if os.path.exists(sciezka):
+                os.replace(sciezka, sciezka + ".bak")
+        except Exception:
+            pass
+        os.replace(tmp, sciezka)
+    except Exception:
+        pass
+
+
+def _wczytaj_road_cache(sciezka=None):
+    """Pamięć podręczna przeżywa zamknięcie programu. Uszkodzony plik (pad
+    w trakcie zapisu, ręczna edycja, obcy plik) nie może wywrócić programu:
+    sięgamy wtedy po kopię .bak, a gdy i ona jest zła — zaczynamy od pustej."""
+    global _road_cache
+    sciezka = sciezka or ROAD_CACHE_FILE
+    _road_cache = {}
+    for plik, z_baku in ((sciezka, False), (sciezka + ".bak", True)):
+        try:
+            if not os.path.exists(plik):
+                continue
+            with open(plik, "r", encoding="utf-8") as f:
+                dane = json.load(f)
+        except Exception:
+            continue
+        czysty = _oczysc_road_cache(dane)
+        if czysty:
+            _road_cache = czysty
+            if z_baku:
+                _zapisz_road_cache(sciezka)
+            break
+        if isinstance(dane, dict):
+            break               # plik poprawny, tylko pusty
+    return _road_cache
+
+
 _wczytaj_road_cache()
 
-def _zapisz_road_cache():
+
+def zeruj_zrodlo_odleglosci():
+    """Nowe rozliczenie = nowy licznik źródeł."""
+    for k in list(_zrodlo_licznik):
+        _zrodlo_licznik[k] = 0
+
+
+def _odnotuj_zrodlo(rodzaj):
+    _zrodlo_licznik[rodzaj] = _zrodlo_licznik.get(rodzaj, 0) + 1
+
+
+def stan_zrodla_odleglosci() -> dict:
+    """Stan źródła odległości dla CAŁEGO rozliczenia. Wystarczy jeden odcinek
+    policzony szacunkiem, żeby stanem całości był szacunek — bo to on
+    rozstrzyga o wiarygodności sumy kilometrów."""
+    ile = dict(_zrodlo_licznik)
+    if ile.get(ZRODLO_SZACUNEK):
+        stan = ZRODLO_SZACUNEK
+    elif ile.get(ZRODLO_DROGI):
+        stan = ZRODLO_DROGI
+    elif ile.get(ZRODLO_PAMIEC):
+        stan = ZRODLO_PAMIEC
+    else:
+        stan = ZRODLO_DROGI
+    return {
+        ZRODLO_DROGI: ile.get(ZRODLO_DROGI, 0),
+        ZRODLO_PAMIEC: ile.get(ZRODLO_PAMIEC, 0),
+        ZRODLO_SZACUNEK: ile.get(ZRODLO_SZACUNEK, 0),
+        "stan": stan,
+        "etykieta": ETYKIETY_ZRODLA[stan],
+        "odcinki": sum(ile.values()),
+        "realne": stan != ZRODLO_SZACUNEK,
+    }
+
+
+def etykieta_zrodla_odleglosci() -> str:
+    """Krótka etykieta do interfejsu: „realne drogi" / „drogi z pamięci" /
+    „szacunek"."""
+    return stan_zrodla_odleglosci()["etykieta"]
+
+
+# --- KLUCZ GOOGLE (opcjonalny, nigdy wymagany) ---------------------------
+# Google liczy trasy tylko przez płatny interfejs z kluczem i kontem
+# rozliczeniowym. Klucza NIE MA W KODZIE. Bez klucza program działa dokładnie
+# jak dotąd — na bezpłatnym OSRM.
+GOOGLE_KLUCZ_ENV = "PMT_GOOGLE_KLUCZ"
+GOOGLE_KLUCZ_ENV_ALT = "GOOGLE_MAPS_API_KEY"
+GOOGLE_KLUCZ_USTAWIENIE = "google_klucz"
+
+
+def google_klucz() -> str:
+    """Klucz ze zmiennej środowiskowej (pierwszeństwo) albo z ustawień.
+    Pusty napis = brak klucza = źródło bezpłatne."""
+    for zmienna in (GOOGLE_KLUCZ_ENV, GOOGLE_KLUCZ_ENV_ALT):
+        k = (os.environ.get(zmienna) or "").strip()
+        if k:
+            return k
     try:
-        with open(ROAD_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_road_cache, f)
-    except Exception: pass
+        return str(ustawienie(GOOGLE_KLUCZ_USTAWIENIE, "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _google_km(lat1, lon1, lat2, lon2, klucz):
+    """Odległość drogowa z Google Distance Matrix. Zwraca km albo None."""
+    url = ("https://maps.googleapis.com/maps/api/distancematrix/json"
+           "?origins=%.6f,%.6f&destinations=%.6f,%.6f"
+           "&mode=driving&units=metric&key=%s"
+           % (lat1, lon1, lat2, lon2, urllib.parse.quote(klucz, safe="")))
+    req = urllib.request.Request(url, headers={"User-Agent": "PMT-Delegacje/1.0"})
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        dane = json.loads(resp.read().decode("utf-8"))
+    if dane.get("status") != "OK":
+        return None
+    wiersze = dane.get("rows") or []
+    elementy = (wiersze[0].get("elements") or []) if wiersze else []
+    el = elementy[0] if elementy else {}
+    if el.get("status") != "OK":
+        return None
+    metry = (el.get("distance") or {}).get("value")
+    return (float(metry) / 1000.0) if metry else None
+
+
+def _osrm_km(lat1, lon1, lat2, lon2):
+    """Odległość drogowa z publicznego OSRM. Zwraca km albo None."""
+    url = (f"https://router.project-osrm.org/route/v1/driving/"
+           f"{lon1},{lat1};{lon2},{lat2}?overview=false")
+    req = urllib.request.Request(url, headers={"User-Agent": "PMT-Delegacje/1.0"})
+    with urllib.request.urlopen(req, timeout=4) as resp:
+        dane = json.loads(resp.read().decode("utf-8"))
+    if dane.get("code") == "Ok" and dane.get("routes"):
+        return dane["routes"][0]["distance"] / 1000.0
+    return None
+
 
 def dystans_drogowy(lat1, lon1, lat2, lon2, tylko_cache=False) -> float:
-    """Zwraca realną odległość DROGOWĄ w km (nie w linii prostej).
-    Kolejność źródeł:
-      1) cache dyskowy (natychmiast),
-      2) OSRM — publiczny serwer routingu (gdy jest internet),
-      3) fallback: linia prosta × współczynnik krętości (offline / błąd).
-    Wynik z OSRM jest zapisywany w cache, więc kolejne generowania są szybkie."""
-    global _osrm_dostepny
-    klucz = f"{lat1:.4f},{lon1:.4f};{lat2:.4f},{lon2:.4f}"
-    if klucz in _road_cache:
-        return _road_cache[klucz]
-    if tylko_cache or _osrm_dostepny is False:
-        return oblicz_dystans(lat1, lon1, lat2, lon2) * TEST_MNOZNIK_TRASY
-    # zapytanie do OSRM
-    try:
-        url = (f"https://router.project-osrm.org/route/v1/driving/"
-               f"{lon1},{lat1};{lon2},{lat2}?overview=false")
-        req = urllib.request.Request(url, headers={"User-Agent": "PMT-Delegacje/1.0"})
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if data.get("code") == "Ok" and data.get("routes"):
-            km = data["routes"][0]["distance"] / 1000.0
-            _osrm_dostepny = True
-            _road_cache[klucz] = round(km, 2)
-            return _road_cache[klucz]
-    except Exception:
-        _osrm_dostepny = False
-    # fallback
+    """Realna odległość DROGOWA w km (nie w linii prostej).
+    Kolejność źródeł: pamięć podręczna → Google (tylko gdy jest klucz) →
+    OSRM → szacunek. Każde wywołanie odnotowuje, skąd wzięła się liczba;
+    stan całego rozliczenia czyta stan_zrodla_odleglosci()."""
+    global _osrm_dostepny, _google_dostepny
+    klucz = _klucz_drogi(lat1, lon1, lat2, lon2)
+    zapamietane = _road_cache.get(klucz)
+    if zapamietane:
+        _odnotuj_zrodlo(ZRODLO_PAMIEC)
+        return zapamietane
+    if not tylko_cache:
+        g_klucz = google_klucz() if _google_dostepny is not False else ""
+        if g_klucz:
+            try:
+                km = _google_km(lat1, lon1, lat2, lon2, g_klucz)
+                if km and km > 0:
+                    _google_dostepny = True
+                    _road_cache[klucz] = round(km, 2)
+                    _odnotuj_zrodlo(ZRODLO_DROGI)
+                    return _road_cache[klucz]
+            except Exception:
+                # brak odpowiedzi Google (sieć, limit, zły klucz) → OSRM.
+                # Zapamiętujemy to, żeby nie czekać na timeout przy każdym
+                # kolejnym odcinku miesiąca.
+                _google_dostepny = False
+        if _osrm_dostepny is not False:
+            try:
+                km = _osrm_km(lat1, lon1, lat2, lon2)
+                if km and km > 0:
+                    _osrm_dostepny = True
+                    _road_cache[klucz] = round(km, 2)
+                    _odnotuj_zrodlo(ZRODLO_DROGI)
+                    return _road_cache[klucz]
+            except Exception:
+                _osrm_dostepny = False
+    _odnotuj_zrodlo(ZRODLO_SZACUNEK)
     return oblicz_dystans(lat1, lon1, lat2, lon2) * TEST_MNOZNIK_TRASY
+
+
+def przygotuj_odleglosci(pary, postep_cb=None) -> dict:
+    """Liczy Z GÓRY odległości podanych odcinków i zostawia je w pamięci
+    podręcznej — potem generowanie nie czeka na sieć. Odcinek powtórzony
+    (także w drugą stronę) liczy się raz.
+    pary: [(lat1, lng1, lat2, lng2), …]. Zwraca stan źródła odległości."""
+    zeruj_zrodlo_odleglosci()
+    unikalne = {}
+    for p in (pary or ()):
+        try:
+            la1, lg1, la2, lg2 = [float(x) for x in p]
+        except (TypeError, ValueError):
+            continue
+        if abs(la1 - la2) < 1e-9 and abs(lg1 - lg2) < 1e-9:
+            continue
+        unikalne.setdefault(_klucz_drogi(la1, lg1, la2, lg2), (la1, lg1, la2, lg2))
+    ile = len(unikalne)
+    for nr, (la1, lg1, la2, lg2) in enumerate(unikalne.values(), start=1):
+        try:
+            dystans_drogowy(la1, lg1, la2, lg2)
+        except Exception:
+            pass
+        if postep_cb:
+            try:
+                postep_cb("Odcinki %d/%d" % (nr, ile), nr / float(max(1, ile)))
+            except Exception:
+                pass
+    if ile:
+        _zapisz_road_cache()
+    wynik = stan_zrodla_odleglosci()
+    wynik["odcinki"] = ile
+    return wynik
+
+
+def pary_odcinkow_planu(plan, baza_lat=None, baza_lng=None):
+    """Wszystkie odcinki miesiąca z planu wizyt: baza → punkt → … → baza."""
+    pary = []
+    for d in ((plan or {}).get("dni") or []):
+        wizyty = getattr(d, "wizyty", None)
+        if wizyty is None and isinstance(d, dict):
+            wizyty = d.get("wizyty")
+        punkty = [(p.lat, p.lng) for p in (wizyty or [])
+                  if getattr(p, "lat", None) is not None
+                  and getattr(p, "lng", None) is not None]
+        if not punkty:
+            continue
+        if baza_lat is not None and baza_lng is not None:
+            punkty = [(baza_lat, baza_lng)] + punkty + [(baza_lat, baza_lng)]
+        for i in range(len(punkty) - 1):
+            pary.append((punkty[i][0], punkty[i][1],
+                         punkty[i + 1][0], punkty[i + 1][1]))
+    return pary
+
+
+def przygotuj_odleglosci_planu(plan, baza_lat=None, baza_lng=None, postep_cb=None) -> dict:
+    """Wcześniejsze policzenie WSZYSTKICH odcinków miesiąca z planu wizyt."""
+    return przygotuj_odleglosci(pary_odcinkow_planu(plan, baza_lat, baza_lng), postep_cb)
+
+
+def pary_odcinkow_bazy(baza_lat, baza_lng, miasta):
+    """Odcinki baza ↔ miejscowość — z nich silnik delegacji składa dni,
+    zanim jeszcze wiadomo, które miejscowości trafią do którego dnia."""
+    pary = []
+    for m in (miasta or ()):
+        lat = getattr(m, "lat", None)
+        lng = getattr(m, "lng", None)
+        if lat is None or lng is None:
+            continue
+        pary.append((baza_lat, baza_lng, float(lat), float(lng)))
+    return pary
 
 def dystans_odcinek_punkt(lat1, lon1, lat2, lon2, p_lat, p_lon):
     kx = 111.0 * math.cos(math.radians((lat1+lat2)/2.0))
@@ -5973,7 +6374,11 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
         baza_miasto = poczta
         _pre = (prefiks + " ") if prefiks else ""
         adres_pdf = f"{_pre}{nazwa} {numer}, {kod} {poczta}"
-        adres_geo = f"{_pre}{nazwa} {numer}, {kod} {poczta}"
+        # DO MAPY IDZIE NUMER BUDYNKU, BEZ NUMERU LOKALU. „Zamiejska 5/58"
+        # na mapie nie istnieje — serwer albo nie znajdował nic, albo czytał
+        # „58" jako osobny punkt i trasa dostawała nadmiarowy przystanek.
+        _numer_domu = re.split(r"[/\\]", numer)[0].strip() or numer
+        adres_geo = f"{_pre}{nazwa} {_numer_domu}, {kod} {poczta}"
 
     return {
         'adres_caly': adres_pdf,        # to trafia do PDF (start/meta, nagłówek)
@@ -5995,35 +6400,78 @@ def waliduj_kwote(s: str) -> float:
     if k < MIN_KWOTA: raise ValueError(f"Min kwota to {MIN_KWOTA:.0f} PLN.")
     return k
 
+def _bez_numeru_lokalu(adres: str) -> str:
+    """„Zamiejska 5/58" → „Zamiejska 5". Numer lokalu jest poza mapą: serwer
+    albo nie znajduje takiego adresu, albo czyta „58" jako osobny punkt —
+    stąd brał się nadmiarowy przystanek. Dla mapy liczy się numer BUDYNKU."""
+    return re.sub(r"(\d+\s*[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]?)\s*[/\\]\s*\d+\s*[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]?",
+                  r"\1", str(adres or "")).strip()
+
+
+def _warianty_geo(adres_caly: str, miasto: str):
+    """Kolejne zapytania do serwera — od najdokładniejszego do miejscowości.
+    Bez powtórek, żeby ten sam napis nie poszedł do serwera dwa razy."""
+    warianty = []
+    for w in (adres_caly, _bez_numeru_lokalu(adres_caly), miasto):
+        w = " ".join(str(w or "").split())
+        if w and w not in warianty:
+            warianty.append(w)
+    return warianty
+
+
 def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) -> Tuple[float, float]:
+    """Współrzędne adresu. Wynik zapamiętujemy trwale — także odpowiedź
+    „nie znam takiego adresu" — więc o ten sam adres nie pytamy dwa razy."""
     global _geo_cache
-    klucz = adres_caly.lower().strip()
+    klucz = _klucz_geo(adres_caly)
     if klucz in _geo_cache: return tuple(_geo_cache[klucz])
-    for zapytanie in [adres_caly, miasto]:
+    stary = str(adres_caly or "").lower().strip()      # klucz sprzed ujednolicenia
+    if stary in _geo_cache:
+        _geo_cache[klucz] = _geo_cache[stary]
+        return tuple(_geo_cache[klucz])
+    if _geo_brak_znany(klucz):
+        return STOLICE.get(woj, (52.23, 21.01))
+    odpowiedz_serwera = False
+    for zapytanie in _warianty_geo(adres_caly, miasto):
         try:
             q = urllib.parse.quote(f"{zapytanie}, Polska", safe="")
             req = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1", headers={'User-Agent': 'PMT/112'})
             with urllib.request.urlopen(req, timeout=4) as resp:
                 data = json.loads(resp.read())
-                if data:
-                    coords = (float(data[0]['lat']), float(data[0]['lon']))
-                    _geo_cache[klucz] = list(coords)
-                    # Zapis cache TYLKO gdy zapisz_cache=True. Przy masowym
-                    # geokodowaniu (setki punktów) zapisujemy raz na końcu —
-                    # inaczej zapis całego pliku przy każdym punkcie zawiesza program.
-                    if zapisz_cache:
-                        with open(GEO_CACHE, 'w', encoding='utf-8') as f: json.dump(_geo_cache, f, ensure_ascii=False, indent=2)
-                    return coords
+            odpowiedz_serwera = True
+            if data:
+                coords = (float(data[0]['lat']), float(data[0]['lon']))
+                _geo_cache[klucz] = list(coords)
+                # Zapis cache TYLKO gdy zapisz_cache=True. Przy masowym
+                # geokodowaniu (setki punktów) zapisujemy raz na końcu —
+                # inaczej zapis całego pliku przy każdym punkcie zawiesza program.
+                if zapisz_cache:
+                    zapisz_geo_cache()
+                return coords
         except Exception: continue
+    # Serwer odpowiedział i nie zna tego adresu → zapamiętujemy to na stałe.
+    # Awaria sieci (żadnej odpowiedzi) zostaje tylko na czas tej sesji.
+    _geo_pytane.add(klucz)
+    if odpowiedz_serwera:
+        _zapamietaj_geo_brak(klucz)
     return STOLICE.get(woj, (52.23, 21.01))
 
 
-def zapisz_geo_cache():
-    """Zapisuje cache geolokalizacji na dysk (po masowym geokodowaniu)."""
+def zapisz_geo_cache(sciezka=None):
+    """Zapisuje pamięć geolokalizacji na dysk (po masowym geokodowaniu).
+    Zapis atomowy: plik tymczasowy → podmiana, poprzedni ląduje w .bak."""
     global _geo_cache
+    sciezka = sciezka or GEO_CACHE
     try:
-        with open(GEO_CACHE, 'w', encoding='utf-8') as f:
+        tmp = sciezka + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(_geo_cache, f, ensure_ascii=False, indent=2)
+        try:
+            if os.path.exists(sciezka):
+                os.replace(sciezka, sciezka + ".bak")
+        except Exception:
+            pass
+        os.replace(tmp, sciezka)
     except Exception:
         pass
 
@@ -6049,20 +6497,17 @@ def rozpoznaj_wojewodztwo(kod: str) -> str:
 
 def szacuj_delegacje(kwota: float, stawka: float, dni_robocze: int) -> dict:
     """Szybki szacunek BEZ uruchamiania pełnego algorytmu — zasila panel
-    podglądu na żywo. Zwraca przewidywany dystans, liczbę dni z wyjazdami
-    i średni dzienny przebieg. To przybliżenie oparte na tej samej fizyce
-    co silnik (dystans = kwota / stawka), nie na realnym doborze miast."""
+    podglądu na żywo. Ten sam model co silnik: najpierw dokumenty (kwota przez
+    sufit dokumentu), potem dni wewnątrz dokumentu (kwota dokumentu przez
+    pojemność doby), nie realny dobór miast."""
     if stawka <= 0 or dni_robocze <= 0:
         return {"km": 0, "dni_wyjazdowe": 0, "km_dzien": 0, "dokumenty": 0}
-    km_total = kwota / stawka
-    # Realny mnożnik krzywizny dróg (jak w silniku fizyki)
-    km_real = km_total
-    # średnio ~120 km przejazdu liniowego na dzień wyjazdowy (limit czasowy 8h)
-    sredni_dzien_km = 115.0
-    dni_wyjazdowe = max(1, min(dni_robocze, round(km_real / sredni_dzien_km)))
+    km_real = kwota / stawka
+    dokumenty = ile_dokumentow(kwota)
+    sufit_dnia = max(pojemnosc_dnia_zl(POSTOJE_TYPOWE, stawka), MIN_KWOTA)
+    dni_w_dokumencie = max(1, math.ceil((kwota / dokumenty - 0.005) / sufit_dnia))
+    dni_wyjazdowe = max(1, min(dni_robocze, dokumenty * dni_w_dokumencie))
     km_dzien = km_real / dni_wyjazdowe if dni_wyjazdowe else 0
-    # dokumenty: limit ~597 zł na dokument
-    dokumenty = max(1, math.ceil(kwota / MAX_KWOTA_DOKUMENTU))
     return {
         "km": round(km_real),
         "dni_wyjazdowe": dni_wyjazdowe,
@@ -6115,6 +6560,8 @@ class ListaTras(list):
 
 def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None) -> List[DzienTrasy]:
     if stawka is None: stawka = STAWKA_ZA_KM
+    # jedno rozliczenie = jeden stan źródła odległości
+    zeruj_zrodlo_odleglosci()
     seed_val = int(pesel[-6:]) if pesel.isdigit() and len(pesel) >= 6 else 42
     rng = random.Random(seed_val)
     baza = zaladuj_baze(baza_lat, baza_lng)
@@ -6177,32 +6624,43 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     else:
         cooldown_dni = 8
 
-    # Ile dni wyjazdowych chcemy w miesiącu? Zależnie od kwoty — ale rozłożonych
-    # RÓWNOMIERNIE na cały miesiąc, nie skupionych na początku. Celujemy w tyle
-    # dni, ile realnie potrzeba, by trasy pokryły kwotę bez naciągania km.
-    # === ILE DNI? Zasada: rozpisuj REALNE trasy, aż wyczerpiesz budżet. ===
-    # Typowy dzień daje ~115 km realnych (pętla "po drodze" w granicach 8h).
-    # Bierzemy tyle dni, ile potrzeba, by realnymi trasami pokryć kwotę — bez
-    # napompowywania odcinków. Górny limit to liczba dni roboczych w miesiącu.
-    # Szacunek km/dzień celowo OSTROŻNY (90, nie 115): realne trasy drogowe z
-    # internetu (OSRM) są dłuższe niż linia prosta, więc dzień pokrywa mniej
-    # budżetu, niż wynikałoby z prostego szacunku. Niższa wartość => więcej dni
-    # => drobniejsze, bardziej realne trasy i ZAPAS na pełne pokrycie kwoty.
-    _km_na_dzien_szac = 90.0
-    _dni_z_km = math.ceil(cel_calkowity_dystans / _km_na_dzien_szac)
-    # żaden dzień nie może przekroczyć limitu delegacji (~587 zł)
-    _dni_z_limitu = math.ceil((kwota_calkowita / (MAX_KWOTA_DNIA * 0.85)))
-    _dni_potrzeba = max(3, _dni_z_km, _dni_z_limitu)
-    # GÓRNY limit liczby dni: dzień musi udźwignąć co najmniej ~110 zł realnie,
-    # inaczej przy zbyt wielu dniach nie da się ścisnąć tras do budżetu (dolny
-    # próg mnożnika 0.5) i suma WYSZŁABY ZA WYSOKA. Ten limit trzyma dzienną
-    # kwotę w realnym przedziale i chroni przed przekroczeniem budżetu.
-    _dni_max_dla_kwoty = max(3, math.floor(kwota_calkowita / 110.0))
-    _dni_potrzeba = min(_dni_potrzeba, _dni_max_dla_kwoty)
+    # === NAJPIERW DOKUMENTY, POTEM DNI ===
+    # Sufit MAX_KWOTA_DOKUMENTU (986,34 zł) dotyczy JEDNEGO polecenia wyjazdu,
+    # a jedno polecenie obejmuje kilka dni. Kolejność rachunku:
+    #   1) ile dokumentów  → sufit z kwoty podzielonej przez sufit dokumentu,
+    #   2) ile dni w dokumencie → kwota dokumentu podzielona przez pojemność
+    #      doby (posiłek + jazda + postoje — pojemnosc_dnia_zl, ten sam rachunek
+    #      co weryfikacja czasowa dnia niżej),
+    #   3) dokument nie może przekroczyć liczby wierszy strony A4 — jeśli dni
+    #      się na niej nie mieszczą, dokumentów musi być więcej.
+    # Dzień planujemy na PEŁNĄ pojemność doby — tylko wtedy dni dzielą kwotę
+    # dokumentu tak, żeby dokument dobijał do sufitu, a nie zostawał w połowie.
+    # Gdy realne trasy wyjdą krótsze, pętla budowania dni niżej dokłada dni.
+    _sufit_dnia_zl = max(pojemnosc_dnia_zl(POSTOJE_TYPOWE, stawka), MIN_KWOTA)
+    _dni_z_wierszy = max(1, MAX_ETAPOW_DOKUMENTU // (POSTOJE_TYPOWE + 1))
+    _dok_potrzeba = ile_dokumentow(kwota_calkowita)
+    _dni_w_dokumencie = max(1, math.ceil((kwota_calkowita / _dok_potrzeba - 0.005) / _sufit_dnia_zl))
+    if _dni_w_dokumencie > _dni_z_wierszy:
+        _dni_w_dokumencie = _dni_z_wierszy
+        _dok_potrzeba = max(_dok_potrzeba,
+                            math.ceil((kwota_calkowita - 0.005)
+                                      / (_dni_w_dokumencie * _sufit_dnia_zl)))
+    _dni_z_planu = max(1, _dok_potrzeba * _dni_w_dokumencie)
+    # Dolny próg trzech dni jak dotąd: przy małych kwotach silnik rozpisuje
+    # kilka dni i zostawia najkrótszy (przycinanie niżej), bo pojedynczy długi
+    # dzień nie zmieściłby się w kwocie bez ściskania odcinków poniżej drogi.
+    _dni_potrzeba = max(3, _dni_z_planu)
     # Jeśli potrzeba więcej dni niż jest w miesiącu — bierzemy WSZYSTKIE dostępne
     # i sygnalizujemy, że kwota może się nie zmieścić (komunikat po generacji).
     _brak_dni_na_kwote = _dni_potrzeba > len(dni_robocze)
     _dni_potrzeba = min(len(dni_robocze), _dni_potrzeba)
+    # ZAPAS DO WYBORU: gdy plan przewiduje więcej niż jeden dzień, rozpisujemy
+    # dwa dni ponad plan. Przycinanie niżej zdejmuje NAJDŁUŻSZE dni, więc
+    # w dokumentach zostają te krótsze — równiejsze i z zapasem godzin, dzięki
+    # czemu kwota dobija co do grosza także tam, gdzie miejscowości są rzadko
+    # rozsiane. Przy kwocie na jeden dzień zapasu nie ma: liczą się wtedy
+    # same trzy dni progu, z których zostaje najkrótszy.
+    _dni_budowane = min(len(dni_robocze), _dni_potrzeba + (2 if _dni_z_planu > 1 else 0))
     # Wybierz dni rozłożone równomiernie przez cały miesiąc (nie po kolei z początku).
     if _dni_potrzeba >= len(dni_robocze):
         dni_wybrane = list(range(len(dni_robocze)))
@@ -6236,17 +6694,25 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         wolne = LIMIT_CZASU_MINUTY - postoje
         if wolne <= 0 or km <= 0:
             return 0.0
-        return min((wolne / 60.0) * SREDNIA_PREDKOSC, km * 4.0)
+        mozliwe = (wolne / 60.0) * SREDNIA_PREDKOSC
+        # Po wyznaczeniu tras drogowych odcinki urosną z linii prostej do drogi
+        # (TEST_MNOZNIK_TRASY), a dzień musi się zmieścić w dobie jeszcze przy
+        # dolnym progu MNOZNIK_MIN. Dzień, który tego nie przejdzie, i tak
+        # wypadnie przy przycinaniu — więc nie wnosi pojemności i silnik dokłada
+        # w jego miejsce kolejny dzień.
+        if mozliwe < km * TEST_MNOZNIK_TRASY * MNOZNIK_MIN:
+            return 0.0
+        return min(mozliwe, km * 4.0)
 
     for _poz, numer_dnia in enumerate(kolejnosc_dni):
-        if (len(finalne_dni) >= _dni_potrzeba
+        if (len(finalne_dni) >= _dni_budowane
                 and _pojemnosc_km >= _cel_km_z_zapasem):
             break            # dość dni ORAZ pojemności na całą kwotę
         data = dni_robocze[numer_dnia]
         # Mianownik liczony na bieżąco: gdy realne trasy wyjdą krótsze od
         # szacunku, silnik dokłada dni ponad _dni_potrzeba — pasek pokazywał
         # wtedy „Dzień 15/12".
-        _ile_dni_pokaz = max(_dni_potrzeba, len(finalne_dni) + 1)
+        _ile_dni_pokaz = max(_dni_budowane, len(finalne_dni) + 1)
         if postep_cb: postep_cb(f"Klastrowanie GPS (Dzień {len(finalne_dni)+1}/{_ile_dni_pokaz})...", 0.30 + (_poz / max(len(kolejnosc_dni),1)) * 0.40)
 
         # W rzadkich rejonach (przygranicze) stare filtry "ucieczki od stolicy"
@@ -6603,7 +7069,9 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             if km_droga and km_droga > 0:
                 e.d_line = km_droga
         except Exception:
-            pass  # zostaje linia prosta — bezpieczny fallback
+            # zostaje linia prosta — ale NIE PO CICHU: to szacunek i tak
+            # ma być pokazany w interfejsie oraz na dokumencie
+            _odnotuj_zrodlo(ZRODLO_SZACUNEK)
     _zapisz_road_cache()
 
     suma_linii = max(sum(e.d_line for e in wszystkie_surowe), 1.0)
@@ -6632,12 +7100,17 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # WŁASNEGO sufitu ośmiu godzin, a brakujące kilometry dolewamy tam,
     # gdzie został zapas.
     def _mnoznik_max_dnia(dzien):
+        """Do ilu można rozciągnąć dzień: tyle, ile zostaje godzin po postojach
+        i posiłku (FIZYKA doby), i nie więcej niż regulaminowy sufit dnia.
+        Dolną granicą zostaje realna droga (MNOZNIK_MIN)."""
         baza_km = sum(e.d_line for e in dzien.etapy_surowe)
         postoje = sum((e.czas_w_sklepie or 0) for e in dzien.etapy_surowe) + PRZERWA_JEDZENIE_MIN
         dostepne = LIMIT_CZASU_MINUTY - postoje
         if dostepne <= 0 or baza_km <= 0:
             return MNOZNIK_MIN, baza_km
-        return max(MNOZNIK_MIN, (dostepne / 60) * SREDNIA_PREDKOSC / baza_km), baza_km
+        _z_godzin = (dostepne / 60) * SREDNIA_PREDKOSC / baza_km
+        _z_limitu_dnia = (MAX_KWOTA_DNIA / stawka) / baza_km
+        return max(MNOZNIK_MIN, min(_z_godzin, _z_limitu_dnia)), baza_km
 
     # ── DROGA NIGDY KRÓTSZA NIŻ LINIA PROSTA ─────────────────────────
     # Dotąd mnożnik mógł spaść do 0,3: przy małej kwocie (albo po prostu
@@ -6664,13 +7137,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     def _km_odcinka(la1, lg1, la2, lg2):
         """Odcinek dobudowany po przycięciu liczy się TAK SAMO jak reszta:
         realna droga z pamięci podręcznej albo linia prosta × krętość. Sama
-        linia prosta dawała mu zaniżone kilometry względem sąsiadów."""
+        linia prosta dawała mu zaniżone kilometry względem sąsiadów.
+        Klucz pamięci obejmuje oba kierunki, więc dzień jadący pętlę w drugą
+        stronę trafia na tę samą drogę bez dodatkowego zapytania."""
         try:
-            # klucz pamięci jest kierunkowy — dzień jadący pętlę w odwrotną
-            # stronę korzysta z tej samej drogi zapisanej w drugą stronę
-            _kl = f"{la2:.4f},{lg2:.4f};{la1:.4f},{lg1:.4f}"
-            if _kl in _road_cache and _road_cache[_kl] > 0:
-                return _road_cache[_kl]
             km = dystans_drogowy(la1, lg1, la2, lg2, tylko_cache=True)
             if km and km > 0:
                 return km
@@ -6756,11 +7226,28 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             finalne_dni.remove(_dz)              # dwa postoje i nadal za daleko
             _dni_przyciete += 1
 
-    # 1) za dużo dni na tę kwotę: odpadają najdłuższe
+    def _moc_dnia(dz):
+        """Ile kilometrów dzień UDŹWIGNIE: tyle, ile zostaje godzin po postojach
+        i posiłku. Dzień, który nie mieści się w dobie przy realnej drodze,
+        nie udźwignie nic — i tak wypadnie."""
+        _s = _sufit_surowy(dz)
+        return _linia_dnia(dz) * _s if _s >= MNOZNIK_MIN else 0.0
+
+    # 1) za dużo kilometrów na tę kwotę: odpadają najdłuższe dni. Dzień
+    #    zdejmujemy jednak tylko wtedy, gdy reszta dni NADAL udźwignie kwotę;
+    #    inaczej najdłuższy dzień tracił postój (mniej kilometrów, dzień
+    #    zostaje), bo po zdjęciu całego dnia kwoty nie dałoby się już
+    #    wyjeździć — a to ona jest tu punktem odniesienia.
     while len(finalne_dni) > 1 and _linia_wszystkich() * MNOZNIK_MIN > wymagany_dystans_calkowity + 0.5:
         _najdluzszy = max(finalne_dni, key=lambda dz: (_linia_dnia(dz), -len(dz.etapy_surowe)))
-        finalne_dni.remove(_najdluzszy)
-        _dni_przyciete += 1
+        _moc_reszty = sum(_moc_dnia(_dz) for _dz in finalne_dni if _dz is not _najdluzszy)
+        if _moc_reszty >= wymagany_dystans_calkowity:
+            finalne_dni.remove(_najdluzszy)
+            _dni_przyciete += 1
+        elif len(_najdluzszy.etapy_surowe) - 1 > 2 and _zdejmij_ostatni_postoj(_najdluzszy):
+            _postoje_przyciete += 1
+        else:
+            break
 
     # 2) jeden dzień i nadal za długi: mniej postojów
     if len(finalne_dni) == 1:
@@ -6773,6 +7260,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         mn_max, baza_km = _mnoznik_max_dnia(dzien)
         _dane_dni.append({"dzien": dzien, "max": mn_max, "km": baza_km, "mn": MNOZNIK_MIN})
 
+    # Wszystkie dni rozciągamy TYM SAMYM mnożnikiem — kilometry tego samego
+    # odcinka nie mogą zależeć od tego, w którym dniu wypadł. Dzień, któremu
+    # zabraknie godzin, zatrzymuje się na swoim suficie (x["max"]), a brakujące
+    # kilometry dolewamy tam, gdzie zapas jeszcze został.
     _suma_km_bazowa = max(sum(x["km"] for x in _dane_dni), 1.0)
     _cel = wymagany_dystans_calkowity
     _mn_start = max(MNOZNIK_MIN, _cel / _suma_km_bazowa)
@@ -6954,6 +7445,7 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
             <div class="header">
                 <h1>Wykaz Tras Geograficznych - {pracownik.imie}</h1>
                 <p>Miesiąc: {miesiac_slownie} {rok}</p>
+                <p>Odległości: {etykieta_zrodla_odleglosci()}</p>
             </div>
     """
     # Baza (dom pracownika) to START i KONIEC każdej trasy. Przekazujemy pełny
@@ -7035,21 +7527,69 @@ class PDFReport(FPDF):
             except: pass
     def header(self): pass
 
-def _podziel_na_dokumenty(dni: List[DzienTrasy]) -> List[List[DzienTrasy]]:
+def _wypelnij_do_sufitu(dni: List[DzienTrasy]) -> List[List[DzienTrasy]]:
+    """Kolejne dni pakowane do dokumentu aż po sufit kwoty i wierszy strony.
+    Używane dla dni bez przydziału z silnika (np. delegacja z planu wizyt)
+    oraz jako twarda kontrola grup, które przyszły z silnika."""
     docs, obecny, koszt, etapy = [], [], 0.0, 0
     for d in dni:
         e = len(d.etapy)
-        if (koszt + d.suma > MAX_KWOTA_DOKUMENTU
+        if (koszt + d.suma > MAX_KWOTA_DOKUMENTU + 0.005
                 or etapy + e > MAX_ETAPOW_DOKUMENTU) and obecny:
             docs.append(obecny); obecny, koszt, etapy = [d], d.suma, e
         else: obecny.append(d); koszt += d.suma; etapy += e
     if obecny: docs.append(obecny)
     return docs
 
-def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesiac: int, rok: int, folder: str, stawka: float = None, postep_callback=None) -> List[dict]:
+def _podziel_na_dokumenty(dni: List[DzienTrasy]) -> List[List[DzienTrasy]]:
+    """Dni → polecenia wyjazdu. Sufit 986,34 zł dotyczy DOKUMENTU, nie dnia —
+    jeden dokument obejmuje kilka dni.
+
+    Liczba dokumentów wynika z kwoty: bierzemy NAJMNIEJSZĄ, jaka mieści dni pod
+    sufitem kwoty i na stronach A4 (pakowanie do sufitu jest tu podziałem
+    optymalnym). Przy dniach rozpisanych przez silnik wychodzi z tego dokładnie
+    sufit z kwoty przez sufit dokumentu. Kwotę rozkładamy potem na te dokumenty
+    równo — dokument zamykamy, gdy kolejny dzień oddalałby go od jego części
+    kwoty, ale tylko wtedy, gdy reszta dni nadal mieści się w pozostałych
+    dokumentach. Dzięki temu dokumentów nie przybywa, a ostatni nie zostaje
+    z resztką. Każdy dzień dostaje numer swojego dokumentu."""
+    dni = list(dni)
+    if not dni:
+        return []
+    ile = len(_wypelnij_do_sufitu(dni))          # najmniejsza możliwa liczba
+    docs, poz = [], 0
+    while poz < len(dni):
+        zostalo_dok = ile - len(docs)
+        if zostalo_dok <= 1:
+            docs.extend(_wypelnij_do_sufitu(dni[poz:]))
+            break
+        reszta = dni[poz:]
+        cel = sum(d.suma for d in reszta) / zostalo_dok
+        koszt, etapy, ile_dni = 0.0, 0, 0
+        for i, d in enumerate(reszta):
+            e = len(d.etapy)
+            if ile_dni and (koszt + d.suma > MAX_KWOTA_DOKUMENTU + 0.005
+                            or etapy + e > MAX_ETAPOW_DOKUMENTU):
+                break
+            if (ile_dni and abs(koszt + d.suma - cel) > abs(koszt - cel)
+                    and len(_wypelnij_do_sufitu(reszta[i:])) <= zostalo_dok - 1):
+                break
+            koszt += d.suma; etapy += e; ile_dni += 1
+        docs.append(dni[poz:poz + ile_dni])
+        poz += ile_dni
+    for nr, doc in enumerate(docs, start=1):
+        for d in doc:
+            d.dokument = nr
+    return docs
+
+def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesiac: int, rok: int, folder: str, stawka: float = None, postep_callback=None, zrodlo: dict = None) -> List[dict]:
     if FPDF_BLAD:
         raise ValueError(_opis_bledu_pdf())
     if stawka is None: stawka = STAWKA_ZA_KM
+    # Skąd wzięły się kilometry — to stoi na dokumencie, bo od tego zależy,
+    # czy podane odległości są realne.
+    if zrodlo is None: zrodlo = stan_zrodla_odleglosci()
+    zrodlo_txt = "Odległości: %s" % zrodlo.get("etykieta", ETYKIETY_ZRODLA[ZRODLO_DROGI])
     os.makedirs(folder, exist_ok=True)
     ms = MIESIACE_PL[miesiac - 1]
     # Gwarancja chronologii: dni zawsze rosnąco wg daty, ZANIM podzielimy je na
@@ -7079,7 +7619,8 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"adres zamieszkania",border=0,align='C'); pdf.cell(95,3,"przełożony",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'B',8); pdf.cell(95,5,"projekt: Biedronka, Dino, Eurocash, Społem, Stokrotka, Żabka",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"cel wyjazdu - Projekt",border=0,new_x="LMARGIN",new_y="NEXT",align='C'); pdf.ln(3)
-        pdf.set_font("Arial",'B',10); pdf.cell(0,5,"Rozliczenie kosztów podróży",new_x="LMARGIN",new_y="NEXT")
+        pdf.set_font("Arial",'B',10); pdf.cell(120,5,"Rozliczenie kosztów podróży",border=0)
+        pdf.set_font("Arial",'',7); pdf.cell(70,5,zrodlo_txt,border=0,new_x="LMARGIN",new_y="NEXT",align='R')
         pdf.set_font("Arial",'B',8); pdf.cell(65,4,"WYJAZD",border=1,align='C'); pdf.cell(65,4,"PRZYJAZD",border=1,align='C')
         y_s = pdf.get_y(); pdf.cell(35,8,"Środki lokomocji",border=1,align='C'); pdf.cell(25,8,"Koszty",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_y(y_s+4)
@@ -7119,7 +7660,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf.set_font("Arial",'B',10); pdf.cell(0,5,firma_nazwa,new_x="LMARGIN",new_y="NEXT")
     pdf.set_font("Arial",'',10); pdf.cell(0,5,"ul. Ptasia 10, 60-319 Poznań",new_x="LMARGIN",new_y="NEXT"); pdf.cell(0,5,nip_krotki,new_x="LMARGIN",new_y="NEXT"); pdf.ln(5)
     pdf.set_font("Arial",'B',12); pdf.cell(0,8,f"Rozliczenie wydatków za miesiąc: {ms} {rok}r.",new_x="LMARGIN",new_y="NEXT"); pdf.ln(2)
-    for lbl,val in [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie)))]:
+    for lbl,val in [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie))),("Odległości:",zrodlo.get("etykieta", ETYKIETY_ZRODLA[ZRODLO_DROGI]))]:
         pdf.set_font("Arial",'B',9); pdf.cell(50,6,lbl,border=0); pdf.set_font("Arial",'',9); pdf.cell(140,6,val,border=0,new_x="LMARGIN",new_y="NEXT")
     pdf.ln(5); pdf.set_font("Arial",'B',9)
     for sz,t in [(10,"Lp."),(80,"Dokument"),(70,"Opis"),(30,"Kwota brutto")]: pdf.cell(sz,8,t,border=1,align='C')
@@ -7150,6 +7691,29 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
 def log_error(exc: Exception):
     os.makedirs(LOGS_DIR, exist_ok=True)
     with open(LOG_FILE, 'a', encoding='utf-8') as f: f.write(f"\n{'='*60}\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{traceback.format_exc()}")
+
+class OdcinkiThread(QThread):
+    """Liczy z góry odległości wszystkich odcinków miesiąca i zostawia je
+    w pamięci podręcznej. Po tym generowanie nie czeka na sieć."""
+    postep = pyqtSignal(str, float)
+    gotowe = pyqtSignal(object)      # stan źródła odległości (dict)
+
+    def __init__(self, plan, baza_lat=None, baza_lng=None):
+        super().__init__()
+        self.plan = plan
+        self.baza_lat = baza_lat
+        self.baza_lng = baza_lng
+
+    def run(self):
+        try:
+            stan = przygotuj_odleglosci_planu(
+                self.plan, self.baza_lat, self.baza_lng,
+                lambda txt, v: self.postep.emit(txt, v))
+        except Exception as e:
+            log_error(e)
+            stan = stan_zrodla_odleglosci()
+        self.gotowe.emit(stan)
+
 
 class PlanerWizytThread(QThread):
     """Wątek planera wizyt: geokoduje punkty i układa plan w tle, żeby pasek
@@ -7183,7 +7747,7 @@ class PlanerWizytThread(QThread):
                     # odetnij kod pocztowy jeśli został
                     miasto = re.sub(r"^\d{2}-\d{3}\s*", "", miasto).strip()
                 coords = coords_z_miasta(miasto)
-                klucz = adres.lower().strip()
+                klucz = _klucz_geo(adres)
                 if klucz in _geo_cache:
                     lat, lng = tuple(_geo_cache[klucz])
                 elif coords:
@@ -7227,7 +7791,7 @@ class PlanerWizytThread(QThread):
                 miasto_b = self.adres_bazy.split(",")[-1].strip() if "," in self.adres_bazy else self.adres_bazy
                 miasto_b = re.sub(r"^\d{2}-\d{3}\s*", "", miasto_b).strip()
                 lat_b = lng_b = None
-                klucz_b = self.adres_bazy.lower().strip()
+                klucz_b = _klucz_geo(self.adres_bazy)
                 # 1) dokładny adres z cache (najlepszy)
                 if klucz_b in _geo_cache:
                     lat_b, lng_b = tuple(_geo_cache[klucz_b])
@@ -7274,6 +7838,7 @@ def dni_delegacji_z_planu(plan: dict, pracownik: DanePracownika, stawka: float,
     planu -> baza, z faktycznymi kilometrami DROGOWYMI (OSRM + cache,
     offline fallback). ZERO skalowania do kwoty - kwota kazdego etapu to
     realny dystans x stawka. Zwraca {(rok, mies): [DzienTrasy]}."""
+    zeruj_zrodlo_odleglosci()
     ust = ustawienia_planowania()
     predk = max(10.0, float(ust.get("predkosc") or PLAN_SREDNIA_PREDKOSC_KMH))
     czas_w = float(ust.get("czas_wizyty") or PLAN_CZAS_WIZYTY_MIN)
@@ -7305,7 +7870,8 @@ def dni_delegacji_z_planu(plan: dict, pracownik: DanePracownika, stawka: float,
             try:
                 km = dystans_drogowy(sk_lat, sk_lng, c_lat, c_lng)
             except Exception:
-                km = oblicz_dystans(sk_lat, sk_lng, c_lat, c_lng) * 1.3
+                _odnotuj_zrodlo(ZRODLO_SZACUNEK)
+                km = oblicz_dystans(sk_lat, sk_lng, c_lat, c_lng) * TEST_MNOZNIK_TRASY
             ostatni = (ci == len(cele) - 1)
             et.append(RawEtap(skad=sk_naz, dokad=c_naz, data_str=data_str,
                               d_line=max(float(km or 0.0), 0.1),
@@ -7339,15 +7905,44 @@ def dni_delegacji_z_planu(plan: dict, pracownik: DanePracownika, stawka: float,
     return grupy
 
 
+class PrzerwanoGenerowanie(BaseException):
+    """Użytkownik przerwał generowanie — to nie jest błąd programu.
+
+    Dziedziczy po BaseException, a nie po Exception, ŚWIADOMIE: leci przez
+    wnętrze generuj_trasy, gdzie po drodze stoi niejeden „except Exception".
+    Przerwanie ma dojść do końca, a nie zostać po cichu połknięte i zamienić
+    się w połowiczny wynik."""
+
+
 class GeneratorThread(QThread):
     postep = pyqtSignal(str, float)
     sukces = pyqtSignal(list, object, str)
     blad   = pyqtSignal(str)
+    anulowano = pyqtSignal()
     def __init__(self, params: dict):
         super().__init__(); self.params = params
+        self._zrodlo = stan_zrodla_odleglosci()
+        # Po tym punkcie przerywanie jest wyłączone: od chwili, gdy zaczynamy
+        # rysować PDF-y, zatrzymanie zostawiłoby użytkownikowi niepełny komplet.
+        self._punkt_bez_powrotu = False
+        # Własna flaga OBOK mechanizmu Qt: requestInterruption() nie działa na
+        # wątku, który jeszcze nie ruszył, a przerwanie tuż po starcie ma być
+        # równie skuteczne jak w połowie pracy.
+        self._przerwac = False
+    def anuluj(self):
+        """Przerwanie na najbliższym meldunku postępu. Dokumenty powstają na
+        samym końcu, więc przerwane generowanie nie zostawia ani jednego pliku."""
+        self._przerwac = True
+        self.requestInterruption()
+    def _sprawdz_przerwanie(self):
+        if self._punkt_bez_powrotu:
+            return
+        if self._przerwac or self.isInterruptionRequested():
+            raise PrzerwanoGenerowanie()
     def run(self):
         try:
             p = self.params
+            self._sprawdz_przerwanie()
             self.postep.emit("Pobieranie współrzędnych GPS...", 0.10)
             # Do geocodingu używamy 'adres_geo' — dla wsi to sama miejscowość
             # (np. "Dębowa Wola, 26-660 Jedlińsk"), nie fałszywa "ul." — dzięki
@@ -7357,9 +7952,13 @@ class GeneratorThread(QThread):
             pracownik = DanePracownika(imie=p['imie'], pesel=p['pesel'], adres=p['adres_caly'], stanowisko=p['stanowisko'], kod_pocztowy=p['kod_pocztowy'], baza_miasto=p['baza_miasto'], baza_lat=baza_lat, baza_lng=baza_lng, wojewodztwo=p['woj'])
             
             self.postep.emit("Generowanie tras...", 0.40)
-            def p_cb(txt, val): self.postep.emit(txt, val)
+            def p_cb(txt, val):
+                self._sprawdz_przerwanie()
+                self.postep.emit(txt, val)
             finalne_dni = generuj_trasy(p['kwota_cel'], p['baza_miasto'], baza_lat, baza_lng, p['woj'], p['dni_robocze'], p['pesel'], p.get('stawka', STAWKA_ZA_KM), p_cb)
 
+            # Skąd wzięły się kilometry — stan dla interfejsu i dokumentu
+            self._zrodlo = stan_zrodla_odleglosci()
             # Czy realnymi trasami udało się pokryć żądaną kwotę? (info dla UI)
             self._kwota_niepelna = getattr(finalne_dni, 'kwota_niepelna', False)
             self._kwota_za_mala = getattr(finalne_dni, 'kwota_za_mala', False)
@@ -7377,14 +7976,18 @@ class GeneratorThread(QThread):
                     "Żaden dokument nie został utworzony.")
                 return
 
+            self._sprawdz_przerwanie()
+            self._punkt_bez_powrotu = True     # dalej już tylko pliki na dysku
             self.postep.emit("Rysowanie dokumentów PDF...", 0.85)
             folder = os.path.join(sciezka_pulpitu(), f"Rozliczenie_{pracownik.imie.replace(' ','_')}_{p['miesiac_slownie']}_{p['rok']}r")
-            generuj_pdfy(finalne_dni, pracownik, p['miesiac'], p['rok'], folder, p.get('stawka', STAWKA_ZA_KM), p_cb)
+            generuj_pdfy(finalne_dni, pracownik, p['miesiac'], p['rok'], folder, p.get('stawka', STAWKA_ZA_KM), p_cb, zrodlo=self._zrodlo)
             
             self.postep.emit("Generowanie podglądu tras HTML...", 0.95)
             generuj_mape_html(finalne_dni, pracownik, p['miesiac_slownie'], p['rok'], folder, p.get('is_dark', True))
             
             self.sukces.emit(finalne_dni, pracownik, folder)
+        except PrzerwanoGenerowanie:
+            self.anulowano.emit()
         except Exception as e:
             log_error(e); self.blad.emit(str(e))
 
@@ -7399,6 +8002,7 @@ class DelegacjaZPlanuThread(QThread):
         super().__init__()
         self.plan = plan
         self.params = params
+        self._zrodlo = stan_zrodla_odleglosci()
 
     def run(self):
         try:
@@ -7420,6 +8024,7 @@ class DelegacjaZPlanuThread(QThread):
             if not grupy:
                 raise ValueError("Plan nie zawiera dni ze zgeokodowanymi punktami.\n"
                                  "Sprawdz w Planie Wizyt liste 'bez pozycji'.")
+            self._zrodlo = stan_zrodla_odleglosci()
             foldery = []
             suma = 0.0
             ile = 0
@@ -7433,7 +8038,8 @@ class DelegacjaZPlanuThread(QThread):
                 self.postep.emit("Dokumenty PDF: %s %d (%d/%d)..." % (ms, rok, gi, n_g),
                                  0.72 + 0.20 * gi / n_g)
                 generuj_pdfy(dni, pracownik, mies, rok, folder,
-                             p.get('stawka', STAWKA_ZA_KM), cb)
+                             p.get('stawka', STAWKA_ZA_KM), cb,
+                             zrodlo=self._zrodlo)
                 generuj_mape_html(dni, pracownik, ms, rok, folder,
                                   p.get('is_dark', True))
                 foldery.append(folder)
@@ -9341,6 +9947,13 @@ class PlanerOverlay(QFrame):
         self.lbl_ustaw_skrot.setWordWrap(True)
         poo.addWidget(self.lbl_ustaw_skrot)
 
+        # Odcinki miesiąca policzone Z GÓRY — generowanie nie czeka wtedy na sieć.
+        self.btn_odcinki = QPushButton("🛣  Policz odcinki miesiąca")
+        self.btn_odcinki.setFixedHeight(32)
+        self.btn_odcinki.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_odcinki.clicked.connect(self._policz_odcinki)
+        poo.addWidget(self.btn_odcinki)
+
         self._sep_opcje = QFrame(); self._sep_opcje.setFixedHeight(1)
         poo.addWidget(self._sep_opcje)
 
@@ -9891,7 +10504,53 @@ class PlanerOverlay(QFrame):
                f"{UP['predkosc']:.0f} km/h")
         if UP["powrot"]:
             txt += " · z powrotem do bazy"
+        txt += " · %s" % ("Google" if google_klucz() else "OSRM")
+        _st = stan_zrodla_odleglosci()
+        if _st.get("odcinki"):
+            txt += " · %s" % _st.get("etykieta", "")
         self.lbl_ustaw_skrot.setText(txt)
+
+    def _wspolrzedne_bazy_planera(self):
+        """Współrzędne adresu z pola „Startuję z:" — bez pytania serwera."""
+        adres_b = (self.pole_baza.text() or "").strip()
+        if not adres_b:
+            return None, None
+        klucz_b = _klucz_geo(adres_b)
+        if klucz_b in _geo_cache:
+            lat_b, lng_b = tuple(_geo_cache[klucz_b])
+            return lat_b, lng_b
+        miasto_b = adres_b.split(",")[-1].strip() if "," in adres_b else adres_b
+        miasto_b = re.sub(r"^\d{2}-\d{3}\s*", "", miasto_b).strip()
+        c = coords_z_miasta(miasto_b)
+        return (c[0], c[1]) if c else (None, None)
+
+    def _policz_odcinki(self):
+        """Liczy z góry odległości WSZYSTKICH odcinków zapisanego planu."""
+        watek = getattr(self, "_watek_odcinki", None)
+        if watek is not None and watek.isRunning():
+            return
+        plan = wczytaj_plan()
+        if not plan or not (plan.get("dni") or []):
+            if self._on_toast:
+                self._on_toast("Brak planu", "Najpierw ułóż plan wizyt.")
+            return
+        lat_b, lng_b = self._wspolrzedne_bazy_planera()
+        self.btn_odcinki.setEnabled(False)
+        self._watek_odcinki = OdcinkiThread(plan, lat_b, lng_b)
+        self._watek_odcinki.postep.connect(
+            lambda txt, _v: self.btn_odcinki.setText("🛣  %s" % txt))
+        self._watek_odcinki.gotowe.connect(self._odcinki_gotowe)
+        self._watek_odcinki.start()
+
+    def _odcinki_gotowe(self, stan):
+        self.btn_odcinki.setEnabled(True)
+        self.btn_odcinki.setText("🛣  Policz odcinki miesiąca")
+        self._odswiez_skrot_opcji()
+        if self._on_toast:
+            stan = stan or {}
+            self._on_toast(
+                "Odcinki policzone",
+                "%d · %s" % (stan.get("odcinki", 0), stan.get("etykieta", "")))
 
     def _otworz_ustawienia(self):
         """Godziny pracy, czas wizyty, prędkość, powrót do bazy."""
@@ -10078,10 +10737,13 @@ class PlanerOverlay(QFrame):
 
         self.lbl_baza.setStyleSheet(
             f"color:{txt}; font-family:'Segoe UI'; font-size:11px; font-weight:600; background:transparent;")
-        self.btn_ustawienia.setStyleSheet(
+        _btn_ust_css = (
             f"QPushButton {{ color:{akcent}; background:transparent; border:1px solid {ramka}; border-radius:9px; "
             f"padding:0 14px; font-family:'Segoe UI'; font-size:11px; font-weight:600; }} "
-            f"QPushButton:hover {{ border-color:{akcent}; }}")
+            f"QPushButton:hover {{ border-color:{akcent}; }} "
+            f"QPushButton:disabled {{ color:{txt_mut}; border-color:{ramka}; }}")
+        self.btn_ustawienia.setStyleSheet(_btn_ust_css)
+        self.btn_odcinki.setStyleSheet(_btn_ust_css)
         # cykliczność
         self.chk_tylko_widoczne.setStyleSheet(
             f"QCheckBox {{ color:{txt}; font-family:'Segoe UI'; font-size:11px; font-weight:600; background:transparent; spacing:8px; }} "
@@ -12918,6 +13580,27 @@ class DialogUstawieniaPlanowania(QDialog):
         bl.addWidget(lp)
         bl.addSpacing(14)
 
+        # KLUCZ GOOGLE — nieobowiązkowy. Pusty = źródło bezpłatne (OSRM).
+        lg = QLabel("Klucz Google Maps")
+        lg.setStyleSheet(f"color:{txt}; font-family:'Segoe UI'; font-size:12px; font-weight:700; background:transparent;")
+        bl.addWidget(lg)
+        self.pole_google = QLineEdit()
+        self.pole_google.setFixedHeight(32)
+        self.pole_google.setEchoMode(QLineEdit.EchoMode.Password)
+        self.pole_google.setText(str(ustawienie(GOOGLE_KLUCZ_USTAWIENIE, "") or ""))
+        self.pole_google.setStyleSheet(
+            f"QLineEdit {{ color:{txt}; background:{pole}; border:1px solid {ramka}; "
+            f"border-radius:8px; padding:0 10px; font-family:'Segoe UI'; font-size:12px; }}")
+        bl.addWidget(self.pole_google)
+        _zm = os.environ.get(GOOGLE_KLUCZ_ENV) or os.environ.get(GOOGLE_KLUCZ_ENV_ALT)
+        self.lbl_google = QLabel(
+            ("zmienna %s — pierwszeństwo" % GOOGLE_KLUCZ_ENV) if _zm
+            else ("klucz zapisany · odległości z Google" if google_klucz()
+                  else "bez klucza · odległości z OSRM"))
+        self.lbl_google.setStyleSheet(f"color:{mut}; font-family:'Segoe UI'; font-size:10px; background:transparent;")
+        bl.addWidget(self.lbl_google)
+        bl.addSpacing(14)
+
         akcje = QHBoxLayout(); akcje.setSpacing(10)
         b_dom = QPushButton("Przywróć domyślne"); b_dom.setFixedHeight(36)
         b_dom.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -12951,6 +13634,7 @@ class DialogUstawieniaPlanowania(QDialog):
         zapisz_ustawienie("plan_minuty_wizyta", int(self.s_wiz.value()))
         zapisz_ustawienie("plan_predkosc", int(self.s_pred.value()))
         zapisz_ustawienie("plan_powrot_do_bazy", bool(self.chk_powrot.isChecked()))
+        zapisz_ustawienie(GOOGLE_KLUCZ_USTAWIENIE, self.pole_google.text().strip())
         self._wynik = True
         self.accept()
 
@@ -19742,11 +20426,13 @@ class App(QMainWindow):
         except Exception:
             mies_ok = False
 
-        # Kwota realna? (mieści się w limicie dni * 260)
+        # Kwota realna? — ta sama granica co przy generowaniu:
+        # dni robocze × realny sufit dnia.
+        _stawka_pod = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
         kwota_ok = None
         if kwota_val is not None and kwota_val >= MIN_KWOTA:
             if dni_count > 0:
-                kwota_ok = kwota_val <= dni_count * 260.0
+                kwota_ok = kwota_val <= maks_kwota_miesiaca(dni_count, _stawka_pod)
             else:
                 kwota_ok = True
         elif kwota_val is not None:
@@ -19758,9 +20444,8 @@ class App(QMainWindow):
 
         # Szacunki (gdy jest kwota)
         if kwota_val and kwota_val >= MIN_KWOTA:
-            stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
             dni_baza = dni_count if dni_count > 0 else 21
-            sz = szacuj_delegacje(kwota_val, stawka, dni_baza)
+            sz = szacuj_delegacje(kwota_val, _stawka_pod, dni_baza)
             self.assistant.set_szacunki(sz['km'], sz['dni_wyjazdowe'], sz['km_dzien'], sz['dokumenty'])
         else:
             self.assistant.set_szacunki(0, 0, 0, 0)
@@ -20040,7 +20725,7 @@ class App(QMainWindow):
         baza = None
         adres_b = ustawienie_osobiste("adres_bazy", "").strip()
         if adres_b:
-            klucz_b = adres_b.lower().strip()
+            klucz_b = _klucz_geo(adres_b)
             lat_b = lng_b = None
             if klucz_b in _geo_cache:
                 lat_b, lng_b = tuple(_geo_cache[klucz_b])
@@ -21206,17 +21891,21 @@ class App(QMainWindow):
                 if not dni:
                     raise ValueError("Wyłączyłeś wszystkie dni w tym miesiącu.\n"
                                      "Odznacz przynajmniej jeden dzień.")
-            # Każdy dzień pracy = maksymalnie jeden limit delegacji (~587 zł).
-            # Górna granica kwoty to liczba dni roboczych × limit delegacji.
-            _max_kwota = len(dni) * MAX_KWOTA_DNIA
-            if kwota > _max_kwota:
-                raise ValueError(
-                    f"Kwota za wysoka na ten miesiąc.\n\n"
-                    f"Przy {len(dni)} dniach roboczych maksymalna kwota to "
-                    f"{_max_kwota:,.0f} zł (limit {MAX_KWOTA_DNIA:.2f} zł na dzień).\n"
-                    f"Zmniejsz kwotę lub wybierz miesiąc z większą liczbą dni.")
-
             stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
+            # Górna granica miesiąca: dni robocze × REALNY sufit dnia. Sufit
+            # dnia bierze się z fizyki doby (posiłek + jazda + postoje),
+            # przyciętej regulaminowym MAX_KWOTA_DNIA — nie z samego regulaminu.
+            _sufit_dnia = pojemnosc_dnia_zl(POSTOJE_TYPOWE, stawka)
+            _max_kwota = maks_kwota_miesiaca(len(dni), stawka)
+            if kwota > _max_kwota:
+                _zl = lambda _w: f"{_w:,.2f}".replace(",", " ").replace(".", ",")
+                raise ValueError(
+                    "Kwota za wysoka na ten miesiąc.\n\n"
+                    f"Dni robocze: {len(dni)}\n"
+                    f"Dzień: {_zl(_sufit_dnia)} zł "
+                    f"({LIMIT_CZASU_MINUTY // 60} h: posiłek, jazda, "
+                    f"{POSTOJE_TYPOWE} postojów)\n"
+                    f"Maksimum: {_zl(_max_kwota)} zł")
 
             # PUSTY PRZEŁOŻONY = pusta rubryka na KAŻDYM dokumencie, i to
             # widać dopiero po otwarciu PDF-a. Mówimy o tym PRZED generowaniem,
@@ -21341,7 +22030,7 @@ class App(QMainWindow):
                 "dokumenty": (len([_n for _n in os.listdir(folder)
                                    if _n.lower().startswith("delegacja_") and _n.lower().endswith(".pdf")])
                               if os.path.isdir(folder) else 0)
-                             or (math.ceil(suma / MAX_KWOTA_DOKUMENTU) if suma else 0),
+                             or (ile_dokumentow(suma) if suma else 0),
                 "km": round(km_total),
                 "miesiac": p['miesiac'],
                 "rok": p['rok'],
@@ -21360,6 +22049,17 @@ class App(QMainWindow):
 
     def _zakoncz_po_sukcesie(self, folder):
         self.reset_ui()
+        # STAN ŹRÓDŁA ODLEGŁOŚCI. Gdy choć jeden odcinek policzył szacunek,
+        # mówimy to wprost — zamiast pokazywać nierealne kilometry jak realne.
+        _zr = getattr(getattr(self, "_thread", None), "_zrodlo", None) or {}
+        if _zr.get("stan") == ZRODLO_SZACUNEK:
+            self.toast.show_toast(
+                "Odległości: szacunek",
+                "%d z %d odcinków."
+                % (_zr.get(ZRODLO_SZACUNEK, 0), _zr.get("odcinki", 0)),
+                success=False,
+                klik_akcja=(lambda f=folder: self._otworz_folder(f))
+            )
         # Jeśli realnymi trasami nie dało się pokryć pełnej kwoty (za wysoka na
         # ten miesiąc/rejon) — informujemy uczciwie, zamiast pompować trasy.
         if getattr(self, "_thread", None) and getattr(self._thread, "_kwota_niepelna", False):
@@ -21390,7 +22090,8 @@ class App(QMainWindow):
             # Toast KLIKALNY — kliknięcie otwiera folder bez dodatkowych okien
             self.toast.show_toast(
                 "PDF wygenerowany",
-                "Rozliczenie gotowe. Mapa tras otwarła się w przeglądarce.",
+                "Rozliczenie gotowe. Odległości: %s."
+                % _zr.get("etykieta", ETYKIETY_ZRODLA[ZRODLO_DROGI]),
                 success=True,
                 klik_akcja=(lambda f=folder: self._otworz_folder(f))
             )

@@ -10,6 +10,12 @@ z ruchem wskazówek zegara.
 Wszystkie ruchy chodzą na jednym zegarze Qt (bez dodatkowych bibliotek) i dają
 się zatrzymać metodą ``zatrzymaj_animacje()`` — dzięki temu zrzuty ekranu są
 powtarzalne, a okno zamyka się bez wiszących zegarów.
+
+Tor postępu mówi jednym językiem w każdym stanie: część przebyta to pełny łuk
+w barwie stanu z rampą jasności, część pozostała to widoczny rowek z drobną
+podziałką, a między nimi stoi CZOŁO — poprzeczka w poprzek rowka z punktem
+światła, dokładnie w miejscu, w którym praca stanęła. Odznaka stanu (ptaszek,
+krzyżyk, wykrzyknik, strzałka nawrotu) siada OBOK czoła, żeby go nie zasłonić.
 """
 import math
 
@@ -70,6 +76,7 @@ def _opis(klucz):
         _OPISY["gotowy"] = "%d dni · %s zł · realne drogi" % (dni, kwota)
         _OPISY["sukces"] = "%d dni · 2 dokumenty · %s zł" % (dni, kwota)
         _OPISY["ostrzezenie"] = "1 236 zł z %s zł" % kwota
+        _OPISY["ostrzezenie_glowny"] = "4 z %d dni" % dni
     return _OPISY.get(klucz, "")
 
 
@@ -85,9 +92,10 @@ def _podpisy_stanu(stan, etap, postep):
     if stan == "sukces":
         return "Otwórz dokumenty", _opis("sukces")
     if stan == "blad":
-        return "Nie udało się: brak adresu", "PDF × · stanęło na %d %%" % round(postep * 100)
+        # jedna linia: to podpis przycisku, nie zdanie — powód idzie do drugiej
+        return "Przerwane", "brak adresu · %d %%" % round(postep * 100)
     if stan == "ostrzezenie":
-        return "Kwota starczyła na 4 z 6 dni", _opis("ostrzezenie")
+        return _opis("ostrzezenie_glowny"), _opis("ostrzezenie")
     if stan == "zmieniono":
         return "Dane się zmieniły", "poprzednie: 14:02"
     return "", ""
@@ -103,14 +111,17 @@ _PODPOWIEDZI = {
     "zmieniono": "Dane się zmieniły — generuj ponownie",
 }
 
+# Druga linia zawsze w barwie stanu, tylko ciszej. Szary TEKST_3 pod czerwonym
+# albo bursztynowym kompasem gubił się w tle — podpis musi być czytelny w KAŻDYM
+# stanie, bo to jedyne miejsce, gdzie stoi liczba.
 _BARWY_PODPISU = {
-    "nieaktywny": (TEKST_2, TEKST_3),
+    "nieaktywny": (TEKST_2, z_alfa(TEKST_3, 225)),
     "gotowy": (TEKST, MIETA),
-    "praca": (TEKST, TEKST_3),
-    "sukces": (MIETA, TEKST_2),
-    "blad": (BLAD, TEKST_3),
-    "ostrzezenie": (BURSZTYN, z_alfa(BURSZTYN, 200)),
-    "zmieniono": (TEKST, TEKST_3),
+    "praca": (TEKST, z_alfa(CYJAN, 200)),
+    "sukces": (MIETA, z_alfa(MIETA, 190)),
+    "blad": (BLAD, z_alfa(BLAD, 195)),
+    "ostrzezenie": (BURSZTYN, z_alfa(BURSZTYN, 205)),
+    "zmieniono": (TEKST, z_alfa(CYJAN, 185)),
 }
 
 
@@ -349,13 +360,23 @@ class Kompas(QAbstractButton):
         r = QRectF(self.rect())
         podpis = self._tresc_podpisu()
         podpis2 = self._tresc_podpisu_dodatkowego()
-        czcionka_podpisu = czcionka(14, 650, naglowek=True)
         szer_tekstu = max(40.0, r.width() - 10.0)
+        # jeden wiersz mniejszą czcionką czyta się lepiej niż dwa wiersze większą
+        czcionka_podpisu = czcionka(14, 650, naglowek=True)
         wiersze = 0
+        wys_wiersza = 18.0
         if podpis:
-            fm = QFontMetricsF(czcionka_podpisu)
-            wiersze = 2 if fm.horizontalAdvance(podpis) > szer_tekstu else 1
-        wys_podpisu = (5.0 + wiersze * 18.0) if podpis else 0.0
+            for rozmiar in (14, 13, 12):
+                f = czcionka(rozmiar, 650, naglowek=True)
+                if QFontMetricsF(f).horizontalAdvance(podpis) <= szer_tekstu:
+                    czcionka_podpisu, wiersze = f, 1
+                    wys_wiersza = rozmiar + 4.0
+                    break
+            else:
+                czcionka_podpisu = czcionka(13, 650, naglowek=True)
+                wiersze, wys_wiersza = 2, 17.0
+        self._wys_wiersza = wys_wiersza
+        wys_podpisu = (5.0 + wiersze * wys_wiersza) if podpis else 0.0
         wys_podpisu2 = 17.0 if podpis2 else 0.0
         miejsce = wys_podpisu + wys_podpisu2
 
@@ -461,11 +482,13 @@ class Kompas(QAbstractButton):
         pierscien = pierscien.subtracted(dziura)
 
         g = QConicalGradient(srodek, 0.0)
-        przystanki = [(0.000, "#8494A6"), (0.050, "#3A4553"), (0.125, "#1F2833"),
-                      (0.230, "#7C8B9E"), (0.320, "#E9F1FA"), (0.375, "#FDFEFF"),
-                      (0.430, "#D2DEEC"), (0.520, "#6F7E90"), (0.625, "#1E2733"),
-                      (0.700, "#46525F"), (0.800, "#C3D0E0"), (0.875, "#FAFCFF"),
-                      (0.940, "#9AA8BA"), (1.000, "#8494A6")]
+        # stal, nie szare tworzywo: ciemne pasy są głębsze, jasne cieplejsze,
+        # a przejścia między nimi krótkie — od tego metal robi się twardy
+        przystanki = [(0.000, "#8A9AAC"), (0.045, "#2E3845"), (0.120, "#151C25"),
+                      (0.215, "#78889B"), (0.310, "#EDF4FC"), (0.372, "#FFFFFF"),
+                      (0.428, "#D6E1EE"), (0.515, "#66758A"), (0.620, "#151D27"),
+                      (0.695, "#414D5B"), (0.795, "#C8D5E4"), (0.870, "#FDFEFF"),
+                      (0.938, "#A2B0C2"), (1.000, "#8A9AAC")]
         for poz, barwa in przystanki:
             k = QColor(barwa)
             if self._pod_mysza:
@@ -514,6 +537,10 @@ class Kompas(QAbstractButton):
         p.setPen(QPen(QColor(255, 255, 255, 34), 0.8))
         p.drawEllipse(srodek, r_wew + R * 0.036, r_wew + R * 0.036)
 
+        # styk z tłem: metal nie kończy się w powietrzu, rzuca cienką kreskę cienia
+        p.setPen(QPen(QColor(0, 0, 0, 96), max(0.9, R * 0.014)))
+        p.drawEllipse(srodek, R + R * 0.010, R + R * 0.010)
+
     def _radelko(self, p, srodek, R, r_wew, pierscien):
         """Prążkowanie radełka: dwie ścieżki kresek — jasne i ciemne — na raz."""
         if R < 26.0:
@@ -532,9 +559,9 @@ class Kompas(QAbstractButton):
         # kreska szeroka na pół podziałki — prążki stykają się bokami i dają
         # frez radełka, a nie szprychy
         szer = max(0.8, 2.0 * math.pi * R / _RADELKO * 0.52)
-        p.setPen(QPen(QColor(255, 255, 255, 20), szer))
+        p.setPen(QPen(QColor(255, 255, 255, 26), szer))
         p.drawPath(jasne)
-        p.setPen(QPen(QColor(0, 0, 0, 30), szer))
+        p.setPen(QPen(QColor(0, 0, 0, 42), szer))
         p.drawPath(ciemne)
         p.restore()
 
@@ -635,6 +662,71 @@ class Kompas(QAbstractButton):
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         return pen
 
+    def _rampa_luku(self, p, srodek, r_tor, grubosc, sciezka, postep, moc=96):
+        """Jasność wzdłuż łuku: ogon przygaszony, czoło rozświetlone."""
+        rampa = QConicalGradient(srodek, 90.0)
+        poz = max(0.001, min(0.999, 1.0 - postep))
+        rampa.setColorAt(0.0, z_alfa(QColor("#FFFFFF"), 0))
+        if poz > 0.02:
+            rampa.setColorAt(max(0.0, poz - 0.02), z_alfa(QColor("#FFFFFF"), int(moc * 0.78)))
+        rampa.setColorAt(poz, z_alfa(QColor("#FFFFFF"), moc))
+        rampa.setColorAt(min(1.0, poz + 0.001), z_alfa(QColor("#FFFFFF"), 0))
+        rampa.setColorAt(1.0, z_alfa(QColor("#FFFFFF"), 0))
+        pen = QPen(QBrush(rampa), grubosc * 0.48)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        p.setPen(pen)
+        p.drawPath(sciezka)
+
+    def _czolo_luku(self, p, srodek, r_tor, grubosc, kat, barwa, zywe=True, puls=1.0):
+        """Czoło łuku: poprzeczka w rowku, jasny rdzeń i punkt światła.
+
+        Wszystkie stany z niepełnym łukiem kończą się tak samo — po tym widać,
+        gdzie dokładnie zatrzymała się praca, a nie tylko ile jej zostało.
+        """
+        punkt = self._na_obwodzie(srodek, r_tor, kat)
+        jasna = _mieszaj(barwa, QColor("#FFFFFF"), 0.55)
+        if zywe:
+            ogon = self._luk(srodek, r_tor, 90.0 - kat + 13.0, -13.0)
+            pen = QPen(jasna, grubosc)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pen)
+            p.drawPath(ogon)
+        # poprzeczka: cienka kreska w poprzek rowka, dokładnie na czole
+        rad = math.radians(kat - 90.0)
+        dx, dy = math.cos(rad), math.sin(rad)
+        r1, r2 = r_tor - grubosc * 0.72, r_tor + grubosc * 0.72
+        pen = QPen(z_alfa(jasna, 235), max(1.0, grubosc * 0.20))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(srodek.x() + dx * r1, srodek.y() + dy * r1),
+                   QPointF(srodek.x() + dx * r2, srodek.y() + dy * r2))
+        punkt_swiatla(p, punkt, grubosc * 3.2 * puls, barwa, int(190 * puls))
+        punkt_swiatla(p, punkt, grubosc * 1.4 * puls, QColor("#FFFFFF"), int(140 * puls))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawEllipse(punkt, grubosc * 0.32, grubosc * 0.32)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+    def _kreski_rowka(self, p, srodek, r_tor, grubosc, kat_od, kat_do, barwa,
+                      alfa=110, krok=6.0):
+        """Drobna podziałka w pustej części rowka — skala, nie zębatka.
+
+        Amber rysowany kreskowanym piórem na całą grubość rowka wyglądał jak
+        gąsienica; te kreski są cienkie, krótkie i leżą w rowku.
+        """
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        pen = QPen(z_alfa(barwa, alfa), max(0.8, grubosc * 0.16))
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        p.setPen(pen)
+        r1, r2 = r_tor - grubosc * 0.30, r_tor + grubosc * 0.30
+        kat = kat_od
+        while kat < kat_do - 0.5:
+            rad = math.radians(kat - 90.0)
+            dx, dy = math.cos(rad), math.sin(rad)
+            p.drawLine(QPointF(srodek.x() + dx * r1, srodek.y() + dy * r1),
+                       QPointF(srodek.x() + dx * r2, srodek.y() + dy * r2))
+            kat += krok
+
     def _rysuj_tor(self, p, srodek, R):
         """Tor postępu na oprawie: podkład, łuk stanu i czoło."""
         r_tor = R * _TOR_R
@@ -655,22 +747,30 @@ class Kompas(QAbstractButton):
             return
 
         if stan in ("gotowy", "zmieniono"):
-            p.setPen(QPen(z_alfa(CYJAN, 62), grubosc * 1.2))
+            stary = (stan == "zmieniono")
+            # „Zmieniono" to ten sam pierścień, ale POMIAR JEST NIEAKTUALNY:
+            # świeci ciszej i widać przez niego podziałkę rowka. Wcześniej oba
+            # stany miały identyczną tarczę i w karcie (gdzie podpisy są puste)
+            # dało się je odróżnić wyłącznie po odznace.
+            p.setPen(QPen(z_alfa(CYJAN, 26 if stary else 62), grubosc * 1.2))
             p.drawEllipse(srodek, r_tor, r_tor)
             # jasność biegnie wzdłuż obwodu: najmocniej na północy, najciszej na dole
+            moc = 0.42 if stary else 1.0
             g = QConicalGradient(srodek, 90.0)
-            g.setColorAt(0.00, z_alfa(CYJAN, 255))
-            g.setColorAt(0.28, z_alfa(CYJAN, 186))
-            g.setColorAt(0.52, z_alfa(CYJAN, 150))
-            g.setColorAt(0.76, z_alfa(CYJAN, 192))
-            g.setColorAt(1.00, z_alfa(CYJAN, 255))
+            g.setColorAt(0.00, z_alfa(CYJAN, 255 * moc))
+            g.setColorAt(0.28, z_alfa(CYJAN, 186 * moc))
+            g.setColorAt(0.52, z_alfa(CYJAN, 150 * moc))
+            g.setColorAt(0.76, z_alfa(CYJAN, 192 * moc))
+            g.setColorAt(1.00, z_alfa(CYJAN, 255 * moc))
             p.setPen(QPen(QBrush(g), grubosc * 0.44))
             p.drawEllipse(srodek, r_tor, r_tor)
             # wąska nitka światła po zewnętrznej stronie rowka
-            p.setPen(QPen(z_alfa(_mieszaj(CYJAN, QColor("#FFFFFF"), 0.55), 70),
-                          grubosc * 0.14))
+            p.setPen(QPen(z_alfa(_mieszaj(CYJAN, QColor("#FFFFFF"), 0.55),
+                                 30 if stary else 70), grubosc * 0.14))
             p.drawEllipse(srodek, r_tor + grubosc * 0.20, r_tor + grubosc * 0.20)
-            if stan == "zmieniono":
+            if stary:
+                self._kreski_rowka(p, srodek, r_tor, grubosc, 0.0, 360.0,
+                                   QColor("#C3D2E6"), 74, krok=10.0)
                 puls = 0.55 + 0.45 * self._oddech(1600)
                 czolo = self._na_obwodzie(srodek, r_tor, 0.0)
                 punkt_swiatla(p, czolo, grubosc * 2.6 * puls, CYJAN, int(160 * puls))
@@ -700,52 +800,57 @@ class Kompas(QAbstractButton):
 
         if stan == "ostrzezenie":
             postep = max(0.02, min(0.98, self._postep))
-            zielony = self._luk(srodek, r_tor, 90.0, -postep * 360.0)
+            kat = postep * 360.0
+            # część pokryta kwotą — pełny, spokojny łuk
+            zielony = self._luk(srodek, r_tor, 90.0, -kat)
             p.setPen(self._pioro_poswiaty(z_alfa(ZIELEN, 70), grubosc * 1.8))
             p.drawPath(zielony)
             pen = QPen(ZIELEN, grubosc)
             pen.setCapStyle(Qt.PenCapStyle.FlatCap)
             p.setPen(pen)
             p.drawPath(zielony)
-            # ta sama rampa jasności co w pracy — łuk żyje wzdłuż długości
-            rampa = QConicalGradient(srodek, 90.0)
-            poz = max(0.001, min(0.999, 1.0 - postep))
-            rampa.setColorAt(0.0, z_alfa(QColor("#FFFFFF"), 0))
-            rampa.setColorAt(max(0.0, poz - 0.02), z_alfa(QColor("#FFFFFF"), 62))
-            rampa.setColorAt(poz, z_alfa(QColor("#FFFFFF"), 84))
-            rampa.setColorAt(min(1.0, poz + 0.001), z_alfa(QColor("#FFFFFF"), 0))
-            rampa.setColorAt(1.0, z_alfa(QColor("#FFFFFF"), 0))
-            lekkie = QPen(QBrush(rampa), grubosc * 0.45)
-            lekkie.setCapStyle(Qt.PenCapStyle.FlatCap)
-            p.setPen(lekkie)
-            p.drawPath(zielony)
-            reszta = self._luk(srodek, r_tor, 90.0 - postep * 360.0, -(1.0 - postep) * 360.0)
-            p.setPen(self._pioro_poswiaty(z_alfa(BURSZTYN, 46), grubosc * 1.7))
+            self._rampa_luku(p, srodek, r_tor, grubosc, zielony, postep, 84)
+            # reszta: płaski bursztyn w rowku i drobna podziałka — skala, nie zębatka
+            reszta = self._luk(srodek, r_tor, 90.0 - kat, -(1.0 - postep) * 360.0)
+            plaski = QPen(z_alfa(BURSZTYN, 58), grubosc)
+            plaski.setCapStyle(Qt.PenCapStyle.FlatCap)
+            p.setPen(plaski)
             p.drawPath(reszta)
-            kresk = QPen(BURSZTYN, grubosc)
-            kresk.setCapStyle(Qt.PenCapStyle.FlatCap)
-            kresk.setDashPattern([0.46, 0.40])     # drobna podziałka zamiast klocków
-            p.setPen(kresk)
-            p.drawPath(reszta)
-            # cienka nitka światła na grzbiecie kresek
-            jasna = QPen(z_alfa(_mieszaj(BURSZTYN, QColor("#FFFFFF"), 0.55), 120),
-                         grubosc * 0.22)
-            jasna.setCapStyle(Qt.PenCapStyle.FlatCap)
-            jasna.setDashPattern([2.0, 1.75])
-            p.setPen(jasna)
-            p.drawPath(reszta)
+            self._kreski_rowka(p, srodek, r_tor, grubosc, kat + 3.0, 360.0,
+                               BURSZTYN, 150)
+            # czoło dokładnie tam, gdzie skończyła się kwota
+            self._czolo_luku(p, srodek, r_tor, grubosc, kat, BURSZTYN, zywe=False)
             return
 
         if stan == "blad":
             postep = max(0.04, min(1.0, self._postep))
-            sciezka = self._luk(srodek, r_tor, 90.0, -postep * 360.0)
+            kat = postep * 360.0
+            sciezka = self._luk(srodek, r_tor, 90.0, -kat)
             p.setPen(self._pioro_poswiaty(z_alfa(BLAD, 60), grubosc * 1.9))
             p.drawPath(sciezka)
+            # łuk jest ciągły aż do miejsca, w którym praca stanęła; przerwy
+            # w kresce czytały się jak taśma ostrzegawcza, a nie jak pomiar
             pen = QPen(BLAD, grubosc)
             pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-            pen.setDashPattern([5.6, 1.55])
             p.setPen(pen)
             p.drawPath(sciezka)
+            self._rampa_luku(p, srodek, r_tor, grubosc, sciezka, postep, 70)
+            # to, czego już nie będzie: rowek gaśnie w stronę północy
+            reszta = self._luk(srodek, r_tor, 90.0 - kat, -(1.0 - postep) * 360.0)
+            p.setPen(self._pioro_poswiaty(z_alfa(QColor("#93A8C4"), 118), grubosc * 0.70))
+            p.drawPath(reszta)
+            self._kreski_rowka(p, srodek, r_tor, grubosc, kat + 4.0, 360.0,
+                               QColor("#C3D2E6"), 58)
+            # dwie poprzeczki na czole — tu praca się zatrzymała
+            self._czolo_luku(p, srodek, r_tor, grubosc, kat, BLAD, zywe=False)
+            rad = math.radians(kat - 90.0 + 5.0)
+            dx, dy = math.cos(rad), math.sin(rad)
+            r1, r2 = r_tor - grubosc * 0.62, r_tor + grubosc * 0.62
+            pen = QPen(z_alfa(BLAD, 200), max(1.0, grubosc * 0.18))
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pen)
+            p.drawLine(QPointF(srodek.x() + dx * r1, srodek.y() + dy * r1),
+                       QPointF(srodek.x() + dx * r2, srodek.y() + dy * r2))
             return
 
         # 'praca' — łuk od północy, cyjan → zieleń, z jaśniejszym czołem
@@ -769,38 +874,23 @@ class Kompas(QAbstractButton):
         p.drawPath(sciezka)
 
         # rampa jasności wzdłuż długości: ogon przygaszony, czoło rozświetlone
-        rampa = QConicalGradient(srodek, 90.0)
-        poz_czola = max(0.001, min(0.999, 1.0 - postep))
-        rampa.setColorAt(0.0, z_alfa(QColor("#FFFFFF"), 0))
-        if poz_czola > 0.02:
-            rampa.setColorAt(max(0.0, poz_czola - 0.02), z_alfa(QColor("#FFFFFF"), 74))
-        rampa.setColorAt(poz_czola, z_alfa(QColor("#FFFFFF"), 96))
-        rampa.setColorAt(min(1.0, poz_czola + 0.001), z_alfa(QColor("#FFFFFF"), 0))
-        rampa.setColorAt(1.0, z_alfa(QColor("#FFFFFF"), 0))
-        pen = QPen(QBrush(rampa), grubosc * 0.5)
-        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-        p.setPen(pen)
-        p.drawPath(sciezka)
-
-        czolo_kat = postep * 360.0
-        czolo = self._na_obwodzie(srodek, r_tor, czolo_kat)
-        ogon = self._luk(srodek, r_tor, 90.0 - czolo_kat + 13.0, -13.0)
-        pen = QPen(_mieszaj(barwa_czola, QColor("#FFFFFF"), 0.55), grubosc)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(pen)
-        p.drawPath(ogon)
-        puls = 0.7 + 0.3 * self._oddech(900)
-        punkt_swiatla(p, czolo, grubosc * 3.4 * puls, barwa_czola, int(200 * puls))
-        punkt_swiatla(p, czolo, grubosc * 1.5 * puls, QColor("#FFFFFF"), int(150 * puls))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#FFFFFF"))
-        p.drawEllipse(czolo, grubosc * 0.34, grubosc * 0.34)
-        p.setBrush(Qt.BrushStyle.NoBrush)
+        self._rampa_luku(p, srodek, r_tor, grubosc, sciezka, postep, 96)
+        # to, co zostało: rowek widać, więc widać też, ile drogi przed nami
+        reszta = self._luk(srodek, r_tor, 90.0 - postep * 360.0,
+                           -(1.0 - postep) * 360.0)
+        p.setPen(self._pioro_poswiaty(z_alfa(QColor("#93A8C4"), 132), grubosc * 0.70))
+        p.drawPath(reszta)
+        self._kreski_rowka(p, srodek, r_tor, grubosc, postep * 360.0 + 4.0, 360.0,
+                           QColor("#C3D2E6"), 64)
+        self._czolo_luku(p, srodek, r_tor, grubosc, postep * 360.0, barwa_czola,
+                         zywe=True, puls=0.7 + 0.3 * self._oddech(900))
 
     def _rysuj_igle(self, p, srodek, R):
         kat = self._kat_igly()
         polnoc = _IGLA_POLNOC[self._stan]
-        if self._stan == "blad":
+        # ślad drgania tylko wtedy, gdy igła naprawdę drga — na zatrzymanym
+        # zrzucie dwie blade kopie wyglądały jak błąd rysowania
+        if self._stan == "blad" and self._anim:
             for przesun in (-7.5, 7.5):
                 self._jedna_igla(p, srodek, R, kat + przesun, polnoc, 55)
         self._jedna_igla(p, srodek, R, kat, polnoc, 255)
@@ -826,12 +916,18 @@ class Kompas(QAbstractButton):
         poludnie = QPolygonF([QPointF(0, dl_s), QPointF(-szer, -R * 0.045), QPointF(szer, -R * 0.045)])
 
         if alfa >= 200:
-            # cień rzucany na tarczę: trzy odsunięcia zamiast jednego,
-            # więc krawędź się rozmywa i igła odrywa się od szkła
-            for odsun, ciemnosc in ((0.050, 26), (0.033, 42), (0.018, 74)):
+            # Cień rzucany na tarczę. Światło pada z góry z lewej, więc cień
+            # idzie w dół i w prawo — ale igła się obraca, a cień nie może
+            # obracać się razem z nią. Kierunek liczymy w układzie tarczy
+            # i obracamy go z powrotem o kąt igły.
+            rad = math.radians(-kat)
+            kx = math.cos(rad) * 0.34 - math.sin(rad) * 1.0
+            ky = math.sin(rad) * 0.34 + math.cos(rad) * 1.0
+            for odsun, ciemnosc in ((0.062, 18), (0.044, 30), (0.028, 46),
+                                    (0.014, 72)):
                 p.setBrush(z_alfa(QColor(0, 0, 0), ciemnosc))
                 p.save()
-                p.translate(R * odsun * 0.70, R * odsun)
+                p.translate(R * odsun * kx, R * odsun * ky)
                 p.drawPolygon(polnoc)
                 p.drawPolygon(poludnie)
                 p.restore()
@@ -866,12 +962,21 @@ class Kompas(QAbstractButton):
         p.setPen(Qt.PenStyle.NoPen)
 
         os_blysku = QPointF(srodek.x() - r * 0.10, srodek.y() - r * 1.05)
-        blysk = QRadialGradient(os_blysku, r * 1.70)
-        blysk.setColorAt(0.0, QColor(255, 255, 255, 52))
-        blysk.setColorAt(0.55, QColor(255, 255, 255, 22))
+        blysk = QRadialGradient(os_blysku, r * 1.62)
+        blysk.setColorAt(0.0, QColor(255, 255, 255, 44))
+        blysk.setColorAt(0.55, QColor(255, 255, 255, 17))
         blysk.setColorAt(1.0, QColor(255, 255, 255, 0))
         p.setBrush(QBrush(blysk))
-        p.drawEllipse(os_blysku, r * 1.70, r * 1.70)
+        p.drawEllipse(os_blysku, r * 1.62, r * 1.62)
+
+        # chłodny film powłoki — szkło nie jest bezbarwne, ma własny odcień
+        film = QLinearGradient(QPointF(srodek.x(), srodek.y() - r),
+                               QPointF(srodek.x(), srodek.y() + r))
+        film.setColorAt(0.0, z_alfa(QColor("#7FD8FF"), 16))
+        film.setColorAt(0.55, z_alfa(QColor("#7FD8FF"), 0))
+        film.setColorAt(1.0, z_alfa(QColor("#3A6B96"), 20))
+        p.setBrush(QBrush(film))
+        p.drawEllipse(srodek, r, r)
 
         # ciasny refleks — wydłużona smuga światła odbita od wypukłego szkła
         p.save()
@@ -923,27 +1028,42 @@ class Kompas(QAbstractButton):
         p.setPen(pen2)
         p.drawPath(luk2)
 
+        # krawędź Fresnela: sama obręcz szkła łapie światło mocniej od tafli,
+        # najmocniej od dołu — tam, gdzie główny refleks jej nie dotyka
+        kraw_g = QLinearGradient(QPointF(srodek.x(), srodek.y() - r),
+                                 QPointF(srodek.x(), srodek.y() + r))
+        kraw_g.setColorAt(0.00, z_alfa(QColor("#FFFFFF"), 26))
+        kraw_g.setColorAt(0.42, z_alfa(QColor("#FFFFFF"), 10))
+        kraw_g.setColorAt(0.78, z_alfa(QColor("#CFEBFF"), 74))
+        kraw_g.setColorAt(1.00, z_alfa(QColor("#CFEBFF"), 120))
+        p.setPen(QPen(QBrush(kraw_g), max(0.9, R * 0.013)))
+        p.drawEllipse(srodek, r - R * 0.008, r - R * 0.008)
+
     def _rysuj_znaczniki(self, p, srodek, R):
         r_tor = R * _TOR_R
         if self._stan == "sukces":
             self._odznaka(p, self._na_obwodzie(srodek, r_tor, 135.0), R * 0.175, ZIELEN, "ptaszek")
         elif self._stan == "blad":
-            czolo = self._na_obwodzie(srodek, r_tor, max(0.04, self._postep) * 360.0)
-            self._odznaka(p, czolo, R * 0.155, BLAD, "krzyzyk")
+            # odznaka OBOK czoła, nie na nim — inaczej zasłania właśnie to miejsce,
+            # o którym mówi
+            czolo = max(0.04, min(1.0, self._postep)) * 360.0
+            self._odznaka(p, self._na_obwodzie(srodek, r_tor, czolo + 11.0),
+                          R * 0.155, BLAD, "krzyzyk")
         elif self._stan == "ostrzezenie":
             postep = max(0.02, min(0.98, self._postep))
-            self._odznaka(p, self._na_obwodzie(srodek, r_tor, 135.0), R * 0.16, ZIELEN, "ptaszek")
-            self._odznaka(p, self._na_obwodzie(srodek, r_tor, postep * 360.0 + 9.0),
-                          R * 0.145, BURSZTYN, "wykrzyknik")
+            # jedna odznaka, tuż za granicą — druga (zielona) tylko dublowała
+            # to, co i tak mówi łuk, a przy okazji zabijała czytelność
+            self._odznaka(p, self._na_obwodzie(srodek, r_tor, postep * 360.0 + 11.0),
+                          R * 0.155, BURSZTYN, "wykrzyknik")
         elif self._stan == "zmieniono":
             self._odznaka(p, self._na_obwodzie(srodek, r_tor, 137.0), R * 0.155,
-                          QColor("#22314A"), "teczka")
+                          CYJAN, "teczka")
 
     def _odznaka(self, p, srodek, r, barwa, znak):
         p.setPen(QPen(_CIEMNY, max(1.4, r * 0.28)))
         p.setBrush(barwa)
         p.drawEllipse(srodek, r, r)
-        ciemny = QColor("#052018") if znak != "teczka" else QColor("#B7C7DB")
+        ciemny = QColor("#052018")
         pen = QPen(ciemny, max(1.5, r * 0.30))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -967,14 +1087,32 @@ class Kompas(QAbstractButton):
             p.setBrush(ciemny)
             p.drawEllipse(QPointF(srodek.x(), srodek.y() + r * 0.40), r * 0.15, r * 0.15)
         elif znak == "teczka":
-            p.setPen(QPen(ciemny, max(1.1, r * 0.18)))
-            p.drawLine(QPointF(srodek.x() - r * 0.42, srodek.y() - r * 0.30),
-                       QPointF(srodek.x() - r * 0.06, srodek.y() - r * 0.30))
-            p.drawRect(QRectF(srodek.x() - r * 0.46, srodek.y() - r * 0.20,
-                              r * 0.92, r * 0.62))
+            # strzałka nawrotu: dane się zmieniły, trzeba przeliczyć od nowa
+            prom = r * 0.50
+            kat_od, rozpietosc = 60.0, -272.0
+            pen = QPen(ciemny, max(1.3, r * 0.24))
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            p.setPen(pen)
+            p.drawPath(self._luk(srodek, prom, kat_od, rozpietosc))
+            # grot na końcu łuku, styczny do niego — liczony, nie wstawiony na oko
+            kat = math.radians(kat_od + rozpietosc)
+            koniec = QPointF(srodek.x() + prom * math.cos(kat),
+                             srodek.y() - prom * math.sin(kat))
+            sx, sy = math.sin(kat), math.cos(kat)          # styczna zgodna z ruchem
+            px, py = -sy, sx                               # normalna do niej
+            dl, bok = r * 0.46, r * 0.30
+            grot = QPolygonF([
+                QPointF(koniec.x() + sx * dl, koniec.y() + sy * dl),
+                QPointF(koniec.x() + px * bok, koniec.y() + py * bok),
+                QPointF(koniec.x() - px * bok, koniec.y() - py * bok)])
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(ciemny)
+            p.drawPolygon(grot)
+            p.setBrush(Qt.BrushStyle.NoBrush)
 
     def _rysuj_podpisy(self, p, r, dol_tarczy, podpis, podpis2, wiersze, font, szer):
         barwy = _BARWY_PODPISU.get(self._stan, (TEKST, TEKST_3))
+        wys = getattr(self, "_wys_wiersza", 18.0)
         x = r.center().x() - szer / 2.0
         y = dol_tarczy + 4.0
         if podpis:
@@ -982,8 +1120,8 @@ class Kompas(QAbstractButton):
             p.setFont(font)
             flagi = (int(Qt.AlignmentFlag.AlignHCenter) | int(Qt.AlignmentFlag.AlignTop)
                      | int(Qt.TextFlag.TextWordWrap))
-            p.drawText(QRectF(x, y, szer, wiersze * 18.0 + 2.0), flagi, podpis)
-            y += wiersze * 18.0 + 3.0
+            p.drawText(QRectF(x, y, szer, wiersze * wys + 2.0), flagi, podpis)
+            y += wiersze * wys + 3.0
         if podpis2:
             p.setPen(QPen(barwy[1]))
             font2 = czcionka(11, 400)

@@ -20,6 +20,7 @@ import shutil
 import tempfile
 import importlib
 import zlib
+import math
 import base64
 import json
 import datetime
@@ -49,6 +50,44 @@ def sprawdz(nazwa, warunek, szczegol=""):
 def sekcja(tytul):
     print("\n" + tytul)
     print("-" * len(tytul))
+
+
+def _teksty_pdf(sciezka):
+    """Treść PDF-u odczytana przez tablice /ToUnicode — po jednym odczycie na
+    osadzony krój (kroje mają własne numery glifów, wspólny słownik by je
+    pomieszał). Fraza z dokumentu jest w którymś z odczytów."""
+    dane = open(sciezka, "rb").read()
+    strumienie = []
+    for m in re.finditer(rb"stream\r?\n(.*?)endstream", dane, re.S):
+        surowy = m.group(1)
+        try:
+            strumienie.append(zlib.decompress(surowy))
+        except Exception:
+            strumienie.append(surowy)
+    mapy = []
+    for st in strumienie:
+        mapa = {}
+        for bf in re.finditer(rb"beginbfchar(.*?)endbfchar", st, re.S):
+            for a, b in re.findall(rb"<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]{4,})>", bf.group(1)):
+                mapa[int(a, 16)] = chr(int(b[:4], 16))
+        if mapa:
+            mapy.append(mapa)
+    napisy = []
+    for st in strumienie:
+        if b" Tj" not in st:
+            continue
+        for m in re.finditer(rb"\((.*?)\)\s*Tj", st, re.S):
+            napisy.append(re.sub(rb"\\(.)", rb"\1", m.group(1)))
+    odczyty = []
+    for mapa in mapy:
+        odczyty.append("\n".join(
+            "".join(mapa.get(n[i] * 256 + n[i + 1], "") for i in range(0, len(n) - 1, 2))
+            for n in napisy))
+    return odczyty
+
+
+def _w_pdf(sciezka, fraza):
+    return any(fraza in t for t in _teksty_pdf(sciezka))
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -791,6 +830,341 @@ sprawdz("program nie kasuje plików poza własnym katalogiem bez zgody",
 
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("5b. Odległości: źródło, pamięć podręczna, klucz Google")
+
+# Ta sekcja NIE RUSZA SIECI. Tam, gdzie sprawdzamy zachowanie wobec serwera,
+# podstawiamy własną atrapę urllib i liczymy zapytania.
+_ROAD_ORYG = P.ROAD_CACHE_FILE
+_GEO_ORYG = P.GEO_CACHE
+_BRAKI_ORYG = P.GEO_BRAKI
+_OSRM_ORYG = P._osrm_dostepny
+_KAT_CACHE = os.path.join(_TMP_HOME, "cache_odleglosci")
+os.makedirs(_KAT_CACHE, exist_ok=True)
+
+P.ROAD_CACHE_FILE = os.path.join(_KAT_CACHE, "road.json")
+P.GEO_CACHE = os.path.join(_KAT_CACHE, "geo.json")
+P.GEO_BRAKI = os.path.join(_KAT_CACHE, "geo_braki.json")
+
+# --- klucz pamięci obejmuje OBA KIERUNKI ---
+sprawdz("klucz pamięci odległości jest ten sam w obie strony",
+        P._klucz_drogi(52.23, 21.01, 51.40, 21.15)
+        == P._klucz_drogi(51.40, 21.15, 52.23, 21.01),
+        P._klucz_drogi(52.23, 21.01, 51.40, 21.15))
+
+# --- stan źródła: szacunek, gdy nie ma z czego wziąć realnej drogi ---
+P._osrm_dostepny = False
+P._road_cache.clear()
+P.zeruj_zrodlo_odleglosci()
+_km_szac = P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+_stan = P.stan_zrodla_odleglosci()
+sprawdz("bez sieci stanem rozliczenia jest szacunek (nie cisza)",
+        _stan["stan"] == P.ZRODLO_SZACUNEK and _stan["realne"] is False
+        and _stan["etykieta"] == "szacunek", str(_stan))
+sprawdz("szacunek nie trafia do pamięci podręcznej",
+        P._klucz_drogi(52.23, 21.01, 51.40, 21.15) not in P._road_cache)
+sprawdz("stan liczy odcinki, nie tylko rodzaj",
+        _stan["odcinki"] == 1 and _stan[P.ZRODLO_SZACUNEK] == 1, str(_stan))
+
+# --- stan źródła: pamięć podręczna ---
+P._road_cache[P._klucz_drogi(52.23, 21.01, 51.40, 21.15)] = 103.4
+P.zeruj_zrodlo_odleglosci()
+_km_pam = P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+_stan_pam = P.stan_zrodla_odleglosci()
+sprawdz("odcinek z pamięci ma własny stan i własną liczbę",
+        _km_pam == 103.4 and _stan_pam["stan"] == P.ZRODLO_PAMIEC
+        and _stan_pam["realne"] is True, str(_stan_pam))
+sprawdz("droga zapisana w jedną stronę działa też w drugą",
+        P.dystans_drogowy(51.40, 21.15, 52.23, 21.01) == 103.4)
+sprawdz("jeden odcinek szacunkiem przestawia stan CAŁEGO rozliczenia",
+        (P.dystans_drogowy(50.06, 19.94, 54.35, 18.65),
+         P.stan_zrodla_odleglosci()["stan"])[1] == P.ZRODLO_SZACUNEK)
+
+# --- pamięć podręczna przeżywa ponowne uruchomienie ---
+P._zapisz_road_cache()
+sprawdz("plik pamięci odległości powstaje", os.path.exists(P.ROAD_CACHE_FILE))
+P._road_cache.clear()
+P._wczytaj_road_cache()
+sprawdz("pamięć odległości przeżywa ponowne uruchomienie programu",
+        P._road_cache.get(P._klucz_drogi(52.23, 21.01, 51.40, 21.15)) == 103.4,
+        str(P._road_cache)[:200])
+P.zeruj_zrodlo_odleglosci()
+sprawdz("po ponownym wczytaniu odcinek idzie z pamięci, nie z szacunku",
+        P.dystans_drogowy(51.40, 21.15, 52.23, 21.01) == 103.4
+        and P.stan_zrodla_odleglosci()["stan"] == P.ZRODLO_PAMIEC)
+
+# --- uszkodzony plik pamięci nie wywraca programu ---
+for _opis, _tresc in (("ucięty w połowie", '{"52.0000,21.0000;51.0'),
+                      ("nie ten kształt (lista)", '[1, 2, 3]'),
+                      ("puste śmieci", 'xxxxx'),
+                      ("wpisy nie do użycia", '{"bez-srednika": "tak", "a;b": "nie-liczba"}')):
+    with open(P.ROAD_CACHE_FILE, "w", encoding="utf-8") as _f:
+        _f.write(_tresc)
+    try:
+        os.remove(P.ROAD_CACHE_FILE + ".bak")
+    except OSError:
+        pass
+    try:
+        P._road_cache.clear()
+        P._wczytaj_road_cache()
+        P.zeruj_zrodlo_odleglosci()
+        _km = P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+        _ok = (P._road_cache == {} and _km > 0
+               and P.stan_zrodla_odleglosci()["stan"] == P.ZRODLO_SZACUNEK)
+    except Exception as _e:
+        _ok = False
+        _km = repr(_e)
+    sprawdz("uszkodzony plik pamięci odległości (%s) nie wywraca programu" % _opis,
+            _ok, str(_km))
+
+# --- kopia .bak ratuje pamięć po uszkodzeniu głównego pliku ---
+P._road_cache.clear()
+P._road_cache[P._klucz_drogi(52.23, 21.01, 51.40, 21.15)] = 103.4
+P._zapisz_road_cache()          # tworzy plik główny
+P._road_cache[P._klucz_drogi(52.23, 21.01, 51.40, 21.15)] = 103.4
+P._zapisz_road_cache()          # poprzedni ląduje w .bak
+with open(P.ROAD_CACHE_FILE, "w", encoding="utf-8") as _f:
+    _f.write('{"uciety')
+P._road_cache.clear()
+P._wczytaj_road_cache()
+sprawdz("po uszkodzeniu pliku pamięć wraca z kopii .bak",
+        P._road_cache.get(P._klucz_drogi(52.23, 21.01, 51.40, 21.15)) == 103.4,
+        str(P._road_cache)[:200])
+
+# --- wcześniejsze policzenie odcinków miesiąca ---
+P._road_cache.clear()
+P._road_cache[P._klucz_drogi(52.23, 21.01, 51.40, 21.15)] = 103.4
+P._road_cache[P._klucz_drogi(51.40, 21.15, 51.25, 22.57)] = 140.0
+_postepy = []
+_stan_przyg = P.przygotuj_odleglosci(
+    [(52.23, 21.01, 51.40, 21.15),
+     (51.40, 21.15, 52.23, 21.01),          # ten sam odcinek w drugą stronę
+     (51.40, 21.15, 51.25, 22.57),
+     (51.40, 21.15, 51.40, 21.15)],         # odcinek zerowy — pomijany
+    lambda t, v: _postepy.append(v))
+sprawdz("wcześniejsze liczenie odcinków: powtórki i oba kierunki liczą się raz",
+        _stan_przyg["odcinki"] == 2, str(_stan_przyg))
+sprawdz("wcześniejsze liczenie odcinków raportuje stan źródła",
+        _stan_przyg["stan"] == P.ZRODLO_PAMIEC and _stan_przyg["etykieta"] == "drogi z pamięci",
+        str(_stan_przyg))
+sprawdz("wcześniejsze liczenie odcinków melduje postęp", len(_postepy) == 2 and _postepy[-1] == 1.0,
+        str(_postepy))
+
+class _PunktT:
+    def __init__(self, lat, lng):
+        self.lat = lat; self.lng = lng
+
+class _DzienT:
+    def __init__(self, wizyty):
+        self.wizyty = wizyty
+
+_plan_t = {"dni": [_DzienT([_PunktT(51.40, 21.15), _PunktT(51.25, 22.57)]),
+                   _DzienT([]),
+                   _DzienT([_PunktT(52.55, 19.71)])]}
+_pary = P.pary_odcinkow_planu(_plan_t, 52.23, 21.01)
+sprawdz("odcinki miesiąca z planu: baza → punkty → baza, dzień bez wizyt pomijany",
+        len(_pary) == 3 + 2 and _pary[0][:2] == (52.23, 21.01)
+        and _pary[2][2:] == (52.23, 21.01), str(len(_pary)))
+
+# --- klucz Google: opcjonalny, nigdy w kodzie ---
+for _z in (P.GOOGLE_KLUCZ_ENV, P.GOOGLE_KLUCZ_ENV_ALT):
+    os.environ.pop(_z, None)
+P.zapisz_ustawienie(P.GOOGLE_KLUCZ_USTAWIENIE, "")
+P._ustawienia_reset()
+sprawdz("bez klucza i bez zmiennej środowiskowej klucza Google nie ma",
+        P.google_klucz() == "", repr(P.google_klucz()))
+sprawdz("w kodzie programu nie ma wpisanego klucza Google",
+        "maps.googleapis.com" in _zrodlo and "AIza" not in _zrodlo)
+
+P.zapisz_ustawienie(P.GOOGLE_KLUCZ_USTAWIENIE, "klucz-z-ustawien")
+P._ustawienia_reset()
+sprawdz("klucz Google czytany z ustawień", P.google_klucz() == "klucz-z-ustawien")
+os.environ[P.GOOGLE_KLUCZ_ENV] = "klucz-ze-srodowiska"
+sprawdz("zmienna środowiskowa ma pierwszeństwo przed ustawieniem",
+        P.google_klucz() == "klucz-ze-srodowiska")
+
+# bez klucza Google NIE JEST pytany (program działa dokładnie jak dotąd)
+_google_oryg = P._google_km
+_wolania_google = []
+P._google_km = lambda *a, **k: (_wolania_google.append(a) or 12.5)
+os.environ.pop(P.GOOGLE_KLUCZ_ENV, None)
+P.zapisz_ustawienie(P.GOOGLE_KLUCZ_USTAWIENIE, "")
+P._ustawienia_reset()
+P._road_cache.clear()
+P.zeruj_zrodlo_odleglosci()
+P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+sprawdz("bez klucza program nie odpytuje Google", not _wolania_google)
+sprawdz("bez klucza wynik bez sieci to nadal szacunek",
+        P.stan_zrodla_odleglosci()["stan"] == P.ZRODLO_SZACUNEK)
+
+# z kluczem odległości liczy Google
+P.zapisz_ustawienie(P.GOOGLE_KLUCZ_USTAWIENIE, "klucz-testowy")
+P._ustawienia_reset()
+P._road_cache.clear()
+P.zeruj_zrodlo_odleglosci()
+_km_g = P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+sprawdz("z kluczem odległość liczy Google", _km_g == 12.5 and len(_wolania_google) == 1,
+        "%s / %d" % (_km_g, len(_wolania_google)))
+sprawdz("odpowiedź Google trafia do pamięci i ma stan „realne drogi”",
+        P.stan_zrodla_odleglosci()["stan"] == P.ZRODLO_DROGI
+        and P._road_cache.get(P._klucz_drogi(52.23, 21.01, 51.40, 21.15)) == 12.5)
+
+# niedziałający klucz nie blokuje programu: Google pytamy RAZ, dalej OSRM/szacunek
+_proby_zle = []
+def _google_zly(*a, **k):
+    _proby_zle.append(a)
+    raise OSError("brak odpowiedzi Google")
+P._google_km = _google_zly
+P._google_dostepny = None
+P._road_cache.clear()
+P.zeruj_zrodlo_odleglosci()
+P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+P.dystans_drogowy(50.06, 19.94, 54.35, 18.65)
+P.dystans_drogowy(53.13, 23.16, 54.10, 22.93)
+sprawdz("niedziałający klucz Google pytany raz, nie przy każdym odcinku",
+        len(_proby_zle) == 1, "%d prób" % len(_proby_zle))
+sprawdz("po nieudanym Google odległości wracają do źródła bezpłatnego",
+        P.stan_zrodla_odleglosci()["stan"] == P.ZRODLO_SZACUNEK)
+
+P._google_km = _google_oryg
+P._google_dostepny = None
+P.zapisz_ustawienie(P.GOOGLE_KLUCZ_USTAWIENIE, "")
+P._ustawienia_reset()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("5c. Rozpoznawanie adresów i pamięć geolokalizacji")
+
+sprawdz("numer lokalu odcięty na potrzeby mapy (Zamiejska 5/58 → 5)",
+        P._bez_numeru_lokalu("ul. Zamiejska 5/58, 03-580 Warszawa")
+        == "ul. Zamiejska 5, 03-580 Warszawa",
+        P._bez_numeru_lokalu("ul. Zamiejska 5/58, 03-580 Warszawa"))
+sprawdz("kod pocztowy NIE jest brany za numer lokalu",
+        P._bez_numeru_lokalu("Dębowa Wola 12, 26-660 Jedlińsk")
+        == "Dębowa Wola 12, 26-660 Jedlińsk")
+_ad = P.waliduj_adres("ul. Zamiejska 5/58, 03-580 Warszawa")
+sprawdz("dokument zachowuje pełny numer z lokalem",
+        _ad["adres_caly"] == "ul. Zamiejska 5/58, 03-580 Warszawa", _ad["adres_caly"])
+sprawdz("do mapy idzie adres bez numeru lokalu",
+        _ad["adres_geo"] == "ul. Zamiejska 5, 03-580 Warszawa", _ad["adres_geo"])
+_war = P._warianty_geo("ul. Zamiejska 5/58, 03-580 Warszawa", "Warszawa")
+sprawdz("warianty adresu bez powtórek: pełny → bez lokalu → miejscowość",
+        _war == ["ul. Zamiejska 5/58, 03-580 Warszawa",
+                 "ul. Zamiejska 5, 03-580 Warszawa", "Warszawa"], str(_war))
+sprawdz("adres bez lokalu nie rodzi drugiego, tego samego zapytania",
+        len(P._warianty_geo("Kowalczyka 12, 03-193 Warszawa", "Warszawa")) == 2)
+sprawdz("klucz adresu jest odporny na wielkość liter i podwójne odstępy",
+        P._klucz_geo("  UL.  Kwiatowa 5,  26-600 Radom ")
+        == P._klucz_geo("ul. Kwiatowa 5, 26-600 Radom"))
+
+# pamięć geolokalizacji przeżywa restart
+P._geo_cache.clear()
+P._geo_cache[P._klucz_geo("ul. Kwiatowa 5, 26-600 Radom")] = [51.40, 21.15]
+P.zapisz_geo_cache()
+P._geo_cache.clear()
+P._wczytaj_geo_cache()
+sprawdz("pamięć geolokalizacji przeżywa ponowne uruchomienie",
+        P._geo_cache.get(P._klucz_geo("UL. KWIATOWA 5, 26-600 RADOM")) == [51.40, 21.15],
+        str(P._geo_cache)[:200])
+
+for _opis, _tresc in (("ucięty w połowie", '{"adres": [51.4'),
+                      ("nie ten kształt (lista)", '["a","b"]'),
+                      ("wpisy nie do użycia", '{"adres": "51.4,21.1", "inny": [999, 999]}')):
+    with open(P.GEO_CACHE, "w", encoding="utf-8") as _f:
+        _f.write(_tresc)
+    try:
+        os.remove(P.GEO_CACHE + ".bak")
+    except OSError:
+        pass
+    try:
+        P._geo_cache.clear()
+        P._wczytaj_geo_cache()
+        _ok = (P._geo_cache == {})
+    except Exception as _e:
+        _ok = False
+    sprawdz("uszkodzony plik pamięci geolokalizacji (%s) nie wywraca programu" % _opis, _ok,
+            str(P._geo_cache)[:120])
+
+# o ten sam adres nie pytamy serwera dwa razy (atrapa serwera, ZERO sieci)
+class _OdpowiedzT:
+    def __init__(self, tresc):
+        self._tresc = tresc
+    def read(self):
+        return self._tresc
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+_zapytania = []
+_urlopen_oryg = P.urllib.request.urlopen
+
+def _urlopen_atrapa(req, *a, **k):
+    _zapytania.append(getattr(req, "full_url", str(req)))
+    return _OdpowiedzT(b"[]")            # serwer odpowiada: nie znam
+
+P.urllib.request.urlopen = _urlopen_atrapa
+try:
+    P._geo_cache.clear()
+    P._geo_braki = {}
+    P._geo_pytane.clear()
+    _c1 = P.pobierz_coords("ul. Nieistniejąca 999, 26-600 Radom", "Radom", "mazowieckie")
+    _ile1 = len(_zapytania)
+    _c2 = P.pobierz_coords("ul. Nieistniejąca 999, 26-600 Radom", "Radom", "mazowieckie")
+    _ile2 = len(_zapytania)
+    sprawdz("nieznany adres pytany raz, potem już nie", _ile1 > 0 and _ile2 == _ile1,
+            "%d → %d zapytań" % (_ile1, _ile2))
+    sprawdz("odpowiedź „nie znam” zapisana trwale",
+            os.path.exists(P.GEO_BRAKI)
+            and P._klucz_geo("ul. Nieistniejąca 999, 26-600 Radom") in P._wczytaj_geo_braki())
+    P._geo_braki = None
+    P._geo_pytane.clear()
+    _ile3 = len(_zapytania)
+    P.pobierz_coords("ul. Nieistniejąca 999, 26-600 Radom", "Radom", "mazowieckie")
+    sprawdz("po ponownym uruchomieniu nieznany adres też nie idzie do serwera",
+            len(_zapytania) == _ile3, "%d → %d" % (_ile3, len(_zapytania)))
+
+    # awaria sieci NIE jest zapamiętywana jako „adres nie istnieje”
+    def _urlopen_awaria(req, *a, **k):
+        _zapytania.append("awaria")
+        raise OSError("brak sieci")
+    P.urllib.request.urlopen = _urlopen_awaria
+    P._geo_braki = {}
+    P._geo_pytane.clear()
+    P.pobierz_coords("ul. Inna 1, 26-600 Radom", "Radom", "mazowieckie")
+    sprawdz("awaria sieci nie zostaje zapamiętana jako „adres nie istnieje”",
+            P._klucz_geo("ul. Inna 1, 26-600 Radom") not in P._wczytaj_geo_braki())
+
+    # znany adres: jedno zapytanie, wynik trafia do pamięci
+    def _urlopen_zna(req, *a, **k):
+        _zapytania.append(getattr(req, "full_url", str(req)))
+        return _OdpowiedzT(b'[{"lat": "51.4000", "lon": "21.1500"}]')
+    P.urllib.request.urlopen = _urlopen_zna
+    P._geo_cache.clear()
+    P._geo_braki = {}
+    P._geo_pytane.clear()
+    _przed = len(_zapytania)
+    _w1 = P.pobierz_coords("ul. Kwiatowa 5, 26-600 Radom", "Radom", "mazowieckie")
+    _po_pierwszym = len(_zapytania)
+    _w2 = P.pobierz_coords("UL. KWIATOWA 5,  26-600 Radom", "Radom", "mazowieckie")
+    sprawdz("znany adres pytany raz — drugi zapis tego samego adresu idzie z pamięci",
+            _w1 == _w2 == (51.4, 21.15) and _po_pierwszym - _przed == 1
+            and len(_zapytania) == _po_pierwszym,
+            "%d zapytań" % (len(_zapytania) - _przed))
+finally:
+    P.urllib.request.urlopen = _urlopen_oryg
+
+# stan wyjściowy dla dalszych sekcji
+P.ROAD_CACHE_FILE = _ROAD_ORYG
+P.GEO_CACHE = _GEO_ORYG
+P.GEO_BRAKI = _BRAKI_ORYG
+P._osrm_dostepny = _OSRM_ORYG
+P._google_dostepny = None
+P._road_cache.clear()
+P._geo_cache.clear()
+P._geo_braki = None
+P._geo_pytane.clear()
+
+
+# ══════════════════════════════════════════════════════════════════
 if not SZYBKO:
     sekcja("6. Silnik delegacji — kwoty, czas dnia, odległości")
     # Testy silnika liczą ZAWSZE offline (linia prosta × krętość), niezależnie
@@ -849,18 +1223,28 @@ if not SZYBKO:
             abs(sum(d.suma for d in _dni_min) - P.MIN_KWOTA) <= 0.01,
             "%.2f zł" % sum(d.suma for d in _dni_min))
 
-    # Kwota bardzo wysoka — silnik nie musi jej dobić (uczciwie o tym mówi),
-    # ale ma wykorzystać miesiąc porządnie. Ten test pilnuje, żeby zmiany
-    # w trasie awaryjnej nie obcięły po cichu pokrycia. Próg 82%: odcinki
-    # dobudowane po przycięciu liczą się teraz jak reszta (droga, nie linia
-    # prosta), więc dwa najdalsze dni awaryjne uczciwie nie mieszczą się
-    # w 8 h — wcześniejsze ~94% brało się z zaniżonych odcinków.
+    # Kwota PONAD możliwości miesiąca. Punktem odniesienia nie jest już sama
+    # zamówiona kwota (dawny próg „82% z 11 000 zł" betonował dzisiejszy wynik
+    # silnika), tylko REALNA granica miesiąca: dni robocze × pojemność doby
+    # (posiłek + jazda + postoje). Silnik ma wykorzystać miesiąc do tej granicy
+    # i uczciwie zgłosić, że kwota się nie zmieściła — a nie dopisywać
+    # kilometrów, których nie da się przejechać.
     _kwota_duza = 11000.0
+    _granica_mies = P.maks_kwota_miesiaca(len(_dni_robocze), 1.15)
     _dni_duze = P.generuj_trasy(_kwota_duza, "Radom", 51.40, 21.15, "mazowieckie",
                                 _dni_robocze, "90010112345", stawka=1.15)
-    _pokrycie = 100.0 * sum(d.suma for d in _dni_duze) / _kwota_duza
-    sprawdz("wysoka kwota (%.0f zł) pokryta w co najmniej 82%%" % _kwota_duza,
-            _pokrycie >= 82.0, "pokrycie %.1f%% przy %d dniach" % (_pokrycie, len(_dni_duze)))
+    _suma_duza = sum(d.suma for d in _dni_duze)
+    sprawdz("kwota ponad granicę miesiąca (%.0f zł > %.0f zł) jest zgłoszona jako niepełna"
+            % (_kwota_duza, _granica_mies),
+            _kwota_duza > _granica_mies and bool(_dni_duze.kwota_niepelna),
+            "granica %.2f zł, wyszło %.2f zł, niepelna=%s"
+            % (_granica_mies, _suma_duza, getattr(_dni_duze, "kwota_niepelna", None)))
+    sprawdz("wysoka kwota: wykorzystane co najmniej 88%% realnej granicy miesiąca",
+            _suma_duza >= _granica_mies * 0.88,
+            "%.2f zł z %.2f zł (%.1f%%) przy %d dniach"
+            % (_suma_duza, _granica_mies, 100.0 * _suma_duza / _granica_mies, len(_dni_duze)))
+    sprawdz("suma nigdy nie przekracza zamówionej kwoty",
+            _suma_duza <= _kwota_duza + 0.01, "%.2f zł" % _suma_duza)
 
     # Rejon rzadko zaludniony — nie może się wysypać ani zbudować pustego planu.
     _dni_rzadkie = P.generuj_trasy(3000.0, "Suwałki", 54.10, 22.93, "podlaskie",
@@ -884,10 +1268,18 @@ if not SZYBKO:
             _floor_ok(_dni_duze))
     sprawdz("żaden odcinek nie jest krótszy niż %.2f × linia prosta (Suwałki)" % P.MNOZNIK_MIN,
             _floor_ok(_dni_rzadkie))
+    # MAŁA KWOTA — teraz liczona z modelu, a nie z zabetonowanego „najwyżej
+    # 2 dni": 80 zł mieści się w jednym dokumencie i w jednym dniu (kwota jest
+    # mniejsza od pojemności doby), więc tyle dni ma wyjść. Reszta warunków bez
+    # zmian: kwota co do grosza, doba w limicie, odcinki nie krótsze niż droga.
     _dni_male = P.generuj_trasy(80.0, "Radom", 51.40, 21.15, "mazowieckie",
                                 _dni_robocze, "90010112345", stawka=0.89)
-    sprawdz("mała kwota (80 zł): mniej dni i postojów zamiast krótszych kilometrów",
-            0 < len(_dni_male) <= 2 and _floor_ok(_dni_male)
+    _dni_z_modelu = P.ile_dokumentow(80.0) * max(1, math.ceil(
+        80.0 / P.pojemnosc_dnia_zl(P.POSTOJE_TYPOWE, 0.89)))
+    sprawdz("mała kwota (80 zł): jeden dokument i tyle dni, ile wynika z modelu (%d)"
+            % _dni_z_modelu,
+            P.ile_dokumentow(80.0) == 1
+            and 0 < len(_dni_male) <= _dni_z_modelu and _floor_ok(_dni_male)
             and abs(sum(d.suma for d in _dni_male) - 80.0) <= 0.01
             and _max_min(_dni_male) <= P.LIMIT_CZASU_MINUTY + 0.5,
             "%d dni, %.2f zł, %.0f min" % (len(_dni_male), sum(d.suma for d in _dni_male), _max_min(_dni_male)))
@@ -907,6 +1299,97 @@ if not SZYBKO:
     sprawdz("dni w planie nie są swoimi kopiami",
             _powtorki <= max(1, len(_slady) // 8),
             "%d powtórzonych tras na %d dni" % (_powtorki, len(_slady)))
+
+    # ══════════════════════════════════════════════════════════════════
+    sekcja("6c. Model: kwota → dokumenty → dni")
+
+    # Sufit 986,34 zł dotyczy JEDNEGO DOKUMENTU (jednego polecenia wyjazdu),
+    # a dokument obejmuje kilka dni. Liczba dokumentów wynika więc z kwoty,
+    # a dopiero wewnątrz dokumentu kwota dzieli się na dni — każdy ograniczony
+    # fizyką doby: posiłek + jazda + postoje.
+
+    sprawdz("liczba dokumentów to sufit z kwoty przez sufit dokumentu",
+            (P.ile_dokumentow(50.0), P.ile_dokumentow(P.MAX_KWOTA_DOKUMENTU),
+             P.ile_dokumentow(P.MAX_KWOTA_DOKUMENTU + 0.01),
+             P.ile_dokumentow(3000.0)) == (1, 1, 2, 4),
+            str([P.ile_dokumentow(x) for x in (50.0, P.MAX_KWOTA_DOKUMENTU,
+                                               P.MAX_KWOTA_DOKUMENTU + 0.01, 3000.0)]))
+    _czesci = P.rozdziel_rowno(1000.0, 3)
+    sprawdz("kwota dzieli się na części równe co do grosza",
+            abs(sum(_czesci) - 1000.0) < 1e-9 and max(_czesci) - min(_czesci) <= 0.01,
+            str(_czesci))
+
+    # Każdy przystanek zjada kilkanaście minut z tych samych ośmiu godzin,
+    # więc im więcej wizyt, tym mniej kilometrów mieści się w dniu.
+    _poj = [P.pojemnosc_dnia_km(n) for n in (3, 5, 7)]
+    _ubytek = 2 * P.POSTOJ_SREDNI_MIN / 60.0 * P.SREDNIA_PREDKOSC
+    sprawdz("każdy przystanek zabiera dniu kilometry",
+            _poj[0] > _poj[1] > _poj[2] > 0
+            and abs((_poj[0] - _poj[1]) - _ubytek) < 0.01
+            and abs((_poj[1] - _poj[2]) - _ubytek) < 0.01,
+            "3/5/7 postojów: %.0f / %.0f / %.0f km" % tuple(_poj))
+    sprawdz("sufit dnia to mniejsza z dwóch wartości: fizyczna i regulaminowa",
+            P.pojemnosc_dnia_zl(5, 0.89) == round(P.pojemnosc_dnia_km(5) * 0.89, 2)
+            and P.pojemnosc_dnia_zl(5, 99.0) == P.MAX_KWOTA_DNIA,
+            "%.2f zł przy 0,89 / %.2f zł przy 99,00" % (P.pojemnosc_dnia_zl(5, 0.89),
+                                                        P.pojemnosc_dnia_zl(5, 99.0)))
+    sprawdz("granica miesiąca to dni robocze × sufit dnia",
+            P.maks_kwota_miesiaca(22, 0.89) == round(22 * P.pojemnosc_dnia_zl(5, 0.89), 2)
+            and P.maks_kwota_miesiaca(0, 0.89) == 0.0,
+            "%.2f zł" % P.maks_kwota_miesiaca(22, 0.89))
+
+    # Dni rozpisane dokładnie wg modelu (3000 zł → 4 dokumenty po 750 zł,
+    # po 3 dni każdy) muszą złożyć się na dokumenty bez reszty.
+    def _dzien_modelowy(numer, kwota, etapow=5):
+        d = P.DzienTrasy(data=datetime.date(2026, 10, 1) + datetime.timedelta(days=numer))
+        d.etapy = [P.Etap(skad="Baza", dokad="Miasto", data="01.10.2026r",
+                          godz_wyj="07:00", godz_przyj="08:00", kwota=k)
+                   for k in P.rozdziel_rowno(kwota, etapow)]
+        return d
+    _dni_model = [_dzien_modelowy(i, 250.0) for i in range(12)]
+    _docs_model = P._podziel_na_dokumenty(_dni_model)
+    sprawdz("dni z modelu składają się na dokumenty po sufit (12 × 250 zł → 4 × 750 zł)",
+            [round(sum(d.suma for d in doc), 2) for doc in _docs_model] == [750.0] * 4,
+            str([round(sum(d.suma for d in doc), 2) for doc in _docs_model]))
+    sprawdz("każdy dzień zna numer swojego dokumentu",
+            [d.dokument for d in _dni_model] == [1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4],
+            str([d.dokument for d in _dni_model]))
+
+    # …i to samo na prawdziwym wyniku silnika.
+    _kwota_dok = 3000.0
+    _dni_dok = P.generuj_trasy(_kwota_dok, "Radom", 51.40, 21.15, "mazowieckie",
+                               _dni_robocze, "90010112345", stawka=0.89)
+    _docs_dok = P._podziel_na_dokumenty(sorted(_dni_dok, key=lambda d: d.data))
+    _sumy_dok = [round(sum(d.suma for d in doc), 2) for doc in _docs_dok]
+    _wiersze_dok = [sum(len(d.etapy) for d in doc) for doc in _docs_dok]
+    sprawdz("suma dokumentów równa się kwocie co do grosza",
+            abs(sum(_sumy_dok) - _kwota_dok) <= 0.005,
+            "%.2f zł w %d dokumentach" % (sum(_sumy_dok), len(_docs_dok)))
+    sprawdz("żaden dokument nie przekracza sufitu kwoty",
+            all(s <= P.MAX_KWOTA_DOKUMENTU + 0.01 for s in _sumy_dok), str(_sumy_dok))
+    sprawdz("żaden dokument nie przekracza liczby wierszy strony A4",
+            all(w <= P.MAX_ETAPOW_DOKUMENTU for w in _wiersze_dok), str(_wiersze_dok))
+    sprawdz("dokumentów nie mniej, niż wynika z kwoty",
+            len(_docs_dok) >= P.ile_dokumentow(sum(_sumy_dok)),
+            "%d dokumentów, z kwoty %d" % (len(_docs_dok), P.ile_dokumentow(sum(_sumy_dok))))
+    # „dobijają do sufitu" = żadnych dwóch sąsiednich nie da się połączyć
+    _do_polaczenia = [i for i in range(len(_docs_dok) - 1)
+                      if _sumy_dok[i] + _sumy_dok[i + 1] <= P.MAX_KWOTA_DOKUMENTU + 0.01
+                      and _wiersze_dok[i] + _wiersze_dok[i + 1] <= P.MAX_ETAPOW_DOKUMENTU]
+    sprawdz("dokumenty dobijają do sufitu — sąsiednich nie da się połączyć",
+            not _do_polaczenia, "do połączenia: %s z %s" % (_do_polaczenia, _sumy_dok))
+    # dzień ograniczony fizycznie — z UWZGLĘDNIENIEM swoich postojów
+    _ponad_dobe = []
+    for _d in _dni_dok:
+        _postoje = sum((e.czas_w_sklepie or 0) for e in _d.etapy_surowe)
+        _mieszczace = (P.LIMIT_CZASU_MINUTY - P.PRZERWA_JEDZENIE_MIN - _postoje) / 60.0 * P.SREDNIA_PREDKOSC
+        if sum(e.dystans_rzeczywisty for e in _d.etapy_surowe) > _mieszczace + 0.5:
+            _ponad_dobe.append(_d.data)
+    sprawdz("żaden dzień nie przekracza kilometrów, które mieszczą się z jego postojami",
+            not _ponad_dobe, "dni ponad dobę: %s" % _ponad_dobe)
+    sprawdz("żaden dzień nie przekracza regulaminowego sufitu dnia",
+            all(d.suma <= P.MAX_KWOTA_DNIA + 0.01 for d in _dni_dok),
+            "najdroższy dzień %.2f zł" % max((d.suma for d in _dni_dok), default=0))
 
     sekcja("7. Dokumenty PDF")
     _dni, _nazwa, _lat, _lng, _woj = _ostatnie
@@ -947,6 +1430,42 @@ if not SZYBKO:
     sprawdz("suma z PDF-ów zgadza się z sumą tras",
             abs(sum(x["kwota"] for x in _pods) - sum(d.suma for d in _dni)) <= 0.02,
             "%.2f vs %.2f" % (sum(x["kwota"] for x in _pods), sum(d.suma for d in _dni)))
+
+    # ŹRÓDŁO ODLEGŁOŚCI NA DOKUMENCIE. Testy liczą bez sieci, więc stanem
+    # jest szacunek — i dokument ma to mówić wprost, a nie milczeć.
+    _stan_pdf = P.stan_zrodla_odleglosci()
+    sprawdz("stan źródła odległości po zbudowaniu tras to szacunek (testy bez sieci)",
+            _stan_pdf["stan"] == P.ZRODLO_SZACUNEK, str(_stan_pdf))
+    _delegacje = [x for x in _pliki if "rozliczenie" not in os.path.basename(x).lower()]
+    _bez_zrodla = [os.path.basename(x) for x in _delegacje
+                   if not _w_pdf(x, "Odległości: szacunek")]
+    sprawdz("każde polecenie wyjazdu odnotowuje źródło odległości",
+            _delegacje and not _bez_zrodla, str(_bez_zrodla))
+    _zbiorcze = [x for x in _pliki if "rozliczenie" in os.path.basename(x).lower()]
+    sprawdz("rozliczenie zbiorcze odnotowuje źródło odległości",
+            _zbiorcze and _w_pdf(_zbiorcze[0], "szacunek"),
+            str([os.path.basename(x) for x in _zbiorcze]))
+
+    # ten sam stan na podglądzie tras
+    _folder_z = os.path.join(_TMP_HOME, "mapa_zrodlo"); os.makedirs(_folder_z, exist_ok=True)
+    P.generuj_mape_html(_dni, _prac, "październik", _rok, _folder_z, True)
+    with open(os.path.join(_folder_z, "Trasy_Mapa.html"), encoding="utf-8") as _f:
+        _html_z = _f.read()
+    sprawdz("podgląd tras pokazuje stan źródła odległości",
+            "Odległości: szacunek" in _html_z)
+
+    # z pamięci podręcznej dokument mówi co innego — i mówi prawdę
+    _stan_udawany = {"stan": P.ZRODLO_PAMIEC, "etykieta": "drogi z pamięci",
+                     "odcinki": 5, "realne": True}
+    _folder_r = os.path.join(_TMP_HOME, "pdf_realne")
+    P.generuj_pdfy(_dni[:1], _prac, _mies, _rok, _folder_r, stawka=_stawka,
+                   zrodlo=_stan_udawany)
+    _pl_r = [x for x in sorted(glob.glob(os.path.join(_folder_r, "*.pdf")))
+             if "rozliczenie" not in os.path.basename(x).lower()]
+    sprawdz("przy realnych drogach dokument nie mówi „szacunek”",
+            _pl_r and _w_pdf(_pl_r[0], "Odległości: drogi z pamięci")
+            and not _w_pdf(_pl_r[0], "szacunek"),
+            str([os.path.basename(x) for x in _pl_r]))
 
     sekcja("7b. Aktualizacja: użytkownik zawsze ma wybór")
 
@@ -1154,6 +1673,397 @@ if not SZYBKO:
             pass
     except Exception as _e:
         sprawdz("główne okno programu buduje się bez błędu", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    sekcja("8b. Nowy wygląd: stan źródła odległości przy liczbach")
+
+    try:
+        import nowy_wyglad as _NW
+        _app = QApplication.instance() or QApplication(sys.argv)
+        _prof_nw = _NW.ProfilWidoku("Jan Testowy", "90010112345",
+                                    "ul. Kwiatowa 5, 26-600 Radom", "KR")
+        _okno_nw = _NW.OknoNowegoWygladu(profil=_prof_nw, rok=2026, miesiac=10)
+
+        def _nota_nw():
+            _okno_nw._odswiez_liczby()
+            return _okno_nw.k_parametry.kwota.l_nota.text()
+
+        P._osrm_dostepny = False
+        P._road_cache.clear()
+        P.zeruj_zrodlo_odleglosci()
+        P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+        _nota_szac = _nota_nw()
+        sprawdz("nowy wygląd pokazuje „szacunek” przy liczbach, gdy odległości są szacowane",
+                _nota_szac.endswith("szacunek"), repr(_nota_szac))
+
+        P.zeruj_zrodlo_odleglosci()
+        P._road_cache[P._klucz_drogi(52.23, 21.01, 51.40, 21.15)] = 103.4
+        P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+        _nota_real = _nota_nw()
+        sprawdz("nowy wygląd pokazuje stan realnych dróg, gdy odległości są realne",
+                _nota_real.endswith("drogi z pamięci"), repr(_nota_real))
+
+        P.zeruj_zrodlo_odleglosci()
+        _nota_pusto = _nota_nw()
+        sprawdz("przed policzeniem czegokolwiek nowy wygląd nie udaje realnych dróg",
+                "drogi" not in _nota_pusto and "szacunek" not in _nota_pusto,
+                repr(_nota_pusto))
+        P._road_cache.clear()
+        _okno_nw.close()
+    except Exception as _e:
+        sprawdz("nowy wygląd pokazuje stan źródła odległości", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    sekcja("8c. Nowy wygląd: generowanie, podpis, wysyłka, miesiąc, profil")
+
+    try:
+        import nowy_wyglad as _NW
+        from PyQt6.QtCore import QTimer as _QTimer
+        _app = QApplication.instance() or QApplication(sys.argv)
+
+        # ── etapy kompasu biorą się z MELDUNKU silnika, nie z ułamka ──
+        _MELDUNKI = (("Pobieranie współrzędnych GPS...", "dane"),
+                     ("Lokalizowanie bazy...", "dane"),
+                     ("Generowanie tras...", "trasy"),
+                     ("Klastrowanie GPS (Dzień 3/7)...", "trasy"),
+                     ("Skalowanie wektorów do budżetu...", "trasy"),
+                     ("Wyznaczanie realnych tras drogowych...", "trasy"),
+                     ("Odcinki 12/40", "trasy"),
+                     ("Rysowanie dokumentów PDF...", "PDF"),
+                     ("Generowanie podglądu tras HTML...", "mapa"))
+        _zle_etapy = [(t, _NW.etap_silnika(t), e) for t, e in _MELDUNKI
+                      if _NW.etap_silnika(t) != e]
+        sprawdz("etapy kompasu biorą się z meldunku silnika (wszystkie 9 meldunków trafia we właściwą plakietkę)",
+                not _zle_etapy, str(_zle_etapy))
+        sprawdz("meldunek z ułamkiem 0,78 to nadal etap TRAS, a nie PDF (próg prototypu kłamał)",
+                _NW.etap_silnika("Wyznaczanie realnych tras drogowych...") == "trasy")
+
+        # ── przerwanie generowania ────────────────────────────────────
+        sprawdz("GeneratorThread ma anulowanie: metodę anuluj i sygnał anulowano",
+                hasattr(P.GeneratorThread, "anuluj") and hasattr(P.GeneratorThread, "anulowano"))
+        sprawdz("przerwanie nie jest zwykłym wyjątkiem, więc żaden except Exception w silniku go nie połknie",
+                issubclass(P.PrzerwanoGenerowanie, BaseException)
+                and not issubclass(P.PrzerwanoGenerowanie, Exception))
+
+        def _czy_przerywa(watek):
+            try:
+                watek._sprawdz_przerwanie()
+                return False
+            except P.PrzerwanoGenerowanie:
+                return True
+
+        _watek_probny = P.GeneratorThread({})
+        _cisza_przed = _czy_przerywa(_watek_probny)
+        _watek_probny.anuluj()
+        _przerwane_po = _czy_przerywa(_watek_probny)
+        _watek_probny._punkt_bez_powrotu = True
+        _przerwane_w_pdf = _czy_przerywa(_watek_probny)
+        sprawdz("anuluj() przerywa pracę przy najbliższym meldunku, a przed nim nic się nie dzieje",
+                _cisza_przed is False and _przerwane_po is True,
+                str((_cisza_przed, _przerwane_po)))
+        sprawdz("od chwili rysowania PDF-ów przerwanie już nie działa — komplet nie zostaje niepełny",
+                _przerwane_w_pdf is False)
+
+        # ── okno na prawdziwym profilu ────────────────────────────────
+        P.zapisz_ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_KWOTY, 0)
+        _prof_8c = _NW.ProfilWidoku("Jan Testowy", "85010112345",
+                                    "ul. Kwiatowa 5, 26-600 Radom", "KR")
+        _okno8c = _NW.OknoNowegoWygladu(profil=_prof_8c, rok=2026, miesiac=10)
+        _okno8c.ustaw_animacje(False)
+
+        # ── dane pracownika: pola ↔ magazyn profili programu ──────────
+        _okno8c.k_pracownik.imie.setText("Anna Próbna")
+        _okno8c._pole_pesel.setText("85010112345")
+        _okno8c.k_pracownik.adres.setText("ul. Polna 7, 26-600 Radom")
+        _okno8c._zapisz_pracownika()
+        _wpis8c = (P._wczytaj_store().get(
+            P._klucz_uzytkownika("Anna Próbna", "85010112345")) or {}).get("profil", {})
+        sprawdz("karta PRACOWNIK zapisuje dane do magazynu profili programu (~/.pmt_uzytkownicy.json)",
+                _wpis8c.get("imie") == "Anna Próbna"
+                and _wpis8c.get("adres") == "ul. Polna 7, 26-600 Radom"
+                and _wpis8c.get("pesel") == "85010112345", str(_wpis8c))
+        sprawdz("PESEL ma w nowym wyglądzie własne pole, widoczne i na 11 cyfr",
+                _okno8c._pole_pesel is not None
+                and not _okno8c._pole_pesel.isHidden()
+                and _okno8c._pole_pesel.maxLength() == 11)
+        sprawdz("profil zapisany z nowego wyglądu wraca z dysku przy kolejnym wejściu",
+                _NW.profil_z_programu() is not None)
+        _okno8c._pole_pesel.setText("11111111111")      # suma kontrolna się nie zgadza
+        _okno8c._zapisz_pracownika()
+        sprawdz("profil z błędnym PESEL-em nie trafia do magazynu",
+                P._klucz_uzytkownika("Anna Próbna", "11111111111") not in P._wczytaj_store())
+        _param8c, _powod8c = _okno8c._dane_do_generacji()
+        sprawdz("z błędnym PESEL-em nowy wygląd odmawia generowania i nazywa powód",
+                _param8c is None and _powod8c == "PESEL", str(_powod8c))
+        _okno8c._pole_pesel.setText("85010112345")
+        _okno8c.k_pracownik.imie.setText("")
+        _param8c, _powod8c = _okno8c._dane_do_generacji()
+        sprawdz("bez imienia nowy wygląd odmawia generowania",
+                _param8c is None and "imię" in _powod8c, str(_powod8c))
+        _okno8c.k_pracownik.imie.setText("Jan Testowy")
+        _okno8c.k_pracownik.adres.setText("ul. Kwiatowa 5, 26-600 Radom")
+        _okno8c._zapisz_pracownika()
+        _param8c, _powod8c = _okno8c._dane_do_generacji()
+        sprawdz("komplet danych daje parametry dla wątku silnika (te same klucze, co w App.proces)",
+                _param8c is not None
+                and _param8c["pesel"] == "85010112345"
+                and _param8c["rok"] == _okno8c.rok
+                and _param8c["miesiac"] == _okno8c.miesiac
+                and _param8c["stawka"] == _okno8c.profil.stawka
+                and _param8c["dni_robocze"], str(_powod8c))
+
+        # ── miesiąc: zakładki naprawdę przełączają ────────────────────
+        _okno8c.ustaw_miesiac(2026, 10)
+        _okno8c._zakladka_miesiaca(0)
+        sprawdz("zakładka miesiąca w pasku górnym naprawdę przestawia miesiąc",
+                (_okno8c.rok, _okno8c.miesiac) == (2026, 9)
+                and _okno8c.pasek.MIESIACE[1] == "wrzesień 2026"
+                and _NW.OK.MIESIAC == 9,
+                str((_okno8c.rok, _okno8c.miesiac, _okno8c.pasek.MIESIACE)))
+        _okno8c.ustaw_miesiac(2026, 12)
+        _okno8c.ustaw_miesiac_o(1)
+        sprawdz("przełączanie miesiąca przechodzi przez granicę roku",
+                (_okno8c.rok, _okno8c.miesiac) == (2027, 1)
+                and _okno8c.pasek.MIESIACE[1] == "styczeń 2027",
+                str((_okno8c.rok, _okno8c.miesiac, _okno8c.pasek.MIESIACE)))
+        sprawdz("taśma pokazuje dni WYBRANEGO miesiąca, co do jednego",
+                len(_okno8c.dni) == P.calendar.monthrange(2027, 1)[1]
+                and all(d.data.year == 2027 and d.data.month == 1 for d in _okno8c.dni))
+
+        # ── dni bez pracy: osobne dla każdego miesiąca, zapisane na dysk ──
+        _okno8c.ustaw_miesiac(2026, 11)
+        _okno8c._wolne = {5, 6}
+        _okno8c._zapamietaj_wolne()
+        _okno8c.ustaw_miesiac(2026, 12)
+        _wolne_grudnia = set(_okno8c._wolne)
+        _okno8c.ustaw_miesiac(2026, 11)
+        sprawdz("dni bez pracy zapisują się w ustawieniach programu i wracają dla SWOJEGO miesiąca",
+                _wolne_grudnia == set() and _okno8c._wolne == {5, 6}
+                and P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_WOLNYCH, {}).get("2026-11") == [5, 6],
+                str((_wolne_grudnia, _okno8c._wolne)))
+
+        # ── kwota, tryb i limit dnia przeżywają zamknięcie okna ───────
+        _okno8c.k_parametry.kwota.ustaw_tekst("2 500")
+        _okno8c._przelicz_teraz()
+        sprawdz("kwota, tryb pracy i limit dnia idą do ~/.pmt_ustawienia.json",
+                abs(float(P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_KWOTY, 0)) - 2500.0) < 0.01
+                and P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_TRYBU, "")
+                == _okno8c.k_parametry.tryb.aktywna()
+                and abs(float(P.ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_LIMITU, 0))
+                        - _okno8c._limit_dnia) < 0.01)
+        _okno_wznowione = _NW.OknoNowegoWygladu(profil=_prof_8c, rok=2026, miesiac=11)
+        _kwota_wznowiona = _okno_wznowione._kwota()
+        _okno_wznowione.close()
+        sprawdz("kolejne okno wstaje z zapamiętaną kwotą, a nie z liczbą z prototypu",
+                abs(_kwota_wznowiona - 2500.0) < 0.01, str(_kwota_wznowiona))
+
+        # ── taca: prawdziwe pliki z folderu wyniku ────────────────────
+        _folder8c = os.path.join(_TMP_HOME, "Rozliczenie_Jan_Testowy_listopad_2026r")
+        os.makedirs(_folder8c, exist_ok=True)
+        for _nazwa8c in ("delegacja_01_Jan_Testowy_listopad_2026r.pdf",
+                         "delegacja_02_Jan_Testowy_listopad_2026r.pdf",
+                         "rozliczenie_wydatków_Jan_Testowy_listopad_2026r.pdf"):
+            with open(os.path.join(_folder8c, _nazwa8c), "wb") as _f8c:
+                _f8c.write(b"%PDF-1.4\n" + _nazwa8c.encode("utf-8") + b"\n%%EOF\n")
+        _okno8c.folder_wyniku = _folder8c
+        _okno8c._po_generacji = True
+        _okno8c._pokaz_tace(animacja=False)
+        sprawdz("taca pokazuje PRAWDZIWE pliki z folderu wyniku (przez pmt_dokumenty)",
+                len(_okno8c.pliki_wyniku) == 3
+                and _okno8c.taca.l_sciezka.text().startswith("listopad 2026")
+                and "3 pliki" in _okno8c.taca.l_sciezka.text()
+                and _okno8c.taca.l_folder.toolTip() == _folder8c,
+                str((len(_okno8c.pliki_wyniku), _okno8c.taca.l_sciezka.text())))
+        sprawdz("kartka dnia na tacy prowadzi do PDF-u SWOJEGO dokumentu",
+                os.path.basename(_NW.plik_dokumentu(_folder8c, 2))
+                == "delegacja_02_Jan_Testowy_listopad_2026r.pdf",
+                str(_NW.plik_dokumentu(_folder8c, 2)))
+        P.zeruj_zrodlo_odleglosci()
+        P._road_cache.clear()
+        P._osrm_dostepny = False
+        P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+        _okno8c._opisz_tace()
+        _opis_km = _okno8c.taca.k_km._opis
+        P.zeruj_zrodlo_odleglosci()
+        P._road_cache[P._klucz_drogi(52.23, 21.01, 51.40, 21.15)] = 103.4
+        P.dystans_drogowy(52.23, 21.01, 51.40, 21.15)
+        _okno8c._opisz_tace()
+        _opis_km2 = _okno8c.taca.k_km._opis
+        P._road_cache.clear()
+        sprawdz("kafel kilometrów na tacy nosi STAN ŹRÓDŁA, a nie sztywne REALNE DROGI",
+                _opis_km == "SZACUNEK" and _opis_km2 == "DROGI Z PAMIĘCI",
+                str((_opis_km, _opis_km2)))
+
+        # ── podpis i wysyłka: okna programu, nie panele makiety ───────
+        _slad8c = {}
+
+        class _AtrapaOknaPmt:
+            def __init__(self, rodzic=None, **reszta):
+                _slad8c.update(reszta)
+                _slad8c["klasa"] = type(self).__name__
+
+            def exec(self):
+                return 0
+
+            def zatrzymaj_zegar(self):
+                _slad8c["zegar"] = "zatrzymany"
+
+            def zakoncz_watek(self):
+                _slad8c["watek"] = "zakonczony"
+
+        _stary_podpis, _stara_wysylka = P.DialogPodpis, P.DialogWysylka
+        P.DialogPodpis = type("AtrapaPodpisu", (_AtrapaOknaPmt,), {})
+        P.DialogWysylka = type("AtrapaWysylki", (_AtrapaOknaPmt,), {})
+        try:
+            _okno8c._panel_podpisu()
+            _slad_podpisu = dict(_slad8c)
+            _slad8c.clear()
+            _okno8c._panel_wysylki()
+            _slad_wysylki = dict(_slad8c)
+        finally:
+            P.DialogPodpis, P.DialogWysylka = _stary_podpis, _stara_wysylka
+        sprawdz("przycisk podpisu otwiera okno podpisu PROGRAMU (nad pmt_podpis) z folderem wyniku",
+                _slad_podpisu.get("klasa") == "AtrapaPodpisu"
+                and _slad_podpisu.get("folder") == _folder8c
+                and _slad_podpisu.get("zegar") == "zatrzymany", str(_slad_podpisu))
+        sprawdz("przycisk wysyłki otwiera okno wysyłki PROGRAMU (nad pmt_wysylka) z folderem, imieniem i miesiącem",
+                _slad_wysylki.get("klasa") == "AtrapaWysylki"
+                and _slad_wysylki.get("folder") == _folder8c
+                and _slad_wysylki.get("miesiac") == _okno8c.miesiac
+                and _slad_wysylki.get("rok") == _okno8c.rok
+                and _slad_wysylki.get("watek") == "zakonczony", str(_slad_wysylki))
+        sprawdz("w nowym wyglądzie nie ma już zastępczych paneli podpisu i wysyłki z prototypu",
+                "zastepczy_panel_podpisu" not in open(
+                    os.path.join(KATALOG, "nowy_wyglad.py"), encoding="utf-8").read())
+
+        # ── pieczęć podpisu z manifestu paczki ────────────────────────
+        _mod_podpisu = P.modul_pomocniczy("pmt_podpis")
+        _paczka8c, _wpisy8c = _mod_podpisu.przygotuj_paczke(_folder8c)
+        _sciezka_man = _mod_podpisu.sciezka_manifestu(_paczka8c)
+        _manifest8c = _mod_podpisu.wczytaj_manifest(_sciezka_man)
+        for _w8c in _manifest8c.get("pliki", []):
+            if _NW.DOK.numer_delegacji(_w8c.get("plik_zrodlowy", "")) == 2:
+                _w8c["status"] = _mod_podpisu.STATUS_PODPISANY
+        _mod_podpisu.zapisz_manifest(_paczka8c, _manifest8c)
+        for _i8c, _d8c in enumerate(_okno8c.dni):
+            _d8c.dokument = 2 if _i8c % 2 else 1
+        _ile_podpisanych = _okno8c._wczytaj_podpisy()
+        sprawdz("pieczęć podpisu bierze się z manifestu paczki podpisowej, nie z klikania w makietę",
+                _ile_podpisanych == 1
+                and all(_d8c.podpisany == (_d8c.dokument == 2) for _d8c in _okno8c.dni),
+                str(_ile_podpisanych))
+        with open(os.path.join(_folder8c,
+                               "delegacja_02_Jan_Testowy_listopad_2026r.pdf"), "wb") as _f8c:
+            _f8c.write(b"%PDF-1.4\nnowa tresc po ponownym generowaniu\n%%EOF\n")
+        _ile_po_zmianie = _okno8c._wczytaj_podpisy()
+        sprawdz("po ponownym wygenerowaniu dokumentu pieczęć po poprzedniku NIE przechodzi na nowy plik",
+                _ile_po_zmianie == 0
+                and not any(_d8c.podpisany for _d8c in _okno8c.dni),
+                str(_ile_po_zmianie))
+
+        # ── zamknięcie: ani jednego chodzącego zegara, ani wątku ──────
+        _okno8c.close()
+        _chodzace = [t for t in _okno8c.findChildren(_QTimer) if t.isActive()]
+        sprawdz("zamknięte okno nowego wyglądu nie zostawia chodzących zegarów ani wątku",
+                not _chodzace and _okno8c._watek is None and not _okno8c._watki_zalegle,
+                str((len(_chodzace), _okno8c._watek, _okno8c._watki_zalegle)))
+    except Exception as _e:
+        sprawdz("nowy wygląd: generowanie, podpis, wysyłka, miesiąc, profil", False, repr(_e))
+
+
+if not SZYBKO:
+    sekcja("8d. Nowy wygląd: kompas naprawdę generuje dokumenty")
+    # Okno programu z sekcji 8 zostaje żywe i ma ODŁOŻONE zegary, które
+    # otwierają okna MODALNE: zaproszenie do testów (900 ms po intrze) oraz
+    # okno aktualizacji. Ta sekcja jako pierwsza mieli zdarzenia przez dłuższą
+    # chwilę, więc to ona doczekałaby się ich exec() — i testy stanęłyby
+    # na zawsze. Na czas sekcji podstawiamy atrapy; oryginały wracają w finally.
+    _stare_okno_akt = P.OknoAktualizacji
+    _stare_zaproszenie = P.zaproszenie_testera
+
+    class _AtrapaAktualizacji:
+        def __init__(self, *args, **reszta):
+            pass
+
+        def exec(self):
+            return 0
+
+    P.OknoAktualizacji = _AtrapaAktualizacji
+    P.zaproszenie_testera = lambda *args, **reszta: False
+    try:
+        import nowy_wyglad as _NW2
+        from PyQt6.QtWidgets import QApplication
+        _app = QApplication.instance() or QApplication(sys.argv)
+        _prof8d = _NW2.ProfilWidoku("Jan Testowy", "85010112345",
+                                    "ul. Kwiatowa 5, 26-600 Radom", "KR")
+        _okno8d = _NW2.OknoNowegoWygladu(profil=_prof8d, rok=2026, miesiac=6)
+        _okno8d.ustaw_animacje(False)
+        _okno8d.k_parametry.kwota.ustaw_tekst("700")
+        _okno8d._przelicz_teraz()
+        # Etapy podglądamy próbkowaniem, a nie podmianą slotu: sygnał leci
+        # z wątku roboczego, a zwykła funkcja podpięta pod sygnał wykonałaby
+        # się PO TAMTEJ stronie i dotykała widżetów spoza wątku okna.
+        _etapy_w_toku = []
+
+        def _zanotuj_etap():
+            etap = _okno8d._etap_silnika
+            if etap and (not _etapy_w_toku or _etapy_w_toku[-1] != etap):
+                _etapy_w_toku.append(etap)
+
+        _okno8d.uruchom_pokaz()
+        _zanotuj_etap()
+        sprawdz("kliknięcie kompasu uruchamia PRAWDZIWY wątek silnika programu",
+                isinstance(_okno8d._watek, P.GeneratorThread)
+                and _okno8d.k_kompas.kompas.stan() == "praca"
+                and _okno8d.k_kompas.TYTUL == "Przerwij", str(_okno8d._watek))
+        _koniec8d = datetime.datetime.now() + datetime.timedelta(seconds=300)
+        while _okno8d._watek is not None and datetime.datetime.now() < _koniec8d:
+            _app.processEvents()
+            _zanotuj_etap()
+        for _ in range(12):
+            _app.processEvents()
+        sprawdz("po zakończeniu ekran jest w stanie sukcesu, a kompas otwiera dokumenty",
+                _okno8d._po_generacji is True
+                and _okno8d.k_kompas.kompas.stan() == "sukces"
+                and _okno8d.k_kompas.TYTUL == "Otwórz dokumenty",
+                str((_okno8d._po_generacji, _okno8d.k_kompas.kompas.stan())))
+        sprawdz("łuk kompasu przeszedł przez etapy silnika: dane → trasy → PDF",
+                _etapy_w_toku[:1] == ["dane"] and "trasy" in _etapy_w_toku
+                and "PDF" in _etapy_w_toku, str(sorted(set(_etapy_w_toku))))
+        _pliki8d = _NW2.dokumenty_w_wyniku(_okno8d.folder_wyniku)
+        _delegacje8d = [p for p in _pliki8d
+                        if _NW2.DOK.rodzaj_dokumentu(p) == _NW2.DOK.RODZAJ_DELEGACJA]
+        sprawdz("w folderze wyniku leżą PRAWDZIWE pliki PDF: delegacje i rozliczenie zbiorcze",
+                os.path.isdir(_okno8d.folder_wyniku) and len(_delegacje8d) >= 1
+                and any(_NW2.DOK.rodzaj_dokumentu(p) == _NW2.DOK.RODZAJ_ROZLICZENIE
+                        for p in _pliki8d)
+                and all(os.path.getsize(p) > 1000 for p in _pliki8d),
+                str([os.path.basename(p) for p in _pliki8d]))
+        sprawdz("taca pokazuje dokładnie te pliki, które powstały",
+                _okno8d.pliki_wyniku == _pliki8d and _okno8d._taca_widoczna is True,
+                str((len(_okno8d.pliki_wyniku), len(_pliki8d))))
+        sprawdz("kwota na tacy zgadza się co do grosza z sumą dni silnika",
+                abs(round(sum(d.suma for d in _okno8d._dni_silnika), 2)
+                    - _okno8d._osiagnieto) < 0.005 and _okno8d._osiagnieto > 0,
+                str(_okno8d._osiagnieto))
+        sprawdz("dni na tacy znają numer swojego polecenia wyjazdu",
+                all(d.dokument >= 1 for d in _okno8d.dni if not d.wolny),
+                str(sorted({d.dokument for d in _okno8d.dni if not d.wolny})))
+        # zmiana danych gasi wynik, powrót do tej samej kwoty go NIE gasi
+        _okno8d._przelicz_teraz()
+        _po_przeliczeniu = _okno8d._po_generacji
+        _okno8d.k_parametry.kwota.ustaw_tekst("900")
+        _okno8d._przelicz_teraz()
+        sprawdz("samo przeliczenie ekranu nie gasi gotowego wyniku, a zmiana kwoty — tak",
+                _po_przeliczeniu is True and _okno8d._po_generacji is False
+                and _okno8d.k_kompas.kompas.stan() == "zmieniono",
+                str((_po_przeliczeniu, _okno8d._po_generacji)))
+        _okno8d.close()
+    except Exception as _e:
+        sprawdz("nowy wygląd: kompas naprawdę generuje dokumenty", False, repr(_e))
+    finally:
+        P.OknoAktualizacji = _stare_okno_akt
+        P.zaproszenie_testera = _stare_zaproszenie
 
 
 # ══════════════════════════════════════════════════════════════════

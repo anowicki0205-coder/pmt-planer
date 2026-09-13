@@ -6,6 +6,18 @@ trzeba było szukać plików w folderze. Panele podpisu i wysyłki otwierają si
 z tacy. Zgodnie z wolą właściciela nigdzie nie tłumaczymy działania programu —
 są nazwy, liczby i stany.
 
+Trzy rzeczy trzymają tacę razem:
+
+* KARTKA to plik kartek, nie prostokąt. Pod wierzchnią leżą trzy kolejne,
+  każda przekręcona o ułamek stopnia, z własną krawędzią i paskiem cienia.
+* LICZBY ZBIORCZE mają jeden poziom głównej i jeden poboczny: kwota siedzi
+  w oprawie ze szkła z cyjanową obwódką, kilometry i liczba delegacji stoją
+  nago, oddzielone cienką kreską. Trzy jednakowe pudełka mówiły, że wszystkie
+  trzy liczby są równie ważne — a nie są.
+* PANELE podpisu i wysyłki są z tego samego materiału co taca: ta sama trójka
+  barw, to samo ziarno, ten sam narożnik, ta sama krawędź światła u góry,
+  to samo ucho i to samo wgłębienie pod treścią.
+
 Wszystko rysowane jest ręcznie (arkusz stylów rodzica potrafi zjeść setFont),
 a każdy ruch da się zatrzymać: ``TacaDokumentow.zatrzymaj_animacje()`` gasi
 kaskadę kartek, dochodzenie liczb i podświetlenia przycisków, panele robią to
@@ -86,6 +98,14 @@ def _polecenia(n):
 
 def _ogranicz(x, a=0.0, b=1.0):
     return a if x < a else (b if x > b else x)
+
+
+def _mieszaj_papier(a, b, t):
+    """Liniowe przejście między dwiema barwami papieru."""
+    t = _ogranicz(t)
+    return QColor(int(a.red() + (b.red() - a.red()) * t),
+                  int(a.green() + (b.green() - a.green()) * t),
+                  int(a.blue() + (b.blue() - a.blue()) * t))
 
 
 def _linia_swiatla(p, x1, x2, y, kolor=S.CYJAN, sila=150, grubosc=1.2, poswiata=True):
@@ -428,7 +448,13 @@ class PasekPostepu(QWidget):
 
 # ── kafel liczby zbiorczej ───────────────────────────────────────────
 class KafelLiczby(QWidget):
-    """Liczba dochodząca do wartości, czcionka o stałej szerokości."""
+    """Liczba dochodząca do wartości, czcionka o stałej szerokości.
+
+    Hierarchia robi się materiałem, nie samym stopniem pisma: liczba GŁÓWNA
+    siedzi w oprawie ze szkła z cyjanową obwódką, liczby poboczne stoją nago,
+    oddzielone cienką kreską. Trzy jednakowe pudełka obok siebie czytały się
+    jak trzy równorzędne rzeczy — a równorzędne nie są.
+    """
 
     def __init__(self, opis, format_=None, wyrozniony=False, duzy=False, rodzic=None):
         super().__init__(rodzic)
@@ -473,55 +499,65 @@ class KafelLiczby(QWidget):
 
     # — miary —
     def _rozmiar_liczby(self):
-        return 23.0 if self._duzy else 18.0
+        return 27.0 if self._duzy else 17.0
+
+    def _w_oprawie(self):
+        """Oprawę ze szkła dostaje tylko liczba główna."""
+        return self._wyrozniony
 
     def _napis(self):
         return self._format(self._pl.teraz())
 
+    def _zapas(self):
+        return 34 if self._w_oprawie() else 22
+
     def sizeHint(self):
         wzor = self._format(self._cel if self._cel else 8888.88)
         a = _szer(wzor, self._rozmiar_liczby(), 700, mono=True)
-        b = _szer(self._opis, 9, 700, odstep=0.9)
-        return QSize(int(max(a, b) + 32), 62)
+        b = _szer(self._opis, 8.5 if not self._w_oprawie() else 9, 700, odstep=0.9)
+        return QSize(int(max(a, b) + self._zapas()), 62)
 
     def minimumSizeHint(self):
         peln = self.sizeHint()
-        return QSize(min(peln.width(), 104), peln.height())
+        return QSize(min(peln.width(), 92), peln.height())
 
     def paintEvent(self, _z):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        s = _sciezka(r, 13.0)
-        g = QLinearGradient(r.topLeft(), r.bottomLeft())
-        if self._wyrozniony:
+        lewy = r.x() + (15 if self._w_oprawie() else 11)
+
+        if self._w_oprawie():
+            s = _sciezka(r, 13.0)
+            g = QLinearGradient(r.topLeft(), r.bottomLeft())
             g.setColorAt(0.0, QColor(12, 40, 44, 232))
             g.setColorAt(1.0, QColor(7, 22, 30, 240))
-        else:
-            g.setColorAt(0.0, QColor(20, 32, 50, 214))
-            g.setColorAt(1.0, QColor(10, 18, 30, 228))
-        p.fillPath(s, QBrush(g))
-        if self._wyrozniony:
+            p.fillPath(s, QBrush(g))
             S.obrys_gradientowy(p, s, S.z_alfa(S.CYJAN, 170), S.z_alfa(S.ZIELEN, 215),
                                 szerokosc=1.2)
+            p.fillRect(QRectF(r.x() + 9, r.y() + 0.6, r.width() - 18, 1.0),
+                       QColor(255, 255, 255, 34))
         else:
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(QColor(255, 255, 255, 26), 1.0))
-            p.drawPath(s)
-        gora = QRectF(r.x() + 9, r.y() + 0.6, r.width() - 18, 1.0)
-        p.fillRect(gora, QColor(255, 255, 255, 34))
+            # liczba poboczna: bez pudełka, tylko kreska oddzielająca od poprzedniej
+            gk = QLinearGradient(QPointF(r.x(), r.y() + 12), QPointF(r.x(), r.bottom() - 12))
+            gk.setColorAt(0.0, QColor(255, 255, 255, 0))
+            gk.setColorAt(0.5, QColor(255, 255, 255, 44))
+            gk.setColorAt(1.0, QColor(255, 255, 255, 0))
+            p.fillRect(QRectF(r.x() - 2.0, r.y() + 12, 1.0, r.height() - 24), QBrush(gk))
 
         rozm = self._rozmiar_liczby()
         napis = self._napis()
-        wolne = r.width() - 30
+        wolne = r.width() - (lewy - r.x()) * 2.0
         while rozm > 12 and _szer(napis, rozm, 700, mono=True) > wolne:
             rozm -= 0.5
-        kolor = S.MIETA if self._wyrozniony else S.TEKST
-        S.tekst(p, r.x() + 15, r.y() + 15 + rozm * 0.78, napis, kolor, rozm, 700,
-                mono=True, poswiata=0.7 if self._wyrozniony else 0.0)
-        S.tekst(p, r.x() + 15, r.bottom() - 12, self._opis,
-                S.z_alfa(S.MIETA, 170) if self._wyrozniony else S.TEKST_3,
-                9, 700, odstep=0.9)
+        if self._w_oprawie():
+            kolor, kolor_opisu, rozm_opisu = S.MIETA, S.z_alfa(S.MIETA, 170), 9
+        else:
+            kolor, kolor_opisu, rozm_opisu = S.z_alfa(S.TEKST, 225), S.TEKST_3, 8.5
+        S.tekst(p, lewy, r.y() + 15 + rozm * 0.78, napis, kolor, rozm, 700,
+                mono=True, poswiata=0.7 if self._w_oprawie() else 0.0)
+        S.tekst(p, lewy, r.bottom() - 12, self._opis, kolor_opisu,
+                rozm_opisu, 700, odstep=0.9)
         p.end()
 
 
@@ -538,6 +574,11 @@ class KafelDokumentu(QWidget):
         los = random.Random("%s-%02d" % (dzien.data.isoformat(), self.numer))
         self._kat = los.uniform(-1.25, 1.25)          # ułamek stopnia przechylenia
         self._przesuw = los.uniform(-1.6, 1.6)
+        # Kartki pod spodem: każda leży trochę inaczej. Równo odsunięte prostokąty
+        # czytały się jak schodek wycięty z jednego kartonu, a nie jak plik.
+        self._spod = [(los.uniform(-2.1, 2.1), los.uniform(-1.7, 1.7),
+                       los.uniform(1.7, 3.1))
+                      for _ in range(3)]
         self.setMinimumSize(int(KAFEL_W * 0.84), 140)
         self.setMaximumHeight(int(KAFEL_H))
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -627,14 +668,7 @@ class KafelDokumentu(QWidget):
         _cien_miekki(p, r, promien, przesun=6, rozmycie=13, sila=104, krok=2)
         _cien_miekki(p, r, promien, przesun=15, rozmycie=26, sila=62, krok=4)
 
-        # kartki leżące pod spodem — plik dokumentów, nie pojedyncza kartka
-        for wsun, zejscie, barwa in ((5.5, 6.5, PAPIER_SPOD), (2.6, 3.2, PAPIER_BOK)):
-            rr = QRectF(r.x() + wsun, r.y() + zejscie, r.width() - 2 * wsun, r.height())
-            p.fillPath(_sciezka(rr, promien), QBrush(barwa))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(QColor(150, 142, 126, 90), 1.0))
-            p.drawLine(QPointF(rr.x() + promien, rr.bottom() - 0.5),
-                       QPointF(rr.right() - promien, rr.bottom() - 0.5))
+        self._rysuj_spod(p, r, promien)
 
         s = _sciezka(r, promien)
         g = QLinearGradient(r.topLeft(), r.bottomRight())
@@ -682,6 +716,37 @@ class KafelDokumentu(QWidget):
             p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(125), 150), 1.2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(s)
+
+    def _rysuj_spod(self, p, r, promien):
+        """Plik kartek pod wierzchnią: każda przekręcona, z własną krawędzią i cieniem.
+
+        Kartka leżąca na stosie nigdy nie jest równo pod spodem — widać jej bok
+        raz z lewej, raz z prawej, a pod spodem zostaje wąski pasek cienia.
+        """
+        srodek = r.center()
+        for i, (kat, przesuw, zejscie) in enumerate(reversed(self._spod)):
+            gleb = len(self._spod) - i                  # 3 = najgłębsza
+            rr = QRectF(r.x(), r.y() + zejscie * gleb * 0.55, r.width(), r.height())
+            p.save()
+            p.translate(srodek)
+            p.rotate(kat)
+            p.translate(-srodek.x() + przesuw * gleb * 0.6, -srodek.y())
+            sc = _sciezka(rr, promien)
+            # cień kartki leżącej wyżej — stos ma głębokość, nie tylko obrys
+            _cien_miekki(p, rr, promien, przesun=-1, rozmycie=4, sila=60, krok=1)
+            barwa = _mieszaj_papier(PAPIER_BOK, PAPIER_SPOD, (gleb - 1) / 2.0)
+            gg = QLinearGradient(rr.topLeft(), rr.bottomLeft())
+            gg.setColorAt(0.0, barwa.lighter(104))
+            gg.setColorAt(1.0, barwa)
+            p.fillPath(sc, QBrush(gg))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            # sama krawędź papieru: cienka, ciemniejsza kreska u dołu
+            p.setPen(QPen(QColor(146, 137, 120, 120), 1.0))
+            p.drawLine(QPointF(rr.x() + promien, rr.bottom() - 0.6),
+                       QPointF(rr.right() - promien, rr.bottom() - 0.6))
+            p.setPen(QPen(QColor(120, 112, 98, 70), 1.0))
+            p.drawPath(sc)
+            p.restore()
 
     def _rysuj_tresc(self, p, r):
         d = self.dzien
@@ -738,18 +803,35 @@ class KafelDokumentu(QWidget):
             i += 1
 
     def _rysuj_pieczec(self, p, r, srodek_y, skala=1.0):
+        """Pieczątka: podwójna ramka, napis na całą szerokość, przekrzywiona.
+
+        Poprzednia wersja miała drugi wiersz w wielkości 6,5 px — na ekranie
+        wychodziła z tego zielona plamka bez treści.
+        """
+        szer = min(118.0, max(84.0, r.width() - 30.0))
         p.save()
         p.translate(r.center().x(), srodek_y)
-        p.rotate(-5)
+        p.rotate(-4.5)
         p.scale(skala, skala)
-        pole = QRectF(-47, -10.5, 94, 21)
-        s = _sciezka(pole, 5.5)
-        p.fillPath(s, QBrush(S.z_alfa(S.ZIELEN, 42)))
-        p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(115), 200), 1.3))
+        pole = QRectF(-szer / 2.0, -13.0, szer, 26.0)
+        s = _sciezka(pole, 6.0)
+        p.fillPath(s, QBrush(S.z_alfa(S.ZIELEN, 38)))
         p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(120), 215), 1.6))
         p.drawPath(s)
-        S.tekst(p, -39, -1.5, "PODPISANO", QColor("#0B7A5A"), 9.5, 800, odstep=0.7)
-        S.tekst(p, -39, 7.5, "profil zaufany · 14:20", QColor("#2E8B72"), 6.5, 500)
+        p.setPen(QPen(S.z_alfa(S.ZIELEN.darker(120), 120), 0.8))
+        p.drawPath(_sciezka(pole.adjusted(2.6, 2.6, -2.6, -2.6), 4.0))
+        glowny, drugi = "PODPISANO", "profil zaufany · 14:20"
+        rozm = 11.0
+        while rozm > 8.0 and _szer(glowny, rozm, 800, odstep=1.0) > szer - 16.0:
+            rozm -= 0.5
+        rozm2 = 7.5
+        while rozm2 > 6.0 and _szer(drugi, rozm2, 600) > szer - 14.0:
+            rozm2 -= 0.5
+        S.tekst(p, -_szer(glowny, rozm, 800, odstep=1.0) * 0.5, -1.0, glowny,
+                QColor("#0B7A5A"), rozm, 800, odstep=1.0)
+        S.tekst(p, -_szer(drugi, rozm2, 600) * 0.5, 9.0, drugi,
+                QColor("#2E8B72"), rozm2, 600)
         p.restore()
 
     def paintEvent(self, _z):
@@ -913,22 +995,21 @@ class PasPapierow(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         gora, wysokosc = self._wys_reszty
         r = QRectF(self._x_reszty + 2, gora + 10, 62.0, wysokosc - 34.0)
-        # brzegi kartek leżących dalej w pliku
-        for i, (dx, alfa) in enumerate(((10.0, 34), (6.0, 52), (2.0, 74))):
-            rr = QRectF(r.x() + dx, r.y() + i * 2.0, 5.0, r.height() - i * 4.0)
-            p.fillPath(_sciezka(rr, 2.0), QColor(240, 238, 230, alfa))
-        s = _sciezka(r, 8.0)
-        p.fillPath(s, QColor(255, 255, 255, 10))
-        pen = QPen(QColor(255, 255, 255, 46), 1.0)
-        pen.setDashPattern([3.0, 3.5])
-        p.setPen(pen)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(s)
+        # reszta pliku: same boki kartek, jedna za drugą — stos, nie pusta ramka
+        for i in range(6):
+            dx = 15.0 - i * 2.6
+            zejscie = i * 1.1
+            rr = QRectF(r.x() + dx, r.y() + zejscie, 4.2, r.height() - zejscie * 2.0)
+            jasnosc = 120 + i * 22
+            p.fillPath(_sciezka(rr, 2.0), QColor(238, 235, 226, min(255, jasnosc)))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(90, 84, 74, 70), 1.0))
+            p.drawLine(QPointF(rr.right(), rr.y() + 2.0),
+                       QPointF(rr.right(), rr.bottom() - 2.0))
         napis = "+%d" % self._ukryte
-        S.tekst(p, r.center().x() - _szer(napis, 17, 700, mono=True) * 0.5 + 5,
-                r.center().y() + 2, napis, S.TEKST, 17, 700, mono=True)
-        S.tekst(p, r.center().x() - _szer("PDF", 8, 700, odstep=0.8) * 0.5 + 5,
-                r.center().y() + 18, "PDF", S.TEKST_3, 8, 700, odstep=0.8)
+        x0 = r.x() + 25.0
+        S.tekst(p, x0, r.center().y() + 2, napis, S.TEKST, 17, 700, mono=True)
+        S.tekst(p, x0, r.center().y() + 18, "PDF", S.TEKST_3, 8, 700, odstep=0.8)
         p.end()
 
 
@@ -1126,6 +1207,7 @@ class Panel(QDialog):
         self.setStyleSheet(S.qss())
         self.setMinimumWidth(620)
         self._ciagniecie = None
+        self._stopka = []
 
         m = self.MARGINES
         self.z = QVBoxLayout(self)
@@ -1179,7 +1261,19 @@ class Panel(QDialog):
         for b in przyciski:
             d.addWidget(b)
         self.z.addLayout(d)
+        self._stopka = list(przyciski)
         return d
+
+    def _rowek_tresci(self, r, y_kreski):
+        """Wgłębienie, w którym leży treść panelu — to samo dno co na tacy."""
+        gorne = y_kreski + 12.0
+        dolne = r.bottom() - 16.0
+        for b in getattr(self, "_stopka", ()):
+            if b.isVisible() or not self.isVisible():
+                dolne = min(dolne, QRectF(b.geometry()).top() - 12.0)
+        if dolne - gorne < 30.0:
+            return None
+        return QRectF(r.x() + 14.0, gorne, r.width() - 28.0, dolne - gorne)
 
     def pole(self):
         m = self.MARGINES
@@ -1205,33 +1299,51 @@ class Panel(QDialog):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         r = self.pole()
-        promien = 20.0
+        promien = 26.0          # ten sam narożnik co taca
         _cien_miekki(p, r, promien, przesun=4, rozmycie=10, sila=150, krok=2)
         _cien_miekki(p, r, promien, przesun=12, rozmycie=26, sila=130, krok=3)
         _cien_miekki(p, r, promien, przesun=26, rozmycie=52, sila=90, krok=6)
 
         s = _sciezka(r, promien)
+        # ten sam materiał co taca: ta sama trójka barw, to samo ziarno,
+        # ta sama krawędź światła u góry i to samo ucho
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
-        g.setColorAt(0.0, QColor(26, 43, 64, 252))
-        g.setColorAt(0.45, QColor(17, 28, 46, 253))
+        g.setColorAt(0.0, QColor(24, 40, 60, 250))
+        g.setColorAt(0.45, QColor(16, 27, 44, 252))
         g.setColorAt(1.0, QColor(10, 17, 29, 254))
         p.fillPath(s, QBrush(g))
         p.save()
         p.setClipPath(s)
-        rg = QRadialGradient(QPointF(r.center().x(), r.y()), max(r.width(), r.height()) * 0.8)
-        rg.setColorAt(0.0, S.z_alfa(S.CYJAN, 22))
+        rg = QRadialGradient(QPointF(r.center().x(), r.y()), max(r.width(), r.height()) * 0.75)
+        rg.setColorAt(0.0, S.z_alfa(S.CYJAN, 20))
         rg.setColorAt(1.0, S.z_alfa(S.CYJAN, 0))
         p.fillRect(r, QBrush(rg))
         S.ziarno(p, r, sila=9, skala=1.0, ciemne=0.5)
         p.restore()
 
-        _linia_swiatla(p, r.x() + 22, r.right() - 22, r.y() + 0.6, S.CYJAN, 165, 1.2)
+        # kreska pod nagłówkiem
+        y = self.l_podtytul.geometry().bottom() + 12.0
+
+        # wgłębienie pod treścią — dno panelu, tak jak dno tacy pod kartkami
+        rowek = self._rowek_tresci(r, y)
+        if rowek is not None:
+            sp = _sciezka(rowek, 16.0)
+            gr = QLinearGradient(rowek.topLeft(), rowek.bottomLeft())
+            gr.setColorAt(0.0, QColor(0, 0, 0, 58))
+            gr.setColorAt(0.35, QColor(0, 0, 0, 26))
+            gr.setColorAt(1.0, QColor(0, 0, 0, 10))
+            p.fillPath(sp, QBrush(gr))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(0, 0, 0, 70), 1.0))
+            p.drawPath(sp)
+            p.setPen(QPen(QColor(255, 255, 255, 16), 1.0))
+            p.drawPath(_sciezka(rowek.adjusted(0, 1.0, 0, 1.0), 16.0))
+
+        _linia_swiatla(p, r.x() + 24, r.right() - 24, r.y() + 0.4, S.CYJAN, 165, 1.2)
         p.setPen(QPen(S.OBRYS_MOCNY, 1.0))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(s)
 
-        # kreska pod nagłówkiem
-        y = self.l_podtytul.geometry().bottom() + 12.0
         gk = QLinearGradient(QPointF(r.x(), y), QPointF(r.right(), y))
         gk.setColorAt(0.00, QColor(255, 255, 255, 0))
         gk.setColorAt(0.22, QColor(255, 255, 255, 46))
@@ -1239,6 +1351,9 @@ class Panel(QDialog):
         gk.setColorAt(1.00, QColor(255, 255, 255, 0))
         p.fillRect(QRectF(r.x() + 18, y, r.width() - 36, 1.0), QBrush(gk))
         _linia_swiatla(p, r.x() + 20, r.x() + 168, y, S.CYJAN, 220, 1.3)
+
+        ucho = QRectF(r.center().x() - 26, r.y() + 8, 52, 3)
+        p.fillPath(_sciezka(ucho, 1.5), QBrush(QColor(255, 255, 255, 62)))
         p.end()
 
 

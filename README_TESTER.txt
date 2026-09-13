@@ -45,6 +45,42 @@ GDZIE LĄDUJĄ DOKUMENTY
   (np. Rozliczenie_Jan_Kowalski_czerwiec_2026r). W środku: PDF-y delegacji,
   rozliczenie wydatków i podgląd tras w pliku HTML.
 
+NOWY WYGLĄD — URUCHOMIENIE
+  Ze źródeł:     py -3.13 PMT_Delegacje.py --nowy
+  Z pliku .exe:  PMT_Planer.exe --nowy
+  Bez --nowy program otwiera się jak dotąd.
+  Skrót na Pulpicie: prawy przycisk → Właściwości → pole „Element
+  docelowy" → na końcu spacja i --nowy.
+
+NOWY WYGLĄD — CO W NIM DZIAŁA
+  Dane pracownika   imię, PESEL, adres, stanowisko, pojemność silnika;
+                    zapis do profilu (C:\Users\TwojeKonto\.pmt_uzytkownicy.json)
+  Miesiąc           boczne zakładki paska górnego, PgUp i PgDn;
+                    także przez granicę roku
+  Dni bez pracy     kliknięcie kafla na taśmie; osobno dla każdego miesiąca
+  Kwota, tryb pracy, limit dnia — wracają po zamknięciu okna
+  Generowanie       kompas; ten sam silnik i te same PDF-y co stary ekran
+  Przerwanie        kliknięcie kompasu w trakcie pracy albo Esc;
+                    po przerwaniu w folderze nie ma żadnego pliku
+  Postęp            łuk kompasu i plakietki: dane, trasy, PDF, mapa
+  Kilometry         kafel REALNE DROGI / DROGI Z PAMIĘCI / SZACUNEK
+  Taca              pliki z folderu wyniku, kwota co do grosza, liczba
+                    delegacji, ścieżka folderu; kliknięcie kartki dnia
+                    otwiera PDF jej polecenia wyjazdu
+  Podpis i wysyłka  przyciski na tacy; te same okna co stary ekran
+  Pieczęć „podpisana" na dniach dokumentów, które wróciły podpisane
+
+NOWY WYGLĄD — CZEGO W NIM NIE MA
+  Logowanie i kod dostępu. Pracownik pochodzi z profilu albo z pól
+  wypełnionych na ekranie.
+  Napis „Konto ważne do 31.12.2026" w pasku górnym — stały tekst,
+  nie data Twojego konta.
+  Plan wizyt, statystyki, kalendarz, aktualizacje, panel administratora.
+  Szyna ikon po lewej nic nie przełącza.
+  Przycisk otwierający mapę tras. Plik Trasy_Mapa.html leży w folderze
+  wyniku, pod przyciskiem „Otwórz folder".
+  Liczby pokazane przed naciśnięciem kompasu to szacunek.
+
 GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
   Program nie ma podpisu cyfrowego, więc SmartScreen pokazuje niebieskie
   okno „System Windows ochronił Twój komputer". Kliknij „Więcej informacji",
@@ -101,6 +137,31 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
   19. Zamknij program, połóż pusty plik BEZ_INTRA.txt obok niego i uruchom
       ponownie. Oczekiwane: okno logowania od razu, bez animacji.
   20. Wejdź w „O programie". Oczekiwane: numer wersji 3.22.0.
+
+
+  ── NOWY WYGLĄD (--nowy) ──────────────────────────────────────────────
+  21. Uruchom program z --nowy. Oczekiwane: okno nowego wyglądu; bez
+      logowania, bez animacji startowej.
+  22. Wypełnij imię i nazwisko, PESEL, adres i stanowisko, ustaw
+      pojemność silnika. Zamknij program i uruchom go ponownie z --nowy.
+      Oczekiwane: wszystkie cztery pola i pojemność na swoim miejscu.
+  23. Kliknij lewą, a potem prawą zakładkę paska górnego. To samo
+      klawiszami PgUp i PgDn. Oczekiwane: zmienia się miesiąc na pasku
+      i dni na taśmie; grudzień cofa się do listopada, styczeń do grudnia
+      poprzedniego roku.
+  24. Kliknij kilka kafli taśmy. Oczekiwane: oznaczone jako dni bez pracy;
+      po przejściu na inny miesiąc i powrocie — te same dni.
+  25. Wpisz kwotę i kliknij kompas. Oczekiwane: łuk idzie do końca,
+      plakietki dane → trasy → PDF → mapa, a po zakończeniu wysuwa się
+      taca z plikami, kwotą i folderem.
+  26. Kliknij kompas jeszcze raz w trakcie pracy (albo naciśnij Esc).
+      Oczekiwane: ekran wraca do stanu sprzed kliknięcia, w folderze
+      wyniku nie ma żadnego nowego pliku.
+  27. Na tacy kliknij kartkę jednego dnia, potem „Otwórz folder",
+      potem „Podpisz" i „Wyślij". Oczekiwane: PDF tego dnia, folder
+      z dokumentami, okno podpisu i okno wysyłki.
+  28. Porównaj kwotę na tacy z sumą delegacji z punktu 7. Oczekiwane:
+      ta sama liczba co do grosza.
 
   Co zgłaszać: numer punktu, co kliknąłeś, co się stało, a czego
   oczekiwałeś. Jeśli program się zamknął, dołącz plik

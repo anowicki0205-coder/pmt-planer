@@ -20858,6 +20858,12 @@ class App(QMainWindow):
         self._nav_aktywny = self.btn_nav_kokpit
         self._maluj_nav_belke()
         self.ekran_powitalny.update_theme(self.is_dark)
+        if not self.isVisible():
+            # To okno jest dzis MAGAZYNEM paneli: pokazuje je rama nowego
+            # ekranu (nowy_wyglad.NakladkaDzialu), a samo stoi ukryte. Nie
+            # ma wiec po co budzic w nim animacji ekranu powitalnego.
+            self.ekran_powitalny.stop()
+            return
         self.ekran_powitalny.show()
         self.ekran_powitalny.raise_()
         self.ekran_powitalny.start()
@@ -22107,10 +22113,11 @@ def zbuduj_okno_glowne(argv=None):
     """Okno główne programu — powstaje na KOŃCU sekwencji startowej.
 
     Domyślnie jest to nowy ekran (nowy_wyglad.OknoNowegoWygladu). Stary
-    interfejs (klasa App) powstaje zawsze: to on gospodaruje panelami
-    otwieranymi z szyny nowego ekranu, pilnuje aktualizacji i trzyma
-    centrum powiadomień. Argument --stary jest wyjściem awaryjnym: oddaje
-    dawne okno jako główne. Nigdzie w programie go nie pokazujemy."""
+    interfejs (klasa App) powstaje zawsze, ale zostaje UKRYTY: trzyma
+    panele (Planer, Plan Wizyt, Twoja praca, Ustawienia), pilnuje
+    aktualizacji i centrum powiadomień, a pokazuje te panele rama nowego
+    ekranu (nowy_wyglad.NakladkaDzialu). Argument --stary jest wyjściem
+    awaryjnym: oddaje dawne okno jako główne."""
     argv = list(sys.argv if argv is None else argv)
     stare = App()
     if "--stary" in argv:

@@ -2386,7 +2386,8 @@ except Exception:
     _s10_status_byl = None
 
 try:
-    from PyQt6.QtWidgets import QApplication as _QA10
+    from PyQt6.QtWidgets import QApplication as _QA10, QWidget as _QW10
+    import nowy_wyglad as _NW10
     _app10 = _QA10.instance() or _QA10(sys.argv)
 
     _zrodlo10 = open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
@@ -2433,34 +2434,135 @@ try:
     sprawdz("szyna melduje kliknięcie sygnałem, a nie tylko się podświetla",
             hasattr(_szyna10, "wybrano"))
 
-    # ── panele z szyny naprawdę się pokazują ──────────────────────
+    # ── panele z szyny: nad NOWYM oknem i w jego materiale ────────
     _stare10 = _okno10.stare_okno()
+    _okno10.show()
+    _app10.processEvents()
+
+    def _panel_nowego(widget):
+        """Panel siedzi w ramie nowego okna, jest w niej widoczny, a stare
+        okno zostaje schowane (użytkownik nie widzi jego kawałka)."""
+        rama = getattr(_okno10, "_nakladka", None)
+        return (rama is not None and rama.panel() is widget
+                and widget.window() is _okno10
+                and rama.isVisible() and widget.isVisible()
+                and not _stare10.isVisible())
+
     _okno10.dzial_twoja_praca()
     _app10.processEvents()
-    sprawdz("ikona „Twoja praca” otwiera prawdziwy panel statystyk",
-            _stare10.overlay_staty.isVisible())
+    sprawdz("ikona „Twoja praca” otwiera prawdziwy panel statystyk w nowym oknie",
+            _panel_nowego(_stare10.overlay_staty))
     _okno10.dzial_nowa_wyprawa()
     _app10.processEvents()
-    sprawdz("ikona „Nowa wyprawa” otwiera planer przystanków",
-            _stare10.overlay_planer.isVisible())
+    sprawdz("ikona „Nowa wyprawa” otwiera planer przystanków w nowym oknie",
+            _panel_nowego(_stare10.overlay_planer))
+    _okno10.dzial_plan_wizyt()
+    _app10.processEvents()
+    sprawdz("ikona „Plan wizyt” otwiera plan w nowym oknie",
+            _panel_nowego(_stare10.overlay_plan))
     _okno10.dzial_ustawienia()
     _app10.processEvents()
-    sprawdz("ikona „Ustawienia” otwiera panel administratora",
-            _stare10.overlay_admin.isVisible())
-    _okno10.dzial_bilans_miesiaca()
+    sprawdz("ikona „Ustawienia” otwiera panel administratora w nowym oknie",
+            _panel_nowego(_stare10.overlay_admin))
+    _okno10.dzial_kopia_zapasowa()
     _app10.processEvents()
-    sprawdz("ikona „Bilans miesiąca” pokazuje pełny formularz rozliczenia",
-            _stare10.body.isVisible())
+    sprawdz("ikona „Kopia zapasowa” otwiera kopię w nowym oknie, bez własnego okna",
+            _panel_nowego(_okno10._kopia)
+            and not _okno10._kopia.isModal())
+    _okno10.dzial_o_programie()
+    _app10.processEvents()
+    sprawdz("ikona „O programie” otwiera panel programu w nowym oknie",
+            _panel_nowego(_okno10._o_programie))
+
+    # ── żaden panel nie zostaje w starym stylu ────────────────────
+    _stary_kroj = [w for w in _stare10.overlay_staty.findChildren(_QW10)
+                   if "Segoe UI" in w.styleSheet()]
+    sprawdz("panel po otwarciu nie ma już kroju starego okna (Segoe UI)",
+            not _stary_kroj, str([w.objectName() for w in _stary_kroj][:4]))
+    _cyjanowe_ramki = [w for w in _stare10.overlay_planer.findChildren(_QW10)
+                       if "rgba(0,240,255,0.25)" in w.styleSheet().replace(" ", "")]
+    sprawdz("panel po otwarciu nie ma już cyjanowych ramek starego okna",
+            not _cyjanowe_ramki, str([w.objectName() for w in _cyjanowe_ramki][:4]))
+    sprawdz("nagłówek panelu daje rama nowego systemu, nie panel",
+            not _stare10.overlay_planer.tytul.isVisible()
+            and not _stare10.overlay_planer.btn_x.isVisible()
+            and _okno10._nakladka.b_zamknij.isVisible())
+    sprawdz("rama panelu zakrywa ekran pracy poza szyną i paskiem górnym",
+            _okno10._nakladka.x() == _NW10.OK.SZYNA_W
+            and _okno10._nakladka.y() == _NW10.OK.PASEK_H
+            and _okno10._nakladka.width() == _okno10.width() - _NW10.OK.SZYNA_W)
+
+    # ── ekran startowy ───────────────────────────────────────────
+    _okno10.dzial_ekran_startowy()
+    _app10.processEvents()
+    _start10 = _okno10._ekran_startowy
+    sprawdz("ekran startowy istnieje i otwiera się z szyny",
+            _start10 is not None and _panel_nowego(_start10))
+    sprawdz("ikona domu jest PIERWSZA w szynie i prowadzi do ekranu startowego",
+            _okno10.szyna.IKONY[0] == "dom"
+            and _okno10.NUMER_STARTU == 0
+            and _okno10.akcje_szyny()[0] == _okno10.dzial_ekran_startowy
+            and _okno10.szyna.nazwa(0) == "Ekran startowy")
+    sprawdz("ekran startowy pokazuje dzisiejszą datę w nagłówku",
+            _okno10._nakladka.l_podtytul.text()
+            == _NW10.data_slownie(datetime.date.today()),
+            _okno10._nakladka.l_podtytul.text())
+    sprawdz("ekran startowy ma kartę dnia, liczby miesiąca i skrót do bilansu",
+            _start10.l_dzien.text() in ("Dziś w trasie", "Dziś bez trasy")
+            and _start10.k_wizyty.isVisible() and _start10.b_bilans.isVisible()
+            and _start10.b_bilans.text() == "Bilans miesiąca")
+    _okno10.b_start_bilans_klik = _start10.b_bilans.click()
+    _app10.processEvents()
+    sprawdz("skrót „Bilans miesiąca” wraca na ekran pracy",
+            not _okno10._nakladka.isVisible()
+            and _okno10.szyna._aktywna == _okno10.NUMER_BILANSU)
+
+    # ── mapa tras ────────────────────────────────────────────────
+    _folder10 = tempfile.mkdtemp(prefix="pmt_mapa_")
+    _okno10.folder_wyniku = _folder10
+    sprawdz("przycisk mapy tras stoi na tacy dokumentów",
+            getattr(_okno10.taca, "b_mapa", None) is not None)
+    # bez żadnej mapy na dysku (także bez tej z wcześniejszych sekcji)
+    _szukajka10 = _NW10.folder_z_mapa_tras
+    _NW10.folder_z_mapa_tras = lambda: ""
+    try:
+        _bez_mapy10 = (_okno10._odswiez_stan_mapy() is False
+                       and not _okno10.taca.b_mapa.isEnabled()
+                       and _okno10.taca.b_mapa.text() == "Mapa tras · brak"
+                       and _okno10.otworz_mape_tras() == "")
+        _bez_mapy_start10 = (_start10.b_mapa.text() == "Mapa tras · brak"
+                             and not _start10.b_mapa.isEnabled())
+    finally:
+        _NW10.folder_z_mapa_tras = _szukajka10
+    sprawdz("bez pliku mapy przycisk stoi i pokazuje stan", _bez_mapy10)
+    sprawdz("ekran startowy też pokazuje brak mapy", _bez_mapy_start10)
+    with open(os.path.join(_folder10, "Trasy_Mapa.html"), "w", encoding="utf-8") as _f10:
+        _f10.write("<html></html>")
+    _otwarte10 = []
+    _stare_otworz10 = P.otworz_w_systemie
+    P.otworz_w_systemie = lambda sciezka: _otwarte10.append(sciezka)
+    try:
+        _wynik10 = _okno10.otworz_mape_tras()
+    finally:
+        P.otworz_w_systemie = _stare_otworz10
+    sprawdz("z plikiem mapy przycisk otwiera Trasy_Mapa.html istniejącym mechanizmem",
+            _okno10._odswiez_stan_mapy() is True
+            and _okno10.taca.b_mapa.isEnabled()
+            and _okno10.taca.b_mapa.text() == "Mapa tras"
+            and _otwarte10 == [os.path.join(_folder10, "Trasy_Mapa.html")]
+            and _wynik10 == _otwarte10[0], str(_otwarte10))
+    _okno10.folder_wyniku = ""
+    shutil.rmtree(_folder10, ignore_errors=True)
+
     _okno10.dzial_ekran_glowny()
     _app10.processEvents()
-    sprawdz("ikona „Ekran główny” zdejmuje okno paneli i wraca na nowy ekran",
-            not _stare10.isVisible() and _okno10.isVisible())
+    sprawdz("powrót na ekran pracy zdejmuje panel i nie odsłania starego okna",
+            not _stare10.isVisible() and _okno10.isVisible()
+            and not _okno10._nakladka.isVisible())
 
     # ── pasek górny: prawdziwe konto ──────────────────────────────
     json.dump({"kod": "12345", "imie": "Jan Kowalski", "wazne_do": "2031-03-31"},
               open(P.PLIK_STATUSU, "w", encoding="utf-8"))
-    _napis10, _wazne10 = None, None
-    import nowy_wyglad as _NW10
     _napis10, _wazne10 = _NW10.waznosc_konta()
     sprawdz("pasek górny bierze ważność konta z pliku statusu, nie z prototypu",
             _napis10 == "Konto ważne do 31.03.2031" and _wazne10 is True, repr(_napis10))

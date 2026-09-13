@@ -12,9 +12,17 @@ i silniku z PMT_Delegacje.py.
 CO JEST PRAWDZIWE
     · konto                logowanie programu; imię, ważność i inicjały
                            w pasku górnym z pliku statusu
-    · szyna po lewej       każda ikona otwiera panel programu (Nowa wyprawa,
-                           Plan wizyt, Bilans miesiąca, Twoja praca, Kopia
-                           zapasowa, Ustawienia, O programie)
+    · szyna po lewej       dom otwiera ekran startowy, kolejne ikony —
+                           panele programu (Nowa wyprawa, Plan wizyt, Bilans
+                           miesiąca, Twoja praca, Kopia zapasowa, Ustawienia,
+                           O programie). Panele stają NAD tym oknem, w ramie
+                           NakladkaDzialu i w materiale nowego systemu
+                           (zastosuj_styl_panelu)
+    · ekran startowy       dzisiejsza data, dzisiejsza trasa z zapisanego
+                           planu, liczby miesiąca i skróty (bilans, wyprawa,
+                           mapa tras)
+    · mapa tras            Trasy_Mapa.html z folderu wyniku — przycisk na
+                           tacy dokumentów i na ekranie startowym
     · pasek górny          dzwonek z historią komunikatów, zgłaszanie błędu,
                            awatar (hasło, karta testera, intro, wylogowanie)
     · animacja startowa    intro_zywa_mapa nad tym oknem (jak dotąd)
@@ -43,6 +51,7 @@ CZEGO JESZCZE NIE MA — sekcja „NIEPODŁĄCZONE" na końcu pliku.
 import datetime
 import math
 import os
+import re
 import sys
 
 
@@ -97,18 +106,22 @@ def _wepnij_prototyp():
 PMT = modul_programu()
 KATALOG_PROTOTYPU = _wepnij_prototyp()
 
-from PyQt6.QtCore import (Qt, QPoint, QPointF, QRectF, QTimer,      # noqa: E402
-                          pyqtSignal)
-from PyQt6.QtGui import QBrush, QCursor, QPainterPath, QPen        # noqa: E402
-from PyQt6.QtWidgets import (QApplication, QLineEdit, QMenu,       # noqa: E402
-                             QMessageBox, QWidget)
+from PyQt6.QtCore import (Qt, QEvent, QPoint, QPointF, QRectF,     # noqa: E402
+                          QTimer, pyqtSignal)
+from PyQt6.QtGui import (QBrush, QColor, QCursor, QPainter,        # noqa: E402
+                         QPainterPath, QPen)
+from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,       # noqa: E402
+                             QCheckBox, QComboBox, QFrame, QHBoxLayout,
+                             QLabel, QLineEdit, QMenu, QMessageBox,
+                             QPushButton, QRadioButton, QVBoxLayout, QWidget)
 
 import proto_styl as S                                             # noqa: E402
 import proto_dane as D                                             # noqa: E402
 import proto_okno as OK                                            # noqa: E402
 from proto_mapa import MapaDnia                                    # noqa: E402
 from proto_okno import OknoPrototypu, arkusz                       # noqa: E402
-from proto_taca import PanelPodpisu, PanelWysylki                  # noqa: E402
+from proto_taca import (KafelLiczby, Napis, Panel, PanelPodpisu,   # noqa: E402
+                        PanelWysylki, Przycisk)
 
 import pmt_dokumenty as DOK                                        # noqa: E402
 
@@ -663,25 +676,715 @@ def etap_silnika(opis):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  MATERIAŁ NOWEGO SYSTEMU NA PANELACH PROGRAMU
+#
+#  Panele (Nowa wyprawa, Plan wizyt, Twoja praca, Ustawienia, Kopia
+#  zapasowa) to gotowe widżety okna App. Ich barwy siedzą w arkuszach
+#  rozdawanych przez update_theme (PMT_Delegacje, _apply_theme_srodek
+#  i update_theme każdej nakładki). Nie przepisujemy paneli — TŁUMACZYMY
+#  te arkusze na materiał nowego ekranu i wkładamy panel w ramę
+#  NakladkaDzialu, która stoi nad NOWYM oknem.
+# ═══════════════════════════════════════════════════════════════════════
+
+# stara barwa (małymi literami) → barwa nowego systemu
+BARWY_PANELU = {
+    "#f8fafc": S.TEKST.name(),      "#e2e8f0": S.TEKST.name(),
+    "#cbd5e1": S.TEKST_2.name(),    "#94a3b8": S.TEKST_2.name(),
+    "#64748b": S.TEKST_3.name(),    "#475569": S.TEKST_3.name(),
+    "#ef4444": S.BLAD.name(),       "#dc2626": S.BLAD.name(),
+    "#f87171": S.BLAD.name(),       "#fca5a5": S.BLAD.name(),
+    "#f59e0b": S.BURSZTYN.name(),   "#fbbf24": S.BURSZTYN.name(),
+    "#facc15": S.BURSZTYN.name(),   "#eab308": S.BURSZTYN.name(),
+    "#10b981": S.ZIELEN.name(),     "#34d399": S.ZIELEN.name(),
+    "#059669": S.ZIELEN.name(),     "#22c55e": S.ZIELEN.name(),
+    "#4ade80": S.MIETA.name(),      "#a7f3d0": S.MIETA.name(),
+    "#0093e9": S.CYJAN.name(),      "#38bdf8": S.CYJAN.name(),
+    "#60a5fa": S.CYJAN.name(),      "#0b1320": "#0F1A2A",
+    "#f97316": S.BURSZTYN.name(),   "#fb923c": S.BURSZTYN.name(),
+    "#fcd34d": S.BURSZTYN.name(),   "#ea580c": S.BURSZTYN.name(),
+}
+
+POWIERZCHNIA_CSS = "rgba(17,28,46,0.72)"     # karta nowego systemu
+POWIERZCHNIA_KRYJACA = "#0F1A2A"             # ta sama barwa bez prześwitu
+WGLEBIENIE_CSS = "rgba(9,16,28,0.62)"        # pole, rowek, tło wykresu
+OBRYS_CSS = "rgba(255,255,255,0.12)"         # krawędź zamiast cyjanowej ramki
+MGLA_CSS = "rgba(255,255,255,0.05)"          # delikatne wypełnienie wiersza
+
+# panele-karty, które w nowej ramie są już niepotrzebne (rama rysuje szkło)
+KARTY_BEZ_TLA = ("PlanerKarta", "PlanKarta")
+
+_RE_RGBA = re.compile(r"rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9.]+)\s*\)")
+_RE_HEX = re.compile(r"#[0-9A-Fa-f]{6}\b")
+_RE_PROMIEN = re.compile(r"border-radius\s*:\s*([0-9.]+)px")
+_RE_ROZMIAR = re.compile(r"font-size\s*:\s*([0-9.]+)px")
+_RE_KROJ = re.compile(r"font-family\s*:\s*['\"]?Segoe UI['\"]?(\s*,\s*sans-serif)?")
+
+
+def _rgba_nowego_systemu(dopasowanie):
+    r, g, b = (int(dopasowanie.group(i)) for i in (1, 2, 3))
+    a = float(dopasowanie.group(4))
+    if (r, g, b) == (0, 240, 255):           # cyjanowe ramki i mgiełki starego okna
+        return MGLA_CSS if a <= 0.12 else OBRYS_CSS
+    if (r, g, b) in ((0, 228, 161), (255, 255, 255)):
+        return dopasowanie.group(0)
+    if (r, g, b) == (148, 163, 184):
+        return "rgba(167,180,200,%s)" % dopasowanie.group(4)
+    if r + g + b <= 150:                     # ciemne tła: karta albo wgłębienie
+        if a >= 0.88:                        # to, co kryło, ma kryć dalej
+            return POWIERZCHNIA_KRYJACA
+        if a >= 0.75:
+            return POWIERZCHNIA_CSS
+        if a >= 0.35:
+            return WGLEBIENIE_CSS
+        return "rgba(9,16,28,0.40)"
+    return dopasowanie.group(0)
+
+
+def przemaluj_arkusz(css, promien=14):
+    """Arkusz starego panelu w barwach, krojach i promieniach nowego ekranu."""
+    czesci = css.split("}")
+    for i, blok in enumerate(czesci):
+        znaleziony = _RE_ROZMIAR.search(blok)
+        rozmiar = float(znaleziony.group(1)) if znaleziony else 13.0
+        rodzina = S.rodzina_naglowek() if rozmiar >= 16 else S.rodzina_tekst()
+        blok = _RE_KROJ.sub("font-family:'%s'" % rodzina, blok)
+        blok = _RE_HEX.sub(
+            lambda m: BARWY_PANELU.get(m.group(0).lower(), m.group(0)), blok)
+        blok = _RE_RGBA.sub(_rgba_nowego_systemu, blok)
+        blok = _RE_PROMIEN.sub(
+            lambda m: "border-radius:%dpx" % (int(float(m.group(1)))
+                                              if float(m.group(1)) <= 6 else promien),
+            blok)
+        czesci[i] = blok
+    return "}".join(czesci)
+
+
+def _promien_widzetu(widget):
+    """Przyciski i pola: 10 px. Karty i kafle: 14 px."""
+    if isinstance(widget, (QPushButton, QLineEdit, QComboBox, QCheckBox,
+                           QRadioButton, QAbstractSpinBox)):
+        return 10
+    return 14
+
+
+def zastosuj_styl_panelu(korzen, tlo="transparent"):
+    """Nakłada materiał nowego ekranu na gotowy panel programu.
+
+    Idzie po wszystkich widżetach panelu i tłumaczy ich arkusze. Wynik
+    zapamiętuje przy widżecie, więc powtórne wywołanie (po przebudowie
+    wierszy przez sam panel) kosztuje jedno porównanie napisów.
+
+    ``tlo=None`` zostawia arkusz korzenia na miejscu (tylko go tłumaczy) —
+    tak wchodzą okna dialogowe programu, które rysują własną kartę."""
+    if tlo is None:
+        css = korzen.styleSheet()
+        if css and getattr(korzen, "_nowy_styl", None) != css:
+            korzen.setStyleSheet(przemaluj_arkusz(css, _promien_widzetu(korzen)))
+    else:
+        arkusz_korzenia = "%s { background: %s; border: none; }" % (
+            type(korzen).__name__, tlo)
+        if korzen.styleSheet() != arkusz_korzenia:
+            korzen.setStyleSheet(arkusz_korzenia)
+    korzen._nowy_styl = korzen.styleSheet()
+    for widget in korzen.findChildren(QWidget):
+        css = widget.styleSheet()
+        if widget.objectName() in KARTY_BEZ_TLA:
+            nowy = "#%s { background: transparent; border: none; }" % widget.objectName()
+        elif not css or getattr(widget, "_nowy_styl", None) == css:
+            continue
+        else:
+            nowy = przemaluj_arkusz(css, _promien_widzetu(widget))
+        if nowy != css:
+            widget.setStyleSheet(nowy)
+        widget._nowy_styl = widget.styleSheet()
+    return korzen
+
+
+def pilnuj_materialu(panel, metody=("_przerysuj", "odswiez_dane", "ustaw_plan",
+                                    "update_theme")):
+    """Panel, który sam przebudowuje sobie wiersze, ma je od razu w materiale.
+
+    Opakowujemy metody panelu, po których wracają jego własne arkusze —
+    zaraz po nich tłumaczymy je na nowo. Bez tego świeży wiersz świeciłby
+    starymi barwami aż do następnego przebiegu zegara."""
+    for nazwa in metody:
+        metoda = getattr(panel, nazwa, None)
+        if metoda is None or getattr(metoda, "_w_materiale", False):
+            continue
+
+        def opakuj(_m=metoda, _p=panel):
+            def wywolaj(*args, **kwargs):
+                wynik = _m(*args, **kwargs)
+                zastosuj_styl_panelu(_p)
+                rama = _p.parent()
+                if isinstance(rama, NakladkaDzialu):
+                    rama.odswiez_podtytul()
+                return wynik
+            wywolaj._w_materiale = True
+            return wywolaj
+
+        try:
+            setattr(panel, nazwa, opakuj())
+        except Exception:
+            pass
+    return panel
+
+
+def ukryj_naglowek_panelu(panel):
+    """Tytuł, podtytuł i krzyżyk panelu — nagłówek daje teraz rama."""
+    for nazwa in ("tytul", "podtytul", "l_tyt", "l_pod", "btn_x"):
+        widget = getattr(panel, nazwa, None)
+        if isinstance(widget, QWidget):
+            widget.hide()
+
+
+def usun_wywody(panel, poczatki=()):
+    """Zdania tłumaczące działanie programu nie należą do tego interfejsu."""
+    for etykieta in panel.findChildren(QLabel):
+        tekst = etykieta.text().strip()
+        if any(tekst.startswith(p) for p in poczatki):
+            etykieta.hide()
+
+
+ARKUSZ_PANELU = """
+QLabel { background: transparent; }
+QScrollArea { background: transparent; border: none; }
+QAbstractScrollArea > QWidget { background: transparent; }
+QAbstractScrollArea > QWidget > QWidget { background: transparent; }
+QHeaderView { background: %(wglebienie)s; border: none; }
+QHeaderView::section { background: %(wglebienie)s; color: %(tekst2)s;
+    border: none; padding: 8px; }
+QTableCornerButton::section { background: %(wglebienie)s; border: none; }
+QTableView, QTableWidget, QAbstractItemView { background: rgba(9,16,28,0.40);
+    alternate-background-color: rgba(255,255,255,0.03);
+    selection-background-color: rgba(0,240,255,0.18);
+    color: %(tekst)s; border: 1px solid %(obrys)s; border-radius: 14px; }
+QCheckBox, QRadioButton { background: transparent; }
+QToolButton { background: transparent; border: none; color: %(tekst)s; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: rgba(255,255,255,0.16);
+    border-radius: 5px; min-height: 30px; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
+QScrollBar::handle:horizontal { background: rgba(255,255,255,0.16);
+    border-radius: 5px; min-width: 30px; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+""" % {"tekst": S.TEKST.name(), "tekst2": S.TEKST_2.name(),
+       "wglebienie": WGLEBIENIE_CSS, "obrys": OBRYS_CSS}
+
+
+class NakladkaDzialu(Panel):
+    """Rama panelu nowego systemu — nad nowym oknem, nie nad starym.
+
+    Materiał i nagłówek bierze z Panel (proto_taca): to samo szkło, ta sama
+    krawędź światła u góry, ten sam krzyżyk w prawym górnym rogu, co panele
+    podpisu i wysyłki. W środku siedzi gotowy panel programu."""
+
+    zamknieto = pyqtSignal()
+
+    def __init__(self, rodzic=None):
+        super().__init__("", "", rodzic)
+        self.setWindowFlags(Qt.WindowType.Widget)
+        self.setModal(False)
+        self.setStyleSheet(S.qss() + ARKUSZ_PANELU)
+        self._panel = None
+        self._podtytul = ""
+        self.tresc = QVBoxLayout()
+        self.tresc.setContentsMargins(0, 0, 0, 0)
+        self.tresc.setSpacing(0)
+        self.z.addLayout(self.tresc, 1)
+        self.b_zamknij.clicked.disconnect()
+        self.b_zamknij.clicked.connect(self.zamknij)
+        self.rejected.connect(self.zamknij)
+        self.hide()
+
+    # — treść —
+    def ustaw_panel(self, widget, tytul, podtytul=""):
+        """``podtytul`` może być funkcją — wtedy stan w nagłówku sam się odświeża."""
+        self.l_tytul.setText(tytul)
+        self._podtytul = podtytul
+        self.odswiez_podtytul()
+        if widget is not self._panel:
+            if self._panel is not None:
+                self.tresc.removeWidget(self._panel)
+                self._panel.hide()
+            self._panel = widget
+            if widget is not None:
+                if widget.parent() is not self:
+                    widget.setParent(self)
+                self.tresc.addWidget(widget)
+        if widget is not None:
+            widget.show()
+            # Arkusz ramy nakładamy PONOWNIE: widżety, które wpięły się w nią
+            # po jej zbudowaniu (viewporty przewijania!), inaczej zostają
+            # z barwą systemową — białą.
+            self.setStyleSheet(self.styleSheet())
+        return widget
+
+    def panel(self):
+        return self._panel
+
+    def odswiez_podtytul(self):
+        zrodlo = getattr(self, "_podtytul", "")
+        if callable(zrodlo):
+            try:
+                zrodlo = zrodlo()
+            except Exception:
+                zrodlo = ""
+        self.l_podtytul.setText(str(zrodlo or ""))
+
+    def zamknij(self):
+        if self.isVisible():
+            self.hide()
+        self.zamknieto.emit()
+
+    # — rama nie jest osobnym oknem: nie przesuwamy jej myszą —
+    def mousePressEvent(self, zdarzenie):
+        QWidget.mousePressEvent(self, zdarzenie)
+
+    def mouseMoveEvent(self, zdarzenie):
+        QWidget.mouseMoveEvent(self, zdarzenie)
+
+    def mouseReleaseEvent(self, zdarzenie):
+        QWidget.mouseReleaseEvent(self, zdarzenie)
+
+    def resizeEvent(self, zdarzenie):
+        """Ciasne okno oddaje najpierw marginesy ramy — panel ma się zmieścić."""
+        ciasno = self.height() < 640 or self.width() < 1000
+        margines = 12 if ciasno else 20
+        if self.MARGINES != margines:
+            self.MARGINES = margines
+        bok = margines + (2 if ciasno else 16)
+        pion = margines + (4 if ciasno else 12)
+        marg = self.z.contentsMargins()
+        if marg.left() != bok or marg.top() != pion:
+            self.z.setContentsMargins(bok, pion, bok, pion)
+        super().resizeEvent(zdarzenie)
+
+    def paintEvent(self, zdarzenie):
+        malarz = QPainter(self)
+        malarz.fillRect(self.rect(), QColor(5, 10, 20, 246))
+        malarz.end()
+        super().paintEvent(zdarzenie)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  EKRAN STARTOWY I MAPA TRAS
+# ═══════════════════════════════════════════════════════════════════════
+
+DNI_TYGODNIA = ("poniedziałek", "wtorek", "środa", "czwartek",
+                "piątek", "sobota", "niedziela")
+MIESIACE_DOPELNIACZ = ("stycznia", "lutego", "marca", "kwietnia", "maja",
+                       "czerwca", "lipca", "sierpnia", "września",
+                       "października", "listopada", "grudnia")
+NAZWA_MAPY = "Trasy_Mapa.html"
+
+
+def data_slownie(data):
+    return "%s, %d %s %d" % (DNI_TYGODNIA[data.weekday()], data.day,
+                             MIESIACE_DOPELNIACZ[data.month - 1], data.year)
+
+
+def plik_mapy_tras(folder):
+    """Mapa tras miesiąca w folderze wyniku — albo pusto, gdy jej nie ma."""
+    if not folder:
+        return ""
+    sciezka = os.path.join(folder, NAZWA_MAPY)
+    return sciezka if os.path.isfile(sciezka) else ""
+
+
+def folder_z_mapa_tras():
+    """Najświeższy folder rozliczenia z mapą — po ponownym uruchomieniu programu."""
+    najlepszy, czas_najlepszego = "", -1.0
+    try:
+        pulpit = PMT.sciezka_pulpitu()
+        for nazwa in os.listdir(pulpit):
+            if not nazwa.startswith("Rozliczenie_"):
+                continue
+            sciezka = plik_mapy_tras(os.path.join(pulpit, nazwa))
+            if not sciezka:
+                continue
+            czas = os.path.getmtime(sciezka)
+            if czas > czas_najlepszego:
+                najlepszy, czas_najlepszego = os.path.dirname(sciezka), czas
+    except Exception:
+        return ""
+    return najlepszy
+
+
+def dzis_w_trasie():
+    """Dzisiejszy dzień zapisanego planu, najbliższy następny i ile zrobione."""
+    dzis = datetime.date.today()
+    try:
+        plan = PMT.wczytaj_plan()
+    except Exception:
+        plan = None
+    dzien, nastepny = None, None
+    for d in (plan or {}).get("dni", []):
+        if d.data == dzis:
+            dzien = d
+        elif d.data > dzis and nastepny is None:
+            nastepny = d
+    zrobione = 0
+    if dzien is not None:
+        for wizyta in dzien.wizyty:
+            try:
+                if PMT.czy_odwiedzona(dzis, wizyta.adres or wizyta.nazwa):
+                    zrobione += 1
+            except Exception:
+                pass
+    return dzien, nastepny, zrobione
+
+
+def liczby_miesiaca():
+    try:
+        return PMT.oblicz_statystyki_osobiste()
+    except Exception:
+        return {}
+
+
+def _wizyty_txt(n):
+    if n == 1:
+        return "1 wizyta"
+    r, s = n % 10, n % 100
+    if 2 <= r <= 4 and not (12 <= s <= 14):
+        return "%d wizyty" % n
+    return "%d wizyt" % n
+
+
+def _punkty_txt(n):
+    if n == 1:
+        return "1 punkt"
+    r, s = n % 10, n % 100
+    if 2 <= r <= 4 and not (12 <= s <= 14):
+        return "%d punkty" % n
+    return "%d punktów" % n
+
+
+def _godziny(minuty):
+    minuty = max(0, int(minuty or 0))
+    return "%d h %02d" % (minuty // 60, minuty % 60)
+
+
+def wysrodkuj_tresc(widget, maks_szerokosc):
+    """Treść trzyma czytelną szerokość także w szerokim oknie."""
+    uklad = widget.layout()
+    if uklad is None:
+        return
+    bok = max(0, (widget.width() - int(maks_szerokosc)) // 2)
+    marg = uklad.contentsMargins()
+    if marg.left() != bok:
+        uklad.setContentsMargins(bok, marg.top(), bok, marg.bottom())
+
+
+class KartaStanu(QWidget):
+    """Powierzchnia nowego systemu: szkło, krawędź światła, obrys."""
+
+    def __init__(self, rodzic=None, promien=S.PROMIEN, mocne=False):
+        super().__init__(rodzic)
+        self._promien = float(promien)
+        self._mocne = bool(mocne)
+
+    def paintEvent(self, _zdarzenie):
+        malarz = QPainter(self)
+        malarz.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pole = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if pole.width() > 4 and pole.height() > 4:
+            S.szklo(malarz, pole, self._promien, mocne=self._mocne,
+                    sila_krawedzi=1.6)
+        malarz.end()
+
+
+class EkranStartowy(QWidget):
+    """Ekran startowy: dzisiejsza data, dzisiejsza trasa, liczby miesiąca,
+    skrót do bilansu i do mapy tras. Zbudowany z części nowego systemu."""
+
+    MAKS_PRZYSTANKOW = 5
+    MAKS_SZEROKOSC = 1000
+
+    def __init__(self, okno):
+        super().__init__(okno)
+        self._okno = okno
+        z = QVBoxLayout(self)
+        z.setContentsMargins(0, 0, 0, 0)
+        z.setSpacing(16)
+
+        # ── karta dnia ────────────────────────────────────────────
+        self.karta_dnia = KartaStanu(self, S.PROMIEN)
+        kd = QHBoxLayout(self.karta_dnia)
+        kd.setContentsMargins(24, 20, 24, 20)
+        kd.setSpacing(20)
+        lewa = QVBoxLayout()
+        lewa.setSpacing(4)
+        self.l_dzien = Napis("", 21, 700, S.TEKST, naglowek=True)
+        self.l_meta = Napis("", 12.5, 600, S.TEKST_2)
+        lewa.addWidget(self.l_dzien)
+        lewa.addWidget(self.l_meta)
+        lewa.addSpacing(6)
+        self.przystanki = QVBoxLayout()
+        self.przystanki.setSpacing(3)
+        lewa.addLayout(self.przystanki)
+        lewa.addStretch(1)
+        kd.addLayout(lewa, 1)
+        prawa = QVBoxLayout()
+        prawa.setSpacing(8)
+        self.l_postep = Napis("", 15, 700, S.MIETA, mono=True,
+                              wyrownanie=Qt.AlignmentFlag.AlignRight)
+        prawa.addWidget(self.l_postep)
+        self.b_dzien = Przycisk("Plan wizyt", "glowny", 13, self)
+        self.b_dzien.clicked.connect(self._klik_dnia)
+        prawa.addWidget(self.b_dzien, 0, Qt.AlignmentFlag.AlignRight)
+        prawa.addStretch(1)
+        kd.addLayout(prawa, 0)
+        self.karta_dnia.setMinimumHeight(172)
+        z.addStretch(1)
+        z.addWidget(self.karta_dnia, 0)
+
+        # ── liczby miesiąca ───────────────────────────────────────
+        self.karta_liczb = KartaStanu(self, S.PROMIEN)
+        kl = QHBoxLayout(self.karta_liczb)
+        kl.setContentsMargins(24, 14, 24, 14)
+        kl.setSpacing(22)
+        self.k_wizyty = KafelLiczby("WIZYTY", lambda v: "%.0f" % v,
+                                    wyrozniony=True, duzy=True, rodzic=self)
+        self.k_km = KafelLiczby("KILOMETRY",
+                                lambda v: "%s km" % f"{v:,.0f}".replace(",", " "),
+                                rodzic=self)
+        self.k_passa = KafelLiczby("PASSA", lambda v: "%.0f dni" % v, rodzic=self)
+        self.k_punkty = KafelLiczby("PUNKTY", lambda v: "%.0f" % v, rodzic=self)
+        for kafel in (self.k_wizyty, self.k_km, self.k_passa, self.k_punkty):
+            kl.addWidget(kafel, 0, Qt.AlignmentFlag.AlignVCenter)
+        kl.addStretch(1)
+        self.l_poprzedni = Napis("", 11.5, 600, S.TEKST_3, mono=True,
+                                 wyrownanie=Qt.AlignmentFlag.AlignRight)
+        kl.addWidget(self.l_poprzedni, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.karta_liczb.setMinimumHeight(92)
+        z.addWidget(self.karta_liczb, 0)
+
+        # ── skróty ────────────────────────────────────────────────
+        skroty = QHBoxLayout()
+        skroty.setSpacing(10)
+        self.b_bilans = Przycisk("Bilans miesiąca", "glowny", 13, self)
+        self.b_bilans.clicked.connect(lambda: self._okno.otworz_dzial(
+            self._okno.NUMER_BILANSU))
+        self.b_wyprawa = Przycisk("Nowa wyprawa", "zwykly", 13, self)
+        self.b_wyprawa.clicked.connect(lambda: self._okno.otworz_dzial(
+            self._okno.NUMER_WYPRAWY))
+        self.b_mapa = Przycisk("Mapa tras", "zielony", 13, self)
+        self.b_mapa.clicked.connect(self._okno.otworz_mape_tras)
+        for przycisk in (self.b_bilans, self.b_wyprawa, self.b_mapa):
+            skroty.addWidget(przycisk, 0, Qt.AlignmentFlag.AlignVCenter)
+        skroty.addStretch(1)
+        self.l_folder = Napis("", 11, 500, S.TEKST_3, mono=True,
+                              wyrownanie=Qt.AlignmentFlag.AlignRight)
+        skroty.addWidget(self.l_folder, 0, Qt.AlignmentFlag.AlignVCenter)
+        z.addLayout(skroty)
+        z.addStretch(1)
+
+    # ── dane ──────────────────────────────────────────────────────
+    def _animuj(self):
+        return bool(getattr(self._okno, "_animacje", True))
+
+    def _wyczysc_przystanki(self):
+        while self.przystanki.count():
+            pozycja = self.przystanki.takeAt(0)
+            widget = pozycja.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def odswiez(self):
+        dzis = datetime.date.today()
+        dzien, nastepny, zrobione = dzis_w_trasie()
+        self._wyczysc_przystanki()
+        if dzien is not None and dzien.wizyty:
+            ile = len(dzien.wizyty)
+            self.l_dzien.setText("Dziś w trasie")
+            self.l_meta.setText("%s · %.0f km · %s"
+                                % (_wizyty_txt(ile), dzien.km,
+                                   _godziny(dzien.minuty)))
+            self.l_postep.setText("%d z %d" % (zrobione, ile))
+            self.b_dzien.setText("Plan wizyt")
+            pierwszy_otwarty = True
+            for wizyta in dzien.wizyty[:self.MAKS_PRZYSTANKOW]:
+                odwiedzona = False
+                try:
+                    odwiedzona = PMT.czy_odwiedzona(dzis, wizyta.adres or wizyta.nazwa)
+                except Exception:
+                    pass
+                if odwiedzona:
+                    barwa, punkt = S.TEKST_3, S.ZIELEN
+                elif pierwszy_otwarty:
+                    barwa, punkt = S.TEKST, S.CYJAN
+                    pierwszy_otwarty = False
+                else:
+                    barwa, punkt = S.TEKST_2, S.z_alfa(S.TEKST_3, 150)
+                opis = wizyta.nazwa or wizyta.adres
+                if wizyta.miasto and wizyta.miasto not in opis:
+                    opis = "%s · %s" % (opis, wizyta.miasto)
+                self.przystanki.addWidget(Napis(opis, 12, 600, barwa, punkt=punkt))
+            reszta = len(dzien.wizyty) - self.MAKS_PRZYSTANKOW
+            if reszta > 0:
+                self.przystanki.addWidget(
+                    Napis("+%d" % reszta, 11.5, 700, S.TEKST_3, mono=True))
+        else:
+            self.l_dzien.setText("Dziś bez trasy")
+            self.l_postep.setText("")
+            if nastepny is not None:
+                self.l_meta.setText("najbliższy dzień · %02d.%02d · %s"
+                                    % (nastepny.data.day, nastepny.data.month,
+                                       _wizyty_txt(len(nastepny.wizyty))))
+                self.b_dzien.setText("Plan wizyt")
+            else:
+                self.l_meta.setText("brak planu")
+                self.b_dzien.setText("Nowa wyprawa")
+
+        liczby = liczby_miesiaca()
+        animuj = self._animuj()
+        self.k_wizyty.ustaw_wartosc(liczby.get("w_tym_miesiacu", 0), animuj)
+        self.k_km.ustaw_wartosc(liczby.get("suma_km_ukonczone", 0), animuj)
+        self.k_passa.ustaw_wartosc(liczby.get("passa_dni", 0), animuj)
+        try:
+            ile_punktow = len(PMT.wczytaj_punkty() or [])
+        except Exception:
+            ile_punktow = 0
+        self.k_punkty.ustaw_wartosc(ile_punktow, animuj)
+        poprzedni = liczby.get("poprzedni_miesiac", 0)
+        self.l_poprzedni.setText("poprzedni miesiąc  %d" % poprzedni)
+        self.odswiez_mape()
+
+    def odswiez_mape(self):
+        """Stan przycisku mapy — bez pliku przycisk stoi i mówi „brak”."""
+        sciezka = self._okno.sciezka_mapy_tras()
+        self.b_mapa.setEnabled(bool(sciezka))
+        self.b_mapa.setText("Mapa tras" if sciezka else "Mapa tras · brak")
+        self.l_folder.setText(os.path.basename(os.path.dirname(sciezka))
+                              if sciezka else "")
+
+    def resizeEvent(self, zdarzenie):
+        super().resizeEvent(zdarzenie)
+        wysrodkuj_tresc(self, self.MAKS_SZEROKOSC)
+
+    def _klik_dnia(self):
+        dzien, nastepny, _ = dzis_w_trasie()
+        if dzien is None and nastepny is None:
+            self._okno.otworz_dzial(self._okno.NUMER_WYPRAWY)
+        else:
+            self._okno.otworz_dzial(self._okno.NUMER_PLANU)
+
+    def zatrzymaj_animacje(self):
+        for kafel in (self.k_wizyty, self.k_km, self.k_passa, self.k_punkty):
+            kafel.zatrzymaj_animacje()
+        for przycisk in (self.b_dzien, self.b_bilans, self.b_wyprawa, self.b_mapa):
+            przycisk.zatrzymaj_animacje()
+
+    def showEvent(self, zdarzenie):
+        super().showEvent(zdarzenie)
+        self.odswiez()
+
+
+class PanelOProgramie(QWidget):
+    """O programie: wersja, silnik, plik, konto — nazwy, liczby i stany."""
+
+    def __init__(self, okno):
+        super().__init__(okno)
+        self._okno = okno
+        z = QVBoxLayout(self)
+        z.setContentsMargins(0, 0, 0, 0)
+        z.setSpacing(14)
+
+        self.karta = KartaStanu(self, S.PROMIEN)
+        kw = QVBoxLayout(self.karta)
+        kw.setContentsMargins(24, 20, 24, 20)
+        kw.setSpacing(10)
+        self._wartosci = {}
+        for klucz, etykieta in (("wersja", "WERSJA"), ("silnik", "SILNIK"),
+                                ("plik", "PLIK"), ("konto", "KONTO"),
+                                ("waznosc", "WAŻNOŚĆ")):
+            wiersz = QHBoxLayout()
+            wiersz.setSpacing(14)
+            opis = Napis(etykieta, 9.5, 800, S.TEKST_3, odstep=0.9)
+            opis.setFixedWidth(96)
+            wartosc = Napis("", 12.5, 600, S.TEKST, mono=True)
+            wiersz.addWidget(opis, 0, Qt.AlignmentFlag.AlignVCenter)
+            wiersz.addWidget(wartosc, 1, Qt.AlignmentFlag.AlignVCenter)
+            kw.addLayout(wiersz)
+            self._wartosci[klucz] = wartosc
+        z.addWidget(self.karta, 0)
+        z.addStretch(1)
+
+        dol = QHBoxLayout()
+        dol.setSpacing(10)
+        self.b_test = Przycisk("Test silnika", "zwykly", 13, self)
+        self.b_test.clicked.connect(self._test_silnika)
+        dol.addWidget(self.b_test, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.l_test = Napis("", 12.5, 600, S.TEKST_2, mono=True)
+        dol.addWidget(self.l_test, 1, Qt.AlignmentFlag.AlignVCenter)
+        z.addLayout(dol)
+
+    def resizeEvent(self, zdarzenie):
+        super().resizeEvent(zdarzenie)
+        wysrodkuj_tresc(self, 820)
+
+    def odswiez(self):
+        napis, wazne = waznosc_konta(getattr(self._okno, "_pozostalo_dni", None))
+        self._wartosci["wersja"].setText(PMT.wersja_pelna())
+        self._wartosci["silnik"].setText(str(getattr(PMT, "SYGNATURA_SILNIKA", "")))
+        try:
+            self._wartosci["plik"].setText(os.path.basename(PMT.sciezka_programu()))
+        except Exception:
+            self._wartosci["plik"].setText("")
+        self._wartosci["konto"].setText(self._okno._imie_zal or "—")
+        self._wartosci["waznosc"].setText(napis or "—")
+        self._wartosci["waznosc"].ustaw_kolor(S.MIETA if wazne else S.BURSZTYN)
+
+    def _test_silnika(self):
+        """Kontrolny przebieg silnika — liczby, nie zapewnienia."""
+        self.l_test.setText("liczę…")
+        QApplication.processEvents()
+        try:
+            dni = PMT.pobierz_dni_robocze(2026, 9)
+            trasy = PMT.generuj_trasy(2000, "Warszawa", 52.23, 21.01,
+                                      "mazowieckie", dni, "85010112345", 1.15)
+            osiagnieto = getattr(trasy, "kwota_osiagnieta",
+                                 sum(d.suma for d in trasy))
+            self.l_test.setText("2 000 zł → %d dni · %.0f zł" % (len(trasy), osiagnieto))
+            self.l_test.ustaw_kolor(S.MIETA if len(trasy) >= 7 else S.BURSZTYN)
+        except Exception as blad:
+            self.l_test.setText(str(blad)[:120])
+            self.l_test.ustaw_kolor(S.BLAD)
+
+    def showEvent(self, zdarzenie):
+        super().showEvent(zdarzenie)
+        self.odswiez()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  OKNO
 # ═══════════════════════════════════════════════════════════════════════
 
 class SzynaDzialow(OK.Szyna):
     """Szyna prototypu z DZIAŁAJĄCYMI ikonami — każda otwiera panel programu.
 
-    Numer w sygnale: 0–5 to ikony górne, 100 i 101 — dolne."""
+    Numer w sygnale: 0–6 to ikony górne, 100 — dolna."""
 
     wybrano = pyqtSignal(int)
 
-    IKONY = ("pinezka", "kalendarz", "wykres", "trend", "tarcza", "warstwy")
-    DOLNE = ("dom", "info")
-    NAZWY = ("Nowa wyprawa", "Plan wizyt", "Bilans miesiąca — pełny formularz",
+    IKONY = ("dom", "pinezka", "kalendarz", "wykres", "trend", "tarcza", "warstwy")
+    DOLNE = ("info",)
+    NAZWY = ("Ekran startowy", "Nowa wyprawa", "Plan wizyt", "Bilans miesiąca",
              "Twoja praca", "Kopia zapasowa", "Ustawienia")
-    NAZWY_DOLNE = ("Ekran główny", "O programie")
+    NAZWY_DOLNE = ("O programie",)
 
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
-        self._aktywna = -1        # na ekranie głównym żadna ikona nie świeci
+        self._aktywna = 3         # ekran pracy to Bilans miesiąca
+
+    def _pola_dolne(self):
+        """Ikony pomocnicze stoją przy dolnej krawędzi — ile by ich nie było."""
+        ile = len(self.DOLNE)
+        return [QRectF(14, self.height() - 61 - (ile - 1 - i) * 49, 44, 44)
+                for i in range(ile)]
 
     def nazwa(self, numer):
         numer = int(numer)
@@ -764,6 +1467,16 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     KWOTA_STARTOWA = 1850.0
 
+    # numery ikon szyny (kolejność: SzynaDzialow.IKONY, potem DOLNE)
+    NUMER_STARTU = 0
+    NUMER_WYPRAWY = 1
+    NUMER_PLANU = 2
+    NUMER_BILANSU = 3
+    NUMER_PRACY = 4
+    NUMER_KOPII = 5
+    NUMER_USTAWIEN = 6
+    NUMER_O_PROGRAMIE = 100
+
     # klucze w ~/.pmt_ustawienia.json — tym samym plikiem, co reszta programu
     USTAWIENIE_KWOTY = "nowy_kwota"
     USTAWIENIE_TRYBU = "nowy_tryb"
@@ -807,6 +1520,11 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._osiagnieto = 0.0
         self._niepelna = False
         self._pole_pesel = None
+        self._nakladka = None           # rama paneli nad nowym oknem
+        self._zegar_stylu = None        # pilnuje materiału w panelu
+        self._ekran_startowy = None
+        self._o_programie = None
+        self._kopia = None
 
         self._ustaw_baze_z_profilu()
         self._ustaw_miesiac_w_prototypie()
@@ -816,6 +1534,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.setWindowTitle(PMT.tytul_okna())
         self._uzupelnij_karty()
         self._polacz_nowe()
+        self._dodaj_mape_na_tace()
         self._zastosuj_konto()
         self._wolne = self._wolne_z_ustawien()
         self._przelicz_teraz(pierwszy=True)
@@ -827,9 +1546,16 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.panel_powiadomien = PMT.PanelPowiadomien(self)
         self.panel_powiadomien.podepnij_historie(self.toast.historia)
         self.panel_powiadomien.update_theme(True)
+        zastosuj_styl_panelu(self.panel_powiadomien, tlo=None)
+        zastosuj_styl_panelu(self.toast, tlo=None)
         if stare_okno is not None:
             self._zepnij_ze_starym(stare_okno)
         self._odswiez_pasek_konta()
+        try:
+            QApplication.instance().focusWindowChanged.connect(
+                self._ubierz_okno_programu)
+        except Exception:
+            pass
 
     # ── budowa: pasek miesięcy zamiast ozdobnego ─────────────────────
     def _buduj(self):
@@ -1456,6 +2182,7 @@ class OknoNowegoWygladu(OknoPrototypu):
             kafel._opis = opis
             kafel.updateGeometry()
             kafel.update()
+        self._odswiez_stan_mapy()
 
     def _pokaz_tace(self, animacja=True):
         super()._pokaz_tace(animacja)
@@ -1653,9 +2380,12 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     def _nowe_powiadomienie(self, _tytul="", _opis="", _sukces=True):
         self._nieprzeczytane += 1
+        # dymek maluje się od nowa przy każdym komunikacie — materiał też
+        zastosuj_styl_panelu(self.toast, tlo=None)
         if getattr(self, "panel_powiadomien", None) is not None \
                 and self.panel_powiadomien.isVisible():
             self.panel_powiadomien.odswiez()
+            zastosuj_styl_panelu(self.panel_powiadomien, tlo=None)
         self._odswiez_pasek_konta()
 
     def pokaz_stan_konta(self):
@@ -1675,6 +2405,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._nieprzeczytane = 0
         panel.update_theme(True)
         panel.odswiez()
+        zastosuj_styl_panelu(panel, tlo=None)
         pole = self.pasek._pola_prawe.get("dzwonek")
         x = self.width() - panel.width() - 24
         y = OK.PASEK_H + 8
@@ -1841,14 +2572,14 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     def akcje_szyny(self):
         """Numer ikony → akcja. Żadna ikona nie może zostać bez wpisu."""
-        return {0: self.dzial_nowa_wyprawa,
-                1: self.dzial_plan_wizyt,
-                2: self.dzial_bilans_miesiaca,
-                3: self.dzial_twoja_praca,
-                4: self.dzial_kopia_zapasowa,
-                5: self.dzial_ustawienia,
-                100: self.dzial_ekran_glowny,
-                101: self.dzial_o_programie}
+        return {self.NUMER_STARTU: self.dzial_ekran_startowy,
+                self.NUMER_WYPRAWY: self.dzial_nowa_wyprawa,
+                self.NUMER_PLANU: self.dzial_plan_wizyt,
+                self.NUMER_BILANSU: self.dzial_bilans_miesiaca,
+                self.NUMER_PRACY: self.dzial_twoja_praca,
+                self.NUMER_KOPII: self.dzial_kopia_zapasowa,
+                self.NUMER_USTAWIEN: self.dzial_ustawienia,
+                self.NUMER_O_PROGRAMIE: self.dzial_o_programie}
 
     def otworz_dzial(self, numer):
         akcja = self.akcje_szyny().get(int(numer))
@@ -1856,11 +2587,12 @@ class OknoNowegoWygladu(OknoPrototypu):
             akcja()
 
     def stare_okno(self):
-        """Egzemplarz App — gospodarz paneli, których nowy ekran sam nie rysuje.
+        """Egzemplarz App — magazyn paneli, których nowy ekran sam nie rysuje.
 
         Panele (Planer, Plan Wizyt, Twoja praca, Ustawienia) to widżety potomne
         tamtego okna, spięte z jego dymkami, paskiem postępu i Trybem Trasy.
-        Trzymamy więc jeden egzemplarz i pokazujemy go z żądanym panelem."""
+        Trzymamy więc jeden egzemplarz — ale POKAZUJE je rama nowego ekranu
+        (pokaz_panel), a samo okno App zostaje ukryte przez cały czas."""
         if self._stare is None:
             QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
             try:
@@ -1896,9 +2628,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         except Exception:
             pass
         try:
-            # Ekran powitalny tamtego okna animuje się w ukryciu — zatrzymujemy
-            # go do czasu, aż okno paneli naprawdę stanie na wierzchu
-            # (_powrot_do_powitalnego uruchomi go z powrotem).
+            # Ekran powitalny tamtego okna animuje się w ukryciu — gasimy go
+            # na stałe: jego miejsce zajął ekran startowy nowego systemu.
             QTimer.singleShot(0, stare.ekran_powitalny.stop)
         except Exception:
             pass
@@ -1915,59 +2646,231 @@ class OknoNowegoWygladu(OknoPrototypu):
         except Exception:
             pass
 
-    def _panel_starego(self, przycisk, metoda, numer=None):
-        okno = self.stare_okno()
+    # ── rama paneli nad nowym oknem ──────────────────────────────────
+    def nakladka(self):
+        """Rama, w której panele programu stają NAD nowym ekranem."""
+        if self._nakladka is None:
+            self._nakladka = NakladkaDzialu(self)
+            self._nakladka.zamknieto.connect(self.dzial_bilans_miesiaca)
+            self._zegar_stylu = QTimer(self)
+            self._zegar_stylu.setInterval(1200)
+            self._zegar_stylu.timeout.connect(self._pilnuj_stylu)
+            self._ustaw_geometrie_nakladki()
+        return self._nakladka
+
+    def _ustaw_geometrie_nakladki(self):
+        """Panel zakrywa wszystko poza szyną i paskiem górnym."""
+        if self._nakladka is None:
+            return
+        self._nakladka.setGeometry(OK.SZYNA_W, OK.PASEK_H,
+                                   max(320, self.width() - OK.SZYNA_W),
+                                   max(240, self.height() - OK.PASEK_H))
+
+    def resizeEvent(self, zdarzenie):
+        super().resizeEvent(zdarzenie)
+        self._ustaw_geometrie_nakladki()
+
+    def pokaz_panel(self, widget, tytul, podtytul="", numer=None):
+        """Gotowy panel programu w materiale nowego systemu, nad nowym oknem."""
+        rama = self.nakladka()
         if numer is not None:
             self.szyna.ustaw_aktywna(numer)
-        okno._demo_pozostalo = self._pozostalo_dni
         if self.panel_powiadomien.isVisible():
             self.panel_powiadomien.hide()
-        if not okno.isVisible():
-            okno.show()
-            # Głębia 3D nakłada się na GOTOWE okno — w starym przebiegu robiło
-            # to zakończenie animacji startowej, tutaj pierwsze pokazanie.
-            if not getattr(okno, "_glebia_nalozona", False):
-                okno._glebia_nalozona = True
-                QTimer.singleShot(80, lambda: PMT.zastosuj_glebie_interfejsu(okno))
-        okno.raise_()
-        okno.activateWindow()
-        PMT.App._nav_klik(okno, getattr(okno, przycisk), getattr(okno, metoda))
-        return okno
+        if widget is not None and not getattr(widget, "_nowy_system", False):
+            ukryj_naglowek_panelu(widget)
+            zastosuj_styl_panelu(widget)
+            pilnuj_materialu(widget)
+            widget.installEventFilter(self)
+        rama.ustaw_panel(widget, tytul, podtytul)
+        self._ustaw_geometrie_nakladki()
+        rama.show()
+        rama.raise_()
+        if self._zegar_stylu is not None and not self._zegar_stylu.isActive():
+            self._zegar_stylu.start()
+        return widget
+
+    def _pilnuj_stylu(self):
+        """Panel, który przebudował sobie wiersze, dostaje materiał na nowo."""
+        rama = self._nakladka
+        if rama is None or not rama.isVisible():
+            if self._zegar_stylu is not None:
+                self._zegar_stylu.stop()
+            return
+        rama.odswiez_podtytul()
+        panel = rama.panel()
+        if panel is not None and not getattr(panel, "_nowy_system", False):
+            zastosuj_styl_panelu(panel)
+
+    def eventFilter(self, obiekt, zdarzenie):
+        rodzaj = zdarzenie.type()
+        if rodzaj == QEvent.Type.Hide and self._nakladka is not None \
+                and obiekt is self._nakladka.panel():
+            QTimer.singleShot(0, self._panel_sam_sie_zamknal)
+        elif rodzaj == QEvent.Type.Resize and obiekt is self.taca:
+            przycisk = getattr(self.taca, "b_mapa", None)
+            if przycisk is not None:
+                przycisk.setVisible(self.taca.width() >= 1060)
+        return super().eventFilter(obiekt, zdarzenie)
+
+    def _ubierz_okno_programu(self, okno_qt):
+        """Okno dialogowe programu otwarte z panelu — w materiale nowego ekranu.
+
+        Ustawienia planowania, cykle, notatki czy potwierdzenia to osobne
+        okna klas z PMT_Delegacje. Nie przepisujemy ich — tłumaczymy arkusze
+        tak samo jak w panelach, gdy okno staje na wierzchu."""
+        if okno_qt is None:
+            return
+        try:
+            for widget in QApplication.topLevelWidgets():
+                if widget.windowHandle() is not okno_qt:
+                    continue
+                if widget is self or isinstance(widget, (Panel, PMT.App)):
+                    return
+                if getattr(widget, "_nowy_system", False):
+                    return
+                if type(widget).__module__ not in ("PMT_Delegacje", "__main__"):
+                    return
+                widget.setStyleSheet(widget.styleSheet() + ARKUSZ_PANELU)
+                zastosuj_styl_panelu(widget, tlo=None)
+                return
+        except Exception:
+            pass
+
+    def _panel_sam_sie_zamknal(self):
+        """Panel zamknięty własnym przyciskiem — rama schodzi razem z nim."""
+        rama = self._nakladka
+        if rama is not None and rama.isVisible():
+            panel = rama.panel()
+            if panel is None or not panel.isVisible():
+                rama.zamknij()
+
+    # ── działy szyny ─────────────────────────────────────────────────
+    def dzial_ekran_startowy(self):
+        """Ekran startowy: dzisiejsza trasa, liczby miesiąca, skróty."""
+        if self._ekran_startowy is None:
+            self._ekran_startowy = EkranStartowy(self)
+            self._ekran_startowy._nowy_system = True
+        self._ekran_startowy.odswiez()
+        return self.pokaz_panel(self._ekran_startowy, "Ekran startowy",
+                                data_slownie(datetime.date.today()),
+                                self.NUMER_STARTU)
 
     def dzial_nowa_wyprawa(self):
         """Planer Nowej Wyprawy — przystanki, import z Excela, planowanie."""
-        return self._panel_starego("btn_nav_kokpit", "_pokaz_planer", 0)
+        okno = self.stare_okno()
+        PMT.App._pokaz_planer(okno)
+        return self.pokaz_panel(
+            okno.overlay_planer, "Nowa wyprawa",
+            lambda p=okno.overlay_planer: _punkty_txt(
+                len(getattr(p, "_przystanki", None) or [])),
+            self.NUMER_WYPRAWY)
 
     def dzial_plan_wizyt(self):
-        return self._panel_starego("btn_nav_plan", "_pokaz_ostatni_plan", 1)
+        okno = self.stare_okno()
+        plan = getattr(okno, "_gotowy_plan", None) or PMT.wczytaj_plan()
+        if plan is not None:
+            okno._gotowy_plan = plan
+            PMT.App._pokaz_ostatni_plan(okno)
+            dni = plan.get("dni", []) or []
+            ile = plan.get("suma_wizyt") or sum(len(d.wizyty) for d in dni)
+            podtytul = "%d dni · %s" % (len(dni), _wizyty_txt(int(ile)))
+        else:
+            podtytul = "brak planu"
+        return self.pokaz_panel(okno.overlay_plan, "Plan wizyt", podtytul,
+                                self.NUMER_PLANU)
 
     def dzial_bilans_miesiaca(self):
-        """Pełny formularz rozliczenia (dane pracownika, tryb, dni bez pracy)."""
-        return self._panel_starego("btn_nav_archiwum", "_fokus_kokpit", 2)
-
-    def dzial_twoja_praca(self):
-        return self._panel_starego("btn_nav_staty", "_pokaz_statystyki", 3)
-
-    def dzial_ustawienia(self):
-        return self._panel_starego("btn_nav_ustaw", "_pokaz_panel_admina", 5)
-
-    def dzial_kopia_zapasowa(self):
-        self.szyna.ustaw_aktywna(4)
-        okno = PMT.DialogKopiaZapasowa(self, is_dark=True)
-        okno.exec()
-        return okno
-
-    def dzial_o_programie(self):
-        PMT.App._pokaz_o_programie(self)
-
-    def dzial_ekran_glowny(self):
-        """Powrót na ekran główny — panele starego okna schodzą ze sceny."""
+        """Bilans miesiąca to sam ekran pracy — kwota, dni, mapa, kompas."""
+        if self._nakladka is not None and self._nakladka.isVisible():
+            self._nakladka.hide()
         if self._stare is not None and self._stare.isVisible():
             self._stare.hide()
-        self.szyna.ustaw_aktywna(-1)
+        self.szyna.ustaw_aktywna(self.NUMER_BILANSU)
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def dzial_twoja_praca(self):
+        okno = self.stare_okno()
+        PMT.App._pokaz_statystyki(okno)
+        liczby = liczby_miesiaca()
+        return self.pokaz_panel(
+            okno.overlay_staty, "Twoja praca",
+            "%s w tym miesiącu" % _wizyty_txt(int(liczby.get("w_tym_miesiacu", 0))),
+            self.NUMER_PRACY)
+
+    def dzial_kopia_zapasowa(self):
+        okno = self.stare_okno()
+        if self._kopia is None:
+            self._kopia = PMT.DialogKopiaZapasowa(okno, is_dark=True)
+            self._kopia.setWindowFlags(Qt.WindowType.Widget)
+            self._kopia.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            usun_wywody(self._kopia, ("Wszystko, co masz w programie", "🛡"))
+            for ramka in self._kopia.findChildren(QFrame, "KopBox"):
+                self._kopia.layout().setAlignment(ramka, Qt.AlignmentFlag.AlignCenter)
+        return self.pokaz_panel(self._kopia, "Kopia zapasowa", "", self.NUMER_KOPII)
+
+    def dzial_ustawienia(self):
+        okno = self.stare_okno()
+        PMT.App._pokaz_panel_admina(okno)
+        return self.pokaz_panel(okno.overlay_admin, "Ustawienia", "",
+                                self.NUMER_USTAWIEN)
+
+    def dzial_o_programie(self):
+        if self._o_programie is None:
+            self._o_programie = PanelOProgramie(self)
+            self._o_programie._nowy_system = True
+        self._o_programie.odswiez()
+        return self.pokaz_panel(self._o_programie, "O programie", "",
+                                self.NUMER_O_PROGRAMIE)
+
+    def dzial_ekran_glowny(self):
+        """Powrót na ekran pracy — panel schodzi ze sceny."""
+        self.dzial_bilans_miesiaca()
+
+    # ── mapa tras miesiąca ───────────────────────────────────────────
+    def sciezka_mapy_tras(self):
+        """Plik mapy tras: z folderu tej sesji albo z ostatniego rozliczenia."""
+        return plik_mapy_tras(self.folder_wyniku) or \
+            plik_mapy_tras(folder_z_mapa_tras())
+
+    def otworz_mape_tras(self):
+        """Mapa tras w przeglądarce — tym samym mechanizmem, co dokumenty."""
+        sciezka = self.sciezka_mapy_tras()
+        if not sciezka:
+            self._odswiez_stan_mapy()
+            return ""
+        PMT.otworz_w_systemie(sciezka)
+        self.taca.l_stan.setText(os.path.basename(sciezka))
+        self._zegar_stanu.start()
+        return sciezka
+
+    def _odswiez_stan_mapy(self):
+        """Bez pliku przycisk stoi i pokazuje stan — bez tłumaczenia dlaczego."""
+        jest = bool(self.sciezka_mapy_tras())
+        przycisk = getattr(self.taca, "b_mapa", None)
+        if przycisk is not None:
+            przycisk.setEnabled(jest)
+            przycisk.setText("Mapa tras" if jest else "Mapa tras · brak")
+        if self._ekran_startowy is not None:
+            self._ekran_startowy.odswiez_mape()
+        return jest
+
+    def _dodaj_mape_na_tace(self):
+        """Przycisk mapy tras na tacy dokumentów — obok „Otwórz folder”."""
+        self.taca.b_mapa = Przycisk("Mapa tras", "zwykly", 13, self.taca)
+        self.taca.b_mapa.clicked.connect(self.otworz_mape_tras)
+        uklad = self.taca.layout()
+        for i in range(uklad.count()):
+            wiersz = uklad.itemAt(i).layout()
+            if wiersz is not None and wiersz.indexOf(self.taca.b_folder) >= 0:
+                wiersz.insertWidget(wiersz.indexOf(self.taca.b_folder) + 1,
+                                    self.taca.b_mapa, 0,
+                                    Qt.AlignmentFlag.AlignVCenter)
+                break
+        self.taca.installEventFilter(self)
+        self._odswiez_stan_mapy()
 
     # ═══════════════════════════════════════════════════════════════
     #  ANIMACJA STARTOWA (ta sama, co w starym oknie)
@@ -2070,6 +2973,10 @@ class OknoNowegoWygladu(OknoPrototypu):
         if klucz == Qt.Key.Key_Escape and self._watek is not None:
             self.anuluj_generowanie()
             return
+        if klucz == Qt.Key.Key_Escape and self._nakladka is not None \
+                and self._nakladka.isVisible():
+            self._nakladka.zamknij()
+            return
         if klucz == Qt.Key.Key_PageUp:
             self.ustaw_miesiac_o(-1)
             return
@@ -2116,6 +3023,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._watek_wysylki = None
         if watek is not None and watek.isRunning():
             watek.wait(4000)
+        if self._zegar_stylu is not None:
+            self._zegar_stylu.stop()
 
     def closeEvent(self, zdarzenie):
         self.zamknij_okna_pomocnicze()
@@ -2209,16 +3118,19 @@ def main(argv=None):
 # ═══════════════════════════════════════════════════════════════════════
 #  NIEPODŁĄCZONE — stan na dziś, uczciwie
 #
-#  1. Panele Nowa wyprawa, Plan wizyt, Bilans miesiąca, Twoja praca
-#     i Ustawienia są PRAWDZIWE, ale rysuje je okno App (gospodarz paneli):
-#     klik w ikonę szyny podnosi tamto okno z otwartym panelem. Nie zostały
-#     przerysowane w stylu nowego ekranu.
-#  2. Podgląd przed generowaniem to szacunek (podglad_miesiaca) — prawdziwe
+#  1. Panele (Nowa wyprawa, Plan wizyt, Twoja praca, Ustawienia, Kopia
+#     zapasowa) to wciąż widżety okna App — nowy jest materiał i rama, nie
+#     ich wnętrze. Wykresy i siatki rysowane pędzlem w PMT_Delegacje
+#     (WykresSlupkowy, WykresDonut, SiatkaMiesiacaPlan, PierscienPostepu)
+#     mają barwy wypalone w paintEvent i tłumaczenie arkuszy ich nie sięga.
+#  2. Te panele mówią o sobie całymi zdaniami („kliknij Zaplanuj wizyty,
+#     aby ułożyć trasy") — teksty zostają, bo są częścią ich logiki.
+#  3. Podgląd przed generowaniem to szacunek (podglad_miesiaca) — prawdziwe
 #     trasy powstają dopiero po naciśnięciu kompasu.
-#  3. Mapa tras (Trasy_Mapa.html) powstaje razem z dokumentami, ale nowy
-#     wygląd nie ma jeszcze przycisku, który by ją otwierał — plik leży
-#     w folderze wyniku i otwiera go „Otwórz folder".
-#  4. Motyw jasny działa tylko w oknie paneli; nowy ekran jest ciemny.
+#  4. Motyw jasny nie dotyczy nowego ekranu — panele w nim otwierane są
+#     zawsze ciemne (materiał nowego systemu).
+#  5. W oknie o minimalnym rozmiarze (1040×660) karta planera ma własne
+#     minimum szersze niż rama i przycina się o kilkanaście pikseli.
 # ═══════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":

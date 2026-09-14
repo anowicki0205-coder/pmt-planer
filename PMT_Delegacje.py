@@ -5795,6 +5795,27 @@ def _scal_baze_miast():
             wynik.append(_m)
         MIASTA_RAW[_woj] = wynik
 
+    # Ten sam punkt wpisany pod dwoma województwami (Grodków siedział i w
+    # opolskim, i w dolnośląskim). Scalanie wyżej idzie po województwach, więc
+    # takiej pary nie widzi — ta pętla sprząta po całej bazie.
+    _punkty = {}
+    for _woj in list(MIASTA_RAW.keys()):
+        _zostaje = []
+        for _m in MIASTA_RAW[_woj]:
+            _kl = (_rdzen_nazwy(_m.get("n", "")),
+                   round(float(_m.get("lat", 0)), 2), round(float(_m.get("lng", 0)), 2))
+            _byl = _punkty.get(_kl)
+            if _byl is None:
+                _punkty[_kl] = (_woj, _m)
+                _zostaje.append(_m)
+                continue
+            _woj_b, _m_b = _byl
+            if int(_m.get("sieci", 0)) > int(_m_b.get("sieci", 0)):
+                MIASTA_RAW[_woj_b] = [x for x in MIASTA_RAW[_woj_b] if x is not _m_b]
+                _punkty[_kl] = (_woj, _m)
+                _zostaje.append(_m)
+        MIASTA_RAW[_woj] = _zostaje
+
 
 def _rozwin_skroty_w_bazie():
     """Na dokumencie i w trasach mają być pełne nazwy: 'Maków Mazowiecki',
@@ -7813,6 +7834,53 @@ def _znajdz_font(nazwa_win: str) -> Optional[str]:
         if p.exists(): return str(p)
     return None
 
+# Skróty, którymi skraca się nazwę, gdy pełna nie mieści się w rubryce
+# dokumentu. To są normalne polskie skróty nazw miejscowości — na delegacji
+# wyglądają poprawnie, w przeciwieństwie do ucięcia z wielokropkiem.
+SKROTY_NAZW = (
+    ("Trybunalski", "Tryb."), ("Wielkopolski", "Wlkp."), ("Wielkopolska", "Wlkp."),
+    ("Mazowiecki", "Maz."), ("Mazowiecka", "Maz."), ("Mazowieckie", "Maz."),
+    ("Kujawski", "Kuj."), ("Pomorski", "Pom."), ("Pomorskie", "Pom."),
+    ("Lubelski", "Lub."), ("Podlaski", "Podl."), ("Warmiński", "Warm."),
+    ("Krakowski", "Krak."), ("Biłgorajski", "Biłg."), ("Kościelny", "Kośc."),
+    ("Kaszubski", "Kasz."), ("Białostocki", "Białost."), ("Tarnowski", "Tarn."),
+    ("Chełmiński", "Chełm."), ("Szczeciński", "Szcz."), ("Odrzański", "Odrz."),
+    ("Sandomierski", "Sand."), ("Iławecki", "Iław."), ("Małopolski", "Młp."),
+    ("Gdański", "Gd."), ("Śląski", "Śl."), ("Śląskie", "Śl."), ("Łódzki", "Łódz."),
+    ("Dolny", "Dln."), ("Górny", "Gór."), ("Wielki", "Wlk."), ("Nowe Miasto", "N. Miasto"),
+)
+
+
+def nazwa_do_rubryki(pdf, nazwa: str, szerokosc_mm: float) -> str:
+    """Nazwa miejscowości dopasowana DO SZEROKOŚCI rubryki na dokumencie.
+
+    Dawniej nazwa była ucinana po 18 znakach i doklejany był wielokropek —
+    a że szerokość zależy od liter, a nie od ich liczby, „Tomaszów
+    Mazowieck..." i tak wychodził poza kratkę. Najpierw więc próbujemy
+    normalnego polskiego skrótu („Tomaszów Maz."), potem zdejmujemy dopisek
+    w nawiasie, a dopiero na końcu ucinamy — i to mierząc szerokość."""
+    tekst = str(nazwa or "")
+    zapas = max(1.0, szerokosc_mm * 0.05)
+    limit = szerokosc_mm - zapas
+    try:
+        if pdf.get_string_width(tekst) <= limit:
+            return tekst
+    except Exception:
+        return tekst[:18] + "..." if len(tekst) > 18 else tekst
+    for _pelny, _skrot in SKROTY_NAZW:
+        if _pelny in tekst:
+            tekst = tekst.replace(_pelny, _skrot)
+            if pdf.get_string_width(tekst) <= limit:
+                return tekst
+    if "(" in tekst:
+        bez_nawiasu = tekst.split("(")[0].strip()
+        if bez_nawiasu and pdf.get_string_width(bez_nawiasu) <= limit:
+            return bez_nawiasu
+    while tekst and pdf.get_string_width(tekst + "...") > limit:
+        tekst = tekst[:-1]
+    return (tekst + "...") if tekst else str(nazwa or "")[:1]
+
+
 class PDFReport(FPDF):
     def __init__(self):
         super().__init__()
@@ -7910,7 +7978,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf.set_font("Arial",'B',9); pdf.cell(95,5,f"{pracownik.imie} {pracownik.pesel}",border=1,align='C')
         pdf.cell(95,5,pracownik.stanowisko,border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"imię i nazwisko oraz PESEL",border=0,align='C'); pdf.cell(95,3,"stanowisko",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
-        pdf.set_font("Arial",'B',9); pdf.cell(95,5,pracownik.adres,border=1,align='C'); pdf.cell(95,5,_menedzer(),border=1,new_x="LMARGIN",new_y="NEXT",align='C')
+        pdf.set_font("Arial",'B',9); pdf.cell(95,5,nazwa_do_rubryki(pdf, pracownik.adres, 95.0),border=1,align='C'); pdf.cell(95,5,_menedzer(),border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"adres zamieszkania",border=0,align='C'); pdf.cell(95,3,"przełożony",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'B',8); pdf.cell(95,5,"projekt: Biedronka, Dino, Eurocash, Społem, Stokrotka, Żabka",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"cel wyjazdu - Projekt",border=0,new_x="LMARGIN",new_y="NEXT",align='C'); pdf.ln(3)
@@ -7925,9 +7993,9 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         for dzien in doc_dni:
             for etap in dzien.etapy:
                 if pdf.get_y() > 250: pdf.add_page(); pdf.set_margins(10,8,10)
-                pdf.cell(30,4.5,etap.skad[:18]+"..." if len(etap.skad)>18 else etap.skad,border=1)
+                pdf.cell(30,4.5,nazwa_do_rubryki(pdf, etap.skad, 30.0),border=1)
                 pdf.cell(20,4.5,etap.data,border=1,align='C'); pdf.cell(15,4.5,etap.godz_wyj,border=1,align='C')
-                pdf.cell(30,4.5,etap.dokad[:18]+"..." if len(etap.dokad)>18 else etap.dokad,border=1)
+                pdf.cell(30,4.5,nazwa_do_rubryki(pdf, etap.dokad, 30.0),border=1)
                 pdf.cell(20,4.5,etap.data,border=1,align='C'); pdf.cell(15,4.5,etap.godz_przyj,border=1,align='C')
                 pdf.cell(35,4.5,"samochód osobowy",border=1,align='C'); pdf.cell(25,4.5,f"{etap.kwota:.2f}",border=1,new_x="LMARGIN",new_y="NEXT",align='R')
                 

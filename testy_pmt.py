@@ -5379,6 +5379,46 @@ try:
         sprawdz("kwota minimalna z bazy %s: jedna trasa nie odwiedza miejscowości dwa razy" % _baza20,
                 len(_powtorki20) <= 1, str(_powtorki20[:3]))
 
+    # ── nazwa MIEŚCI SIĘ w rubryce dokumentu ──────────────────────
+    # To był powód, dla którego długie nazwy kiedyś w ogóle wyrzucono z bazy:
+    # nie mieściły się w kratce „miejscowość" na poleceniu wyjazdu. Rubryka ma
+    # 30 mm przy Arial 8, a fpdf nie przycina tekstu — wyłaził poza kreskę.
+    _pdf20 = P.PDFReport()
+    _pdf20.add_page()
+    _pdf20.set_font("Arial", "", 8)
+    _za_szerokie20, _skracane20 = [], []
+    for _n20 in sorted({_m20.n for _v20 in P._baza_miast.values() for _m20 in _v20}):
+        _t20 = P.nazwa_do_rubryki(_pdf20, _n20, 30.0)
+        _w20 = _pdf20.get_string_width(_t20)
+        if _w20 > 30.0 - 1.0:
+            _za_szerokie20.append((_n20, _t20, round(_w20, 1)))
+        if _t20 != _n20:
+            _skracane20.append((_n20, _t20))
+    sprawdz("każda nazwa z bazy mieści się w rubryce „miejscowość” na dokumencie",
+            not _za_szerokie20, str(_za_szerokie20[:3]))
+    sprawdz("skracanie idzie przez normalny polski skrót, a nie przez wielokropek",
+            all(not _t20.endswith("...") for _n20, _t20 in _skracane20),
+            str([x for x in _skracane20 if x[1].endswith("...")][:3]))
+    sprawdz("nazwa krótka zostaje nietknięta",
+            P.nazwa_do_rubryki(_pdf20, "Otwock", 30.0) == "Otwock"
+            and P.nazwa_do_rubryki(_pdf20, "Nowy Dwór Mazowiecki", 30.0) == "Nowy Dwór Maz.")
+
+    # ── dwie miejscowości o tej samej nazwie nie mogą leżeć obok siebie ──
+    # (uwaga właściciela: pod Warszawą są dwa Józefowy — od północy i od
+    # południa; taka para jest na dokumencie nie do rozróżnienia)
+    _sasiedzi20 = []
+    _wszystkie20 = [_m20 for _v20 in P._baza_miast.values() for _m20 in _v20]
+    for _i20 in range(len(_wszystkie20)):
+        for _j20 in range(_i20 + 1, len(_wszystkie20)):
+            _a20, _b20 = _wszystkie20[_i20], _wszystkie20[_j20]
+            if P._rdzen_nazwy(_a20.n) != P._rdzen_nazwy(_b20.n):
+                continue
+            _d20 = P.oblicz_dystans(_a20.lat, _a20.lng, _b20.lat, _b20.lng)
+            if _d20 < 100.0:
+                _sasiedzi20.append((_a20.n, _b20.n, round(_d20)))
+    sprawdz("żadne dwie miejscowości o tej samej nazwie nie leżą w zasięgu jednej trasy",
+            not _sasiedzi20, str(_sasiedzi20[:3]))
+
 except Exception as _e20:
     sprawdz("baza miejscowości", False, repr(_e20))
     import traceback as _tb20

@@ -152,7 +152,11 @@ MIAST_NA_MAPIE = 28            # tyle miast dokłada mapa do gotowego wyniku
 # Podgląd wybiera przystanki z TEJ puli. Przy 28 miastach ta sama wieś
 # wracała po kilkanaście razy w miesiącu; silnik ma w tym samym miejscu
 # 96–104 miejscowości w promieniu pętli, więc tyle bierzemy i tutaj.
-MIAST_PODGLADU = 64            # pula miast podglądu (i świata mapy przed generowaniem)
+MIAST_PODGLADU = 96            # pula miast podglądu (i świata mapy przed generowaniem)
+# 64 miejscowości starczały, dopóki podgląd rozpisywał kwotę na kilkanaście
+# dni. Odkąd liczba dni bierze się z przeciętnego dnia, a nie z sufitu doby,
+# miesiąc bywa dwudziestodniowy — przy ciaśniejszej puli najczęstsza
+# miejscowość wracała sześć razy.
 MIAST_PRZY_BAZIE = 10          # z tego tyle spod samej bazy — tam jeżdżą krótkie dni
 KM_NA_JEDNOSTKE = 235.0        # 1,0 w układzie mapy = tyle kilometrów
 GODZINA_STARTU = 7 * 60        # podgląd: wyjazd z bazy
@@ -536,8 +540,11 @@ def ile_dni_wyjazdowych(kwota, stawka, dostepnych, limit_dnia):
     więcej — a na końcu dolny próg trzech dni. Kolejność jak w silniku."""
     if kwota <= 0 or stawka <= 0 or dostepnych <= 0:
         return 0
-    sufit = max(PMT.pojemnosc_dnia_zl(PMT.POSTOJE_TYPOWE, stawka, limit_dnia),
-                PMT.MIN_KWOTA)
+    # Liczba dni bierze się z PRZECIĘTNEGO dnia, nie z sufitu doby — sufit
+    # odpowiada na inne pytanie („ile najwyżej"), a podgląd ma powiedzieć, ile
+    # dni zajmie ta kwota. Przy suficie podgląd pokazywał 14 dni tam, gdzie
+    # silnik rozpisywał 19.
+    sufit = max(PMT.kwota_typowego_dnia(stawka, limit_dnia), PMT.MIN_KWOTA)
     z_wierszy = max(1, PMT.MAX_ETAPOW_DOKUMENTU // (PMT.POSTOJE_TYPOWE + 1))
     dokumentow = PMT.ile_dokumentow(kwota)
     w_dokumencie = max(1, math.ceil((kwota / dokumentow - 0.005) / sufit))

@@ -305,6 +305,18 @@ TEST_MNOZNIK_TRASY = 1.28
 # po polskich drogach to zwykle 1,2–1,4 linii prostej; poniżej 1,15 dokument
 # opisywałby podróż, której nie da się odbyć. Patrz przycinanie dni w silniku.
 MNOZNIK_MIN = 1.15
+# Górna granica: ile najwyżej może mieć odcinek na dokumencie względem
+# PRAWDZIWEJ DROGI. Kierowca mógł nadłożyć — objazd, jednokierunkowa, szukanie
+# parkingu — ale nie o wielokrotność. Bez tej granicy silnik rozciągał odcinki
+# tak długo, aż suma trafiła w zamówioną kwotę: przy 8 000 zł wychodziło
+# nawet 3,7 × prawdziwa droga (Radom → Gózd: 16,5 km drogą, 61,8 km na
+# dokumencie). Gdy kwota nie mieści się pod tym sufitem, silnik rozpisuje
+# tyle, ile się da, i melduje kwotę niepełną — zamiast dopisywać kilometry,
+# których nikt nie przejechał.
+MNOZNIK_MAX = 1.30
+# Dół pasma: odcinek może być krótszy od rozciągniętego, ale nigdy krótszy
+# niż sama droga. Fizyczną granicą zostaje linia prosta × MNOZNIK_MIN.
+MNOZNIK_DOL = 1.00
 # Dni awaryjne (gdy 40 prób nie ułożyło dnia): rozrzut odległości przy
 # sortowaniu i co ile dni pomijamy pierwszą miejscowość — żeby dni nie były
 # kopiami, a wciąż mieściły jak najwięcej kilometrów.
@@ -341,9 +353,38 @@ def pojemnosc_dnia_zl(postoje: int = None, stawka: float = None,
     if limit_dnia is None: limit_dnia = MAX_KWOTA_DNIA
     return round(min(pojemnosc_dnia_km(postoje) * float(stawka), float(limit_dnia)), 2)
 
+# Ile kilometrów ma PRZECIĘTNY zbudowany dzień. To nie to samo, co pojemność
+# doby: doba pomieściłaby więcej, ale trasy układane z prawdziwych miejscowości
+# wychodzą krótsze, a odcinka nie wolno rozciągać ponad MNOZNIK_MAX. Zmierzone
+# na 144 dniach z trzech baz i trzech kwot: mediana kwoty dnia 259,93 zł przy
+# stawce 1,15 zł/km, czyli około 226 km. Podniesione do 250 km, bo przy medianie
+# podgląd zawyżał liczbę dni w rejonach gęstszych niż średnia — przy 250 km
+# szacunek podglądu i wynik silnika schodzą się na wszystkich sprawdzanych
+# bazach i kwotach.
+KM_TYPOWEGO_DNIA = 250.0
+
+
+def kwota_typowego_dnia(stawka: float = None, limit_dnia: float = None) -> float:
+    """Ile zarabia PRZECIĘTNY dzień — do szacowania LICZBY DNI.
+
+    Do pytania „ile najwyżej da się rozpisać" służy pojemnosc_dnia_zl, która
+    liczy sufit doby. Tu chodzi o coś innego: ile dni zajmie dana kwota."""
+    if stawka is None: stawka = STAWKA_ZA_KM
+    if limit_dnia is None: limit_dnia = MAX_KWOTA_DNIA
+    return round(min(KM_TYPOWEGO_DNIA * float(stawka), float(limit_dnia)), 2)
+
+
 def maks_kwota_miesiaca(ile_dni: int, stawka: float = None, postoje: int = None,
                         limit_dnia: float = None) -> float:
-    """Górna granica kwoty miesiąca: dni robocze × realny sufit dnia."""
+    """Górna granica kwoty miesiąca: dni robocze × realny sufit dnia.
+
+    Sufit liczymy dla NAJGORSZEGO realnego dnia — pełnych MAX_MIEJSCOWOSCI_DZIEN
+    postojów — a nie dla typowych pięciu. Pomiar na 2101 dniach pokazał, że 38 %
+    dni ma sześć albo siedem postojów, a każdy postój zabiera z doby czas, który
+    nie idzie na kilometry. Deklarowanie wyższego sufitu kończyło się tym, że
+    program przyjmował kwotę, której potem nie potrafił rozpisać."""
+    if postoje is None:
+        postoje = MAX_MIEJSCOWOSCI_DZIEN
     return round(max(0, int(ile_dni)) * pojemnosc_dnia_zl(postoje, stawka, limit_dnia), 2)
 
 def ile_dokumentow(kwota_zl: float) -> int:
@@ -5117,6 +5158,9 @@ class RawEtap:
     dokad_lng: float
     kwota: float = 0.0
     czas_jazdy_minuty: float = 0.0
+    # odległość w linii prostej — zapamiętana, zanim d_line stanie się
+    # odległością DROGOWĄ; to ona jest fizyczną granicą dolną odcinka
+    linia_prosta: float = 0.0
 
 @dataclass
 class Etap:
@@ -6921,7 +6965,11 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         # w jego miejsce kolejny dzień.
         if mozliwe < km * TEST_MNOZNIK_TRASY * MNOZNIK_MIN:
             return 0.0
-        return min(mozliwe, km * 4.0)
+        # Ile dzień NAPRAWDĘ udźwignie: odcinki urosną z linii prostej do drogi
+        # (TEST_MNOZNIK_TRASY) i najwyżej o sufit rozciągnięcia (MNOZNIK_MAX).
+        # Dawne "km × 4" zakładało rozciąganie czterokrotne — przez to silnik
+        # przestawał dokładać dni, choć kwoty nie dało się już wyjeździć.
+        return min(mozliwe, km * TEST_MNOZNIK_TRASY * MNOZNIK_MAX)
 
     for _poz, numer_dnia in enumerate(kolejnosc_dni):
         if (len(finalne_dni) >= _dni_budowane
@@ -7283,6 +7331,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # kilometry odpowiadają faktycznym trasom po drogach, a nie liniom prostym.
     if postep_cb: postep_cb("Wyznaczanie realnych tras drogowych...", 0.78)
     for e in wszystkie_surowe:
+        # linia prosta zostaje zapamiętana — to ona jest fizyczną granicą
+        # dolną odcinka, a d_line za chwilę przestanie nią być
+        if not getattr(e, "linia_prosta", 0):
+            e.linia_prosta = e.d_line
         try:
             km_droga = dystans_drogowy(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
             if km_droga and km_droga > 0:
@@ -7329,7 +7381,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             return MNOZNIK_MIN, baza_km
         _z_godzin = (dostepne / 60) * SREDNIA_PREDKOSC / baza_km
         _z_limitu_dnia = (MAX_KWOTA_DNIA / stawka) / baza_km
-        return max(MNOZNIK_MIN, min(_z_godzin, _z_limitu_dnia)), baza_km
+        return max(MNOZNIK_DOL, min(_z_godzin, _z_limitu_dnia, MNOZNIK_MAX)), baza_km
 
     # ── DROGA NIGDY KRÓTSZA NIŻ LINIA PROSTA ─────────────────────────
     # Dotąd mnożnik mógł spaść do 0,3: przy małej kwocie (albo po prostu
@@ -7431,7 +7483,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 linia = (oblicz_dystans(baza_lat, baza_lng, a.lat, a.lng)
                          + oblicz_dystans(a.lat, a.lng, b2.lat, b2.lng)
                          + oblicz_dystans(b2.lat, b2.lng, baza_lat, baza_lng))
-                if linia * MNOZNIK_MIN > budzet_km or linia >= teraz:
+                if linia * MNOZNIK_DOL > budzet_km or linia >= teraz:
                     continue
                 if najlepsza is None or linia > najlepsza[0]:
                     najlepsza = (linia, a, b2)
@@ -7441,7 +7493,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             # wygląda dzień — dwa postoje już się w niej nie mieszczą.
             for a in blisko:
                 linia = 2.0 * oblicz_dystans(baza_lat, baza_lng, a.lat, a.lng)
-                if linia * MNOZNIK_MIN > budzet_km or linia >= teraz:
+                if linia * MNOZNIK_DOL > budzet_km or linia >= teraz:
                     continue
                 if najlepsza is None or linia > najlepsza[0]:
                     najlepsza = (linia, a, None)
@@ -7517,12 +7569,12 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     #    pierwszy: inaczej dni awaryjne z tej samej listy zaczynały się zawsze
     #    tą samą miejscowością)
     for _dz in list(finalne_dni):
-        while _sufit_surowy(_dz) < MNOZNIK_MIN:
+        while _sufit_surowy(_dz) < MNOZNIK_DOL:
             _n = len(_dz.etapy_surowe) - 1
             if _n <= 2 or not _zdejmij_postoj(_dz, rng.randint(0, _n - 1)):
                 break
             _postoje_przyciete += 1
-        if _sufit_surowy(_dz) < MNOZNIK_MIN and len(finalne_dni) > 1:
+        if _sufit_surowy(_dz) < MNOZNIK_DOL and len(finalne_dni) > 1:
             finalne_dni.remove(_dz)              # dwa postoje i nadal za daleko
             _dni_przyciete += 1
 
@@ -7531,14 +7583,14 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         i posiłku. Dzień, który nie mieści się w dobie przy realnej drodze,
         nie udźwignie nic — i tak wypadnie."""
         _s = _sufit_surowy(dz)
-        return _linia_dnia(dz) * _s if _s >= MNOZNIK_MIN else 0.0
+        return _linia_dnia(dz) * min(_s, MNOZNIK_MAX) if _s >= MNOZNIK_DOL else 0.0
 
     # 1) za dużo kilometrów na tę kwotę: odpadają najdłuższe dni. Dzień
     #    zdejmujemy jednak tylko wtedy, gdy reszta dni NADAL udźwignie kwotę;
     #    inaczej najdłuższy dzień tracił postój (mniej kilometrów, dzień
     #    zostaje), bo po zdjęciu całego dnia kwoty nie dałoby się już
     #    wyjeździć — a to ona jest tu punktem odniesienia.
-    while len(finalne_dni) > 1 and _linia_wszystkich() * MNOZNIK_MIN > wymagany_dystans_calkowity + 0.5:
+    while len(finalne_dni) > 1 and _linia_wszystkich() * MNOZNIK_DOL > wymagany_dystans_calkowity + 0.5:
         _najdluzszy = max(finalne_dni, key=lambda dz: (_linia_dnia(dz), -len(dz.etapy_surowe)))
         _moc_reszty = sum(_moc_dnia(_dz) for _dz in finalne_dni if _dz is not _najdluzszy)
         if _moc_reszty >= wymagany_dystans_calkowity:
@@ -7552,7 +7604,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # 2) jeden dzień i nadal za długi: mniej postojów
     if len(finalne_dni) == 1:
         _dz = finalne_dni[0]
-        while _linia_dnia(_dz) * MNOZNIK_MIN > wymagany_dystans_calkowity + 0.5:
+        while _linia_dnia(_dz) * MNOZNIK_DOL > wymagany_dystans_calkowity + 0.5:
             if not _zdejmij_ostatni_postoj(_dz):
                 break
             _postoje_przyciete += 1
@@ -7563,18 +7615,18 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     for _ in range(len(finalne_dni) + 2):
         # bez luzu: pół kilometra zapasu wystarczało, żeby końcowe skalowanie
         # zeszło z mnożnikiem poniżej MNOZNIK_MIN, czyli poniżej linii prostej
-        if _linia_wszystkich() * MNOZNIK_MIN <= wymagany_dystans_calkowity:
+        if _linia_wszystkich() * MNOZNIK_DOL <= wymagany_dystans_calkowity:
             break
         _dz = max(finalne_dni, key=_linia_dnia)
         _reszta = _linia_wszystkich() - _linia_dnia(_dz)
-        _budzet = wymagany_dystans_calkowity / MNOZNIK_MIN - _reszta
-        if not _sciagnij_dzien(_dz, _budzet * MNOZNIK_MIN):
+        _budzet = wymagany_dystans_calkowity / MNOZNIK_DOL - _reszta
+        if not _sciagnij_dzien(_dz, _budzet * MNOZNIK_DOL):
             break
 
     _dane_dni = []
     for dzien in finalne_dni:
         mn_max, baza_km = _mnoznik_max_dnia(dzien)
-        _dane_dni.append({"dzien": dzien, "max": mn_max, "km": baza_km, "mn": MNOZNIK_MIN})
+        _dane_dni.append({"dzien": dzien, "max": mn_max, "km": baza_km, "mn": MNOZNIK_DOL})
 
     # Wszystkie dni rozciągamy TYM SAMYM mnożnikiem — kilometry tego samego
     # odcinka nie mogą zależeć od tego, w którym dniu wypadł. Dzień, któremu
@@ -7582,9 +7634,9 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # kilometry dolewamy tam, gdzie zapas jeszcze został.
     _suma_km_bazowa = max(sum(x["km"] for x in _dane_dni), 1.0)
     _cel = wymagany_dystans_calkowity
-    _mn_start = max(MNOZNIK_MIN, _cel / _suma_km_bazowa)
+    _mn_start = max(MNOZNIK_DOL, _cel / _suma_km_bazowa)
     for x in _dane_dni:
-        x["mn"] = max(MNOZNIK_MIN, min(_mn_start, x["max"]))
+        x["mn"] = max(MNOZNIK_DOL, min(_mn_start, x["max"]))
     for _ in range(24):
         _osiagniete = sum(x["km"] * x["mn"] for x in _dane_dni)
         _brak = _cel - _osiagniete
@@ -7613,7 +7665,22 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     # Nic nie dopisujemy. Dzięki dobraniu mnożnika suma wychodzi z natury
     # bardzo blisko celu (różnica to zwykle kilka GROSZY z zaokrągleń).
     for e in wszystkie_surowe:
-        e.dystans_rzeczywisty = e.d_line * getattr(e, "_mnoznik_dnia", rzeczywisty_mnoznik)
+        _km = e.d_line * getattr(e, "_mnoznik_dnia", rzeczywisty_mnoznik)
+        # sufit: odcinek nie może być wielokrotnością prawdziwej drogi
+        _km = min(_km, e.d_line * MNOZNIK_MAX)
+        # podłoga: droga nigdy krótsza niż linia prosta między punktami.
+        # Odcinki dobudowane po przycinaniu nie przeszły przez pętlę wyżej,
+        # więc linię prostą liczymy im tutaj — inaczej zostałyby bez podłogi.
+        _prosta = float(getattr(e, "linia_prosta", 0.0) or 0.0)
+        if _prosta <= 0:
+            try:
+                _prosta = oblicz_dystans(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
+                e.linia_prosta = _prosta
+            except Exception:
+                _prosta = 0.0
+        if _prosta > 0:
+            _km = max(_km, _prosta * MNOZNIK_MIN)
+        e.dystans_rzeczywisty = _km
         e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
         e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
 
@@ -7649,9 +7716,32 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             pass
         for e in wszystkie_surowe:
             e.dystans_rzeczywisty *= skala
-            e.kwota = max(round(e.kwota * skala, 2), 0.0)
+            # PODŁOGA JEST NIEPRZEKRACZALNA: ściśnięcie do budżetu nie może
+            # zejść poniżej linii prostej między punktami. Dawniej schodziło
+            # nawet do 0,15 × linii (Ustrzyki Dolne przy 50 zł: 126 km w linii
+            # prostej, 19 km na dokumencie) — taki przejazd jest niemożliwy.
+            _pr = float(getattr(e, "linia_prosta", 0.0) or 0.0)
+            if _pr <= 0:
+                try:
+                    _pr = oblicz_dystans(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
+                    e.linia_prosta = _pr
+                except Exception:
+                    _pr = 0.0
+            if _pr > 0:
+                e.dystans_rzeczywisty = max(e.dystans_rzeczywisty, _pr * MNOZNIK_MIN)
+            e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
             e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
-        reszta = round(kwota_calkowita - sum(e.kwota for e in wszystkie_surowe), 2)
+        _po_podlodze = round(sum(e.kwota for e in wszystkie_surowe), 2)
+        # Delegacja NIE MOŻE przekroczyć zamówionej kwoty. Jeśli po dociśnięciu
+        # podłogi suma i tak wychodzi wyżej, to znaczy, że kwota jest mniejsza
+        # niż najtańszy prawdziwy wyjazd z tej bazy — i trzeba to powiedzieć
+        # razem z liczbą, a nie przemilczeć.
+        if _po_podlodze > kwota_calkowita + 0.05:
+            # Kwota jest mniejsza niż najtańszy PRAWDZIWY wyjazd z tej bazy.
+            # Nie udajemy, że się zmieściła — mówimy, ile naprawdę wynosi.
+            _kwota_za_mala = True
+            _kwota_min_realna = _po_podlodze
+        reszta = round(kwota_calkowita - _po_podlodze, 2)
 
     # dziennik silnika — komplet liczb do diagnozy, gdyby kwota nie dobiła.
     # Plik jest przycinany do ostatnich 200 wpisów, żeby nie puchł bez końca.
@@ -7722,7 +7812,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     finalne_dni = ListaTras(finalne_dni)
     finalne_dni.kwota_docelowa = kwota_calkowita
     finalne_dni.kwota_osiagnieta = round(suma_final, 2)
-    finalne_dni.kwota_niepelna = (kwota_calkowita - suma_final) > max(kwota_calkowita * 0.02, 20.0)
+    # Każdy brak, nie tylko duży. Dawny próg (2 % albo 20 zł) przepuszczał po
+    # cichu nawet 96 zł: program pokazywał zielone „PDF wygotowany", a z
+    # rozliczenia znikały pieniądze. Grosz różnicy to i tak różnica.
+    finalne_dni.kwota_niepelna = (kwota_calkowita - suma_final) > 0.01
     finalne_dni.kwota_za_mala = bool(_kwota_za_mala)
     finalne_dni.kwota_min_realna = float(_kwota_min_realna or 0.0)
     finalne_dni.brak_dni = _brak_dni_na_kwote

@@ -1237,12 +1237,23 @@ if not SZYBKO:
 
     sekcja("6b. Przypadki krańcowe silnika")
 
-    # Kwota minimalna — musi się rozpisać co do grosza.
+    # Kwota minimalna. Dawniej sprawdzenie żądało rozpisania co do grosza — i
+    # przechodziło, bo silnik ściskał odcinki PONIŻEJ linii prostej. Odkąd
+    # podłoga jest nieprzekraczalna, MIN_KWOTA bywa niższa niż najtańszy
+    # prawdziwy wyjazd z danej bazy (zmierzone: Radom ok. 55 zł, Warszawa ok.
+    # 57 zł, Zakopane ok. 266 zł przy 1,15 zł/km). Uczciwy warunek brzmi więc:
+    # albo kwota rozpisuje się co do grosza, albo silnik mówi wprost, ile
+    # wynosi minimum — i nigdy nie rysuje przejazdu krótszego niż linia prosta.
     _dni_min = P.generuj_trasy(P.MIN_KWOTA, "Radom", 51.40, 21.15, "mazowieckie",
                                _dni_robocze, "90010112345", stawka=0.89)
-    sprawdz("kwota minimalna (%.0f zł) rozpisana co do grosza" % P.MIN_KWOTA,
-            abs(sum(d.suma for d in _dni_min) - P.MIN_KWOTA) <= 0.01,
-            "%.2f zł" % sum(d.suma for d in _dni_min))
+    _suma_min = sum(d.suma for d in _dni_min)
+    sprawdz("kwota minimalna: rozpisana co do grosza albo zgłoszona jako za mała z prawdziwym minimum",
+            abs(_suma_min - P.MIN_KWOTA) <= 0.01
+            or (getattr(_dni_min, "kwota_za_mala", False)
+                and getattr(_dni_min, "kwota_min_realna", 0) > P.MIN_KWOTA),
+            "%.2f zł, za mała=%s, minimum=%.2f zł"
+            % (_suma_min, getattr(_dni_min, "kwota_za_mala", None),
+               getattr(_dni_min, "kwota_min_realna", 0.0)))
 
     # Kwota PONAD możliwości miesiąca. Punktem odniesienia nie jest już sama
     # zamówiona kwota (dawny próg „82% z 11 000 zł" betonował dzisiejszy wynik
@@ -1260,8 +1271,12 @@ if not SZYBKO:
             _kwota_duza > _granica_mies and bool(_dni_duze.kwota_niepelna),
             "granica %.2f zł, wyszło %.2f zł, niepelna=%s"
             % (_granica_mies, _suma_duza, getattr(_dni_duze, "kwota_niepelna", None)))
-    sprawdz("wysoka kwota: wykorzystane co najmniej 88%% realnej granicy miesiąca",
-            _suma_duza >= _granica_mies * 0.88,
+    # Próg obniżony z 88 % na 85 % przy okazji DWÓCH zmian, które idą w parze:
+    # sufit miesiąca liczy się teraz dla najgorszego realnego dnia (jest niższy
+    # i uczciwszy), a odcinków nie wolno już rozciągać ponad MNOZNIK_MAX. Ten
+    # sam silnik mierzy się więc wobec surowszej miary: 7 718,91 zł z 8 976,22 zł.
+    sprawdz("wysoka kwota: wykorzystane co najmniej 85%% realnej granicy miesiąca",
+            _suma_duza >= _granica_mies * 0.85,
             "%.2f zł z %.2f zł (%.1f%%) przy %d dniach"
             % (_suma_duza, _granica_mies, 100.0 * _suma_duza / _granica_mies, len(_dni_duze)))
     sprawdz("suma nigdy nie przekracza zamówionej kwoty",
@@ -1277,8 +1292,23 @@ if not SZYBKO:
 
     # DROGA NIGDY KRÓTSZA NIŻ LINIA PROSTA (zgłoszenie: Warszawa→Bolimów
     # 20 km / 18 min u jednej osoby, 45 km / 41 min u drugiej).
+    def _prosta_etapu(e):
+        """Odległość w LINII PROSTEJ. Pole d_line po wyznaczeniu tras niesie
+        już odległość DROGOWĄ, więc granicy fizycznej trzeba pilnować na
+        zapamiętanej linii prostej — inaczej sprawdzenie porównywało drogę
+        z drogą i przepuszczało odcinki krótsze, niż to możliwe."""
+        pr = float(getattr(e, "linia_prosta", 0.0) or 0.0)
+        if pr > 0:
+            return pr
+        return P.oblicz_dystans(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
+
     def _floor_ok(dni):
-        return all(e.dystans_rzeczywisty >= e.d_line * P.MNOZNIK_MIN - 0.01
+        return all(e.dystans_rzeczywisty >= _prosta_etapu(e) * P.MNOZNIK_MIN - 0.01
+                   for d in dni for e in d.etapy_surowe)
+
+    def _sufit_ok(dni):
+        """Górna granica: odcinek nie może być wielokrotnością prawdziwej drogi."""
+        return all(e.dystans_rzeczywisty <= e.d_line * P.MNOZNIK_MAX + 0.01
                    for d in dni for e in d.etapy_surowe)
     def _max_min(dni):
         return max((P.PRZERWA_JEDZENIE_MIN + sum((e.czas_jazdy_minuty or 0) + (e.czas_w_sklepie or 0)
@@ -1289,6 +1319,15 @@ if not SZYBKO:
             _floor_ok(_dni_duze))
     sprawdz("żaden odcinek nie jest krótszy niż %.2f × linia prosta (Suwałki)" % P.MNOZNIK_MIN,
             _floor_ok(_dni_rzadkie))
+    # Górna granica — dołożona po tym, jak pomiar pokazał odcinki rozciągnięte
+    # do 3,8 × prawdziwej drogi (Radom → Gózd: 16,5 km drogą, 61,8 km na
+    # dokumencie). Dolnej granicy pilnowano od dawna, górnej nie pilnował nikt.
+    sprawdz("żaden odcinek nie przekracza %.2f × prawdziwej drogi (kwota minimalna)" % P.MNOZNIK_MAX,
+            _sufit_ok(_dni_min))
+    sprawdz("żaden odcinek nie przekracza %.2f × prawdziwej drogi (11 000 zł)" % P.MNOZNIK_MAX,
+            _sufit_ok(_dni_duze))
+    sprawdz("żaden odcinek nie przekracza %.2f × prawdziwej drogi (Suwałki)" % P.MNOZNIK_MAX,
+            _sufit_ok(_dni_rzadkie))
     # MAŁA KWOTA — teraz liczona z modelu, a nie z zabetonowanego „najwyżej
     # 2 dni": 80 zł mieści się w jednym dokumencie i w jednym dniu (kwota jest
     # mniejsza od pojemności doby), więc tyle dni ma wyjść. Reszta warunków bez
@@ -1301,7 +1340,12 @@ if not SZYBKO:
             % _dni_z_modelu,
             P.ile_dokumentow(80.0) == 1
             and 0 < len(_dni_male) <= _dni_z_modelu and _floor_ok(_dni_male)
-            and abs(sum(d.suma for d in _dni_male) - 80.0) <= 0.01
+            # co do grosza ALBO uczciwie zgłoszone: pod sufitem rozciągania
+            # (MNOZNIK_MAX) najkrótsza pętla potrafi nie dobić do kwoty
+            and (abs(sum(d.suma for d in _dni_male) - 80.0) <= 0.01
+                 or getattr(_dni_male, "kwota_niepelna", False)
+                 or getattr(_dni_male, "kwota_za_mala", False))
+            and sum(d.suma for d in _dni_male) <= 80.0 + 0.01
             and _max_min(_dni_male) <= P.LIMIT_CZASU_MINUTY + 0.5,
             "%d dni, %.2f zł, %.0f min" % (len(_dni_male), sum(d.suma for d in _dni_male), _max_min(_dni_male)))
     sprawdz("po przycięciu każdy dzień ma co najmniej 2 postoje i powrót",
@@ -1354,10 +1398,20 @@ if not SZYBKO:
             and P.pojemnosc_dnia_zl(5, 99.0) == P.MAX_KWOTA_DNIA,
             "%.2f zł przy 0,89 / %.2f zł przy 99,00" % (P.pojemnosc_dnia_zl(5, 0.89),
                                                         P.pojemnosc_dnia_zl(5, 99.0)))
-    sprawdz("granica miesiąca to dni robocze × sufit dnia",
-            P.maks_kwota_miesiaca(22, 0.89) == round(22 * P.pojemnosc_dnia_zl(5, 0.89), 2)
-            and P.maks_kwota_miesiaca(0, 0.89) == 0.0,
+    # Sufit miesiąca liczy się dla NAJGORSZEGO realnego dnia (pełnych
+    # MAX_MIEJSCOWOSCI_DZIEN postojów), a nie dla typowych pięciu: 38 % dni ma
+    # sześć albo siedem postojów, a każdy zabiera dobie czas na kilometry.
+    # Przy pięciu postojach program przyjmował kwoty, których nie rozpisywał.
+    sprawdz("granica miesiąca to dni robocze × sufit najgorszego realnego dnia",
+            P.maks_kwota_miesiaca(22, 0.89)
+            == round(22 * P.pojemnosc_dnia_zl(P.MAX_MIEJSCOWOSCI_DZIEN, 0.89), 2)
+            and P.maks_kwota_miesiaca(0, 0.89) == 0.0
+            and P.maks_kwota_miesiaca(22, 0.89) < round(22 * P.pojemnosc_dnia_zl(5, 0.89), 2),
             "%.2f zł" % P.maks_kwota_miesiaca(22, 0.89))
+    sprawdz("kwota typowego dnia jest niższa niż sufit doby — to dwie różne miary",
+            P.kwota_typowego_dnia(1.15) < P.pojemnosc_dnia_zl(P.MAX_MIEJSCOWOSCI_DZIEN, 1.15)
+            and P.kwota_typowego_dnia(99.0) == P.MAX_KWOTA_DNIA,
+            "%.2f zł" % P.kwota_typowego_dnia(1.15))
 
     # Dni rozpisane dokładnie wg modelu (3000 zł → 4 dokumenty po 750 zł,
     # po 3 dni każdy) muszą złożyć się na dokumenty bez reszty.

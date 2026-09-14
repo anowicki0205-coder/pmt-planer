@@ -907,19 +907,107 @@ def _lamana(punkty):
     return s
 
 
+def _kreski(punkty, kreska, przerwa, przesuniecie=0.0):
+    """Ścieżka z samych kresek wzdłuż łamanej — zamiast wzoru pióra Qt.
+
+    Kreskowane pióro Qt liczy wzór na nowo przy każdym pociągnięciu i przy
+    trzech warstwach powrotu zjadało trzy milisekundy klatki. Tu kreski
+    liczą się raz w liczbach i idą jako podścieżki jednej ścieżki, którą
+    pióro pełne kreśli tanio. ``przesuniecie`` działa jak ``dashOffset``:
+    o tyle pikseli wzór jest przesunięty do tyłu, więc malejące
+    przesunięcie płynie z kreskami do przodu.
+    """
+    okres = kreska + przerwa
+    sciezka = QPainterPath()
+    if okres <= 0.0 or len(punkty) < 2:
+        return sciezka
+    faza = (przesuniecie % okres)
+    w_kresce = False
+    for k in range(len(punkty) - 1):
+        a, b = punkty[k], punkty[k + 1]
+        dx, dy = b.x() - a.x(), b.y() - a.y()
+        dl = math.hypot(dx, dy)
+        if dl <= 1e-9:
+            continue
+        t = 0.0
+        while t < dl:
+            if faza < kreska:
+                krok = min(dl - t, kreska - faza)
+                if not w_kresce:
+                    sciezka.moveTo(a.x() + dx * t / dl, a.y() + dy * t / dl)
+                    w_kresce = True
+                t += krok
+                faza += krok
+                sciezka.lineTo(a.x() + dx * t / dl, a.y() + dy * t / dl)
+                if faza >= kreska - 1e-9:
+                    w_kresce = False
+            else:
+                krok = min(dl - t, okres - faza)
+                t += krok
+                faza += krok
+            if faza >= okres - 1e-9:
+                faza = 0.0
+    return sciezka
+
+
 def _kreskowana(p, sciezka, kolor, warstwy=((15, 22), (7, 60), (2.4, 205)),
                 kreska=10.0, przerwa=8.0, przesuniecie=0.0):
-    """Świecąca linia kreskowana — poswiata_linii nie umie wzorów kreski."""
+    """Świecąca linia kreskowana — poswiata_linii nie umie wzorów kreski.
+
+    ``sciezka`` to QPainterPath (łuki są spłaszczane) albo lista punktów.
+    """
     p.setBrush(Qt.BrushStyle.NoBrush)
+    if isinstance(sciezka, QPainterPath):
+        punkty = []
+        for wielokat in sciezka.toSubpathPolygons():
+            punkty.extend(wielokat)
+    else:
+        punkty = list(sciezka)
+    kreski = _kreski(punkty, kreska, przerwa, przesuniecie)
     for szer, alfa in warstwy:
         pen = QPen(st.z_alfa(kolor, alfa), szer)
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-        # wzór kreski podaje się w wielokrotnościach grubości pióra
-        pen.setDashPattern([max(0.5, kreska / szer), max(0.4, przerwa / szer)])
-        if przesuniecie:
-            pen.setDashOffset(przesuniecie / szer)
         p.setPen(pen)
-        p.drawPath(sciezka)
+        p.drawPath(kreski)
+
+
+_SPRITE_SWIATLA = {}
+_BOK_SPRITE = 96
+
+
+def _punkt_swiatla(p, srodek, promien, kolor, sila):
+    """Miękki punkt światła: małe rysuje gradient, duże kładzie się z bufora.
+
+    Gradient promienisty liczy pierwiastek w każdym pikselu koła, więc
+    halo o promieniu trzystu pikseli kosztowało dwie milisekundy klatki;
+    rozciągnięty kafel 96 px wygląda tak samo, a kosztuje ułamek.
+    """
+    if promien < 28.0:
+        st.punkt_swiatla(p, srodek, promien, kolor, sila)
+        return
+    klucz = kolor.rgb()
+    pix = _SPRITE_SWIATLA.get(klucz)
+    if pix is None:
+        pix = QPixmap(_BOK_SPRITE, _BOK_SPRITE)
+        pix.fill(Qt.GlobalColor.transparent)
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        st.punkt_swiatla(q, QPointF(_BOK_SPRITE * 0.5, _BOK_SPRITE * 0.5),
+                         _BOK_SPRITE * 0.5, kolor, 255)
+        q.end()
+        _SPRITE_SWIATLA[klucz] = pix
+    sila = max(0, min(255, int(sila)))
+    if sila <= 0:
+        return
+    stara = p.opacity()
+    p.setOpacity(stara * sila / 255.0)
+    # bardzo duże halo jest tak miękkie, że sąsiednie piksele różnią się o
+    # ułamek stopnia alfy — wygładzanie przy rozciąganiu nic nie wnosi,
+    # a kosztuje milisekundę na klatkę
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, promien < 90.0)
+    p.drawPixmap(QRectF(srodek.x() - promien, srodek.y() - promien,
+                        promien * 2.0, promien * 2.0), pix, QRectF(pix.rect()))
+    p.setOpacity(stara)
 
 
 def _poswiata_zmienna(p, punkty, skale, kolor, warstwy):
@@ -1289,6 +1377,9 @@ class MapaDnia(QWidget):
         self._geo = None                # policzona geometria trasy i podpisów
         self._geo_klucz = None
         self._cien_pix = None           # cień kartki — nieruchomy, więc w pixmapie
+        self._powrot_pix = None         # kreskowany powrót: przerysowany co pełny piksel
+        self._powrot_poz = None
+        self._powrot_klucz = None
         self._cien_klucz = None
         self._wykonczenie_pix = None    # winieta i ziarno — też się nie ruszają
         self._wykonczenie_klucz = None
@@ -4020,7 +4111,7 @@ class MapaDnia(QWidget):
             k = self._grubosc()
             ska = geo["ska_powrot"][:max(2, pw)] or [1.0]
             sr = sum(ska) / max(1, len(ska))
-            _kreskowana(p, _lamana(wrot), st.ZIELEN,
+            _kreskowana(p, wrot, st.ZIELEN,
                         warstwy=((4.2 * sr, 30), (2.0 * sr, 76), (0.80 * sr, 235)),
                         kreska=11.0 * k, przerwa=8.0 * k)
             if not na_glownej:
@@ -4028,8 +4119,8 @@ class MapaDnia(QWidget):
         czolo = ur if na_glownej else (wrot[-1] if len(wrot) >= 2 else None)
         if czolo is not None:
             s = max(0.4, s_ur)
-            st.punkt_swiatla(p, czolo, PROMIEN_BLASKU * s, kolor, 96)
-            st.punkt_swiatla(p, czolo, 5.0 * s, QColor(238, 255, 255), 140)
+            _punkt_swiatla(p, czolo, PROMIEN_BLASKU * s, kolor, 96)
+            _punkt_swiatla(p, czolo, 5.0 * s, QColor(238, 255, 255), 140)
 
     # cień trasy na gruncie: na jasnym krajobrazie musi być lżejszy niż był
     # na granacie, inaczej wzdłuż całej trasy leży czarna smuga
@@ -4051,52 +4142,101 @@ class MapaDnia(QWidget):
                           QColor(232, 255, 255), ((0.36, 185, 1),))
 
     def _rysuj_powrot(self, p, geo):
-        """Powrót do bazy: kreski wolno płyną w stronę domu."""
+        """Powrót do bazy: kreski wolno płyną w stronę domu.
+
+        Kreski przesuwają się o ułamek piksela na klatkę, więc trzy szerokie
+        warstwy kreskowane nie rysują się co klatkę, tylko wtedy, gdy wzór
+        przesunie się o cały piksel; między tymi chwilami klatka kładzie
+        gotową pixmapę wielkości samego powrotu.
+        """
         k = self._grubosc()
         ska = geo["ska_powrot"]
         sr = sum(ska) / max(1, len(ska))
         przesun = -self._faza * 34.0 * k if self._anim else 0.0
-        _kreskowana(p, geo["powrot"], st.ZIELEN,
-                    warstwy=((4.2 * sr, 30), (2.0 * sr, 76), (0.80 * sr, 235)),
-                    kreska=11.0 * k, przerwa=8.0 * k, przesuniecie=przesun)
+        punkty = geo["pkt_powrot"]
+        if len(punkty) < 2:
+            return
+        krok = int(round(przesun))
+        klucz = (self._geo_klucz, krok, round(k, 4), round(sr, 4))
+        if self._powrot_klucz != klucz or self._powrot_pix is None:
+            zapas = 4.2 * sr * 0.5 + 3.0
+            xs = [q.x() for q in punkty]
+            ys = [q.y() for q in punkty]
+            x0, y0 = math.floor(min(xs) - zapas), math.floor(min(ys) - zapas)
+            szer = int(math.ceil(max(xs) + zapas)) - x0 + 1
+            wys = int(math.ceil(max(ys) + zapas)) - y0 + 1
+            dpr = self.devicePixelRatioF()
+            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
+            pix.setDevicePixelRatio(dpr)
+            pix.fill(Qt.GlobalColor.transparent)
+            q = QPainter(pix)
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            q.translate(-x0, -y0)
+            _kreskowana(q, punkty, st.ZIELEN,
+                        warstwy=((4.2 * sr, 30), (2.0 * sr, 76), (0.80 * sr, 235)),
+                        kreska=11.0 * k, przerwa=8.0 * k, przesuniecie=float(krok))
+            q.end()
+            self._powrot_pix, self._powrot_poz, self._powrot_klucz = pix, QPointF(x0, y0), klucz
+        p.drawPixmap(self._powrot_poz, self._powrot_pix)
+
+    # blask: (szerokość w skali, alfa, barwa) — od najszerszej, najmiększej
+    WARSTWY_BLASKU = ((6.0, 34, None), (2.8, 74, None), (1.3, 112, None),
+                      (0.6, 245, QColor(240, 255, 255)))
+    DLUGOSC_BLASKU = 0.19                # jaka część trasy świeci
 
     def _rysuj_blask(self, p, geo):
-        """Powoli płynący jaśniejszy odcinek wzdłuż trasy."""
+        """Powoli płynący jaśniejszy odcinek wzdłuż trasy.
+
+        Jedno pociągnięcie na warstwę: pióro ma gradient od ogona do czoła,
+        alfa rośnie kwadratowo — tak samo, jak dawniej rosła po 24 kawałkach,
+        tylko bez 96 szerokich linii na klatkę.
+        """
         probki = geo["probki"]
         skale = geo["skale"]
         if len(probki) < 3:
             return
         kolor = self._kolor_trasy()
         n = len(probki) - 1
-        dlugosc = 0.19                       # jaka część trasy świeci
-        ile = 24
+        dlugosc = self.DLUGOSC_BLASKU
         # czoło wchodzi na trasę i schodzi z niej — bez skoku na zapętleniu
         czolo = -dlugosc + self._faza * (1.0 + dlugosc)
+        t0, t1 = max(0.0, czolo - dlugosc), min(1.0, czolo)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        for i in range(ile):
-            t1 = czolo - dlugosc * (i / float(ile))
-            t0 = czolo - dlugosc * ((i + 1) / float(ile))
-            if t1 <= 0.0 or t0 >= 1.0:
-                continue
-            i0 = max(0, min(n, int(round(max(0.0, t0) * n))))
-            i1 = max(0, min(n, int(round(min(1.0, t1) * n))))
-            a, b = probki[i0], probki[i1]
-            s = (skale[i0] + skale[i1]) * 0.5
-            jas = (1.0 - i / float(ile)) ** 2.0
-            for szer, sila, barwa in ((6.0 * s, 34, kolor),
-                                      (2.8 * s, 74, kolor),
-                                      (1.3 * s, 112, kolor),
-                                      (0.6 * s, 245, QColor(240, 255, 255))):
-                pen = QPen(st.z_alfa(barwa, sila * jas), max(0.8, szer))
-                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                p.setPen(pen)
-                p.drawLine(a, b)
+        if t1 > 0.0 and t0 < 1.0:
+            i0 = max(0, min(n, int(round(t0 * n))))
+            i1 = max(0, min(n, int(round(t1 * n))))
+            if i1 > i0:
+                sciezka = QPainterPath(probki[i0])
+                for i in range(i0 + 1, i1 + 1):
+                    sciezka.lineTo(probki[i])
+                s = sum(skale[i0:i1 + 1]) / float(i1 - i0 + 1)
+                # jasność w punkcie: kwadrat odległości od ogona (0) do czoła (1)
+                ua = (t0 - (czolo - dlugosc)) / dlugosc
+                ub = (t1 - (czolo - dlugosc)) / dlugosc
+                a, b = probki[i0], probki[i1]
+                prosto = math.hypot(b.x() - a.x(), b.y() - a.y()) >= 6.0
+                for szer, sila, barwa in self.WARSTWY_BLASKU:
+                    barwa = kolor if barwa is None else barwa
+                    if prosto:
+                        g = QLinearGradient(a, b)
+                        for k in range(5):
+                            u = ua + (ub - ua) * k / 4.0
+                            g.setColorAt(k / 4.0, st.z_alfa(barwa, sila * u * u))
+                        pen = QPen(QBrush(g), max(0.8, szer * s))
+                    else:                    # trasa zawraca: gradient nie ma kierunku
+                        u = (ua + ub) * 0.5
+                        pen = QPen(st.z_alfa(barwa, sila * u * u), max(0.8, szer * s))
+                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    p.setPen(pen)
+                    p.drawPath(sciezka)
         # czubek blasku
         if 0.0 <= czolo <= 1.0:
             ic = max(0, min(n, int(round(czolo * n))))
             glowa = probki[ic]
-            st.punkt_swiatla(p, glowa, 13.0 * skale[ic], kolor, 62)
-            st.punkt_swiatla(p, glowa, 5.0 * skale[ic], QColor(235, 255, 255), 96)
+            _punkt_swiatla(p, glowa, 13.0 * skale[ic], kolor, 62)
+            _punkt_swiatla(p, glowa, 5.0 * skale[ic], QColor(235, 255, 255), 96)
+        p.setPen(Qt.PenStyle.NoPen)
 
     # — słupy przystanków —
     ZAPALANIE = 0.07        # jaka część rysowania trasy zajmuje rozbłysk słupa
@@ -4143,7 +4283,7 @@ class MapaDnia(QWidget):
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(pen)
             p.drawLine(dol, gora)
-        st.punkt_swiatla(p, gora, max(5.0, 9.0 * skala), kolor, int(96 * waga))
+        _punkt_swiatla(p, gora, max(5.0, 9.0 * skala), kolor, int(96 * waga))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(st.z_alfa(QColor(238, 255, 255), int(245 * waga))))
         r = max(1.6, 2.1 * skala)
@@ -4219,7 +4359,7 @@ class MapaDnia(QWidget):
                 continue
             srodek, ska = rzut.rzutuj(x, y, self._wysokosc(x, y) + 0.12)
             r = max(1.1, ska * odn * 0.85)
-            st.punkt_swiatla(p, srodek, r * 4.6, BARWA_SWIATLA_DROGI, int(54 * moc))
+            _punkt_swiatla(p, srodek, r * 4.6, BARWA_SWIATLA_DROGI, int(54 * moc))
             p.setBrush(QBrush(st.z_alfa(BARWA_SWIATLA_DROGI, int(170 * moc))))
             p.drawEllipse(srodek, r, r * 0.72)
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -4271,13 +4411,13 @@ class MapaDnia(QWidget):
                 continue
             moc = (1.0 - odleglosc / self.SZEROKOSC_ZAPALU) ** 2.0
             r = max(2.4, sl["skala_g"] * 9.0)
-            st.punkt_swiatla(p, sl["gora"], r * (1.6 + 2.4 * moc), kolor,
-                             int(18 + 132 * moc))
+            _punkt_swiatla(p, sl["gora"], r * (1.6 + 2.4 * moc), kolor,
+                           int(18 + 132 * moc))
             # ślad na gruncie rozchodzi się jak fala po wodzie — po tym widać,
             # że blask właśnie tu dojechał, a nie tylko przechodzi obok
             rp = max(4.0, sl["skala"] * 3.2)
-            st.punkt_swiatla(p, sl["dol"], rp * (1.8 + 1.2 * moc), kolor,
-                             int(64 * moc))
+            _punkt_swiatla(p, sl["dol"], rp * (1.8 + 1.2 * moc), kolor,
+                           int(64 * moc))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.setPen(QPen(st.z_alfa(kolor, int(170 * moc * (1.0 - moc) * 4.0)), 1.4))
             fala = rp * (1.2 + 2.6 * (1.0 - moc))
@@ -4292,7 +4432,7 @@ class MapaDnia(QWidget):
         rzut = self.rzut()
         dol, ska = rzut.rzutuj(x, y, self._wysokosc(x, y))
         r = max(3.4, ska * self._odniesienie() * 4.4)
-        st.punkt_swiatla(p, dol, r * (6.0 + 1.6 * puls), st.ZIELEN, int(26 + 26 * puls))
+        _punkt_swiatla(p, dol, r * (6.0 + 1.6 * puls), st.ZIELEN, int(26 + 26 * puls))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(st.z_alfa(st.ZIELEN, int(58 - 34 * puls)), 1.2))
         rr = r * (2.6 + 1.6 * puls)

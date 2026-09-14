@@ -16,6 +16,10 @@ i plakietkę DZIŚ z dziobkiem. Gdy to ten sam dzień, oba znaki są widoczne na
 Po wygenerowaniu dokumentów dni w trasie dostają plakietkę PDF, a dzień
 podpisany zielony znacznik — jedno i drugie wchodzi płynnie.
 
+Pod szyną biegną KLAMRY POLECEŃ WYJAZDU: dni jednego dokumentu spięte wspólną
+linią z zasuwkami na końcach, następny dokument za przerwą. Ile klamer, tyle
+plików PDF — widać to już w podglądzie, bez ani jednego napisu.
+
 Przy wąskim oknie kafel schodzi stopniami: najpierw znika „zł”, potem kwota
 (zastępuje ją słupek wartości), potem miniatura, a na końcu skrót dnia
 tygodnia — zostaje sam numer. Plakietka DZIŚ zmienia się wtedy w dziobek,
@@ -128,6 +132,10 @@ class TasmaMiesiaca(QWidget):
         self._zajete_naglowka = (PAD_BOK, 10000.0)
         self._ostatni_wolny = 0
         self._faza = 0.0
+        self._odcisk_pulsu = None       # oddech dnia dzisiejszego — patrz _tik
+        # ile dni silnik ma już policzone: None, kiedy nic się nie liczy
+        self._praca = None
+        self._praca_dokumenty = None
         self._anim = True
         self._pierwsze_dane = True
 
@@ -216,6 +224,50 @@ class TasmaMiesiaca(QWidget):
             self._pl_wybor.ustaw(1.0)
         self.update()
 
+    def ustaw_prace(self, ulamek=None, dokumenty=None):
+        """Ile miesiąca silnik ma już policzone — 0…1, albo None poza pracą.
+
+        Taśma zapala kafle W KOLEJNOŚCI DNI, dokładnie tyle, ile silnik
+        naprawdę zdążył zameldować. Kafel, nad którym silnik właśnie
+        pracuje, oddycha; te za nim stoją zapalone i już nie migają.
+        ``dokumenty`` robi to samo z klamrami poleceń wyjazdu. Zgaszona
+        taśma (``zatrzymaj_animacje``) nie przyjmuje postępu w ogóle —
+        zrzut ma pokazywać spokojny miesiąc, a nie pracę w połowie.
+        """
+        if not self._anim:                 # zgaszona taśma nie pokazuje pracy
+            ulamek = dokumenty = None
+        u = None if ulamek is None else max(0.0, min(1.0, float(ulamek)))
+        d = None if dokumenty is None else max(0.0, min(1.0, float(dokumenty)))
+        if u == self._praca and d == self._praca_dokumenty:
+            return
+        self._praca, self._praca_dokumenty = u, d
+        self._dopilnuj_zegara()
+        self.update()
+
+    def praca(self):
+        """Postęp pracy silnika widziany przez taśmę — None, gdy nic nie idzie."""
+        return self._praca
+
+    def _dni_z_trasa(self):
+        """Numery dni, które mają trasę — w kolejności, w jakiej się je jedzie."""
+        return [d.data.day for d in self._dni
+                if not d.wolny and d.postoje > 0 and not self._wylaczony(d)]
+
+    def _stan_pracy(self, numer):
+        """None poza pracą silnika; 0 — jeszcze nie ruszony, 1 — policzony."""
+        if self._praca is None:
+            return None
+        dni = self._dni_z_trasa()
+        if numer not in dni:
+            return None
+        gotowe = self._praca * len(dni)
+        i = dni.index(numer)
+        if i + 1 <= gotowe:
+            return 1.0
+        if i <= gotowe:                        # ten kafel silnik właśnie liczy
+            return 0.35 + 0.45 * self._puls()
+        return 0.0
+
     def ustaw_stan(self, nazwa):
         nowy = "po_generacji" if nazwa == "po_generacji" else "zwykly"
         if nowy == self._stan:
@@ -260,6 +312,9 @@ class TasmaMiesiaca(QWidget):
         self._anim = False
         self._zegar.stop()
         self._faza = 0.0
+        self._odcisk_pulsu = None
+        self._praca = None                  # zrzut nie pokazuje pracy w toku
+        self._praca_dokumenty = None
         self._stoj_plynne()
         self._wybrany_stary = self._wybrany
         self._pod_kursorem_stary = self._pod_kursorem
@@ -274,16 +329,35 @@ class TasmaMiesiaca(QWidget):
         return bool(self._anim)
 
     def _dopilnuj_zegara(self):
-        """Zegar pulsu chodzi tylko wtedy, gdy dzisiejszy dzień jest na taśmie."""
-        trzeba = bool(self._anim and self.isVisible() and self._dzis
-                      and self._dzien(self._dzis) is not None)
+        """Zegar pulsu chodzi, gdy jest co oddychać: dzisiejszy dzień albo
+        kafel, nad którym silnik właśnie pracuje."""
+        trzeba = bool(self._anim and self.isVisible()
+                      and ((self._dzis and self._dzien(self._dzis) is not None)
+                           or self._praca is not None))
         if trzeba and not self._zegar.isActive():
             self._zegar.start()
         elif not trzeba and self._zegar.isActive():
             self._zegar.stop()
 
+    # próg widoczności oddechu: obwódka dnia dzisiejszego zmienia jasność
+    # o 58 poziomów na cały wdech, więc jeden krok to 3–4 poziomy. Klatka
+    # bez zmiany w tej liczbie nie zmieniłaby na ekranie nic widocznego,
+    # a kosztuje 9 ms — tyle, co cała reszta taśmy razem wzięta.
+    KROK_PULSU = 1.0 / 16.0
+
     def _tik(self):
         self._faza = (self._faza + KLATKA_MS) % (OKRES_PULSU * 4.0)
+        # w czasie pracy silnika przerysowanie obejmuje CAŁY pas i kosztuje
+        # dwa razy tyle, więc oddech liczy się tam grubszym krokiem; nowe dni
+        # i tak zapalają się od razu, bo robi to meldunek, a nie zegar
+        krok = self.KROK_PULSU * (2.0 if self._praca is not None else 1.0)
+        odcisk = round(self._puls() / krok)
+        if odcisk == self._odcisk_pulsu:
+            return
+        self._odcisk_pulsu = odcisk
+        if self._praca is not None:          # w czasie pracy rusza się cały pas
+            self.update()
+            return
         r = self._rect_dnia(self._dzis)
         self.update(self._obszar(r, 9.0) if r is not None else self.rect())
 
@@ -490,6 +564,7 @@ class TasmaMiesiaca(QWidget):
                 self._rysuj_kafel(p, r, d, i)
         for i, r, d in gorne:
             self._rysuj_kafel(p, r, d, i)
+        self._rysuj_zasuwki(p, kafle)
         # plakietki idą na wierzch, żeby sąsiedni kafel ich nie przykrył
         wejscie = self._pl_stan.teraz()
         if wejscie > 0.01 and self._uklad["plakietki"]:
@@ -532,12 +607,22 @@ class TasmaMiesiaca(QWidget):
         bok = 1.2 * u * min(1.0, r.width() / 24.0)
         return r.adjusted(-bok, -4.0 * u, bok, 1.2 * u)
 
+    def kwota_z_groszami(self):
+        """Czy kwota miesiąca ma grosze — wtedy nagłówek je pokazuje."""
+        kwota = float(self._zbior.get("kwota", 0.0))
+        return abs(kwota - round(kwota)) > 0.004
+
     def _rysuj_naglowek(self, p):
         y = PAD_GORA + 12.5
 
         wszystkie = self._zbior["dni_wszystkie"]
+        # Grosze w nagłówku pokazujemy tylko wtedy, gdy kwota je ma — inaczej
+        # użytkownik, który wpisał 1 850,55 zł, widziałby w nagłówku 1 851 zł
+        # i mógłby pomyśleć, że program zmienił mu kwotę.
+        _kwota_teraz = self._pl_kwota.teraz()
+        _z_groszami = self.kwota_z_groszami()
         # liczba osobno (stała szerokość, pełna jasność), jednostka osobno i ciszej
-        grupy = [(dane.zl(self._pl_kwota.teraz(), grosze=False), "zł", ""),
+        grupy = [(dane.zl(_kwota_teraz, grosze=_z_groszami), "zł", ""),
                  (dane.zl(self._pl_km.teraz(), grosze=False), "km", ""),
                  (str(int(round(self._pl_dni.teraz()))), "", "z %d dni" % wszystkie)]
         fm_w = QFontMetricsF(czcionka(12, 700, mono=True))
@@ -608,6 +693,65 @@ class TasmaMiesiaca(QWidget):
             poswiata_linii(p, odcinek, kolor, ((5.0, 18), (2.6, 40),
                                                (1.3, 235 if dzis else 190)))
         self._klin_wyboru(p, y)
+        self._rysuj_klamry(p, kafle, y)
+
+    def _zakresy_dokumentow(self, kafle):
+        """Od którego do którego kafla sięga każde polecenie wyjazdu."""
+        zakresy = {}
+        for i in range(len(kafle)):
+            d = self._dni[i]
+            numer = int(getattr(d, "dokument", 0) or 0)
+            if numer <= 0 or d.wolny or d.postoje == 0 or self._wylaczony(d):
+                continue
+            od, do = zakresy.get(numer, (i, i))
+            zakresy[numer] = (min(od, i), max(do, i))
+        return [(numer,) + zakresy[numer] for numer in sorted(zakresy)]
+
+    def _rysuj_klamry(self, p, kafle, y):
+        """Klamra pod szyną spina dni jednego polecenia wyjazdu, a zasuwka
+        (rysowana na wierzchu kafli) oddziela kolejne dokumenty.
+
+        Ile klamer, tyle plików PDF — i widać to już w podglądzie, zanim
+        cokolwiek zostanie wygenerowane, bez ani jednego napisu.
+        """
+        yk = y + 4.0
+        if self.height() - yk < 3.0:
+            return
+        zakresy = self._zakresy_dokumentow(kafle)
+        # w czasie drukowania klamra zapala się w chwili, gdy plik naprawdę powstał
+        gotowych = (len(zakresy) * self._praca_dokumenty
+                    if self._praca_dokumenty is not None else None)
+        for k, (_numer, od, do) in enumerate(zakresy):
+            lewo, prawo = kafle[od].left(), kafle[do].right()
+            zapal = 0.0 if gotowych is None else max(0.0, min(1.0, gotowych - k))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(z_alfa(MIETA, 95 + int(120 * zapal)),
+                          1.6 + 0.8 * zapal, Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(lewo, yk), QPointF(prawo, yk))
+            p.setPen(QPen(z_alfa(MIETA, 210), 1.2))
+            for x in (lewo, prawo):
+                p.drawLine(QPointF(x, yk - 2.4), QPointF(x, yk + 2.4))
+
+    def _rysuj_zasuwki(self, p, kafle):
+        """Pionowa zasuwka w przerwie tam, gdzie kończy się jedno polecenie
+        wyjazdu i zaczyna następne.
+
+        Idzie NA WIERZCHU kafli, bo cień sąsiada zalewa czteropikselową
+        przerwę i kreska schowana pod spodem po prostu ginie.
+        """
+        zakresy = self._zakresy_dokumentow(kafle)
+        if len(zakresy) < 2:
+            return
+        pas = self._pas()
+        for _numer, od, _do in zakresy[1:]:
+            if od <= 0:
+                continue
+            x = (kafle[od - 1].right() + kafle[od].left()) / 2.0
+            kreska = QPainterPath()
+            kreska.moveTo(x, pas.top() + 2.0)
+            kreska.lineTo(x, pas.bottom() - 2.0)
+            poswiata_linii(p, kreska, MIETA, ((4.0, 22), (2.0, 62), (1.0, 205)))
 
     def _klin_wyboru(self, p, y):
         """Drugi znak dnia wybranego: biały klin na szynie pod kaflem.
@@ -728,6 +872,8 @@ class TasmaMiesiaca(QWidget):
         sciezka.addRoundedRect(r, prom, prom)
 
         weekend = d.data.weekday() >= 5
+        # ile silnik ma policzone z tego dnia: None, kiedy nic się nie liczy
+        praca = self._stan_pracy(d.data.day) if ma_trase else None
 
         # tło kafla
         wysoko = max(u, 1.0 if dzis else 0.0)
@@ -747,7 +893,12 @@ class TasmaMiesiaca(QWidget):
             else:
                 jasnosc = 0.52 + 0.46 * wysoko
             jasnosc += 0.10 * kur
-            if ma_trase or dzis:
+            if praca is not None:
+                # fala pracy: dzień jeszcze nieliczony schodzi w tło, policzony
+                # wraca na wierzch. Kontrast między nimi to cała opowieść.
+                jasnosc *= 0.50 + 0.50 * praca
+                akcent, moc = MIETA, 0.20 + 0.95 * praca
+            elif ma_trase or dzis:
                 akcent = CYJAN if dzis else ZIELEN
                 moc = (0.85 + 0.35 * wysoko) if ma_trase else 0.45
             elif u > 0.02:
@@ -757,6 +908,14 @@ class TasmaMiesiaca(QWidget):
                 akcent, moc = None, 0.0
             self._korpus(p, r, sciezka, prom, jasnosc, akcent, moc,
                          uniesienie=max(u, 0.55 if dzis else 0.0) + 0.22 * kur)
+
+        # światło pracy silnika: kafel zapala się w chwili, gdy silnik go policzy
+        if praca is not None and praca > 0.01:
+            self._aureola(p, sciezka, MIETA,
+                          ((11.0, int(16 * praca)), (5.5, int(34 * praca)),
+                           (2.6, int(64 * praca))))
+            self._korpus(p, r, sciezka, prom, 1.0, MIETA, 0.55 * praca,
+                         uniesienie=0.35 * praca)
 
         # obwódka
         if dzis:
@@ -784,6 +943,8 @@ class TasmaMiesiaca(QWidget):
             pen = QPen(z_alfa(BIEL, spok + int((60 - spok) * kur)), 1.0)
         if kur > 0.02 and not (wyb or dzis) and ma_trase:
             pen.setColor(z_alfa(MIETA, 130 + int(80 * kur)))
+        if praca is not None and not dzis:
+            pen = QPen(z_alfa(MIETA, 40 + int(215 * praca)), 1.0 + 0.6 * praca)
         blysk = self._blysk_wolnego(d)
         if blysk > 0.01:
             self._aureola(p, sciezka, BURSZTYN if wyl else ZIELEN,

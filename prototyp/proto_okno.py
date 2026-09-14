@@ -12,10 +12,10 @@ import math
 import sys
 
 from PyQt6.QtCore import (Qt, QRect, QRectF, QPointF, QTimer, QEasingCurve,
-                          QPropertyAnimation, QRegularExpression, pyqtSignal)
+                          QPropertyAnimation, pyqtSignal)
 from PyQt6.QtGui import (QBrush, QColor, QFontMetricsF, QKeySequence, QLinearGradient,
                          QPainter, QPainterPath, QPen, QPolygonF, QRadialGradient,
-                         QRegularExpressionValidator, QShortcut)
+                         QShortcut)
 from PyQt6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QLabel, QLayout,
                              QLineEdit, QVBoxLayout, QWidget)
 
@@ -872,54 +872,166 @@ class Segmentowany(QWidget):
 
 
 class PoleKwoty(QWidget):
-    """Duże pole kwoty: cyfry, grosze i krótka nota po prawej."""
+    """Duże pole kwoty: złote dużą czcionką, grosze i „zł” mniejszą obok.
+
+    To jedna liczba rysowana dwoma krojami — pole samo prowadzi kursor,
+    zaznaczenie i spacje w tysiącach, więc grosze pokazują dokładnie to,
+    co wpisano: „1850” → „1 850” i „,00 zł”, „1850,5” → „,50 zł”.
+    """
 
     zmieniono = pyqtSignal()
     zatwierdzono = pyqtSignal()
 
     ROZMIARY = (31, 27, 24, 21)
+    ROZMIAR_GROSZY = 15
+    MAKS_ZLOTYCH = 9          # 999 999 999 zł — wyżej nie ma o czym mówić
+    MAKS_GROSZY = 2
+    MRUGANIE_MS = 530
 
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
         self.setMinimumHeight(44)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.IBeamCursor)
         self._rozmiar = self.ROZMIARY[0]
         self._ostrzezenie = False
-        self.pole = QLineEdit(self)
-        self.pole.setFrame(False)
-        self._ustaw_rozmiar(self.ROZMIARY[0])
-        self.pole.setValidator(QRegularExpressionValidator(
-            QRegularExpression(r"[0-9 ]{0,9}(,[0-9]{0,2})?")))
-        self.pole.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.pole.textChanged.connect(self._na_zmiane)
-        self.pole.returnPressed.connect(self.zatwierdzono.emit)
+        self._tresc = ""          # same cyfry i najwyżej jeden przecinek
+        self._kursor = 0
+        self._kotwica = 0         # drugi koniec zaznaczenia
+        self._przesun = 0.0       # przewinięcie, gdy liczba nie mieści się w polu
+        self._obszar = QRectF()   # miejsce na liczbę, bez noty
+        self._widac_kursor = True
+        self._zegar_kursora = QTimer(self)
+        self._zegar_kursora.setInterval(self.MRUGANIE_MS)
+        self._zegar_kursora.timeout.connect(self._mrugnij)
 
-        self.l_grosze = QLabel(",00 zł", self)
-        self.l_grosze.setFont(S.czcionka(15, 600))
-        self.l_grosze.setStyleSheet("color: %s; background: transparent;"
-                                    " font-size: 15px; font-weight: 600;" % S.TEKST_2.name())
         self.l_nota = QLabel("", self)
         self.l_nota.setFont(S.czcionka(11, 500))
         self.l_nota.setStyleSheet("color: %s; background: transparent; font-size: 11px;"
                                   % S.TEKST_3.name())
         self.l_nota.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-    def _ustaw_rozmiar(self, rozmiar):
-        rozmiar = int(rozmiar)
-        if rozmiar == getattr(self, "_rozmiar_ustawiony", None):
-            return
-        self._rozmiar_ustawiony = rozmiar
-        self.pole.setFont(S.czcionka(rozmiar, 700, naglowek=True))
-        self.pole.setStyleSheet(
-            "QLineEdit { background: transparent; border: none; padding: 0px;"
-            " font-family: '%s'; font-size: %dpx; font-weight: 700;"
-            " color: %s; selection-background-color: rgba(0,240,255,0.30); }"
-            % (S.rodzina_naglowek(), rozmiar, S.CYJAN.name()))
+    # ── treść: cyfry, jeden przecinek, dwa grosze ────────────────────
+    @classmethod
+    def _oczysc(cls, napis):
+        """Z dowolnego napisu robi samą kwotę: „1 850,50 zł”, „1850.5”, „12,50”.
+
+        Kropka i przecinek znaczą to samo. Trzy cyfry za ostatnim znakiem
+        rozdzielającym to tysiące (tak samo czyta je silnik), nie grosze."""
+        napis = str(napis or "")
+        ostatni = max(napis.rfind(","), napis.rfind("."))
+        if ostatni < 0:
+            calosc, ulamek, dziesietny = napis, "", False
+        else:
+            ogon = napis[ostatni + 1:]
+            po_znaku = ""
+            for znak in ogon:
+                if znak.isdigit():
+                    po_znaku += znak
+                else:
+                    break
+            dziesietny = not (len(po_znaku) == 3
+                              and any(z.isdigit() for z in napis[:ostatni]))
+            calosc, ulamek = (napis[:ostatni], ogon) if dziesietny else (napis, "")
+        zlote = "".join(z for z in calosc if z.isdigit())[:cls.MAKS_ZLOTYCH]
+        grosze = "".join(z for z in ulamek if z.isdigit())[:cls.MAKS_GROSZY]
+        if dziesietny and not zlote:
+            zlote = "0"
+        zlote = cls._bez_zer_wiodacych(zlote, dziesietny)
+        return zlote + ("," + grosze if dziesietny else "")
+
+    @staticmethod
+    def _bez_zer_wiodacych(zlote, z_przecinkiem):
+        """„05” to „5”, ale samo „0” zostaje zerem."""
+        obciete = zlote.lstrip("0")
+        if obciete:
+            return obciete
+        return "0" if (zlote or z_przecinkiem) else ""
+
+    @classmethod
+    def _popraw(cls, surowa, kursor):
+        """Przepuszcza tylko poprawną kwotę i przesuwa kursor razem z nią."""
+        wynik = ""
+        nowy = int(kursor)
+        zlote, grosze, po_przecinku = 0, 0, False
+        for poz, znak in enumerate(str(surowa)):
+            zostaje = False
+            if znak.isdigit():
+                if po_przecinku:
+                    zostaje = grosze < cls.MAKS_GROSZY
+                    grosze += 1 if zostaje else 0
+                else:
+                    zostaje = zlote < cls.MAKS_ZLOTYCH
+                    zlote += 1 if zostaje else 0
+            elif znak in ",." and not po_przecinku:
+                zostaje = True
+                po_przecinku = True
+                znak = ","
+            if zostaje:
+                wynik += znak
+            elif poz < kursor:
+                nowy -= 1
+        czesc_zl, _, czesc_gr = wynik.partition(",")
+        if po_przecinku and not czesc_zl:
+            czesc_zl = "0"
+            nowy += 1
+        obciete = cls._bez_zer_wiodacych(czesc_zl, po_przecinku)
+        nowy -= min(max(0, nowy), len(czesc_zl) - len(obciete))
+        wynik = obciete + ("," + czesc_gr if po_przecinku else "")
+        return wynik, max(0, min(nowy, len(wynik)))
+
+    def _zlote(self):
+        return self._tresc.partition(",")[0]
+
+    def _grosze(self):
+        return self._tresc.partition(",")[2]
+
+    @staticmethod
+    def _grupy(zlote):
+        """Tysiące rozdzielone spacją: „1850” → „1 850”."""
+        czesci, i = [], len(zlote)
+        while i > 3:
+            czesci.insert(0, zlote[i - 3:i])
+            i -= 3
+        czesci.insert(0, zlote[:i])
+        return " ".join(c for c in czesci if c)
+
+    def zlote_napis(self):
+        """Duża część kwoty — same złote, z odstępem co trzy cyfry."""
+        return self._grupy(self._zlote())
+
+    def grosze_napis(self):
+        """Mała część kwoty — to, co wpisano, dopełnione do dwóch cyfr."""
+        if not self._tresc:
+            return ""
+        return ",%s zł" % (self._grosze() + "00")[:self.MAKS_GROSZY]
+
+    def wartosc(self):
+        """Kwota co do grosza — tyle idzie do silnika."""
+        if not self._tresc:
+            return 0.0
+        grosze = int((self._grosze() + "00")[:self.MAKS_GROSZY])
+        return round(int(self._zlote() or "0") + grosze / 100.0, 2)
 
     def tekst(self):
-        return self.pole.text()
+        """Kwota jako napis: „1 850,55”. Puste pole daje pusty napis."""
+        if not self._tresc:
+            return ""
+        return "%s,%s" % (self.zlote_napis(),
+                          (self._grosze() + "00")[:self.MAKS_GROSZY])
 
     def ustaw_tekst(self, napis):
-        self.pole.setText(napis)
+        tresc = self._oczysc(napis)
+        zmiana = tresc != self._tresc
+        self._tresc = tresc
+        self._kursor = self._kotwica = len(tresc)
+        self._przesun = 0.0
+        self._widac_kursor = True
+        if zmiana:
+            self._na_zmiane()
+        else:
+            self._uklad()
+            self.update()
 
     def ustaw_note(self, napis, ostrzezenie=False):
         ostrzezenie = bool(ostrzezenie)
@@ -931,48 +1043,245 @@ class PoleKwoty(QWidget):
                 % (kolor.name(), " font-weight: 600;" if ostrzezenie else ""))
         self.l_nota.setText(napis)
         self._uklad()
+        self.update()
 
-    def _na_zmiane(self, _t=None):
+    def _na_zmiane(self):
         self._uklad()
+        self.update()
         self.zmieniono.emit()
+
+    # ── zmiany treści ────────────────────────────────────────────────
+    def _zakres(self):
+        return min(self._kursor, self._kotwica), max(self._kursor, self._kotwica)
+
+    def _ustaw_tresc(self, tresc, kursor):
+        zmiana = tresc != self._tresc
+        self._tresc = tresc
+        self._kursor = self._kotwica = max(0, min(int(kursor), len(tresc)))
+        self._widac_kursor = True
+        if zmiana:
+            self._na_zmiane()
+        else:
+            self._uklad()
+            self.update()
+
+    def _wstaw(self, znaki):
+        a, b = self._zakres()
+        tresc, kursor = self._popraw(self._tresc[:a] + str(znaki) + self._tresc[b:],
+                                     a + len(str(znaki)))
+        self._ustaw_tresc(tresc, kursor)
+
+    def _skasuj(self, wstecz):
+        a, b = self._zakres()
+        if a == b:
+            if wstecz and a > 0:
+                a -= 1
+            elif not wstecz and b < len(self._tresc):
+                b += 1
+            else:
+                return
+        tresc, kursor = self._popraw(self._tresc[:a] + self._tresc[b:], a)
+        self._ustaw_tresc(tresc, kursor)
+
+    def _zaznaczone(self):
+        a, b = self._zakres()
+        return self._tresc[a:b]
+
+    def _do_schowka(self):
+        wybor = self._zaznaczone()
+        if not wybor:
+            return
+        schowek = QApplication.clipboard()
+        if schowek is not None:
+            schowek.setText(wybor)
+
+    def _ze_schowka(self):
+        schowek = QApplication.clipboard()
+        napis = schowek.text() if schowek is not None else ""
+        czysty = self._oczysc(napis)
+        if czysty:
+            self._wstaw(czysty)
+
+    def zaznacz_wszystko(self):
+        self._kotwica, self._kursor = 0, len(self._tresc)
+        self._widac_kursor = True
+        self._dopilnuj_widoku()
+        self.update()
+
+    # ── kursor ───────────────────────────────────────────────────────
+    def _ustaw_kursor(self, dokad, zaznacz=False):
+        self._kursor = max(0, min(int(dokad), len(self._tresc)))
+        if not zaznacz:
+            self._kotwica = self._kursor
+        self._widac_kursor = True
+        self._dopilnuj_widoku()
+        self.update()
+
+    def _mrugnij(self):
+        self._widac_kursor = not self._widac_kursor
+        self.update()
+
+    def focusInEvent(self, e):
+        self._widac_kursor = True
+        self._zegar_kursora.start()
+        if e.reason() in (Qt.FocusReason.TabFocusReason,
+                          Qt.FocusReason.BacktabFocusReason,
+                          Qt.FocusReason.ShortcutFocusReason):
+            self.zaznacz_wszystko()
+        super().focusInEvent(e)
+
+    def focusOutEvent(self, e):
+        self._zegar_kursora.stop()
+        self._widac_kursor = False
+        self.update()
+        super().focusOutEvent(e)
+
+    # ── klawiatura ───────────────────────────────────────────────────
+    def keyPressEvent(self, e):
+        klucz = e.key()
+        mod = e.modifiers()
+        sterowanie = bool(mod & Qt.KeyboardModifier.ControlModifier)
+        zaznacz = bool(mod & Qt.KeyboardModifier.ShiftModifier)
+        a, b = self._zakres()
+        if sterowanie and klucz == Qt.Key.Key_A:
+            self.zaznacz_wszystko()
+        elif sterowanie and klucz == Qt.Key.Key_C:
+            self._do_schowka()
+        elif sterowanie and klucz == Qt.Key.Key_X:
+            self._do_schowka()
+            if a != b:
+                self._skasuj(True)
+        elif sterowanie and klucz == Qt.Key.Key_V:
+            self._ze_schowka()
+        elif klucz in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.zatwierdzono.emit()
+        elif klucz == Qt.Key.Key_Left:
+            self._ustaw_kursor(self._kursor - 1 if (zaznacz or a == b) else a, zaznacz)
+        elif klucz == Qt.Key.Key_Right:
+            self._ustaw_kursor(self._kursor + 1 if (zaznacz or a == b) else b, zaznacz)
+        elif klucz == Qt.Key.Key_Home:
+            self._ustaw_kursor(0, zaznacz)
+        elif klucz == Qt.Key.Key_End:
+            self._ustaw_kursor(len(self._tresc), zaznacz)
+        elif klucz == Qt.Key.Key_Backspace:
+            self._skasuj(True)
+        elif klucz == Qt.Key.Key_Delete:
+            self._skasuj(False)
+        else:
+            znaki = "" if sterowanie else "".join(
+                z for z in e.text() if z.isdigit() or z in ",.")
+            if not znaki:
+                e.ignore()          # Esc, F11, PageUp… należą do okna
+                return
+            self._wstaw(znaki)
+        e.accept()
+
+    # ── mysz ─────────────────────────────────────────────────────────
+    def mousePressEvent(self, e):
+        if e.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(e)
+            return
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._ustaw_kursor(self._indeks_z_x(e.position().x()), False)
+
+    def mouseMoveEvent(self, e):
+        if e.buttons() & Qt.MouseButton.LeftButton:
+            self._ustaw_kursor(self._indeks_z_x(e.position().x()), True)
+
+    def mouseDoubleClickEvent(self, e):
+        self.zaznacz_wszystko()
+
+    # ── miary i układ ────────────────────────────────────────────────
+    def _czcionka_zlotych(self, rozmiar=None):
+        return S.czcionka(rozmiar or self._rozmiar, 700, naglowek=True)
+
+    def _czcionka_groszy(self):
+        return S.czcionka(self.ROZMIAR_GROSZY, 600)
+
+    def _szer_zlotych(self):
+        return QFontMetricsF(self._czcionka_zlotych()).horizontalAdvance(
+            self.zlote_napis())
+
+    def _szer_groszy(self):
+        return QFontMetricsF(self._czcionka_groszy()).horizontalAdvance(
+            self.grosze_napis())
+
+    def _prefiks_zlotych(self, ile_cyfr):
+        """Kawałek dużej części do wskazanej cyfry — razem z odstępem tysięcy."""
+        napis = self.zlote_napis()
+        if ile_cyfr >= len(self._zlote()):
+            return napis
+        widziane = 0
+        for poz, znak in enumerate(napis):
+            if znak.isdigit():
+                if widziane == ile_cyfr:
+                    return napis[:poz]
+                widziane += 1
+        return napis
+
+    def _x_indeksu(self, i):
+        """Odległość kursora od początku liczby (bez przewinięcia)."""
+        zlote = self._zlote()
+        fz = QFontMetricsF(self._czcionka_zlotych())
+        if i <= len(zlote):
+            return fz.horizontalAdvance(self._prefiks_zlotych(i))
+        fg = QFontMetricsF(self._czcionka_groszy())
+        ile = i - len(zlote) - 1
+        return self._szer_zlotych() + fg.horizontalAdvance("," + self._grosze()[:ile])
+
+    def _indeks_z_x(self, x):
+        odleglosc = float(x) - self._obszar.x() + self._przesun
+        najblizszy, roznica = 0, None
+        for i in range(len(self._tresc) + 1):
+            d = abs(self._x_indeksu(i) - odleglosc)
+            if roznica is None or d < roznica:
+                najblizszy, roznica = i, d
+        return najblizszy
+
+    def _dopilnuj_widoku(self):
+        """Kursor zawsze w polu — długa liczba przewija się pod nim."""
+        caly = self._szer_zlotych() + self._szer_groszy()
+        wolne = self._obszar.width()
+        if wolne <= 0.0 or caly <= wolne:
+            self._przesun = 0.0
+            return
+        x = self._x_indeksu(self._kursor)
+        self._przesun = min(self._przesun, x)
+        self._przesun = max(self._przesun, x - wolne + 8.0)
+        self._przesun = max(0.0, min(self._przesun, caly - wolne))
+
+    def _uklad(self):
+        h = self.height()
+        szer_nota = QFontMetricsF(self.l_nota.font()).horizontalAdvance(
+            self.l_nota.text()) + 6
+        bok = 18 if self.width() >= 300 else 13
+        wolne = max(60.0, self.width() - 2 * bok - szer_nota)
+        szer_gr = self._szer_groszy()
+        napis = self.zlote_napis() or "0"
+
+        # liczba kurczy się razem z kartą — nie wjeżdża pod notę
+        rozmiar = self.ROZMIARY[0]
+        for kandydat in self.ROZMIARY:
+            rozmiar = kandydat
+            f = self._czcionka_zlotych(kandydat)
+            if QFontMetricsF(f).horizontalAdvance(napis) + szer_gr + 14.0 <= wolne:
+                break
+        self._rozmiar = rozmiar
+        self._obszar = QRectF(float(bok), 0.0, wolne, float(h))
+        self.l_nota.setGeometry(int(self.width() - bok - szer_nota), int(h / 2.0 - 9),
+                                int(szer_nota), 18)
+        self._dopilnuj_widoku()
 
     def resizeEvent(self, e):
         self._uklad()
         super().resizeEvent(e)
 
-    def _uklad(self):
-        h = self.height()
-        tresc = self.pole.text() or "0"
-        szer_nota = QFontMetricsF(self.l_nota.font()).horizontalAdvance(
-            self.l_nota.text()) + 6
-        szer_gr = QFontMetricsF(self.l_grosze.font()).horizontalAdvance(
-            self.l_grosze.text()) + 4
-        bok = 18 if self.width() >= 300 else 13
-        wolne = max(60.0, self.width() - 2 * bok - szer_nota - szer_gr)
-
-        # liczba kurczy się razem z kartą — nie wjeżdża pod grosze ani pod notę
-        rozmiar = self.ROZMIARY[0]
-        for kandydat in self.ROZMIARY:
-            rozmiar = kandydat
-            f = S.czcionka(kandydat, 700, naglowek=True)
-            if QFontMetricsF(f).horizontalAdvance(tresc) + 14.0 <= wolne:
-                break
-        self._ustaw_rozmiar(rozmiar)
-
-        fm = QFontMetricsF(self.pole.font())
-        szer = max(52.0, min(fm.horizontalAdvance(tresc) + 14.0, wolne))
-        wys_pola = min(h - 10, rozmiar + 13)
-        self.pole.setGeometry(int(bok), int((h - wys_pola) / 2.0),
-                              int(szer), int(wys_pola))
-        self.l_grosze.setGeometry(int(bok + szer), int(h / 2.0 - 2), int(szer_gr), 20)
-        self.l_nota.setGeometry(int(self.width() - bok - szer_nota), int(h / 2.0 - 9),
-                                int(szer_nota), 18)
-
+    # ── rysowanie ────────────────────────────────────────────────────
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        czynne = bool(self.pole.text().strip())
+        czynne = bool(self._tresc)
         akcent = S.BURSZTYN if self._ostrzezenie else S.CYJAN
         obrys = S.z_alfa(akcent, 170 if self._ostrzezenie else (150 if czynne else 60))
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
@@ -987,7 +1296,48 @@ class PoleKwoty(QWidget):
             rg.setColorAt(1.0, S.z_alfa(akcent, 0))
             p.fillRect(r, QBrush(rg))
             p.restore()
+        self._rysuj_liczbe(p)
         p.end()
+
+    def _rysuj_liczbe(self, p):
+        fz = QFontMetricsF(self._czcionka_zlotych())
+        fg = QFontMetricsF(self._czcionka_groszy())
+        x0 = self._obszar.x() - self._przesun
+        srodek = self.height() / 2.0
+        baza = srodek + (fz.ascent() - fz.descent()) / 2.0
+        p.save()
+        p.setClipRect(QRectF(self._obszar.x() - 2.0, 0.0,
+                             self._obszar.width() + 3.0, float(self.height())))
+        a, b = self._zakres()
+        if a != b:
+            self._rysuj_zaznaczenie(p, x0, baza, a, b, fz)
+        if self._tresc:
+            S.tekst(p, x0, baza, self.zlote_napis(), S.CYJAN, self._rozmiar, 700,
+                    naglowek=True)
+            S.tekst(p, x0 + self._szer_zlotych(), baza, self.grosze_napis(),
+                    S.TEKST_2, self.ROZMIAR_GROSZY, 600)
+        if self.hasFocus() and self._widac_kursor and a == b:
+            w_groszach = a > len(self._zlote())
+            f = fg if w_groszach else fz
+            x = x0 + self._x_indeksu(a)
+            p.setPen(QPen(S.CYJAN, 2.0))
+            p.drawLine(QPointF(x, baza - f.ascent() * 0.94),
+                       QPointF(x, baza + f.descent() * 0.9))
+        p.restore()
+
+    def _rysuj_zaznaczenie(self, p, x0, baza, a, b, fz):
+        """Podkład pod zaznaczeniem — jeden pas, bo to jedna liczba."""
+        x_a = x0 + self._x_indeksu(a)
+        x_b = x0 + self._x_indeksu(b)
+        if x_b <= x_a:
+            return
+        gora = baza - fz.ascent() * 0.94
+        p.fillRect(QRectF(x_a, gora, x_b - x_a, baza + fz.descent() - gora),
+                   QBrush(S.z_alfa(S.CYJAN, 77)))
+
+    def hideEvent(self, e):
+        self._zegar_kursora.stop()      # schowane pole nie mruga w tle
+        super().hideEvent(e)
 
 
 class WierszWolnych(QWidget):
@@ -1528,6 +1878,10 @@ class OknoPrototypu(QWidget):
         self.tasma.wybrano.connect(self._wybierz_dzien)
         self.tasma.przelaczono_wolny.connect(self._przelacz_wolny)
         self.mapa.klikniete_miasto.connect(self._klik_miasto)
+        self.mapa.trasa_rysuje_sie.connect(self.kartka.ustap)
+        self.mapa.trasa_gotowa.connect(self._kartka_na_miejsce)
+        self.kartka.przelaczono_zwiniecie.connect(self._przelacz_zwiniecie_kartki)
+        self.kartka.obecnosc_zmieniona.connect(self._obecnosc_kartki)
         self.zakres.wybrano.connect(lambda _n: self._odswiez_dzien())
         self.strony.poprzedni.connect(lambda: self._przesun_kartke(-1))
         self.strony.nastepny.connect(lambda: self._przesun_kartke(1))
@@ -1611,23 +1965,46 @@ class OknoPrototypu(QWidget):
         self.k_parametry.setGeometry(x0, y0 + h_prac + odstep_k, kol, h_par)
         self.k_kompas.setGeometry(x0, y0 + h_prac + h_par + 2 * odstep_k, kol, h_komp)
 
+        self._uklad_mapy(m, y0, wys)
+        self.taca.setGeometry(self._geometria_tacy(self._taca_widoczna))
+        super().resizeEvent(e)
+
+    def _uklad_mapy(self, m=None, y0=None, wys=None):
+        """Mapa, kartka i to, co na mapie leży — w jednym miejscu.
+
+        Osobno od ``resizeEvent``, bo zwinięcie kartki też przestawia ten układ,
+        a okno wtedy nie zmienia rozmiaru.
+        """
+        m = m or self._miary()
+        y0 = m["y0"] if y0 is None else y0
+        wys = m["wys"] if wys is None else wys
         xm, szer_m = m["xm"], m["szer_m"]
         h_mapy = max(220, wys - m["h_stron"])
         self.mapa.setGeometry(xm, y0, szer_m, h_mapy)
         self.strony.setGeometry(xm, y0 + h_mapy + 2, szer_m - 18, m["h_stron"] - 4)
 
         gora_k = 42 if h_mapy >= 392 else 30
-        szer_k = int(min(KARTKA_W, max(252, szer_m * 0.40)))
+        # Kartka nigdy nie bierze więcej niż dwie piąte mapy: w wąskim oknie
+        # zwęża się razem z nią, zamiast spychać trasę do paska przy krawędzi.
+        szer_k = int(max(176, min(KARTKA_W, szer_m * 0.42)))
         wys_k = int(min(500, max(292, min(h_mapy - 108, h_mapy - gora_k - 14))))
+        # ...i nigdy nie wystaje poza mapę: mapa rezerwuje jej miejsce co do
+        # piksela, więc kartka wisząca poniżej dolnej krawędzi kazałaby
+        # rezerwować pas, którego nie ma
+        wys_k = max(120, min(wys_k, h_mapy - gora_k - 8))
+        if self.kartka.zwinieta():
+            szer_k = self.kartka.SZEROKOSC_ZWINIETA
         self.kartka.setGeometry(xm + szer_m - 18 - szer_k, y0 + gora_k, szer_k, wys_k)
 
         szer_z = int(math.ceil(min(self.zakres.szerokosc_tresci(), szer_m * 0.46)))
         self.zakres.setGeometry(xm + szer_m - 18 - szer_z, y0 + 16, szer_z, 28)
         self._uklad_pigulki()
-
-        self.taca.setGeometry(self._geometria_tacy(self._taca_widoczna))
         self._przelicz_kotwice()
-        super().resizeEvent(e)
+
+    def _przelacz_zwiniecie_kartki(self, _zwinieta=False):
+        """Zwinięta kartka oddaje mapie swoje miejsce — kadr liczy się od nowa."""
+        self._uklad_mapy()
+        self.update()
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -1641,11 +2018,8 @@ class OknoPrototypu(QWidget):
 
     # ── dane i przeliczenia ──────────────────────────────────────────
     def _kwota(self):
-        t = self.k_parametry.kwota.tekst().replace(" ", "").replace(",", ".")
-        try:
-            return float(t) if t else 0.0
-        except ValueError:
-            return 0.0
+        """Kwota z pola — co do grosza, prosto z wpisanych cyfr."""
+        return self.k_parametry.kwota.wartosc()
 
     def _kwota_zmieniona(self):
         self._zegar_kwoty.start()
@@ -1741,6 +2115,10 @@ class OknoPrototypu(QWidget):
     def _odswiez_dzien(self):
         d = self._dzien_wybrany()
         zbiorczo = (self.zakres.aktywna() == "wszystkie dni")
+        # KOLEJNOŚĆ MA ZNACZENIE: mapa musi znać kartkę, ZANIM dostanie dzień.
+        # Inaczej pierwszy kadr liczy się bez zarezerwowanego miejsca i trasa
+        # rysuje się przez chwilę na całej mapie, żeby zaraz przeskoczyć w bok.
+        self._przelicz_kotwice()
         self.mapa.ustaw_dzien(self._dzien_zbiorczy() if zbiorczo else d)
 
         w_trasie = self._dni_w_trasie()
@@ -1766,6 +2144,20 @@ class OknoPrototypu(QWidget):
             self.strony.ustaw(0, 0, "", "")
         self._uklad_pigulki()
         self._przelicz_kotwice()
+        # choreografia dnia: kartka ustępuje, trasa rysuje się od nowa, kartka
+        # wraca dopiero na sygnał mapy (patrz _kartka_na_miejsce)
+        if self.mapa.rysuje_trase():
+            self.kartka.ustap()
+        else:
+            self.kartka.wroc()
+
+    def _kartka_na_miejsce(self):
+        """Trasa dobiegła do bazy — kartka wsuwa się i łączy z nią nitką."""
+        self.kartka.wroc()
+
+    def _obecnosc_kartki(self, ile):
+        """Cień kartki na mapie i nitka do trasy idą za tym, ile kartki widać."""
+        self.mapa.ustaw_obecnosc_kartki(ile)
 
     def _odswiez_pigulke(self, d, zbiorczo):
         if zbiorczo:
@@ -1794,11 +2186,32 @@ class OknoPrototypu(QWidget):
         wolne = g.width() - 16 - 18 - self.zakres.width() - 14
         szer = int(math.ceil(min(self.pigulka.szerokosc_tresci(), max(90, wolne))))
         self.pigulka.setGeometry(g.x() + 16, g.y() + 16, max(90, szer), 28)
+        self._podaj_zaslony()
+
+    def _podaj_zaslony(self):
+        """Mapa dostaje prostokąty widżetów, które na niej leżą.
+
+        Pigułka dnia i przełącznik zakresu są osobnymi widżetami położonymi na
+        mapie — mapa nie ma jak ich zobaczyć. Bez tej listy kadr wpuszczał pod
+        nie trasę, a tabliczki miast szukały miejsca dokładnie tam, gdzie
+        siedzi pigułka.
+        """
+        g = self.mapa.geometry()
+        luz = 6
+        pola = []
+        for widzet in (self.pigulka, self.zakres):
+            r = widzet.geometry()
+            pola.append(QRectF(r.x() - g.x() - luz, r.y() - g.y() - luz,
+                               r.width() + 2 * luz, r.height() + 2 * luz))
+        self.mapa.ustaw_zaslony(pola)
 
     def _przelicz_kotwice(self):
-        punkt = QPointF(self.kartka.x() - self.mapa.x() + 8,
-                        self.kartka.y() - self.mapa.y() + 26)
-        self.mapa.ustaw_kotwice_kartki(punkt)
+        """Mapa dostaje prawdziwy prostokąt kartki i punkt, do którego biegnie nitka."""
+        g = self.kartka.geometry()
+        m = self.mapa.geometry()
+        pole = QRectF(g.x() - m.x(), g.y() - m.y(), g.width(), g.height())
+        self.mapa.ustaw_kotwice_kartki(
+            QPointF(pole.x() + min(8.0, pole.width() * 0.3), pole.y() + 26), pole)
 
     # ── wybór dnia ───────────────────────────────────────────────────
     def _wybierz_dzien(self, numer):
@@ -1924,6 +2337,7 @@ class OknoPrototypu(QWidget):
     def ustaw_postep_pokazu(self, t):
         """Ustawia kompas na zadany postęp 0…1 — także poza zegarem (zrzuty)."""
         t = max(0.0, min(1.0, float(t)))
+        self._tasma_w_rytm(t)
         k = self.k_kompas.kompas
         k.ustaw_postep(t)
         biezacy = 0
@@ -1950,9 +2364,32 @@ class OknoPrototypu(QWidget):
         else:
             k.ustaw_azymut(None)
 
+    def _tasma_w_rytm(self, t):
+        """Dni na taśmie zapalają się w rytm postępu — etap po etapie.
+
+        W prototypie postęp idzie z zegara pokazu; nowy wygląd podmienia tę
+        metodę na meldunki prawdziwego silnika. Rytm jest ten sam: dni
+        zapalają się na etapie układania tras, klamry poleceń wyjazdu —
+        dopiero wtedy, gdy powstają pliki.
+        """
+        if t <= 0.0:
+            dni, dokumenty = 0.0, None
+        elif t < PROGI[0]:
+            dni, dokumenty = 0.0, None
+        elif t < PROGI[1]:
+            dni = (t - PROGI[0]) / max(1e-6, PROGI[1] - PROGI[0])
+            dokumenty = None
+        elif t < PROGI[2]:
+            dni = 1.0
+            dokumenty = (t - PROGI[1]) / max(1e-6, PROGI[2] - PROGI[1])
+        else:
+            dni, dokumenty = 1.0, 1.0
+        self.tasma.ustaw_prace(dni, dokumenty)
+
     def zakoncz_pokaz(self, animacja=True):
         self._zegar_gen.stop()
         self._po_generacji = True
+        self.tasma.ustaw_prace(None)
         k = self.k_kompas.kompas
         k.ustaw_postep(1.0)
         k.ustaw_azymut(None)

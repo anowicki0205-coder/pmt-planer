@@ -21,6 +21,7 @@ import tempfile
 import importlib
 import zlib
 import math
+import time
 import base64
 import json
 import datetime
@@ -50,6 +51,26 @@ def sprawdz(nazwa, warunek, szczegol=""):
 def sekcja(tytul):
     print("\n" + tytul)
     print("-" * len(tytul))
+
+
+def same_piksele(obraz):
+    """Surowe bajty obrazu BEZ dopychania wierszy — do porównań co do bajta.
+
+    Qt dopycha każdy wiersz obrazu do pełnych czterech bajtów. W tym
+    dopychaniu leży pamięć, której nikt nie zapisał, więc dwa NAPRAWDĘ
+    identyczne zrzuty potrafiły dać różne bajty i sprawdzenie padało bez
+    powodu. Dzieje się to tylko wtedy, gdy szerokość razy trzy nie dzieli
+    się przez cztery — czyli zależnie od rozmiaru okna i skalowania ekranu:
+    mapa w oknie 1920 px ma 1404 px szerokości i dopychania nie ma wcale,
+    ale w oknie 1601 px ma 1085 px i dopychanie to jeden bajt na wiersz.
+    Bierzemy więc z każdego wiersza dokładnie tyle bajtów, ile jest pikseli."""
+    szerokosc_bajtow = obraz.width() * 3
+    krok = obraz.bytesPerLine()
+    surowe = obraz.constBits().asstring(obraz.sizeInBytes())
+    if krok == szerokosc_bajtow:
+        return surowe
+    return b"".join(surowe[y * krok:y * krok + szerokosc_bajtow]
+                    for y in range(obraz.height()))
 
 
 def _teksty_pdf(sciezka):
@@ -2812,6 +2833,23 @@ try:
     _kafle11 = list(_okno11.tasma._dni)
     _wszystkie11 = _okno11.tasma._zbior["dni_wszystkie"]
     _do_uzycia11 = len([d for d in _kafle11 if not getattr(d, "wylaczony", False)])
+    # kwota z groszami ma być widoczna w nagłówku taśmy — inaczej po wpisaniu
+    # 1 850,55 zł użytkownik widziałby 1 851 zł i pomyślałby, że program zmienił
+    # mu kwotę
+    _kp11.kwota.ustaw_tekst("1 850,55")
+    _okno11._przelicz_teraz()
+    _app11.processEvents()
+    _suma11 = round(sum(d.kwota for d in _okno11._dni_w_trasie()), 2)
+    sprawdz("kwota z groszami dochodzi do taśmy co do grosza",
+            abs(_suma11 - 1850.55) < 0.005 and _okno11.tasma.kwota_z_groszami(),
+            str(_suma11))
+    _kp11.kwota.ustaw_tekst("1 850")
+    _okno11._przelicz_teraz()
+    _app11.processEvents()
+    sprawdz("kwota bez groszy nie dokleja „,00” w nagłówku taśmy",
+            not _okno11.tasma.kwota_z_groszami(),
+            str(round(sum(d.kwota for d in _okno11._dni_w_trasie()), 2)))
+
     sprawdz("nagłówek taśmy „z N dni” nie liczy dni bez pracy",
             _wszystkie11 == _do_uzycia11 and _wszystkie11 == len(_kafle11) - 5,
             str((_wszystkie11, _do_uzycia11, len(_kafle11))))
@@ -3462,6 +3500,1889 @@ try:
 except Exception as _e13:
     sprawdz("kadr za trasą, widoczne miejscowości i rozstawione tabliczki",
             False, repr(_e13))
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("14. Pole kwoty: grosze takie, jakie naprawdę wpisano")
+
+try:
+    from PyQt6.QtWidgets import QApplication as _QA14
+    from PyQt6.QtCore import Qt as _Qt14, QEvent as _QE14, QPointF as _QP14
+    from PyQt6.QtGui import QKeyEvent as _QKE14, QMouseEvent as _QME14
+    import proto_okno as _OK14
+    import nowy_wyglad as _NW14
+    _app14 = _QA14.instance() or _QA14(sys.argv)
+
+    def _klaw14(pole, tekst="", klucz=None, mod=None):
+        """Jedno naciśnięcie klawisza wprost w pole kwoty."""
+        zdarzenie = _QKE14(_QE14.Type.KeyPress, klucz or _Qt14.Key.Key_unknown,
+                           mod or _Qt14.KeyboardModifier.NoModifier, tekst)
+        pole.keyPressEvent(zdarzenie)
+        return zdarzenie
+
+    def _pisz14(pole, ciag, od_nowa=True):
+        if od_nowa:
+            pole.ustaw_tekst("")
+        for _znak14 in ciag:
+            _klaw14(pole, _znak14)
+        return pole
+
+    def _obraz14(pole):
+        return (pole.zlote_napis(), pole.grosze_napis(), pole.wartosc())
+
+    _pole14 = _OK14.PoleKwoty()
+    _pole14.resize(344, 52)
+
+    # ── 1. GROSZE POKAZUJĄ TO, CO WPISANO ─────────────────────────
+    sprawdz("wpisane „1850” to „1 850” i „,00 zł”",
+            _obraz14(_pisz14(_pole14, "1850")) == ("1 850", ",00 zł", 1850.0),
+            str(_obraz14(_pole14)))
+    sprawdz("wpisane „1850,5” to „1 850” i „,50 zł”",
+            _obraz14(_pisz14(_pole14, "1850,5")) == ("1 850", ",50 zł", 1850.5),
+            str(_obraz14(_pole14)))
+    sprawdz("wpisane „1850,55” to „1 850” i „,55 zł”",
+            _obraz14(_pisz14(_pole14, "1850,55")) == ("1 850", ",55 zł", 1850.55),
+            str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850,")
+    sprawdz("sam przecinek po złotych jeszcze nie wymyśla groszy",
+            _obraz14(_pole14) == ("1 850", ",00 zł", 1850.0), str(_obraz14(_pole14)))
+    sprawdz("grosze z przykładu nie zostają w polu — nie ma osobnej etykiety „,00 zł”",
+            not hasattr(_pole14, "l_grosze")
+            and 'QLabel(",00 zł"' not in open(
+                os.path.join(KATALOG, "prototyp", "proto_okno.py"),
+                encoding="utf-8").read())
+    sprawdz("złote są duże, grosze mniejsze — jedna liczba, dwa kroje",
+            _pole14.ROZMIAR_GROSZY < _pole14._rozmiar
+            and _pole14._szer_zlotych() > _pole14._szer_groszy() > 0,
+            str((_pole14._rozmiar, _pole14.ROZMIAR_GROSZY)))
+
+    # ── 2. KROPKA, PRZECINEK, SPACJE ──────────────────────────────
+    _pisz14(_pole14, "1850.55")
+    _kropka14 = _pole14._tresc
+    _pisz14(_pole14, "1850,55")
+    sprawdz("kropka trafia w to samo miejsce, co przecinek",
+            _kropka14 == _pole14._tresc == "1850,55", repr(_kropka14))
+    sprawdz("spacje w tysiącach nie przeszkadzają w pisaniu",
+            _obraz14(_pisz14(_pole14, "1 8 5 0")) == ("1 850", ",00 zł", 1850.0),
+            str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850")
+    _pole14._ustaw_kursor(2)
+    _klaw14(_pole14, "9")
+    sprawdz("cyfra dopisana w środku liczby ląduje tam, gdzie stał kursor",
+            _pole14.zlote_napis() == "18 950" and _pole14._kursor == 3,
+            str((_pole14.zlote_napis(), _pole14._kursor)))
+    sprawdz("trzecia cyfra groszy już się nie mieści",
+            _obraz14(_pisz14(_pole14, "1850,555")) == ("1 850", ",55 zł", 1850.55),
+            str(_obraz14(_pole14)))
+
+    # ── 3. PRZYPADKI BRZEGOWE ─────────────────────────────────────
+    _pole14.ustaw_tekst("")
+    sprawdz("puste pole jest puste: bez liczby, bez groszy, bez złotówki",
+            (_pole14.tekst(), _pole14.grosze_napis(), _pole14.wartosc()) == ("", "", 0.0),
+            str((_pole14.tekst(), _pole14.grosze_napis())))
+    sprawdz("sam przecinek daje „0” i „,00 zł”",
+            _obraz14(_pisz14(_pole14, ",")) == ("0", ",00 zł", 0.0),
+            str(_obraz14(_pole14)))
+    sprawdz("„0,00” zostaje zerem co do grosza",
+            _obraz14(_pisz14(_pole14, "0,00")) == ("0", ",00 zł", 0.0),
+            str(_obraz14(_pole14)))
+    sprawdz("zera wiodące znikają: „007” to 7 zł",
+            _obraz14(_pisz14(_pole14, "007")) == ("7", ",00 zł", 7.0),
+            str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850,55")
+    for _ in range(3):
+        _klaw14(_pole14, klucz=_Qt14.Key.Key_Backspace)
+    sprawdz("kasowanie groszy razem z przecinkiem wraca do samych złotych",
+            _obraz14(_pole14) == ("1 850", ",00 zł", 1850.0), str(_obraz14(_pole14)))
+
+    # ── 4. SCHOWEK: KROPKA, SPACJE, ZŁOTÓWKA ──────────────────────
+    _schowek14 = _QA14.clipboard()
+    _wklejone14 = []
+    for _co14, _ile14 in (("1 850.50 zł", 1850.5), ("2 254,50", 2254.5),
+                          ("1850.5", 1850.5), ("12 zł", 12.0)):
+        _schowek14.setText(_co14)
+        _pole14.ustaw_tekst("")
+        _pole14._ze_schowka()
+        _wklejone14.append((_co14, _pole14.wartosc(), _ile14))
+    sprawdz("wklejona kwota z kropką, spacjami i złotówką trafia w grosze",
+            all(abs(w - o) < 0.005 for _, w, o in _wklejone14), str(_wklejone14))
+
+    # ── 5. DŁUGA LICZBA I MIEJSCE W KARCIE ────────────────────────
+    _pisz14(_pole14, "123456789,99")
+    _luzno14 = (_pole14._rozmiar,
+                _pole14._szer_zlotych() + _pole14._szer_groszy(),
+                _pole14._obszar.width())
+    _pole14.ustaw_note("maks. 9 935 zł", True)      # nota zabiera miejsce
+    _ciasno14 = (_pole14._rozmiar,
+                 _pole14._szer_zlotych() + _pole14._szer_groszy(),
+                 _pole14._obszar.width())
+    _pole14.ustaw_note("")
+    sprawdz("bardzo długa kwota zmniejsza czcionkę i nadal mieści się w polu",
+            _ciasno14[0] < _luzno14[0] <= _OK14.PoleKwoty.ROZMIARY[0]
+            and _luzno14[1] <= _luzno14[2] + 0.5
+            and _ciasno14[1] <= _ciasno14[2] + 0.5
+            and _obraz14(_pole14) == ("123 456 789", ",99 zł", 123456789.99),
+            str((_luzno14, _ciasno14)))
+
+    # ── 6. KURSOR I ZAZNACZANIE ───────────────────────────────────
+    _pisz14(_pole14, "1850,55")
+    _x14 = _pole14._obszar.x() + _pole14._x_indeksu(2)
+    _punkt14 = _QP14(_x14, _pole14.height() / 2.0)
+    _pole14.mousePressEvent(_QME14(_QE14.Type.MouseButtonPress, _punkt14, _punkt14,
+                                   _Qt14.MouseButton.LeftButton,
+                                   _Qt14.MouseButton.LeftButton,
+                                   _Qt14.KeyboardModifier.NoModifier))
+    sprawdz("kliknięcie stawia kursor tam, gdzie pokazała mysz",
+            _pole14._kursor == 2, str(_pole14._kursor))
+    _x_gr14 = _pole14._obszar.x() + _pole14._x_indeksu(6)
+    _punkt_gr14 = _QP14(_x_gr14, _pole14.height() / 2.0)
+    _pole14.mousePressEvent(_QME14(_QE14.Type.MouseButtonPress, _punkt_gr14,
+                                   _punkt_gr14, _Qt14.MouseButton.LeftButton,
+                                   _Qt14.MouseButton.LeftButton,
+                                   _Qt14.KeyboardModifier.NoModifier))
+    sprawdz("kursor wchodzi też między grosze",
+            _pole14._kursor == 6 and _pole14._x_indeksu(6) > _pole14._szer_zlotych(),
+            str(_pole14._kursor))
+    _rosnie14 = [_pole14._x_indeksu(i) for i in range(len(_pole14._tresc) + 1)]
+    sprawdz("kursor idzie w prawo przez całą liczbę, także przez odstęp tysięcy",
+            all(b > a for a, b in zip(_rosnie14, _rosnie14[1:])),
+            str([round(x, 1) for x in _rosnie14]))
+    _pisz14(_pole14, "1850,55")
+    _pole14._ustaw_kursor(0)
+    for _ in range(4):
+        _klaw14(_pole14, "", _Qt14.Key.Key_Right,
+                _Qt14.KeyboardModifier.ShiftModifier)
+    _zazn14 = _pole14._zakres()
+    _klaw14(_pole14, "", _Qt14.Key.Key_Left)
+    _zdjete14 = _pole14._zakres()
+    _klaw14(_pole14, "", _Qt14.Key.Key_End)
+    sprawdz("Shift ze strzałką zaznacza, sama strzałka zdejmuje, End idzie na koniec",
+            _zazn14 == (0, 4) and _zdjete14 == (0, 0)
+            and _pole14._kursor == len("1850,55"),
+            str((_zazn14, _zdjete14, _pole14._kursor)))
+    _klaw14(_pole14, "a", klucz=_Qt14.Key.Key_A,
+            mod=_Qt14.KeyboardModifier.ControlModifier)
+    sprawdz("Ctrl+A bierze całą kwotę razem z groszami",
+            _pole14._zakres() == (0, len("1850,55")), str(_pole14._zakres()))
+    _klaw14(_pole14, "7")
+    sprawdz("pisanie po zaznaczeniu zastępuje całą kwotę",
+            _obraz14(_pole14) == ("7", ",00 zł", 7.0), str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850,55")
+    _pole14._kotwica, _pole14._kursor = 0, 4
+    _klaw14(_pole14, klucz=_Qt14.Key.Key_Backspace)
+    sprawdz("skasowanie zaznaczonych złotych zostawia same grosze",
+            _obraz14(_pole14) == ("0", ",55 zł", 0.55), str(_obraz14(_pole14)))
+
+    # ── 7. KLAWISZE POLA NIE UCIEKAJĄ DO OKNA ─────────────────────
+    _pisz14(_pole14, "1850")
+    _moje14 = [_klaw14(_pole14, "5").isAccepted(),
+               _klaw14(_pole14, "", _Qt14.Key.Key_Left).isAccepted(),
+               _klaw14(_pole14, "", _Qt14.Key.Key_Right).isAccepted(),
+               _klaw14(_pole14, "\r", _Qt14.Key.Key_Return).isAccepted()]
+    _cudze14 = [_klaw14(_pole14, "", _Qt14.Key.Key_Escape).isAccepted(),
+                _klaw14(_pole14, "", _Qt14.Key.Key_PageDown).isAccepted()]
+    sprawdz("cyfry, strzałki i Enter należą do pola, a Esc i PageDown do okna",
+            all(_moje14) and not any(_cudze14), str((_moje14, _cudze14)))
+    _echo14 = {"zmian": 0, "zatwierdzen": 0}
+    _pole14.zmieniono.connect(lambda: _echo14.__setitem__("zmian", _echo14["zmian"] + 1))
+    _pole14.zatwierdzono.connect(
+        lambda: _echo14.__setitem__("zatwierdzen", _echo14["zatwierdzen"] + 1))
+    _pisz14(_pole14, "125", od_nowa=False)
+    _klaw14(_pole14, "\r", _Qt14.Key.Key_Return)
+    sprawdz("pole melduje każdą zmianę i osobno zatwierdzenie Enterem",
+            _echo14["zmian"] >= 3 and _echo14["zatwierdzen"] == 1, str(_echo14))
+
+    # ── 8. KWOTA DOCHODZI DO SILNIKA CO DO GROSZA ─────────────────
+    _prof14 = _NW14.ProfilWidoku("Jan Testowy", "85010112345",
+                                 "ul. Kwiatowa 5, 26-600 Radom", "KR")
+    _okno14 = _NW14.OknoNowegoWygladu(profil=_prof14, rok=2026, miesiac=10)
+    _okno14._pole_pesel.setText("85010112345")
+    _app14.processEvents()
+    _pisz14(_okno14.k_parametry.kwota, "1850,55")
+    _okno14._przelicz_teraz()
+    _dane14, _powod14 = _okno14._dane_do_generacji()
+    sprawdz("kwota z groszami idzie z pola do silnika bez zaokrąglenia",
+            abs(_okno14._kwota() - 1850.55) < 0.0005 and _dane14 is not None
+            and abs(_dane14["kwota_cel"] - 1850.55) < 0.0005,
+            str((_okno14._kwota(), _powod14)))
+    sprawdz("grosze zapisują się w ustawieniach i wracają po ponownym otwarciu",
+            abs(float(P.ustawienie(_NW14.OknoNowegoWygladu.USTAWIENIE_KWOTY, 0))
+                - 1850.55) < 0.0005, str(P.ustawienie(
+                    _NW14.OknoNowegoWygladu.USTAWIENIE_KWOTY, 0)))
+    _okno14b = _NW14.OknoNowegoWygladu(profil=_prof14, rok=2026, miesiac=10)
+    _wrocila14 = (_okno14b._kwota(), _okno14b.k_parametry.kwota.tekst())
+    _okno14b.close()
+    sprawdz("wznowione okno pokazuje te same grosze, co przed zamknięciem",
+            abs(_wrocila14[0] - 1850.55) < 0.0005 and _wrocila14[1] == "1 850,55",
+            str(_wrocila14))
+
+    _okno14.k_parametry.kwota.ustaw_tekst("")
+    _okno14._przelicz_teraz()
+    sprawdz("puste pole to zero, a nie ostatnia kwota",
+            abs(_okno14._kwota()) < 0.0005 and not _okno14._za_duzo,
+            str(_okno14._kwota()))
+    _okno14.k_parametry.kwota.ustaw_tekst("%.2f" % (P.MIN_KWOTA - 0.01))
+    _okno14._przelicz_teraz()
+    _malo14 = _okno14._dane_do_generacji()[1]
+    sprawdz("grosz poniżej progu to wciąż za mało — program mówi o minimum",
+            _okno14._dane_do_generacji()[0] is None and _malo14.startswith("min."),
+            repr(_malo14))
+    _okno14.k_parametry.kwota.ustaw_tekst("%.2f" % (P.MIN_KWOTA,))
+    _okno14._przelicz_teraz()
+    sprawdz("dokładnie kwota minimalna już przechodzi",
+            _okno14._dane_do_generacji()[0] is not None
+            and abs(_okno14._kwota() - P.MIN_KWOTA) < 0.0005,
+            str(_okno14._kwota()))
+    _maks14 = _okno14._maks_miesiaca(_okno14.k_parametry.tryb.aktywna())
+    _okno14.k_parametry.kwota.ustaw_tekst("%.2f" % (_maks14 + 1.0))
+    _okno14._przelicz_teraz()
+    _duzo14 = _okno14._dane_do_generacji()[1]
+    sprawdz("grosz ponad miesiąc to już za dużo — program podaje maksimum",
+            _okno14._za_duzo and _duzo14.startswith("maks.")
+            and _okno14.k_parametry.kwota.l_nota.text().startswith("maks."),
+            str((_duzo14, _okno14.k_parametry.kwota.l_nota.text())))
+    _okno14.close()
+
+    if not SZYBKO:
+        P._osrm_dostepny = False
+        P._road_cache.clear()
+        _dni_gr14 = P.generuj_trasy(1850.55, "Radom", 51.40, 21.15, "mazowieckie",
+                                    P.pobierz_dni_robocze(2026, 10), "90010112345",
+                                    stawka=0.89)
+        _suma_gr14 = sum(_d14.suma for _d14 in _dni_gr14)
+        sprawdz("silnik rozpisuje kwotę z groszami co do grosza",
+                abs(_suma_gr14 - 1850.55) <= 0.01, "wyszło %.2f zł" % _suma_gr14)
+        P._road_cache.clear()
+except Exception as _e14:
+    sprawdz("pole kwoty pokazuje grosze, które wpisano", False, repr(_e14))
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("15. Podgląd miesiąca mówi prawdę: dni, kwoty, kilometry, miasta, dokumenty")
+
+# Zanim cokolwiek zostanie wygenerowane, taśma pokazuje SZACUNEK. Do 3.22
+# szacunek dzielił kwotę na dni RÓWNO CO DO GROSZA, kilometry liczył
+# z pieniędzy, a przystanki brał z 28 miejscowości bez pamięci między dniami —
+# więc każdy dzień miał tę samą kwotę, tę samą liczbę kilometrów, siedem
+# postojów i tę samą wieś po kilkanaście razy w miesiącu. Ta sekcja pilnuje,
+# żeby podgląd trzymał się reguł silnika.
+try:
+    import nowy_wyglad as _NW15
+    import proto_tasma as _PT15
+    from PyQt6.QtWidgets import QApplication as _QA15
+
+    _ROK15, _MIES15, _STAWKA15 = 2026, 10, 1.15
+    _PESEL15 = "44051401359"
+    _BAZY15 = (("Radom", "mazowieckie"), ("Piaseczno", "mazowieckie"),
+               ("Warszawa", "mazowieckie"))
+
+    def _geo15(baza, woj):
+        lat, lng = _NW15.wspolrzedne_bazy(baza, baza, woj)
+        return (lat, lng,
+                _NW15.miasta_wokol_bazy(baza, lat, lng, woj, _NW15.MIAST_PODGLADU))
+
+    def _plan15(baza, woj, kwota, stawka=_STAWKA15, wolne=()):
+        _lat, _lng, geo = _geo15(baza, woj)
+        return geo, _NW15.plan_podgladu(kwota, _ROK15, _MIES15, "Tydzień", wolne,
+                                        stawka, geo, baza, P.MAX_KWOTA_DNIA)
+
+    def _licznik15(plan):
+        lic = {}
+        for dzien in plan:
+            for nazwa in dzien["przystanki"]:
+                lic[nazwa] = lic.get(nazwa, 0) + 1
+        return lic
+
+    # ── 1. SUMA CO DO GROSZA ──────────────────────────────────────
+    _zle_sumy15 = []
+    for _b15, _w15 in _BAZY15:
+        for _k15 in (300.0, 900.0, 1850.55, 3000.0, 5000.0):
+            _g15, _p15 = _plan15(_b15, _w15, _k15)
+            _s15 = round(sum(d["kwota"] for d in _p15), 2)
+            if abs(_s15 - _k15) > 0.005:
+                _zle_sumy15.append((_b15, _k15, _s15))
+    sprawdz("kwoty dni podglądu sumują się do zamówionej kwoty CO DO GROSZA (15 przebiegów)",
+            not _zle_sumy15, str(_zle_sumy15[:3]))
+
+    # ── 2. ŻADEN DZIEŃ PONAD SUFIT ────────────────────────────────
+    # Objaw właściciela: „kwoty każdego dnia wyświetlają się jako 321 zł" —
+    # podgląd malował dzień, którego nie da się przejechać, gdy kwota
+    # przekraczała maksimum miesiąca.
+    _nad_sufit15, _pod_droga15 = [], []
+    for _b15, _w15 in _BAZY15:
+        for _k15 in (300.0, 1850.0, 5000.0, 9000.0, 15000.0, 30000.0):
+            _g15, _p15 = _plan15(_b15, _w15, _k15)
+            for _d15 in _p15:
+                _post15 = len(_d15["przystanki"])
+                _fiz15 = P.pojemnosc_dnia_zl(_post15, _STAWKA15, P.MAX_KWOTA_DNIA)
+                if (_d15["kwota"] > _fiz15 + 0.005
+                        or _d15["kwota"] > P.MAX_KWOTA_DNIA + 0.005):
+                    _nad_sufit15.append((_b15, _k15, round(_d15["kwota"], 2),
+                                         _fiz15, _post15))
+                _linia15 = _NW15.km_petli_podgladu(_g15, _b15, _d15["przystanki"])
+                if _d15["km"] < _linia15 * P.MNOZNIK_MIN - 0.5:
+                    _pod_droga15.append((_b15, _k15, round(_d15["km"], 1),
+                                         round(_linia15, 1)))
+    sprawdz("żaden dzień podglądu nie przekracza pojemności doby ani limitu dnia — także przy kwocie ponad miesiąc",
+            not _nad_sufit15, str(_nad_sufit15[:3]))
+    sprawdz("kilometry dnia podglądu nigdy nie są krótsze niż narysowana pętla razy krętość dróg",
+            not _pod_droga15, str(_pod_droga15[:3]))
+
+    # ── 3. POWTARZALNOŚĆ ──────────────────────────────────────────
+    _pow_a15 = _plan15("Radom", "mazowieckie", 1850.55)[1]
+    _pow_b15 = _plan15("Radom", "mazowieckie", 1850.55)[1]
+    sprawdz("ten sam podgląd za każdym razem — taśma nie miga przy przeliczaniu",
+            _pow_a15 == _pow_b15 and len(_pow_a15) > 1,
+            "%d / %d dni" % (len(_pow_a15), len(_pow_b15)))
+    _pow_c15 = _plan15("Radom", "mazowieckie", 1851.55)[1]
+    sprawdz("inna kwota to inny podgląd — szacunek nie jest tapetą",
+            _pow_c15 != _pow_a15)
+    _pow_d15 = _plan15("Radom", "mazowieckie", 1850.55, wolne=(5, 6, 7))[1]
+    sprawdz("dni bez pracy naprawdę wypadają z podglądu",
+            not [d for d in _pow_d15 if d["data"].day in (5, 6, 7)],
+            str([d["data"].day for d in _pow_d15]))
+
+    # ── 4. ROZRZUT KWOT I KILOMETRÓW ──────────────────────────────
+    # Rozrzutu wymagamy tam, gdzie jest na niego MIEJSCE. Przy kwocie bliskiej
+    # maksimum miesiąca każdy dzień musi stanąć pod sufitem doby i wtedy dni są
+    # z konieczności podobne — wymaganie różnic byłoby wymaganiem niemożliwego.
+    # Dla takich miesięcy sprawdzamy co innego: że dni NAPRAWDĘ stoją pod
+    # sufitem, a nie że są równe z lenistwa.
+    _DNI_ROB15 = _NW15.dni_robocze_realne(_ROK15, _MIES15, "Tydzień")
+    _MAKS_MIES15 = P.maks_kwota_miesiaca(len(_DNI_ROB15), _STAWKA15)
+    _SUFIT_DNIA15 = P.pojemnosc_dnia_zl(P.POSTOJE_TYPOWE, _STAWKA15, P.MAX_KWOTA_DNIA)
+    _rowne15, _rowne_km15, _nie_pod_sufitem15 = [], [], []
+    for _b15, _w15 in _BAZY15:
+        for _k15 in (900.0, 1850.55, 3000.0, 5000.0, 9000.0):
+            _g15, _p15 = _plan15(_b15, _w15, _k15)
+            _ile15 = len(_p15)
+            _r_kwot15 = len({round(d["kwota"], 2) for d in _p15})
+            _r_km15 = len({round(d["km"], 1) for d in _p15})
+            if _k15 >= 0.8 * _MAKS_MIES15:          # miesiąc nasycony
+                _srednia15 = sum(d["kwota"] for d in _p15) / max(1, _ile15)
+                if _srednia15 < 0.8 * _SUFIT_DNIA15:
+                    _nie_pod_sufitem15.append((_b15, _k15, round(_srednia15, 2),
+                                               _SUFIT_DNIA15))
+                continue
+            if _r_kwot15 < max(2, _ile15 // 2):
+                _rowne15.append((_b15, _k15, _ile15, _r_kwot15))
+            if _r_km15 < max(2, _ile15 // 2):
+                _rowne_km15.append((_b15, _k15, _ile15, _r_km15))
+    sprawdz("kwoty dni się RÓŻNIĄ — miesiąc nie jest jedną kwotą powieloną 22 razy",
+            not _rowne15, str(_rowne15[:3]))
+    sprawdz("kilometry dni też się różnią — nie są przeliczoną kwotą tego samego dnia",
+            not _rowne_km15, str(_rowne_km15[:3]))
+    sprawdz("miesiąc nasycony: dni stoją pod sufitem doby, a nie są równe z lenistwa",
+            not _nie_pod_sufitem15, str(_nie_pod_sufitem15[:3]))
+
+    # ── 5. MIEJSCOWOŚCI SIĘ NIE POWTARZAJĄ ────────────────────────
+    _powtorki15 = []
+    for _b15, _w15 in _BAZY15:
+        for _k15 in (900.0, 1850.55, 3000.0, 5000.0, 9000.0):
+            _g15, _p15 = _plan15(_b15, _w15, _k15)
+            _lic15 = _licznik15(_p15)
+            _wizyt15 = sum(_lic15.values())
+            _naj15 = max(_lic15.values()) if _lic15 else 0
+            if _naj15 > 5 or len(_lic15) < len(_p15) or _wizyt15 > 4 * len(_lic15):
+                _powtorki15.append((_b15, _k15, len(_p15), _wizyt15,
+                                    len(_lic15), _naj15))
+    sprawdz("miejscowości nie wracają co drugi dzień: najczęstsza najwyżej 5 razy w miesiącu",
+            not _powtorki15, str(_powtorki15[:3]))
+
+    # ── 6. DOKUMENTY ──────────────────────────────────────────────
+    _zle_dok15 = []
+    for _b15, _w15 in _BAZY15:
+        for _k15 in (900.0, 1850.55, 3000.0, 5000.0, 9000.0):
+            _g15, _p15 = _plan15(_b15, _w15, _k15)
+            _numery15 = sorted({d["dokument"] for d in _p15})
+            if _numery15 != list(range(1, len(_numery15) + 1)):
+                _zle_dok15.append((_b15, _k15, "numery", _numery15))
+                continue
+            for _nr15 in _numery15:
+                _dni15 = [d for d in _p15 if d["dokument"] == _nr15]
+                _suma15 = sum(d["kwota"] for d in _dni15)
+                _wiersze15 = sum(len(d["przystanki"]) + 1 for d in _dni15)
+                if (_suma15 > P.MAX_KWOTA_DOKUMENTU + 0.005
+                        or _wiersze15 > P.MAX_ETAPOW_DOKUMENTU):
+                    _zle_dok15.append((_b15, _k15, _nr15, round(_suma15, 2),
+                                       _wiersze15))
+    sprawdz("dni podglądu są ponumerowane dokumentami 1..N, a żaden dokument nie łamie sufitu kwoty ani strony A4",
+            not _zle_dok15, str(_zle_dok15[:3]))
+
+    # ── 7. TAŚMA POKAZUJE DOKUMENTY BEZ ANI JEDNEGO NAPISU ────────
+    _app15 = _QA15.instance() or _QA15(sys.argv)
+    _g15, _p15 = _plan15("Radom", "mazowieckie", 5000.0)
+    _dni_w15 = _NW15.podglad_miesiaca(5000.0, _ROK15, _MIES15, "Tydzień", (),
+                                      _STAWKA15, _g15, "Radom", P.MAX_KWOTA_DNIA)
+    _widoczne15 = [d for d in _dni_w15 if d.data.weekday() < 5]
+    _tasma15 = _PT15.TasmaMiesiaca()
+    _tasma15.resize(1300, _PT15.H_TASMY)
+    _tasma15.ustaw_dni(_widoczne15)
+    _zakresy15 = _tasma15._zakresy_dokumentow(_tasma15._kafle())
+    _ile_dok15 = max((d["dokument"] for d in _p15), default=0)
+    sprawdz("taśma rysuje tyle klamer, ile będzie poleceń wyjazdu",
+            len(_zakresy15) == _ile_dok15 and _ile_dok15 > 1,
+            "%d klamer wobec %d dokumentów" % (len(_zakresy15), _ile_dok15))
+    sprawdz("klamry idą po kolei i nie zachodzą na siebie",
+            all(_zakresy15[i][2] < _zakresy15[i + 1][1]
+                for i in range(len(_zakresy15) - 1)), str(_zakresy15))
+    _tasma15.zatrzymaj_animacje()
+    _tasma15.deleteLater()
+
+    # ── 8. PODGLĄD NIE UDAJE REALNYCH DRÓG ────────────────────────
+    P.zeruj_zrodlo_odleglosci()
+    _plan15("Radom", "mazowieckie", 1850.55)
+    sprawdz("policzenie podglądu nie dotyka źródła odległości — nota przy kwocie nie kłamie",
+            P.stan_zrodla_odleglosci()["odcinki"] == 0,
+            str(P.stan_zrodla_odleglosci()))
+
+    # ── 9. TYLE SAMO DNI I DOKUMENTÓW, CO W SILNIKU ───────────────
+    if not SZYBKO:
+        _osrm15 = P._osrm_dostepny
+        P._osrm_dostepny = False
+        P._road_cache.clear()
+        _rozjazd15 = []
+        for _b15, _w15 in _BAZY15:
+            _lat15, _lng15, _g15 = _geo15(_b15, _w15)
+            for _k15 in (900.0, 1850.55, 3000.0, 5000.0):
+                _p15 = _NW15.plan_podgladu(_k15, _ROK15, _MIES15, "Tydzień", (),
+                                           _STAWKA15, _g15, _b15, P.MAX_KWOTA_DNIA)
+                P.ustaw_tryb_pracy("tydzien")
+                _dni_s15 = P.generuj_trasy(_k15, _b15, _lat15, _lng15, _w15,
+                                           P.pobierz_dni_robocze(_ROK15, _MIES15),
+                                           _PESEL15, stawka=_STAWKA15)
+                _grupy15 = P._podziel_na_dokumenty(sorted(_dni_s15,
+                                                          key=lambda d: d.data))
+                _dok_p15 = max((d["dokument"] for d in _p15), default=0)
+                if (abs(len(_p15) - len(_dni_s15)) > 4
+                        or abs(_dok_p15 - len(_grupy15)) > 1):
+                    _rozjazd15.append((_b15, _k15, len(_p15), len(_dni_s15),
+                                       _dok_p15, len(_grupy15)))
+                P._road_cache.clear()
+        sprawdz("podgląd i silnik zgadzają się co do liczby dni (±4) i dokumentów (±1) na 12 przebiegach",
+                not _rozjazd15, str(_rozjazd15[:3]))
+        P._osrm_dostepny = _osrm15
+except Exception as _e15:
+    sprawdz("podgląd miesiąca liczy się regułami silnika", False, repr(_e15))
+
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("16. Kartka delegacji nigdy nie zasłania trasy")
+
+try:
+    from PyQt6.QtWidgets import QApplication as _QA16
+    from PyQt6.QtCore import (Qt as _Qt16, QRectF as _QR16, QPointF as _QP16,
+                              QEvent as _QE16)
+    from PyQt6.QtGui import QImage as _QI16, QMouseEvent as _QME16
+    import nowy_wyglad as _NW16
+    import proto_okno as _OK16
+    import proto_mapa as _PM16
+    _app16 = _QA16.instance() or _QA16(sys.argv)
+    _app16.setStyleSheet(_NW16.arkusz())
+
+    # ── PODGLĄDANIE PIERWSZEGO WEJŚCIA DO PROGRAMU ────────────────
+    # Kadr liczył się kiedyś ZANIM okno ustawiło kartkę: mapa malowała trasę
+    # wciśniętą w pasek przy lewej krawędzi i dopiero pierwszy resizeEvent
+    # wrzucał ją na miejsce. Podsłuchujemy więc KAŻDE malowanie od konstruktora
+    # do pierwszego pokazania okna.
+    _klatki16 = []
+    _stary_paint16 = _PM16.MapaDnia.paintEvent
+
+    def _paint16(self, zdarzenie):
+        pole = self._pole()
+        kar = self._pole_kartki()
+        _klatki16.append({
+            "szer": self.width(), "wys": self.height(),
+            "kadr_prawy": pole.right(), "kadr_szer": pole.width(),
+            "kadr_wys": pole.height(), "trasa": self._czynny(),
+            "kartka_lewa": None if kar is None else kar.left(),
+            "kartka_prawa": None if kar is None else kar.right()})
+        return _stary_paint16(self, zdarzenie)
+
+    _PM16.MapaDnia.paintEvent = _paint16
+    try:
+        _okno16 = _NW16.OknoNowegoWygladu(
+            profil=_NW16.ProfilWidoku("Jan Testowy", "85010112345",
+                                      "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+            rok=2026, miesiac=10)
+        _okno16.show()
+        for _ in range(12):
+            _app16.processEvents()
+    finally:
+        _PM16.MapaDnia.paintEvent = _stary_paint16
+
+    def _miel16(ile=6):
+        for _ in range(ile):
+            _app16.processEvents()
+
+    def _rozmiar16(szer, wys):
+        _okno16.showNormal()
+        _okno16.setMinimumSize(min(_OK16.ROZMIAR_MIN[0], szer),
+                               min(_OK16.ROZMIAR_MIN[1], wys))
+        _okno16.resize(szer, wys)
+        _miel16(10)
+        _okno16.ustaw_animacje(False)
+        _miel16(4)
+
+    def _kartka16():
+        """Prostokąt kartki we współrzędnych mapy — tam naprawdę leży papier."""
+        k, m = _okno16.kartka.geometry(), _okno16.mapa.geometry()
+        return _QR16(k.x() - m.x(), k.y() - m.y(), k.width(), k.height())
+
+    def _trasowy16(r, g, b):
+        """Czy piksel należy do świecącej trasy: jasny, błękit albo zieleń.
+
+        Krajobraz jest ciemny i zimny, drogi są szare, światła w oknach ciepłe
+        — tylko trasa, jej blask i słupy przystanków mają tak wyraźną przewagę
+        zieleni i błękitu nad czerwienią przy tej jasności.
+        """
+        return g - r >= 30 and b - r >= 20 and max(g, b) >= 150
+
+    def _piksele_trasy16(pole, widzet=None):
+        """Ile pikseli trasy wypada w zadanym prostokącie SAMEJ MAPY.
+
+        Mapę bierzemy bez kartki na wierzchu — kartka jest osobnym widżetem —
+        więc widać dokładnie to, co narysowałaby się pod papierem.
+        """
+        widzet = widzet if widzet is not None else _okno16.mapa
+        obraz = widzet.grab().toImage().convertToFormat(_QI16.Format.Format_RGB888)
+        skala = obraz.width() / float(max(1, widzet.width()))
+        bajty = obraz.constBits().asstring(obraz.sizeInBytes())
+        wiersz = obraz.bytesPerLine()
+        lewy = max(0, int(pole.left() * skala))
+        prawy = min(obraz.width(), int(math.ceil(pole.right() * skala)))
+        gora = max(0, int(pole.top() * skala))
+        dol = min(obraz.height(), int(math.ceil(pole.bottom() * skala)))
+        ile = 0
+        for y in range(gora, dol):
+            baza = y * wiersz + lewy * 3
+            for x in range(prawy - lewy):
+                i = baza + x * 3
+                if _trasowy16(bajty[i], bajty[i + 1], bajty[i + 2]):
+                    ile += 1
+        return ile
+
+    _w_trasie16 = [d for d in _okno16.dni_widoczne if not d.wolny and not d.wylaczony]
+    _bliski16 = min(_w_trasie16, key=lambda d: (d.km, d.data.day)).data.day
+    _daleki16 = max(_w_trasie16, key=lambda d: (d.km, d.data.day)).data.day
+    sprawdz("miesiąc ma dzień blisko bazy i dzień daleko — jest co sprawdzać",
+            len(_w_trasie16) >= 3 and _bliski16 != _daleki16,
+            "dzień %02d i dzień %02d z %d dni" % (_bliski16, _daleki16,
+                                                  len(_w_trasie16)))
+
+    # ── 1. NA PIKSELACH: POD KARTKĄ NIE ŚWIECI NIC Z TRASY ────────
+    _brud16 = []
+    for _sz16, _wy16 in ((1040, 660), (1440, 900), (1920, 1080)):
+        _rozmiar16(_sz16, _wy16)
+        for _tryb16 in ("ten dzień", "wszystkie dni"):
+            _okno16.zakres.ustaw_aktywna(_tryb16)
+            for _dz16 in (_bliski16, _daleki16):
+                _okno16._wybierz_dzien(_dz16)
+                _okno16.ustaw_animacje(False)
+                _miel16(4)
+                _ile16 = _piksele_trasy16(_kartka16())
+                if _ile16:
+                    _brud16.append(("%dx%d %s d%02d" % (_sz16, _wy16, _tryb16, _dz16),
+                                    _ile16))
+    sprawdz("na pikselach: pod kartką delegacji nie świeci ani jeden punkt trasy"
+            " — trzy rozmiary okna, oba zakresy, dzień bliski i daleki",
+            not _brud16, str(_brud16[:4]))
+
+    # ── 2. TO SAMO W POŁOWIE RYSOWANIA TRASY ──────────────────────
+    _rozmiar16(1440, 900)
+    _okno16.zakres.ustaw_aktywna("ten dzień")
+    _brud_anim16 = []
+    for _dz16 in (_bliski16, _daleki16):
+        for _tryb16 in ("ten dzień", "wszystkie dni"):
+            _okno16.zakres.ustaw_aktywna(_tryb16)
+            _okno16._wybierz_dzien(_dz16)
+            _okno16.ustaw_animacje(False)
+            _miel16(4)
+            for _t16 in (0.25, 0.5, 0.75):
+                _okno16.mapa.ustaw_postep_rysowania(_t16)
+                _miel16(3)
+                _ile16 = _piksele_trasy16(_kartka16())
+                if _ile16:
+                    _brud_anim16.append((_dz16, _tryb16, _t16, _ile16))
+            _okno16.mapa.ustaw_postep_rysowania(1.0)
+            _miel16(2)
+    _okno16.zakres.ustaw_aktywna("ten dzień")
+    sprawdz("w połowie rysowania trasy pod kartką też nie ma ani jednego punktu"
+            " — świecąca głowa nie wjeżdża pod papier",
+            not _brud_anim16, str(_brud_anim16[:4]))
+
+    # ── 3. GEOMETRIA: ANI PUNKT POD KARTKĄ, ANI POZA KADREM ───────
+    _uciekinierzy16 = []
+    for _sz16, _wy16 in ((1040, 660), (1440, 900), (1920, 1080)):
+        _rozmiar16(_sz16, _wy16)
+        for _tryb16 in ("ten dzień", "wszystkie dni"):
+            _okno16.zakres.ustaw_aktywna(_tryb16)
+            for _d16 in _w_trasie16:
+                _okno16._wybierz_dzien(_d16.data.day)
+                _okno16.ustaw_animacje(False)
+                _miel16(2)
+                _m16 = _okno16.mapa
+                _kar16 = _kartka16()
+                _pole16 = _m16._pole()
+                _geo16 = _m16._geometria()
+                _pkt16 = _geo16["pkt_glowna"] + _geo16["pkt_powrot"] + _geo16["probki"]
+                _opis16 = "%dx%d %s d%02d" % (_sz16, _wy16, _tryb16, _d16.data.day)
+                if any(_kar16.contains(q) for q in _pkt16):
+                    _uciekinierzy16.append((_opis16, "pod kartką"))
+                if any(not _pole16.contains(q) for q in _pkt16):
+                    _uciekinierzy16.append((_opis16, "poza kadrem"))
+    _okno16.zakres.ustaw_aktywna("ten dzień")
+    sprawdz("żaden punkt narysowanej trasy nie wypada pod kartką ani poza kadrem"
+            " — cały miesiąc, trzy rozmiary okna, oba zakresy",
+            not _uciekinierzy16, str(_uciekinierzy16[:4]))
+
+    # ── 4. KADR NALEŻY DO RYSOWANEJ DROGI, NIE DO PRZYSTANKÓW ─────
+    _rozmiar16(1440, 900)
+    _szersze16 = 0
+    _poza_obszarem16 = []
+    for _d16 in _w_trasie16:
+        _okno16._wybierz_dzien(_d16.data.day)
+        _okno16.ustaw_animacje(False)
+        _miel16(2)
+        _m16 = _okno16.mapa
+        _droga16 = [p for o in _m16._sciezka_swiata()["odcinki"] for p in o]
+        _obszar16 = _QR16(*_m16._obszar_swiata())
+        _poza_obszarem16 += [(_d16.data.day, p) for p in _droga16
+                             if not _obszar16.contains(_QP16(*p))]
+        _stoje16 = [_m16._miasta[n] for n in dict.fromkeys(_d16.trasa)
+                    if n in _m16._miasta]
+        _szer_drogi16 = max(x for x, _ in _droga16) - min(x for x, _ in _droga16)
+        _szer_stoi16 = max(x for x, _ in _stoje16) - min(x for x, _ in _stoje16)
+        if _szer_drogi16 > _szer_stoi16 + 1e-6:
+            _szersze16 += 1
+    sprawdz("kadr obejmuje CAŁY przebieg drogi — objazd i wygięcie też są w kadrze",
+            not _poza_obszarem16, str(_poza_obszarem16[:3]))
+    sprawdz("i nie jest to sprawdzenie puste: droga bywa szersza niż sami przystankowie",
+            _szersze16 > 0, "%d z %d dni" % (_szersze16, len(_w_trasie16)))
+
+    # ── 5. PIGUŁKA I PRZEŁĄCZNIK ZAKRESU TEŻ SĄ ZASŁONAMI ─────────
+    _pod_zaslona16 = []
+    for _sz16, _wy16 in ((1040, 660), (1440, 900), (1920, 1080)):
+        _rozmiar16(_sz16, _wy16)
+        for _tryb16 in ("ten dzień", "wszystkie dni"):
+            _okno16.zakres.ustaw_aktywna(_tryb16)
+            _okno16._wybierz_dzien(_daleki16)
+            _okno16.ustaw_animacje(False)
+            _miel16(2)
+            _m16 = _okno16.mapa
+            _strefy16 = list(_m16._zaslony) + [_kartka16()]
+            for _e16 in _m16._geometria()["etykiety"]:
+                for _z16 in _strefy16:
+                    if not _e16["pole"].intersected(_z16).isEmpty():
+                        _pod_zaslona16.append(("%dx%d %s" % (_sz16, _wy16, _tryb16),
+                                               _e16["napis"]))
+    _okno16.zakres.ustaw_aktywna("ten dzień")
+    sprawdz("mapa wie o pigułce dnia i o przełączniku zakresu — żadna tabliczka"
+            " nie chowa się pod nimi ani pod kartką",
+            not _pod_zaslona16, str(_pod_zaslona16[:4]))
+    _rozmiar16(1440, 900)
+    sprawdz("mapa dostaje prawdziwy prostokąt kartki, a nie zgadywany",
+            [round(v) for v in (_okno16.mapa._pole_kartki().x(),
+                                _okno16.mapa._pole_kartki().y(),
+                                _okno16.mapa._pole_kartki().width(),
+                                _okno16.mapa._pole_kartki().height())]
+            == [round(v) for v in (_kartka16().x(), _kartka16().y(),
+                                   _kartka16().width(), _kartka16().height())],
+            "%s wobec %s" % (_okno16.mapa._pole_kartki(), _kartka16()))
+
+    # ── 6. CHOREOGRAFIA: NAJPIERW TRASA, POTEM KARTKA ─────────────
+    _okno16.ustaw_animacje(True)
+    _okno16._wybierz_dzien(_bliski16)
+    _miel16(4)
+    _okno16._wybierz_dzien(_daleki16)
+    _miel16(3)
+    _rysuje16 = _okno16.mapa.rysuje_trase()
+    _ustapila16 = _okno16.kartka.obecnosc() < 0.9
+    sprawdz("zmiana dnia: trasa rysuje się od nowa, a kartka ustępuje jej miejsca",
+            _rysuje16 and _ustapila16,
+            "postęp %.2f, kartka %.2f" % (_okno16.mapa.postep_rysowania(),
+                                          _okno16.kartka.obecnosc()))
+    _kadr_w_ruchu16 = _okno16.mapa._klucz_kadru()
+    _okno16.mapa._odslona.dokoncz()
+    _miel16(4)
+    _wraca16 = _okno16.kartka._obecnosc.cel() >= 0.999
+    _okno16.kartka._obecnosc.dokoncz()
+    _miel16(3)
+    sprawdz("kartka wraca dopiero wtedy, gdy trasa dobiegnie do bazy",
+            _wraca16 and _okno16.kartka.obecnosc() >= 0.999,
+            "cel %.2f, teraz %.2f" % (_okno16.kartka._obecnosc.cel(),
+                                      _okno16.kartka.obecnosc()))
+    sprawdz("kadr ani drgnie, kiedy kartka ustępuje i wraca — trasa nie skacze w bok",
+            _kadr_w_ruchu16 == _okno16.mapa._klucz_kadru())
+    _okno16.ustaw_animacje(False)
+    _miel16(3)
+    _nitka16 = _okno16.mapa._geometria()["nitka"]
+    _kar16 = _kartka16()
+    _koniec16 = _nitka16.pointAtPercent(1.0)
+    _start16 = _nitka16.pointAtPercent(0.0)
+    _przystanki16 = [_okno16.mapa._punkt(n)
+                     for n in _okno16.mapa._dzien.przystanki
+                     if n in _okno16.mapa._miasta]
+    _blisko16 = min(math.hypot(q.x() - _start16.x(), q.y() - _start16.y())
+                    for q in _przystanki16) if _przystanki16 else 1e9
+    sprawdz("nitka wychodzi z przystanku trasy i dobiega do krawędzi kartki,"
+            " ale pod papier już nie wchodzi",
+            _blisko16 < 40.0 and not _kar16.contains(_koniec16)
+            and _koniec16.x() >= _kar16.left() - 30.0,
+            "od przystanku %.1f px, koniec x=%.1f przy krawędzi %.1f"
+            % (_blisko16, _koniec16.x(), _kar16.left()))
+
+    # ── 7. PIERWSZE WEJŚCIE DO PROGRAMU ───────────────────────────
+    _ciasne16 = [k for k in _klatki16
+                 if k["kadr_szer"] < _PM16.UDZIAL_MIN_KADRU * k["szer"] - 0.5
+                 or k["kadr_wys"] < _PM16.UDZIAL_MIN_KADRU * k["wys"] - 0.5]
+    sprawdz("przy budowie i pokazywaniu okna kadr ani razu nie ściska się"
+            " do skrawka przy krawędzi",
+            not _ciasne16 and len(_klatki16) > 0,
+            "%d klatek, najgorsza %s" % (len(_klatki16), _ciasne16[:1]))
+    _zle_wejscie16 = [k for k in _klatki16
+                      if k["trasa"] and k["kartka_lewa"] is not None
+                      and k["kartka_prawa"] >= k["szer"] - 0.08 * k["szer"]
+                      and k["kadr_prawy"] > k["kartka_lewa"] + 0.5]
+    sprawdz("mapa dostaje kartkę ZANIM narysuje trasę — żadna klatka nie maluje"
+            " trasy w kadrze sięgającym pod papier",
+            not _zle_wejscie16, str(_zle_wejscie16[:2]))
+
+    # ── 8. KLIK W KARTKĘ ZWIJA JĄ DO BRZEGU ───────────────────────
+    _rozmiar16(1440, 900)
+    _okno16._wybierz_dzien(_daleki16)
+    _okno16.ustaw_animacje(False)
+    _miel16(3)
+    _kadr_przed16 = _okno16.mapa._pole().width()
+
+    def _klik_kartki16():
+        pkt = _QP16(_okno16.kartka.width() * 0.5, _okno16.kartka.height() * 0.5)
+        glob = _okno16.kartka.mapToGlobal(pkt.toPoint()).toPointF()
+        _okno16.kartka.mousePressEvent(
+            _QME16(_QE16.Type.MouseButtonPress, pkt, glob,
+                   _Qt16.MouseButton.LeftButton, _Qt16.MouseButton.LeftButton,
+                   _Qt16.KeyboardModifier.NoModifier))
+        _okno16.ustaw_animacje(False)
+        _miel16(6)
+
+    _klik_kartki16()
+    _kadr_po16 = _okno16.mapa._pole().width()
+    sprawdz("klik w kartkę zwija ją do paska przy brzegu i oddaje mapie miejsce",
+            _okno16.kartka.zwinieta()
+            and _okno16.kartka.width() == _PM16.KartkaDelegacji.SZEROKOSC_ZWINIETA
+            and _kadr_po16 > _kadr_przed16 * 1.4,
+            "kadr %.0f → %.0f px, kartka %d px"
+            % (_kadr_przed16, _kadr_po16, _okno16.kartka.width()))
+    sprawdz("zwinięta kartka też nie przykrywa trasy — na pikselach",
+            _piksele_trasy16(_kartka16()) == 0,
+            "%d pikseli" % _piksele_trasy16(_kartka16()))
+    sprawdz("zwinięcie kartki jest zapamiętane w ustawieniach programu",
+            P.ustawienie(_NW16.OknoNowegoWygladu.USTAWIENIE_KARTKI, False) is True,
+            repr(P.ustawienie(_NW16.OknoNowegoWygladu.USTAWIENIE_KARTKI, False)))
+    _klik_kartki16()
+    sprawdz("drugi klik rozwija kartkę z powrotem, a kadr wraca na swoje miary",
+            not _okno16.kartka.zwinieta()
+            and abs(_okno16.mapa._pole().width() - _kadr_przed16) < 0.5
+            and P.ustawienie(_NW16.OknoNowegoWygladu.USTAWIENIE_KARTKI, True) is False,
+            "kadr %.0f wobec %.0f" % (_okno16.mapa._pole().width(), _kadr_przed16))
+
+    # ── 9. TEN SAM DZIEŃ DAJE TEN SAM OBRAZ ───────────────────────
+    def _odcisk16():
+        """Odcisk obrazu mapy — po nim poznajemy, że dzień wygląda tak samo."""
+        obraz = _okno16.mapa.grab().toImage().convertToFormat(_QI16.Format.Format_RGB888)
+        return "%08x" % zlib.crc32(same_piksele(obraz))
+
+    _okno16._wybierz_dzien(_daleki16)
+    _okno16.ustaw_animacje(False)
+    _miel16(3)
+    _odcisk_a16 = _odcisk16()
+    _okno16._wybierz_dzien(_bliski16)
+    _okno16.ustaw_animacje(False)
+    _miel16(3)
+    _okno16._wybierz_dzien(_daleki16)
+    _okno16.ustaw_animacje(False)
+    _miel16(3)
+    _odcisk_b16 = _odcisk16()
+    _okno16.kartka.przelacz_zwiniecie()
+    _okno16.ustaw_animacje(False)
+    _miel16(4)
+    _okno16.kartka.przelacz_zwiniecie()
+    _okno16.ustaw_animacje(False)
+    _miel16(4)
+    _odcisk_c16 = _odcisk16()
+    sprawdz("ten sam dzień daje ten sam obraz — po przełączeniu dni i po"
+            " zwinięciu oraz rozwinięciu kartki",
+            _odcisk_a16 == _odcisk_b16 == _odcisk_c16,
+            "%s / %s / %s" % (_odcisk_a16, _odcisk_b16, _odcisk_c16))
+
+    # ── 10. PODZIAŁKA DALEJ MIERZY PRAWDĘ ─────────────────────────
+    # Kamera cofa się po to, żeby zmieściła się cała rysowana trasa. Wolno jej
+    # to zrobić tylko RÓWNO w obu osiach — inaczej kilometr na wschód znaczyłby
+    # na mapie co innego niż kilometr na północ, a podziałka kłamałaby.
+    _zle_miary16 = []
+    for _sz16, _wy16 in ((1040, 660), (1440, 900), (1920, 1080)):
+        _rozmiar16(_sz16, _wy16)
+        for _zwin16 in (False, True):
+            if _okno16.kartka.zwinieta() != _zwin16:
+                _okno16.kartka.przelacz_zwiniecie()
+                _okno16.ustaw_animacje(False)
+                _miel16(4)
+            _m16 = _okno16.mapa
+            _ox16, _oy16, _sx16, _sy16 = _m16._obszar_swiata()
+            _cx16, _cy16 = _ox16 + _sx16 * 0.5, _oy16 + _sy16 * 0.5
+            _r16 = _m16.rzut()
+            # tyle pikseli na kilometr liczy podziałka w środku rejonu
+            _na_km16 = (_r16.k / max(1.0, _r16.glebokosc(_cx16, _cy16, 0.0))
+                        * _m16._jedn_na_km)
+            _dl16 = 10.0 * _m16._jedn_na_km
+            _px16 = abs(_r16.ekran(_cx16 + _dl16, _cy16, 0.0).x()
+                        - _r16.ekran(_cx16 - _dl16, _cy16, 0.0).x())
+            _ocena16 = _px16 / max(1e-6, 20.0 * _na_km16)
+            if abs(_ocena16 - 1.0) > 0.01:
+                _zle_miary16.append((_sz16, _wy16, _zwin16, round(_ocena16, 4)))
+    if _okno16.kartka.zwinieta():
+        _okno16.kartka.przelacz_zwiniecie()
+        _okno16.ustaw_animacje(False)
+        _miel16(4)
+    sprawdz("po wpasowaniu kamery podziałka dalej mierzy prawdę: dwadzieścia"
+            " kilometrów w poprzek kadru ma dokładnie tyle pikseli, ile mówi"
+            " — przy każdym rozmiarze okna i przy kartce zwiniętej",
+            not _zle_miary16, str(_zle_miary16[:3]))
+
+    _okno16.zamroz()
+    _okno16.close()
+except Exception as _e16:
+    sprawdz("kartka delegacji nigdy nie zasłania trasy", False, repr(_e16))
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("17. Okno powitalne i logowanie — nowa oprawa")
+
+# Okno logowania kończy się d.exec(): modalna pętla stałaby, dopóki ktoś go
+# nie zamknie. Podmieniamy więc QDialog na wersję, która okno POKAZUJE,
+# oddaje je do obejrzenia i wraca. Sieci w testach nie ma — tak samo jak na
+# komputerze bez internetu, i dokładnie to chcemy sprawdzić.
+_stan17 = {}
+try:
+    import time as _time17
+    import urllib.request as _ur17
+    from PyQt6 import QtWidgets as _QW17
+    from PyQt6.QtWidgets import (QApplication as _QA17, QLineEdit as _QLE17,
+                                 QLabel as _QL17, QPushButton as _QPB17)
+    from PyQt6.QtCore import Qt as _Qt17, QEvent as _QE17
+    from PyQt6.QtGui import QKeyEvent as _QKE17, QValidator as _QV17
+    import okno_logowania as _OL17
+
+    _app17 = _QA17.instance() or _QA17(sys.argv)
+    _stan17["dialog"] = _QW17.QDialog
+    _stan17["urlopen"] = _ur17.urlopen
+    _stan17["zaloguj"] = P.online_zaloguj
+    _stan17["historia"] = P.historia_logowan
+    _stan17["rozgrzej"] = P._rozgrzej_backend
+    _stan17["tlo"] = _OL17.zywe_tlo_wlaczone
+
+    def _bez_sieci17(*a, **k):
+        raise OSError("brak sieci (test)")
+
+    _ur17.urlopen = _bez_sieci17
+
+    _ZADANIE17 = {"fn": None}
+
+    class _DialogTestowy17(_stan17["dialog"]):
+        def exec(self):
+            self.show()
+            for _ in range(20):
+                _app17.processEvents()
+            fn = _ZADANIE17.get("fn")
+            if fn is not None:
+                fn(self)
+                for _ in range(20):
+                    _app17.processEvents()
+            return self.result()
+
+    _QW17.QDialog = _DialogTestowy17
+
+    def _pole17(okno, nazwa):
+        return next((w for w in okno.findChildren(_QLE17)
+                     if w.objectName() == nazwa), None)
+
+    def _etyk17(okno, nazwa):
+        return [w for w in okno.findChildren(_QL17) if w.objectName() == nazwa]
+
+    def _prz17(okno, nazwa):
+        return [w for w in okno.findChildren(_QPB17) if w.objectName() == nazwa]
+
+    def _czekaj17(warunek, sekund=4.0):
+        koniec = _time17.time() + sekund
+        while not warunek() and _time17.time() < koniec:
+            _app17.processEvents()
+            _time17.sleep(0.005)
+        return warunek()
+
+    _HISTORIA17 = [
+        {"kod": "10001", "imie": "Anna Testowa", "ostatnio": "2026-09-12T08:00:00"},
+        {"kod": "20002", "imie": "Marek Testowy", "ostatnio": "2026-09-10T08:00:00"},
+        {"kod": "30003", "imie": "", "ostatnio": "2026-09-09T08:00:00"},
+        {"kod": "40004", "imie": "Ktos Testowy", "ostatnio": "2026-09-08T08:00:00"},
+    ]
+    P.historia_logowan = lambda limit=3: _HISTORIA17[:limit]
+    P._rozgrzej_backend = lambda: None
+
+    # ── 17a. oprawa istnieje i nie wciąga programu w kółko ────────
+    sprawdz("oprawa powitania (okno_logowania) wczytuje się",
+            P._oprawa_powitania() is _OL17)
+    _zrodlo17 = open(os.path.join(KATALOG, "okno_logowania.py"),
+                     encoding="utf-8").read()
+    sprawdz("oprawa nie wczytuje programu drugi raz (bez importu w kolko)",
+            "\nimport PMT_Delegacje" not in _zrodlo17
+            and "sys.modules.get(\"PMT_Delegacje\")" in _zrodlo17)
+
+    _zbuduj17 = open(os.path.join(KATALOG, "zbuduj.py"), encoding="utf-8").read()
+    sprawdz("oprawa powitania i logo retro wchodzą do paczki PyInstallera",
+            '"okno_logowania.py"' in _zbuduj17 and '"logo_retro.py"' in _zbuduj17
+            and '"okno_logowania"' in _zbuduj17 and '"logo_retro"' in _zbuduj17)
+    _blok17 = open(os.path.join(KATALOG, "PMT_Delegacje.py"),
+                   encoding="utf-8").read().split('if __name__ == "__main__":')[1]
+    sprawdz("scena powitalna schodzi dopiero, gdy okno programu już stoi",
+            "window.show()\n    _zdejmij_kurtyne_powitania()" in _blok17)
+
+    # ── 17b. budowa okna: wszystko na swoim miejscu ───────────────
+    def _obejrzyj17(d):
+        _flagi = d.windowFlags()
+        sprawdz("okno powitalne bez ramy systemowej",
+                bool(_flagi & _Qt17.WindowType.FramelessWindowHint))
+        sprawdz("okno powitalne ma wpis na pasku zadań (typ Window)",
+                (_flagi & _Qt17.WindowType.Window) == _Qt17.WindowType.Window)
+        sprawdz("okno powitalne stoi na wierzchu otwartych kart",
+                bool(_flagi & _Qt17.WindowType.WindowStaysOnTopHint))
+        sprawdz("okno powitalne zajmuje cały ekran, jak okno programu",
+                d.isFullScreen(), str(d.size()))
+        _tlo = getattr(d, "_tlo_powitania", None)
+        sprawdz("scena powitalna to okno_logowania.Tlo",
+                isinstance(_tlo, _OL17.Tlo))
+        sprawdz("zywa mapa doklada sie DOPIERO po pokazaniu karty",
+                _tlo is not None and _tlo.mapa is not None
+                and "dolacz_zywe_tlo" in _zrodlo17
+                and "_po_pierwszej_klatce" in _zrodlo17)
+        sprawdz("mapa w tle rysuje dane POKAZOWE, nie trase zalogowanej osoby",
+                "import proto_dane" in _zrodlo17
+                and "oblicz_miesiac" in _zrodlo17)
+        sprawdz("karta logowania to szkło nowego systemu",
+                bool(d.findChildren(_OL17.Karta))
+                and d.findChildren(_OL17.Karta)[0].objectName() == "PmtKarta")
+        sprawdz("logo retro stoi nad kartą",
+                bool(d.findChildren(_OL17.Znak)))
+        _k, _h = _pole17(d, "kod"), _pole17(d, "haslo")
+        sprawdz("pole LOGIN: pięć znaków, wyśrodkowane",
+                _k is not None and _k.maxLength() == 5
+                and bool(_k.alignment() & _Qt17.AlignmentFlag.AlignHCenter))
+        _wal = _k.validator() if _k is not None else None
+        sprawdz("pole LOGIN przyjmuje wyłącznie pięć cyfr",
+                _wal is not None
+                and _wal.validate("12345", 5)[0] == _QV17.State.Acceptable
+                and _wal.validate("ab12x", 5)[0] == _QV17.State.Invalid
+                and _wal.validate("123456", 6)[0] == _QV17.State.Invalid)
+        sprawdz("pole HASŁO zakryte kropkami",
+                _h is not None and _h.echoMode() == _QLE17.EchoMode.Password)
+        sprawdz("etykiety LOGIN i HASŁO na miejscu",
+                [w.text() for w in _etyk17(d, "etyk")][-2:] == ["LOGIN", "HASŁO"],
+                str([w.text() for w in _etyk17(d, "etyk")]))
+        sprawdz("rezerwa na komunikat błędu — układ nie skacze",
+                bool(_etyk17(d, "blad"))
+                and _etyk17(d, "blad")[0].minimumHeight() >= 30)
+        sprawdz("w karcie nie ma zdań objaśniających",
+                not _etyk17(d, "pod"))
+        _rogi = _prz17(d, "chipmin")
+        sprawdz("minimalizuj i zamknij w prawym górnym rogu ekranu",
+                len(_rogi) == 2
+                and all(p.x() > d.width() - 100 and p.y() < 40 for p in _rogi),
+                str([(p.text(), p.x(), p.y()) for p in _rogi]))
+        _pomoc = _prz17(d, "pomoc")
+        sprawdz("zmiana hasła, reset i test połączenia — z podpowiedziami",
+                len(_pomoc) == 3 and all(p.toolTip() for p in _pomoc),
+                str([p.text() for p in _pomoc]))
+        sprawdz("żaden napis pomocy nie jest ucinany",
+                all(p.width() >= p.fontMetrics().horizontalAdvance(p.text())
+                    for p in _pomoc),
+                str([(p.text(), p.width()) for p in _pomoc]))
+        sprawdz("historia kont: najwyżej trzy podpowiedzi",
+                len(_prz17(d, "chip")) == 3, str(len(_prz17(d, "chip"))))
+        _ok = _prz17(d, "ok")[0]
+        sprawdz("przycisk Zaloguj startuje wyłączony", not _ok.isEnabled())
+        _k.setText("10001"); _h.setText("abc")
+        sprawdz("przycisk Zaloguj milczy przy haśle krótszym niż 4 znaki",
+                not _ok.isEnabled())
+        _h.setText("abcd")
+        sprawdz("przycisk Zaloguj budzi się przy 5 cyfrach i 4 znakach",
+                _ok.isEnabled())
+        _k.setText("100")
+        sprawdz("przycisk Zaloguj gaśnie, gdy kod nie ma pięciu cyfr",
+                not _ok.isEnabled())
+        sprawdz("Enter znaczy Zaloguj, a nie Zmień hasło",
+                _ok.isDefault() and not any(p.autoDefault() for p in _pomoc))
+        _prz17(d, "chip")[1].click()
+        sprawdz("klik konta z historii wstawia kod, CZYŚCI hasło i skacze do niego",
+                _pole17(d, "kod").text() == "20002"
+                and _pole17(d, "haslo").text() == ""
+                and _pole17(d, "haslo").hasFocus())
+        d.reject()
+
+    _ZADANIE17["fn"] = _obejrzyj17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("przycisk Zamknij nie wpuszcza nikogo do programu",
+            _kod17 is None and _imie17 == "")
+
+    # ── 17c. Esc zamyka okno ──────────────────────────────────────
+    def _esc17(d):
+        _QA17.sendEvent(d, _QKE17(_QE17.Type.KeyPress, _Qt17.Key.Key_Escape,
+                                  _Qt17.KeyboardModifier.NoModifier))
+
+    _ZADANIE17["fn"] = _esc17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("Esc zamyka okno powitalne bez logowania",
+            _kod17 is None and _imie17 == "")
+
+    # ── 17d. udane logowanie: karta ustępuje, scena zostaje ───────
+    P.online_zaloguj = lambda k, h: (True, "Anna Testowa", "")
+
+    def _zaloguj17(d):
+        _pole17(d, "kod").setText("10001")
+        _pole17(d, "haslo").setText("dobrehaslo")
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: d.result() != 0, 5.0)
+
+    _ZADANIE17["fn"] = _zaloguj17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("udane logowanie oddaje kod i imię",
+            _kod17 == "10001" and _imie17 == "Anna Testowa",
+            str((_kod17, _imie17)))
+    sprawdz("po zalogowaniu scena zostaje kurtyną — przejście bez błysku pulpitu",
+            _OL17._KURTYNA.get("okno") is not None)
+    sprawdz("kurtyna schodzi, gdy okno programu już stoi",
+            P._zdejmij_kurtyne_powitania() and _czekaj17(
+                lambda: _OL17._KURTYNA.get("okno") is None, 2.0))
+
+    # ── 17e. odmowa serwera ───────────────────────────────────────
+    P.online_zaloguj = lambda k, h: (False, "", "Błędne hasło.")
+
+    def _odmowa17(d):
+        _pole17(d, "kod").setText("10001")
+        _pole17(d, "haslo").setText("zlehaslo")
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: _etyk17(d, "blad")[0].text().strip() != "", 5.0)
+        sprawdz("odmowa serwera pokazana w karcie",
+                _etyk17(d, "blad")[0].text() == "Błędne hasło.",
+                _etyk17(d, "blad")[0].text())
+        sprawdz("po odmowie przycisk wraca do napisu Zaloguj, a pola są czynne",
+                _prz17(d, "ok")[0].text() == "Zaloguj"
+                and _pole17(d, "kod").isEnabled()
+                and _pole17(d, "haslo").isEnabled())
+        sprawdz("odmowa nie kasuje wpisanego kodu",
+                _pole17(d, "kod").text() == "10001")
+        d.reject()
+
+    _ZADANIE17["fn"] = _odmowa17
+    P.dialog_logowania()
+
+    # ── 17f. życie podczas weryfikacji ────────────────────────────
+    def _wolno17(k, h):
+        _time17.sleep(0.5)
+        return (False, "", "Błędne hasło.")
+
+    P.online_zaloguj = _wolno17
+
+    def _wtoku17(d):
+        _pole17(d, "kod").setText("77777")
+        _pole17(d, "haslo").setText("cokolwiek")
+        _prz17(d, "ok")[0].click()
+        for _ in range(6):
+            _app17.processEvents()
+        _ok = _prz17(d, "ok")[0]
+        sprawdz("podczas weryfikacji przycisk mówi Sprawdzam…",
+                _ok.text().startswith("Sprawdzam"), _ok.text())
+        sprawdz("ręczna próba blokuje pola i przycisk Zamknij",
+                not _pole17(d, "kod").isEnabled()
+                and not _pole17(d, "haslo").isEnabled()
+                and not [p for p in _prz17(d, "anuluj")
+                         if p.text() == "Zamknij"][0].isEnabled())
+        _czekaj17(lambda: bool(_ok.styleSheet()), 1.5)
+        sprawdz("pasek światła na przycisku w barwach nowego systemu",
+                "00F0FF" in _ok.styleSheet().upper()
+                and "00E4A1" in _ok.styleSheet().upper(),
+                _ok.styleSheet()[:90])
+        _czekaj17(lambda: _ok.text() == "Zaloguj", 5.0)
+        sprawdz("po weryfikacji okno wraca do stanu wyjściowego",
+                _pole17(d, "kod").isEnabled()
+                and _pole17(d, "haslo").isEnabled()
+                and _ok.styleSheet() == "")
+        d.reject()
+
+    _ZADANIE17["fn"] = _wtoku17
+    P.dialog_logowania()
+
+    # ── 17g. autologowanie bez Entera ─────────────────────────────
+    P.historia_logowan = lambda limit=3: []
+    _kodA17, _hasA17 = "55555", "znanehaslo"
+    P._zapisz_logowanie(_kodA17, "Jan Testowy", P._hash_hasla(_kodA17, _hasA17))
+    _wolania17 = []
+
+    def _licz17(k, h):
+        _wolania17.append((k, h))
+        return (True, "Jan Testowy", "")
+
+    P.online_zaloguj = _licz17
+
+    def _znane17(d):
+        _pole17(d, "kod").setText(_kodA17)
+        _pole17(d, "haslo").setText(_hasA17)      # nikt nie naciska Entera
+        _czekaj17(lambda: bool(_wolania17), 4.0)
+        _czekaj17(lambda: d.result() != 0, 4.0)
+
+    _ZADANIE17["fn"] = _znane17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("hasło znane z poprzedniego logowania wchodzi BEZ Entera",
+            _wolania17 == [(_kodA17, _hasA17)] and _kod17 == _kodA17,
+            str((_wolania17, _kod17)))
+    P._zdejmij_kurtyne_powitania()
+    _czekaj17(lambda: _OL17._KURTYNA.get("okno") is None, 2.0)
+
+    _wolania2_17 = []
+
+    def _licz2_17(k, h):
+        _wolania2_17.append((k, h))
+        return (False, "", "Błędne hasło.")
+
+    P.online_zaloguj = _licz2_17
+
+    def _pauza17(d):
+        _pole17(d, "kod").setText("66666")
+        _pole17(d, "haslo").setText("nieznanehaslo")
+        sprawdz("nieznane hasło nie wychodzi do serwera od razu",
+                not _wolania2_17)
+        _czekaj17(lambda: bool(_wolania2_17), 4.0)
+        sprawdz("nieznane hasło idzie do serwera po pauzie w pisaniu",
+                _wolania2_17 == [("66666", "nieznanehaslo")], str(_wolania2_17))
+        _czekaj17(lambda: _etyk17(d, "blad")[0].text().strip() != "", 4.0)
+        sprawdz("próba automatyczna NIE kasuje wpisanego hasła",
+                _pole17(d, "haslo").text() == "nieznanehaslo")
+        sprawdz("po próbie automatycznej złe hasło daje tylko łagodną podpowiedź",
+                "Dokończ" in _etyk17(d, "blad")[0].text(),
+                _etyk17(d, "blad")[0].text())
+        d.reject()
+
+    _ZADANIE17["fn"] = _pauza17
+    P.dialog_logowania()
+
+    # ── 17h. logowanie BEZ SIECI przez okno ───────────────────────
+    P.online_zaloguj = _stan17["zaloguj"]        # prawdziwa droga logowania
+    _kodB17, _hasB17 = "91234", "HasloOffline1"
+    P._zapisz_logowanie(_kodB17, "Jan Testowy", P._hash_hasla(_kodB17, _hasB17))
+    P._zapamietaj_waznosc_konta(
+        _kodB17, (datetime.date.today() + datetime.timedelta(days=200)).isoformat())
+
+    def _offline17(d):
+        _pole17(d, "kod").setText(_kodB17)
+        _pole17(d, "haslo").setText(_hasB17)
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: d.result() != 0, 6.0)
+
+    _ZADANIE17["fn"] = _offline17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("bez internetu okno wpuszcza po skrócie hasła z tego komputera",
+            _kod17 == _kodB17 and _imie17 == "Jan Testowy",
+            str((_kod17, _imie17)))
+    P._zdejmij_kurtyne_powitania()
+    _czekaj17(lambda: _OL17._KURTYNA.get("okno") is None, 2.0)
+
+    def _offline_zle17(d):
+        _pole17(d, "kod").setText(_kodB17)
+        _pole17(d, "haslo").setText(_hasB17 + "x")
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: _etyk17(d, "blad")[0].text().strip() != "", 6.0)
+        sprawdz("bez internetu złe hasło NIE wchodzi do programu",
+                d.result() == 0 and _etyk17(d, "blad")[0].text().strip() != "",
+                _etyk17(d, "blad")[0].text())
+        d.reject()
+
+    _ZADANIE17["fn"] = _offline_zle17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("bez internetu złe hasło nie oddaje konta", _kod17 is None)
+
+    # pierwszy raz na tym sprzęcie: bez sieci nie ma wejścia
+    _kodC17 = "81234"
+    def _obcy17(d):
+        _pole17(d, "kod").setText(_kodC17)
+        _pole17(d, "haslo").setText("cokolwiek1")
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: _etyk17(d, "blad")[0].text().strip() != "", 6.0)
+        sprawdz("pierwsze logowanie na nowym sprzęcie WYMAGA sieci",
+                d.result() == 0, _etyk17(d, "blad")[0].text())
+        d.reject()
+
+    _ZADANIE17["fn"] = _obcy17
+    P.dialog_logowania()
+
+    # przekroczone 45 dni bez sieci — brama się zamyka
+    _dane17 = P._wczytaj(P.PLIK_LOGOWAN, {})
+    _dane17[_kodB17]["ostatnio"] = (datetime.date.today()
+                                    - datetime.timedelta(days=P.OFFLINE_LOGOWANIE_DNI + 5)
+                                    ).isoformat() + "T08:00:00"
+    P._zapisz(P.PLIK_LOGOWAN, _dane17)
+
+    def _stary17(d):
+        _pole17(d, "kod").setText(_kodB17)
+        _pole17(d, "haslo").setText(_hasB17)
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: _etyk17(d, "blad")[0].text().strip() != "", 6.0)
+        sprawdz("po %d dniach bez internetu okno nie wpuszcza i mówi dlaczego"
+                % P.OFFLINE_LOGOWANIE_DNI,
+                d.result() == 0 and "dni" in _etyk17(d, "blad")[0].text(),
+                _etyk17(d, "blad")[0].text())
+        d.reject()
+
+    _ZADANIE17["fn"] = _stary17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("blokada 45 dni nie oddaje konta", _kod17 is None)
+
+    # ── 17i. wyłączniki żywego tła ────────────────────────────────
+    P.online_zaloguj = lambda k, h: (True, "Anna Testowa", "")
+    sprawdz("żywe tło domyślnie działa", _OL17.zywe_tlo_wlaczone() is True)
+    _stop17 = os.path.join(os.path.expanduser("~"), "BEZ_3D.txt")
+    open(_stop17, "w").close()
+    sprawdz("BEZ_3D.txt wyłącza żywe tło — ten sam wyłącznik, co reszta głębi",
+            _OL17.zywe_tlo_wlaczone() is False)
+    os.remove(_stop17)
+    P.zapisz_ustawienie(_OL17.USTAWIENIE_TLA, False)
+    sprawdz("ustawienie %s wyłącza żywe tło" % _OL17.USTAWIENIE_TLA,
+            _OL17.zywe_tlo_wlaczone() is False)
+    P.zapisz_ustawienie(_OL17.USTAWIENIE_TLA, True)
+    P.zapisz_ustawienie("wyglad_3d", False)
+    sprawdz("wyłączona głębia 3D wyłącza też żywe tło",
+            _OL17.zywe_tlo_wlaczone() is False)
+    P.zapisz_ustawienie("wyglad_3d", True)
+    sprawdz("po włączeniu z powrotem żywe tło wraca",
+            _OL17.zywe_tlo_wlaczone() is True)
+
+    _OL17.zywe_tlo_wlaczone = lambda: False
+
+    def _bez_tla17(d):
+        _tlo = getattr(d, "_tlo_powitania", None)
+        sprawdz("przy wyłączonym tle mapa się nie pojawia",
+                _tlo is not None and _tlo.mapa is None)
+        sprawdz("przy wyłączonym tle karta i logo dalej stoją",
+                bool(d.findChildren(_OL17.Karta)))
+        _pole17(d, "kod").setText("10001")
+        _pole17(d, "haslo").setText("dobrehaslo")
+        sprawdz("przy wyłączonym tle logowanie działa tak samo",
+                _prz17(d, "ok")[0].isEnabled())
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: d.result() != 0, 5.0)
+
+    _ZADANIE17["fn"] = _bez_tla17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("bez żywego tła logowanie kończy się wejściem do programu",
+            _kod17 == "10001")
+    P._zdejmij_kurtyne_powitania()
+    _OL17.zywe_tlo_wlaczone = _stan17["tlo"]
+
+    # ── 17j. mapa sama ustępuje, gdy rysuje się za wolno ──────────
+    def _wolna17(d):
+        _tlo = getattr(d, "_tlo_powitania", None)
+        _tlo.mapa.czasy = [_OL17.BUDZET_KLATKI + 5] * _OL17.KLATEK_DO_OCENY
+        _tlo._ocen_plynnosc()
+        sprawdz("wolne klatki gaszą animację tła, mapa zostaje",
+                _tlo.mapa is not None and not _tlo.mapa.animacje_wlaczone())
+        _tlo._oceny = 0
+        _tlo.mapa.czasy = [_OL17.BUDZET_KRYTYCZNY + 50] * _OL17.KLATEK_DO_OCENY
+        _tlo._ocen_plynnosc()
+        sprawdz("przy naprawdę wolnym rysowaniu mapa znika sama",
+                _tlo.mapa is None and _tlo.zaslona is None)
+        sprawdz("po zdjęciu mapy karta logowania dalej stoi",
+                bool(d.findChildren(_OL17.Karta)))
+        d.reject()
+
+    _ZADANIE17["fn"] = _wolna17
+    P.dialog_logowania()
+
+    # ── 17k. brak nowej oprawy = stare okno, ta sama kontrola dostępu ──
+    P._OPRAWA_POWITANIA["modul"] = None          # tak wygląda stara paczka
+    P.historia_logowan = lambda limit=3: _HISTORIA17[:limit]
+    P.online_zaloguj = lambda k, h: (True, "Anna Testowa", "")
+
+    def _stara17(d):
+        sprawdz("bez nowej oprawy okno logowania nadal staje",
+                bool(_pole17(d, "kod")) and bool(_pole17(d, "haslo"))
+                and bool(_prz17(d, "ok")))
+        sprawdz("stara oprawa ma swój rozmiar i nie jest na pełnym ekranie",
+                not d.isFullScreen() and d.width() == 470 and d.height() == 410,
+                str(d.size()))
+        sprawdz("stara oprawa też jest bez ramy systemowej",
+                bool(d.windowFlags() & _Qt17.WindowType.FramelessWindowHint))
+        _pole17(d, "kod").setText("10001")
+        _pole17(d, "haslo").setText("dobrehaslo")
+        _prz17(d, "ok")[0].click()
+        _czekaj17(lambda: d.result() != 0, 5.0)
+
+    _ZADANIE17["fn"] = _stara17
+    _kod17, _imie17 = P.dialog_logowania()
+    sprawdz("bez nowej oprawy logowanie kończy się tak samo",
+            _kod17 == "10001" and _imie17 == "Anna Testowa",
+            str((_kod17, _imie17)))
+    P._OPRAWA_POWITANIA.pop("modul", None)
+    sprawdz("po przywróceniu oprawa wraca", P._oprawa_powitania() is _OL17)
+
+except Exception as _e17:
+    sprawdz("okno powitalne i logowanie działa", False, repr(_e17))
+finally:
+    try:
+        if "dialog" in _stan17:
+            _QW17.QDialog = _stan17["dialog"]
+            _ur17.urlopen = _stan17["urlopen"]
+            P.online_zaloguj = _stan17["zaloguj"]
+            P.historia_logowan = _stan17["historia"]
+            P._rozgrzej_backend = _stan17["rozgrzej"]
+            _OL17.zywe_tlo_wlaczone = _stan17["tlo"]
+    except Exception:
+        pass
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("18. Warstwa WOW: da się ją zgasić, a zgaszona nie zostawia śladu")
+
+try:
+    from PyQt6.QtWidgets import QApplication as _QA18, QLabel as _QL18
+    from PyQt6.QtWidgets import QVBoxLayout as _QV18, QWidget as _QW18
+    from PyQt6.QtGui import QImage as _QIM18
+    import nowy_wyglad as _NW18
+    import proto_okno as _OK18
+    import proto_mapa as _PM18
+    import proto_tasma as _PT18
+    import proto_kompas as _PK18
+    _app18 = _QA18.instance() or _QA18(sys.argv)
+    _app18.setStyleSheet(_NW18.arkusz())
+
+    _okno18 = _NW18.OknoNowegoWygladu(
+        profil=_NW18.ProfilWidoku("Jan Testowy", "85010112345",
+                                  "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=10)
+    _okno18.showNormal()
+    _okno18.setMinimumSize(900, 600)
+    _okno18.resize(1920, 1080)
+
+    def _miel18(ile=8):
+        for _ in range(ile):
+            _app18.processEvents()
+
+    _miel18(20)
+    _mapa18 = _okno18.mapa
+    _tasma18 = _okno18.tasma
+    _kompas18 = _okno18.k_kompas.kompas
+
+    def _bajty18(widzet):
+        """Zrzut widżetu jako surowe bajty — do porównań co do bajta.
+
+        Bez dopychania wierszy (same_piksele): inaczej porównywalibyśmy
+        pamięć, której nikt nie zapisał, i sprawdzenie padałoby zależnie od
+        rozmiaru okna, a nie od tego, czy coś się rusza."""
+        obraz = widzet.grab().toImage().convertToFormat(_QIM18.Format.Format_RGB888)
+        return same_piksele(obraz)
+
+    # ── 18a. wyłącznik gasi KAŻDY nowy efekt ─────────────────────────
+    _okno18.ustaw_animacje(False)
+    _miel18(6)
+    sprawdz("zgaszone animacje: mapa nie ma czym żyć (zegar życia na zerze)",
+            _mapa18._czas_zycia == 0.0 and not _mapa18.animacje_wlaczone(),
+            str(_mapa18._czas_zycia))
+    sprawdz("zgaszone animacje: taśma nie pokazuje pracy silnika",
+            _tasma18.praca() is None)
+    sprawdz("zgaszone animacje: igła kompasu stoi (zero stopni na sekundę)",
+            _kompas18.obrot_igly() == 0.0, str(_kompas18.obrot_igly()))
+    sprawdz("zgaszone animacje: żaden panel nie wyrasta",
+            _okno18._wyrastanie is None or not _okno18._wyrastanie.gra())
+    sprawdz("zgaszone animacje: mapa nie ściszyła się sama (nie ma czego ściszać)",
+            not _mapa18.efekty_ciche())
+    _zegary18 = [z for z in (_mapa18._zegar, _tasma18._zegar, _kompas18._zegar)
+                 if z.isActive()]
+    sprawdz("zgaszone animacje: żaden zegar ruchu już nie chodzi",
+            not _zegary18, str(len(_zegary18)))
+
+    # ── 18b. zgaszenie przywraca DOKŁADNIE stary obraz ───────────────
+    _spokoj18 = _bajty18(_mapa18)
+    _mapa18.ustaw_animacje(True)
+    _mapa18._czas_zycia = 9000.0            # chwila, w której życie na pewno widać
+    _mapa18._faza = 0.30
+    _mapa18.repaint()
+    _zycie18 = _bajty18(_mapa18)
+    sprawdz("włączone życie mapy naprawdę coś zmienia na ekranie",
+            _zycie18 != _spokoj18)
+    _mapa18.ustaw_animacje(False)
+    _miel18(4)
+    sprawdz("zgaszenie przywraca obraz sprzed warstwy WOW — co do bajta",
+            _bajty18(_mapa18) == _spokoj18)
+
+    # ...a mapa ŚCISZONA SAMA (bo klatka się nie mieściła) ma przestać żyć:
+    # zegar życia może iść dalej, a na ekranie nie zmienia się nic. Blask
+    # trasy i płynące kreski powrotu to nie jest warstwa WOW — te chodziły
+    # przed nią i chodzą dalej, bo kosztują ułamek klatki.
+    _mapa18.ustaw_animacje(True)
+    _mapa18._odslona.zatrzymaj()
+    _mapa18._odslona.ustaw(1.0)
+    _mapa18._odslonieta = _mapa18._klucz_trasy()
+    _mapa18._faza = _PM18.MapaDnia.FAZA_ZRZUTU
+    _mapa18._ciche = True
+    _mapa18._czas_zycia = 1000.0
+    _mapa18.repaint()
+    _cicha_a18 = _bajty18(_mapa18)
+    _mapa18._czas_zycia = 12000.0
+    _mapa18.repaint()
+    sprawdz("ściszona mapa stoi, choć zegar życia idzie dalej",
+            _bajty18(_mapa18) == _cicha_a18)
+    _mapa18._ciche = False
+    _mapa18.repaint()
+    sprawdz("...a ta sama chwila z życiem wygląda już inaczej",
+            _bajty18(_mapa18) != _cicha_a18)
+    _mapa18._koszt_klatki = 0.0
+    _mapa18._pod_rzad = 0
+    _mapa18.ustaw_animacje(False)
+    _miel18(4)
+
+    # ── 18c. powtarzalność zrzutów ───────────────────────────────────
+    _mapa18.ustaw_animacje(False)
+    _a18 = _bajty18(_mapa18)
+    _miel18(10)
+    _b18 = _bajty18(_mapa18)
+    sprawdz("przy zgaszonych animacjach dwa zrzuty mapy są identyczne",
+            _a18 == _b18)
+    _okno18.ustaw_animacje(True)
+    _miel18(10)
+    _okno18.ustaw_animacje(False)
+    _miel18(6)
+    sprawdz("zrzut jest ten sam także po włączeniu i zgaszeniu animacji",
+            _bajty18(_mapa18) == _a18)
+    _tasma_a18 = _bajty18(_tasma18)
+    _tasma18.ustaw_prace(0.5)               # praca silnika przy zgaszonych ruchach
+    _miel18(4)
+    sprawdz("zgaszona taśma nie daje się rozświetlić pracą silnika",
+            _bajty18(_tasma18) == _tasma_a18 and _tasma18.praca() is None)
+
+    # ── 18d. budżet klatki przy 1920x1080 ────────────────────────────
+    _okno18.ustaw_animacje(True)
+    _miel18(10)
+
+    def _klatka18(widzet, ile=25):
+        from PyQt6.QtGui import QPixmap as _QPX18
+        px = _QPX18(widzet.size())
+        for _ in range(5):
+            widzet.render(px)
+        czasy = []
+        for _ in range(ile):
+            if widzet is _mapa18:
+                _mapa18._tik()
+            t0 = time.perf_counter()
+            widzet.render(px)
+            czasy.append((time.perf_counter() - t0) * 1000.0)
+        czasy.sort()
+        return czasy[len(czasy) // 2]
+
+    _mapa18.odnotuj_klatke = lambda _ms: None
+    try:
+        _ms_mapy18 = _klatka18(_mapa18)
+        _ms_okna18 = _klatka18(_okno18, ile=6)
+    finally:
+        del _mapa18.odnotuj_klatke
+    print("      klatka mapy %.2f ms (%dx%d), całe okno %.2f ms (%dx%d)"
+          % (_ms_mapy18, _mapa18.width(), _mapa18.height(),
+             _ms_okna18, _okno18.width(), _okno18.height()))
+    sprawdz("klatka mapy przy 1920x1080 mieści się w suficie 16 ms",
+            _ms_mapy18 <= _PM18.SUFIT_KLATKI_MS, "%.2f ms" % _ms_mapy18)
+    # na czas pomiaru wyłączamy samoczynne ściszanie: inaczej mapa w połowie
+    # mierzenia sama zapala życie z powrotem i wychodzi z tego bzdura
+    _mapa18._ciche = True
+    _mapa18.odnotuj_klatke = lambda _ms: None
+    try:
+        _ms_bez18 = _klatka18(_mapa18)
+    finally:
+        del _mapa18.odnotuj_klatke
+    _mapa18._ciche = False
+    print("      z życiem %.2f ms, ściszona %.2f ms — życie kosztuje %.2f ms"
+          % (_ms_mapy18, _ms_bez18, _ms_mapy18 - _ms_bez18))
+    sprawdz("całe życie na mapie kosztuje mniej niż cztery milisekundy klatki",
+            _ms_mapy18 - _ms_bez18 <= 4.0, "%.2f ms" % (_ms_mapy18 - _ms_bez18))
+    sprawdz("sufit klatki i próg powrotu zostawiają zapas większy niż koszt efektów",
+            _PM18.SUFIT_KLATKI_MS - _PM18.PROG_POWROTU_MS >= 3.0)
+
+    # ── 18e. za wolna klatka sama ścisza efekty ──────────────────────
+    _mapa18._koszt_klatki = 0.0
+    _mapa18._ciche = False
+    _mapa18._pod_rzad = 0
+    for _ in range(60):
+        _mapa18.odnotuj_klatke(34.0)        # komputer zupełnie nie wyrabia
+    sprawdz("klatka ponad sufitem ścisza życie mapy sama, bez pytania",
+            _mapa18.efekty_ciche(), "%.1f ms" % _mapa18.koszt_klatki())
+    # blask trasy nie jest częścią warstwy WOW i przy zgaszonych animacjach
+    # stoi w stałym miejscu — żeby porównać sam brak życia, stawiamy go tam
+    for _ in range(60):
+        _mapa18.odnotuj_klatke(9.0)         # klatka znowu się mieści
+    sprawdz("kiedy klatka znowu się mieści, życie wraca samo",
+            not _mapa18.efekty_ciche(), "%.1f ms" % _mapa18.koszt_klatki())
+    _mapa18._ciche = False
+    _mapa18._koszt_klatki = 0.0
+    _mapa18._pod_rzad = 0
+
+    # ── 18f. nic nie miga: każdy ruch trwa sekundy, nie ułamki ───────
+    _okresy18 = {"światła na drogach": _PM18.OKRES_DROGI_MS,
+                 "połysk rzeki": _PM18.OKRES_RZEKI_MS,
+                 "blask trasy": _PM18.MapaDnia.OKRES_BLASKU,
+                 "oddech dnia dzisiejszego": _PT18.OKRES_PULSU}
+    _szybkie18 = [n for n, ms in _okresy18.items() if ms < 2000.0]
+    sprawdz("żaden ruch w tle nie trwa krócej niż dwie sekundy",
+            not _szybkie18, str(_szybkie18))
+    sprawdz("światła na drogach są cieplejsze od trasy — widać, co jest twoje",
+            _PM18.BARWA_SWIATLA_DROGI.red() > _PM18.BARWA_SWIATLA_DROGI.blue())
+    sprawdz("świateł na drogach jest garść, a nie rój",
+            1 <= _PM18.SWIATEL_DROG <= 8, str(_PM18.SWIATEL_DROG))
+
+    # ── 18g. sekwencja generowania idzie z MELDUNKÓW SILNIKA ─────────
+    sprawdz("z meldunku „Klastrowanie GPS (Dzień 3/7)…” wychodzi 3 z 7",
+            _NW18.postep_etapu("Klastrowanie GPS (Dzień 3/7)...") == (3, 7))
+    sprawdz("z meldunku o plikach PDF wychodzi numer pliku",
+            _NW18.postep_etapu("Dokumenty PDF: październik 2026 (2/6)...") == (2, 6))
+    sprawdz("meldunek bez liczb nie udaje postępu",
+            _NW18.postep_etapu("Układanie tras...") is None)
+    sprawdz("meldunek z zerem w mianowniku nie wywraca sekwencji",
+            _NW18.postep_etapu("Dziwny (3/0)...") is None)
+
+    _okno18.ustaw_animacje(True)
+    _miel18(6)
+    _okno18._etap_silnika = "trasy"
+    _okno18._praca_dni = None
+    _okno18._praca_dokumenty = None
+    _widziane18 = []
+    for _txt18 in ("Klastrowanie GPS (Dzień 1/8)...",
+                   "Klastrowanie GPS (Dzień 4/8)...",
+                   "Układanie tras...",
+                   "Klastrowanie GPS (Dzień 8/8)..."):
+        _okno18._etap_silnika = _NW18.etap_silnika(_txt18)
+        _okno18._postep_tasmy(_txt18)
+        _widziane18.append(_tasma18.praca())
+    sprawdz("taśma zapala dokładnie tyle dni, ile silnik zameldował",
+            _widziane18 == [0.125, 0.5, 0.5, 1.0], str(_widziane18))
+    sprawdz("taśma nigdy się nie cofa — meldunek bez liczb jej nie gasi",
+            all(_widziane18[i] <= _widziane18[i + 1]
+                for i in range(len(_widziane18) - 1)))
+
+    _dni18 = _tasma18._dni_z_trasa()
+    _tasma18.ustaw_prace(0.0)
+    sprawdz("na początku pracy żaden dzień nie jest jeszcze policzony",
+            all(_tasma18._stan_pracy(n) < 1.0 for n in _dni18), str(_dni18))
+    _tasma18.ustaw_prace(1.0)
+    sprawdz("na końcu pracy policzone są wszystkie dni z trasą",
+            _dni18 and all(_tasma18._stan_pracy(n) == 1.0 for n in _dni18))
+    _tasma18.ustaw_prace(0.5)
+    _polowa18 = [_tasma18._stan_pracy(n) for n in _dni18]
+    sprawdz("w połowie pracy zapalona jest dokładnie pierwsza połowa dni",
+            sum(1 for x in _polowa18 if x == 1.0) == len(_dni18) // 2,
+            str(_polowa18))
+    sprawdz("dzień bez trasy nigdy nie udaje policzonego",
+            all(_tasma18._stan_pracy(d.data.day) is None
+                for d in _tasma18.dni if d.wolny or d.postoje == 0))
+
+    _okno18._koniec_sekwencji()
+    sprawdz("koniec pracy zdejmuje z taśmy wszystkie ślady postępu",
+            _tasma18.praca() is None and _okno18._praca_dni is None)
+
+    # ── 18h. kompas rozpędza się w rytm prawdziwych meldunków ────────
+    _kompas18.wznow_animacje()
+    _kompas18.ustaw_stan("gotowy")
+    _kompas18.ustaw_stan("praca")
+    _kompas18.ustaw_postep(0.05)
+    _wolno18 = _kompas18._obrot_cel
+    _kompas18._postep_czas = time.monotonic() - 4.0      # meldunki rzadkie
+    _kompas18.ustaw_postep(0.10)
+    _rzadko18 = _kompas18._obrot_cel
+    _kompas18._postep_czas = time.monotonic() - 0.05     # meldunki gęste
+    _kompas18.ustaw_postep(0.40)
+    _gesto18 = _kompas18._obrot_cel
+    sprawdz("igła kręci się szybciej, kiedy silnik melduje gęściej",
+            _gesto18 > _rzadko18, "%.0f vs %.0f" % (_gesto18, _rzadko18))
+    sprawdz("przy rzadkich meldunkach igła zwalnia, ale nie staje",
+            _PK18.OBROT_MIN <= _rzadko18 < _PK18.OBROT_MAX,
+            "%.0f" % _rzadko18)
+    sprawdz("rozpęd igły ma sufit — nie zamienia się w migotanie",
+            _gesto18 <= _PK18.OBROT_MAX and _wolno18 > 0.0)
+    for _ in range(80):
+        _kompas18._tik()
+    sprawdz("po chwili pracy igła naprawdę się kręci",
+            _kompas18.obrot_igly() > 0.0, "%.0f" % _kompas18.obrot_igly())
+    _kompas18.ustaw_stan("sukces")
+    for _ in range(120):
+        _kompas18._tik()
+    sprawdz("po skończonej pracy igła wyhamowuje i wraca na północ",
+            _kompas18.obrot_igly() == 0.0
+            and abs(_kompas18._azymut_biez - _kompas18.azymut()) < 1.0,
+            "%.1f" % _kompas18._azymut_biez)
+    _kompas18.zatrzymaj_animacje()
+    sprawdz("zgaszony kompas ma igłę nieruchomą",
+            _kompas18.obrot_igly() == 0.0)
+
+    # ── 18i. spoczynek: klatek tylko tyle, ile widać ─────────────────
+    _kompas18.wznow_animacje()
+    _kompas18.ustaw_stan("gotowy")
+    _malowania18 = {"ile": 0}
+    _stary_up18 = _kompas18.update
+
+    def _liczaca18(*a, **k):
+        _malowania18["ile"] += 1
+        return _stary_up18(*a, **k)
+
+    _kompas18.update = _liczaca18
+    try:
+        for _ in range(60):                  # 60 tyknięć = dwie sekundy spoczynku
+            _kompas18._tik()
+    finally:
+        _kompas18.update = _stary_up18
+    sprawdz("kompas w spoczynku rysuje się rzadziej, niż tyka",
+            _malowania18["ile"] < 40, "%d na 60" % _malowania18["ile"])
+    sprawdz("...ale nie zamiera zupełnie — oddech dalej idzie",
+            _malowania18["ile"] > 0)
+
+    _tasma18.wznow_animacje()
+    _tasma18.ustaw_prace(None)
+    _mal_t18 = {"ile": 0}
+    _stary_ut18 = _tasma18.update
+
+    def _liczaca_t18(*a, **k):
+        _mal_t18["ile"] += 1
+        return _stary_ut18(*a, **k)
+
+    _tasma18.update = _liczaca_t18
+    try:
+        for _ in range(50):                  # 50 tyknięć = dwie sekundy
+            _tasma18._tik()
+    finally:
+        _tasma18.update = _stary_ut18
+    sprawdz("taśma w spoczynku też rysuje się rzadziej, niż tyka",
+            _mal_t18["ile"] < 34, "%d na 50" % _mal_t18["ile"])
+
+    # ── 18j. panel wyrasta z klikniętej ikony ────────────────────────
+    _okno18.ustaw_animacje(True)
+    _miel18(6)
+    _pole18 = _okno18._pole_ikony(2)
+    _ikony18 = _okno18.szyna._pola()
+    sprawdz("okno wie, gdzie na szynie leży ikona klikniętego działu",
+            _pole18 is not None
+            and abs(_pole18.width() - _ikony18[2].width()) < 0.5
+            and _pole18.x() >= 0 and _pole18.y() >= 0, str(_pole18))
+
+    _tresc18 = _QW18()
+    _ukl18 = _QV18(_tresc18)
+    _ukl18.addWidget(_QL18("Plan wizyt"))
+    _tresc18._nowy_system = True
+    _okno18.pokaz_panel(_tresc18, "Plan wizyt", "", numer=2)
+    _rama18 = _okno18.nakladka()
+    _ruch18 = _okno18._wyrastanie
+    sprawdz("kliknięcie działu zaczyna wyrastanie panelu z ikony",
+            _ruch18 is not None and _ruch18.gra())
+    sprawdz("panel jest otwarty od pierwszej chwili, a nie dopiero po ruchu",
+            _rama18.isVisible() and _tresc18.isVisible()
+            and _rama18.panel() is _tresc18)
+    sprawdz("ruch startuje z pola ikony i kończy na polu panelu",
+            _ruch18._skad == _pole18
+            and _ruch18._dokad.width() == _rama18.width(), str(_ruch18._skad))
+    _okno18._wyrastanie.przerwij()
+    _okno18._po_wyrastaniu()
+    _miel18(4)
+    sprawdz("po ruchu panel stoi dokładnie tam, gdzie ma stać",
+            _rama18.x() == _OK18.SZYNA_W and _rama18.y() == _OK18.PASEK_H
+            and _rama18.width() == _okno18.width() - _OK18.SZYNA_W,
+            str(_rama18.geometry()))
+
+    _okno18.ustaw_animacje(False)
+    _miel18(4)
+    _rama18.zamknij()
+    _miel18(2)
+    _okno18.pokaz_panel(_tresc18, "Plan wizyt", "", numer=2)
+    _miel18(2)
+    sprawdz("przy zgaszonych animacjach panel staje od razu, bez wyrastania",
+            not _okno18._wyrastanie.gra() and _rama18.isVisible()
+            and _rama18.x() == _OK18.SZYNA_W)
+    _rama18.zamknij()
+    _miel18(2)
+
+    # ── 18k. zaczep na intro podczas generowania ─────────────────────
+    class _Film18:
+        slad = []
+
+        def __init__(self, okno):
+            _Film18.slad.append("start")
+            self.okno = okno
+
+        def ustaw_postep(self, t):
+            _Film18.slad.append("postep")
+
+        def zakoncz(self):
+            _Film18.slad.append("koniec")
+
+    sprawdz("bez wstawki intro sekwencja generowania nic o nim nie wie",
+            _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA is None)
+    _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA = _Film18
+    try:
+        _okno18.ustaw_animacje(True)
+        _okno18._zacznij_intro_generowania()
+        _okno18._etap_silnika = "trasy"
+        _okno18._postep_tasmy("Klastrowanie GPS (Dzień 2/8)...")
+        _okno18._koniec_sekwencji()
+    finally:
+        _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA = None
+    sprawdz("intro dostaje zaczep na starcie, w trakcie i na końcu generowania",
+            _Film18.slad == ["start", "postep", "koniec"], str(_Film18.slad))
+    _okno18._zacznij_intro_generowania()
+    sprawdz("po zdjęciu wstawki zaczep znowu nic nie robi",
+            getattr(_okno18, "_intro_generowania", None) is None)
+
+    _okno18.ustaw_animacje(False)
+    _okno18.close()
+
+except Exception as _e18:
+    sprawdz("warstwa WOW: efekty, wyłącznik i budżet klatki", False, repr(_e18))
+    import traceback as _tb18
+    _tb18.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("19. Scalenie: paczka ma wszystkie pliki, a porównania obrazu mówią prawdę")
+
+# Pięć poprzednich kroków dołożyło nowe moduły i nowe sprawdzenia obrazu.
+# Ta sekcja pilnuje dwóch rzeczy, które rozjechały się przy scalaniu i które
+# widać dopiero na CAŁOŚCI: (1) plik, o którym wie zbuduj.py, ale o którym
+# nie wie repozytorium, nie wejdzie do paczki i program po cichu wróci do
+# starego okna logowania; (2) porównanie zrzutu „co do bajta" porównywało
+# także dopychanie wierszy, czyli pamięć, której nikt nie zapisał.
+try:
+    import zbuduj as _ZB19
+    from PyQt6.QtWidgets import QApplication as _QA19, QWidget as _QW19
+    from PyQt6.QtGui import QImage as _QIM19, QPainter as _QP19, QColor as _QC19
+
+    # ── 19a. każdy plik z listy paczki NAPRAWDĘ leży w repozytorium ──
+    _brak19 = [n for n in _ZB19.WYMAGANE
+               if not os.path.exists(os.path.join(KATALOG, n))]
+    sprawdz("każdy plik z listy WYMAGANE leży na dysku",
+            not _brak19, "brakuje: " + ", ".join(_brak19))
+
+    # moduł ukryty bez pliku = PyInstaller zbuduje paczkę, która wywali się
+    # dopiero u użytkownika, przy pierwszym imporcie
+    _bez_pliku19 = []
+    for _m19 in _ZB19.UKRYTE:
+        if _m19 in ("winsound",) or _m19.startswith("PyQt6"):
+            continue          # moduły systemowe i biblioteczne
+        if not (os.path.exists(os.path.join(KATALOG, _m19 + ".py"))
+                or os.path.exists(os.path.join(KATALOG, "prototyp", _m19 + ".py"))):
+            _bez_pliku19.append(_m19)
+    sprawdz("każdy moduł z listy UKRYTE ma swój plik",
+            not _bez_pliku19, "bez pliku: " + ", ".join(_bez_pliku19))
+
+    # ── 19b. pliki, które program otwiera, a które NIE są w repozytorium ──
+    # (menedzer.txt jest tu świadomie: nazwisko przełożonego nie trafia do
+    # repozytorium, dokłada się je przy budowaniu paczki dla zespołu)
+    _spis19 = os.popen("cd %s && git ls-files 2>/dev/null"
+                       % KATALOG.replace('"', '')).read().split()
+    if _spis19:
+        _poza19 = [n for n in _ZB19.WYMAGANE if n.replace("\\", "/") not in _spis19]
+        sprawdz("każdy plik z listy WYMAGANE jest w repozytorium — inaczej "
+                "nie wejdzie do paczki",
+                not _poza19, "poza repozytorium: " + ", ".join(_poza19))
+
+    # ── 19c. porównanie obrazu liczy SAME PIKSELE, bez dopychania ──
+    _app19 = _QA19.instance() or _QA19(sys.argv)
+
+    def _obraz19(szer, wys, barwa):
+        o = _QIM19(szer, wys, _QIM19.Format.Format_RGB888)
+        o.fill(_QC19(*barwa))
+        return o
+
+    # szerokość 122 px: 122 × 3 = 366, a wiersz ma 368 bajtów — dwa bajty
+    # dopychania, których nikt nie zapisał (tyle ma kompas w oknie programu)
+    _o19 = _obraz19(122, 40, (10, 20, 30))
+    sprawdz("obraz o szerokości niepodzielnej przez 4 NAPRAWDĘ ma dopychanie",
+            _o19.bytesPerLine() > _o19.width() * 3,
+            "%d bajtów na wiersz wobec %d pikseli"
+            % (_o19.bytesPerLine(), _o19.width() * 3))
+    sprawdz("same_piksele oddaje dokładnie tyle bajtów, ile jest pikseli",
+            len(same_piksele(_o19)) == _o19.width() * 3 * _o19.height(),
+            "%d wobec %d" % (len(same_piksele(_o19)),
+                             _o19.width() * 3 * _o19.height()))
+    sprawdz("dwa jednakowe obrazy dają te same bajty",
+            same_piksele(_o19) == same_piksele(_obraz19(122, 40, (10, 20, 30))))
+    sprawdz("obraz różniący się JEDNYM pikselem daje inne bajty",
+            same_piksele(_o19) != same_piksele(_obraz19(122, 40, (10, 20, 31))))
+    # szerokość bez dopychania musi przechodzić tą samą drogą
+    _r19 = _obraz19(120, 40, (10, 20, 30))
+    sprawdz("obraz bez dopychania też oddaje same piksele",
+            _r19.bytesPerLine() == _r19.width() * 3
+            and len(same_piksele(_r19)) == _r19.width() * 3 * _r19.height())
+
+except Exception as _e19:
+    sprawdz("scalenie: paczka i porównania obrazu", False, repr(_e19))
+    import traceback as _tb19
+    _tb19.print_exc()
+
+sekcja("20. Baza miejscowości: nic nie ginie po drodze i nic się nie dubluje")
+
+try:
+    import collections as _col20
+
+    _surowe20 = sum(len(_v) for _v in P.MIASTA_RAW.values())
+    P.zaladuj_baze(52.2297, 21.0122)
+    _wczytane20 = sum(len(_v) for _v in P._baza_miast.values())
+    sprawdz("każda miejscowość ze źródła dociera do silnika — żadna nie ginie na filtrze",
+            _wczytane20 == _surowe20, "%d ze źródła, %d w silniku" % (_surowe20, _wczytane20))
+    sprawdz("baza ma co najmniej 1300 miejscowości",
+            _wczytane20 >= 1300, str(_wczytane20))
+
+    _nazwy20 = [_m.n for _v in P._baza_miast.values() for _m in _v]
+    # "n." w nazwie znaczy "nad" — rozwinięte na "Nowy" dawało miejscowości,
+    # których nie ma na mapie Polski
+    _zmyslone20 = [_n for _n in _nazwy20
+                   if " Nowy " in _n or " Nowa " in _n and _n.split()[-1].endswith("ą")]
+    sprawdz("skrót „n.” rozwija się na „nad”, a nie na „Nowy”",
+            "Kostrzyn nad Odrą" in _nazwy20 and "Nakło nad Notecią" in _nazwy20
+            and "Dobrzyń nad Wisłą" in _nazwy20 and not _zmyslone20,
+            str(_zmyslone20[:3]))
+    sprawdz("nazwy z długim przymiotnikiem są w bazie w całości",
+            all(_n in _nazwy20 for _n in
+                ("Piotrków Trybunalski", "Grodzisk Mazowiecki", "Tomaszów Mazowiecki",
+                 "Aleksandrów Kujawski", "Ostrów Mazowiecka", "Wysokie Mazowieckie")),
+            str([_n for _n in ("Piotrków Trybunalski", "Grodzisk Mazowiecki",
+                               "Tomaszów Mazowiecki", "Aleksandrów Kujawski",
+                               "Ostrów Mazowiecka", "Wysokie Mazowieckie")
+                 if _n not in _nazwy20]))
+
+    # ta sama miejscowość zapisana dwa razy potrafiła trafić do JEDNEJ trasy
+    _bliskie20 = []
+    for _woj20, _lista20 in P._baza_miast.items():
+        for _i20, _a20 in enumerate(_lista20):
+            for _b20 in _lista20[_i20 + 1:]:
+                if P._rdzen_nazwy(_a20.n) == P._rdzen_nazwy(_b20.n) \
+                        and P.oblicz_dystans(_a20.lat, _a20.lng, _b20.lat, _b20.lng) < 12.0:
+                    _bliskie20.append((_a20.n, _b20.n))
+    sprawdz("żadna miejscowość nie siedzi w bazie dwa razy pod dwiema nazwami",
+            not _bliskie20, str(_bliskie20[:3]))
+
+    # najkrótsza możliwa delegacja: droga nigdy krótsza niż linia prosta
+    import datetime as _dt20, calendar as _cal20
+    _dni20 = [_dt20.date(2026, 10, _d) for _d in range(1, _cal20.monthrange(2026, 10)[1] + 1)
+              if _dt20.date(2026, 10, _d).weekday() < 5]
+    for _baza20, _la20, _ln20 in (("Radom", 51.40, 21.15), ("Warszawa", 52.2297, 21.0122)):
+        _plan20 = P.generuj_trasy(P.MIN_KWOTA, _baza20, _la20, _ln20, "mazowieckie",
+                                  _dni20, "90010112345", stawka=1.15)
+        _pod20 = [(_e20.skad, _e20.dokad) for _d20 in _plan20 for _e20 in _d20.etapy_surowe
+                  if _e20.dystans_rzeczywisty < _e20.d_line * P.MNOZNIK_MIN - 0.01]
+        sprawdz("kwota minimalna z bazy %s: żaden odcinek nie jest krótszy niż linia prosta" % _baza20,
+                bool(_plan20) and not _pod20, str(_pod20[:2]))
+        _powtorki20 = [_n for _n, _k in _col20.Counter(
+            _e20.dokad for _d20 in _plan20 for _e20 in _d20.etapy_surowe).items() if _k > 1]
+        sprawdz("kwota minimalna z bazy %s: jedna trasa nie odwiedza miejscowości dwa razy" % _baza20,
+                len(_powtorki20) <= 1, str(_powtorki20[:3]))
+
+except Exception as _e20:
+    sprawdz("baza miejscowości", False, repr(_e20))
+    import traceback as _tb20
+    _tb20.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

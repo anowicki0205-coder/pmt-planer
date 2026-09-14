@@ -44,9 +44,19 @@ CO JEST PRAWDZIWE
     · stan odległości      stan_zrodla_odleglosci przy kwocie i na tacy
 
 CO JEST SZACUNKIEM (do chwili wygenerowania)
-    podglad_miesiaca() — rozkład kwoty na dni liczony tymi samymi wzorami co
-    silnik, ale bez układania tras. Po wygenerowaniu podgląd znika, a jego
-    miejsce zajmuje prawdziwy wynik przetłumaczony przez dni_widzetow_z_tras().
+    podglad_miesiaca() — miesiąc rozpisany REGUŁAMI silnika, ale na sucho:
+    bez sieci, bez pamięci dróg i bez skutków ubocznych generuj_trasy.
+    Przeniesione reguły: liczba dokumentów i dni (ile_dni_wyjazdowych),
+    kierunek dnia z rotacji sektorów, pierścień startu, karencja
+    miejscowości, pojemność doby jako sufit dnia, rozciąganie kilometrów do
+    kwoty mnożnikiem z przedziału [MNOZNIK_MIN, sufit dnia] osobnym dla
+    każdego dnia, przycinanie najdłuższych dni i podział dni na dokumenty
+    (PMT._podziel_na_dokumenty). Dlatego dni podglądu mają RÓŻNE kwoty,
+    różne kilometry i różne miejscowości, a żaden nie przekracza tego, co
+    da się przejechać w ciągu doby. Losowanie jest zasiane wejściem, więc
+    to samo wejście daje ten sam podgląd. Po wygenerowaniu podgląd znika,
+    a jego miejsce zajmuje prawdziwy wynik przetłumaczony przez
+    dni_widzetow_z_tras().
 
 CZEGO JESZCZE NIE MA — sekcja „NIEPODŁĄCZONE" na końcu pliku.
 """
@@ -54,6 +64,7 @@ CZEGO JESZCZE NIE MA — sekcja „NIEPODŁĄCZONE" na końcu pliku.
 import datetime
 import math
 import os
+import random
 import re
 import sys
 
@@ -111,8 +122,8 @@ KATALOG_PROTOTYPU = _wepnij_prototyp()
 
 from PyQt6.QtCore import (Qt, QEvent, QPoint, QPointF, QRectF,     # noqa: E402
                           QTimer, pyqtSignal)
-from PyQt6.QtGui import (QBrush, QColor, QCursor, QPainter,        # noqa: E402
-                         QPainterPath, QPen)
+from PyQt6.QtGui import (QBrush, QColor, QCursor, QLinearGradient,  # noqa: E402
+                         QPainter, QPainterPath, QPen)
 from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,       # noqa: E402
                              QCheckBox, QComboBox, QFrame, QHBoxLayout,
                              QLabel, QLineEdit, QMenu, QMessageBox,
@@ -137,7 +148,11 @@ import pmt_dokumenty as DOK                                        # noqa: E402
 #  które dotyczą samego rysowania i podglądu.
 # ═══════════════════════════════════════════════════════════════════════
 STANOWISKA = ("merchandiser", "KR")   # te same pozycje, co w App (linia 19188)
-MIAST_NA_MAPIE = 28            # ile miast rysuje mapa (reszta tylko zaśmieca)
+MIAST_NA_MAPIE = 28            # tyle miast dokłada mapa do gotowego wyniku
+# Podgląd wybiera przystanki z TEJ puli. Przy 28 miastach ta sama wieś
+# wracała po kilkanaście razy w miesiącu; silnik ma w tym samym miejscu
+# 96–104 miejscowości w promieniu pętli, więc tyle bierzemy i tutaj.
+MIAST_PODGLADU = 64            # pula miast podglądu (i świata mapy przed generowaniem)
 MIAST_PRZY_BAZIE = 10          # z tego tyle spod samej bazy — tam jeżdżą krótkie dni
 KM_NA_JEDNOSTKE = 235.0        # 1,0 w układzie mapy = tyle kilometrów
 GODZINA_STARTU = 7 * 60        # podgląd: wyjazd z bazy
@@ -439,7 +454,7 @@ def ustaw_swiat_mapy(geo, baza_nazwa, baza_lat, baza_lng, profil=None):
 PROMIEN_MAPY_KM = 115.0        # tyle terenu pokazuje mapa wokół bazy
 
 
-def miasta_wokol_bazy(baza_nazwa, baza_lat, baza_lng, woj, ile=MIAST_NA_MAPIE,
+def miasta_wokol_bazy(baza_nazwa, baza_lat, baza_lng, woj, ile=MIAST_PODGLADU,
                       promien=PROMIEN_MAPY_KM):
     """Miasta z PRAWDZIWEJ bazy programu wokół bazy: {nazwa: (lat, lng)}.
 
@@ -516,21 +531,21 @@ def ile_dni_wyjazdowych(kwota, stawka, dostepnych, limit_dnia):
     """Liczba dni wyjazdowych — ten sam rachunek co w generuj_trasy.
 
     Najpierw dokumenty (kwota przez sufit dokumentu), potem dni w jednym
-    dokumencie (kwota dokumentu przez pojemność doby), na końcu dolny próg
-    trzech dni — jak w silniku."""
+    dokumencie (kwota dokumentu przez pojemność doby), potem sufit wierszy
+    strony A4 — jeśli dni się na niej nie mieszczą, dokumentów musi być
+    więcej — a na końcu dolny próg trzech dni. Kolejność jak w silniku."""
     if kwota <= 0 or stawka <= 0 or dostepnych <= 0:
         return 0
     sufit = max(PMT.pojemnosc_dnia_zl(PMT.POSTOJE_TYPOWE, stawka, limit_dnia),
                 PMT.MIN_KWOTA)
+    z_wierszy = max(1, PMT.MAX_ETAPOW_DOKUMENTU // (PMT.POSTOJE_TYPOWE + 1))
     dokumentow = PMT.ile_dokumentow(kwota)
     w_dokumencie = max(1, math.ceil((kwota / dokumentow - 0.005) / sufit))
+    if w_dokumencie > z_wierszy:
+        w_dokumencie = z_wierszy
+        dokumentow = max(dokumentow,
+                         math.ceil((kwota - 0.005) / (w_dokumencie * sufit)))
     return max(1, min(dostepnych, max(3, dokumentow * w_dokumencie)))
-
-
-def _rozdziel_rowno(kwota, ile):
-    grosze = int(round(kwota * 100))
-    baza, reszta = divmod(grosze, max(1, ile))
-    return [(baza + (1 if i < reszta else 0)) / 100.0 for i in range(ile)]
 
 
 def _rozloz_rownomiernie(kandydaci, ile):
@@ -547,51 +562,224 @@ def _rozloz_rownomiernie(kandydaci, ile):
     return [kandydaci[i] for i in indeksy[:ile]]
 
 
-SEKTOROW_PODGLADU = 8          # na tyle kierunków dzielimy okolicę bazy
+# ═══════════════════════════════════════════════════════════════════════
+#  PODGLĄD DNI — REGUŁY SILNIKA NA SUCHO
+#
+#  Podgląd NIE woła generuj_trasy: jedno wywołanie to 36–145 zapytań
+#  o drogi, a zegar kwoty odpala przeliczenie po każdym klawiszu — okno
+#  stanęłoby przy pisaniu. Zamiast tego przenosimy tu te reguły silnika,
+#  które widać na ekranie:
+#    · kierunek dnia z rotacji sektorów i pierścień, z którego rusza dzień,
+#    · karencję miejscowości (ta sama wieś nie wraca co drugi dzień),
+#    · pojemność doby (posiłek + postoje + jazda) jako sufit dnia,
+#    · rozciąganie kilometrów do kwoty mnożnikiem z przedziału
+#      [MNOZNIK_MIN, sufit dnia] — osobnym dla każdego dnia,
+#    · przycinanie najdłuższych dni, gdy kilometrów wyszło za dużo,
+#    · podział dni na dokumenty sufitem kwoty i wierszy strony A4.
+#  Losowanie jest zasiane wejściem (kwota, miesiąc, tryb, baza, stawka,
+#  dni bez pracy), więc to samo wejście daje ten sam podgląd i taśma nie
+#  miga przy przeliczaniu.
+# ═══════════════════════════════════════════════════════════════════════
+
+KARENCJA_PODGLADU = (35, 14, 8)   # drabinka odpoczynku miejscowości z silnika
+ZAPAS_DNI_PODGLADU = 2            # tyle dni ponad plan rozpisuje silnik
+ZAPAS_KM_PODGLADU = 1.04          # ... i tyle pojemności ponad kwotę
+CELE_DNIA_PODGLADU = (5, 7)       # tylu przystanków szuka dzień (zakres silnika)
+MIN_POSTOJOW_DNIA = 2             # niżej silnik już nie schodzi przy przycinaniu
+PROB_DNIA_PODGLADU = 8            # tyle podejść do ułożenia jednego dnia
 
 
-def _sektor_miasta(lat, lng, baza_lat, baza_lng):
-    kat = math.degrees(math.atan2(lng - baza_lng, lat - baza_lat)) % 360.0
-    return int(kat // (360.0 / SEKTOROW_PODGLADU))
+def _karencja_podgladu(ile_miast, ile_dni):
+    """Ile dni miejscowość odpoczywa, zanim wolno ją powtórzyć.
+
+    Ta sama drabinka co w generuj_trasy: gdy miast starczy na wszystkie dni
+    bez powtórek — 35 dni, czyli cały miesiąc; gdy jest ciaśniej — 14, a
+    w najrzadszych rejonach 8."""
+    ile_dni = max(1, int(ile_dni))
+    if ile_miast >= ile_dni * 6:
+        return KARENCJA_PODGLADU[0]
+    if ile_miast >= ile_dni * 3:
+        return KARENCJA_PODGLADU[1]
+    return KARENCJA_PODGLADU[2]
 
 
-def _trasa_podgladu(cel_km, geo, baza_nazwa, ziarno):
-    """Pętla z prawdziwych miast o długości zbliżonej do celu.
+def _ziarno_podgladu(kwota, rok, miesiac, tryb, stawka, baza_nazwa, wylaczone):
+    """Klucz losowania: to samo wejście → ten sam podgląd (taśma nie miga)."""
+    return "|".join(("%d" % int(round(float(kwota) * 100)),
+                     "%04d-%02d" % (int(rok), int(miesiac)), str(tryb),
+                     "%d" % int(round(float(stawka) * 10000)), str(baza_nazwa),
+                     ",".join("%d" % n for n in sorted(wylaczone or ()))))
 
-    Najpierw kierunek (kolejne dni jadą w kolejne strony świata — tak jak
-    silnik rozdziela sektory), potem zachłannie najbliższy jeszcze
-    nieodwiedzony sąsiad, dopóki powrót do bazy mieści się w kilometrach
-    dnia. Prawdziwy dobór (sieci, karencja miast, limit czasu) robi
-    generuj_trasy — tu chodzi wyłącznie o skalę i kierunek."""
-    if cel_km <= 1.0 or baza_nazwa not in geo:
+
+def _miasta_podgladu(geo, baza_nazwa, promien):
+    """Miasta w zasięgu pętli dziennej: (nazwa, lat, lng, odległość, sektor)."""
+    if baza_nazwa not in geo:
         return []
     baza_lat, baza_lng = geo[baza_nazwa]
-    inne = [n for n in geo if n != baza_nazwa]
-    if not inne:
-        return []
-    sektor = int(ziarno) % SEKTOROW_PODGLADU
-    w_sektorze = [n for n in inne
-                  if _sektor_miasta(geo[n][0], geo[n][1], baza_lat, baza_lng) == sektor]
-    pula = w_sektorze or inne
-    start = min(pula, key=lambda n: PMT.oblicz_dystans(baza_lat, baza_lng, *geo[n]))
+    wynik = []
+    for nazwa, wspolrzedne in geo.items():
+        if nazwa == baza_nazwa:
+            continue
+        lat, lng = wspolrzedne[0], wspolrzedne[1]
+        odleglosc = PMT.oblicz_dystans(baza_lat, baza_lng, lat, lng)
+        if odleglosc < PMT.MIN_ODLEGLOSC_OD_BAZY or odleglosc > promien:
+            continue
+        wynik.append((nazwa, lat, lng, odleglosc,
+                      PMT.wyznacz_sektor(lat, lng, baza_lat, baza_lng)))
+    wynik.sort(key=lambda m: (m[3], m[0]))     # stała kolejność = powtarzalność
+    return wynik
 
-    trasa, biezacy = [start], start
-    przebyte = PMT.oblicz_dystans(baza_lat, baza_lng, *geo[start])
-    while len(trasa) < PMT.MAX_MIEJSCOWOSCI_DZIEN:
-        lat, lng = geo[biezacy]
-        wolne = [n for n in inne if n not in trasa]
-        if not wolne:
+
+def _promien_podgladu(miasta_blisko, ile_dni):
+    """Promień pętli: ciasny tam, gdzie miast pod bazą dużo — jak w silniku."""
+    return PMT.MAX_PROMIEN_PETLI_KM if miasta_blisko >= max(12, ile_dni) \
+        else PROMIEN_MAPY_KM
+
+
+def _petla_podgladu(miasta, sektor, pierscien, max_skok, ile_celow,
+                    zajete, rng):
+    """Jedna pętla dzienna: start w zadanym kierunku, potem najbliższy wolny
+    sąsiad — łańcuch „po drodze" z generuj_trasy.
+
+    Pierścień ogranicza CAŁY dzień, nie sam punkt startowy: dzień „gniazdo"
+    ma być ciasną pętlą pod bazą, a nie łańcuchem, który krótkimi skokami
+    wywędrował na drugi koniec województwa.
+
+    `zajete` to miejscowości na karencji. Gdy karencja nie zostawia nic,
+    wracamy do pełnej puli: lepiej powtórzyć wieś niż pokazać pusty dzień."""
+    w_zasiegu = [m for m in miasta if m[3] <= pierscien[1]] or list(miasta)
+    wolne = [m for m in w_zasiegu if m[0] not in zajete] or list(w_zasiegu)
+    if not wolne:
+        return []
+    obok = (PMT.SEKTORY_KOLEJNOSC[(PMT.SEKTORY_KOLEJNOSC.index(sektor) - 1) % 8],
+            PMT.SEKTORY_KOLEJNOSC[(PMT.SEKTORY_KOLEJNOSC.index(sektor) + 1) % 8])
+    srodek = (pierscien[0] + pierscien[1]) / 2.0
+    wagi = []
+    for _n, _la, _lg, odleglosc, sek in wolne:
+        waga = 0.001 if odleglosc < pierscien[0] - 8.0 \
+            else 1000.0 / (abs(odleglosc - srodek) + 8.0)
+        if sek == sektor:
+            waga *= 1000.0
+        elif sek in obok:
+            waga *= 12.0
+        else:
+            waga *= 0.05
+        wagi.append(waga)
+    trasa = [rng.choices(wolne, weights=wagi, k=1)[0]]
+    uzyte = {trasa[0][0]}
+    while len(trasa) < ile_celow:
+        _n, lat, lng, _o, _s = trasa[-1]
+        najlepszy, najlepsza = None, max_skok
+        for kandydat in wolne:
+            if kandydat[0] in uzyte:
+                continue
+            skok = PMT.oblicz_dystans(lat, lng, kandydat[1], kandydat[2])
+            if skok < 4.0 or skok >= najlepsza:
+                continue          # to praktycznie ten sam punkt albo za daleko
+            najlepszy, najlepsza = kandydat, skok
+        if najlepszy is None:
             break
-        nastepny = min(wolne, key=lambda n: PMT.oblicz_dystans(lat, lng, *geo[n]))
-        skok = PMT.oblicz_dystans(lat, lng, *geo[nastepny])
-        powrot = PMT.oblicz_dystans(geo[nastepny][0], geo[nastepny][1],
-                                    baza_lat, baza_lng)
-        if przebyte + skok + powrot > cel_km:
+        trasa.append(najlepszy)
+        uzyte.add(najlepszy[0])
+    return [m[0] for m in trasa]
+
+
+def km_petli_podgladu(geo, baza_nazwa, przystanki):
+    """Kilometry pętli baza → przystanki → baza, w linii prostej."""
+    if not przystanki or baza_nazwa not in geo:
+        return 0.0
+    baza_lat, baza_lng = geo[baza_nazwa][0], geo[baza_nazwa][1]
+    lat, lng, km = baza_lat, baza_lng, 0.0
+    for nazwa in przystanki:
+        cel = geo.get(nazwa)
+        if not cel:
+            continue
+        km += PMT.oblicz_dystans(lat, lng, cel[0], cel[1])
+        lat, lng = cel[0], cel[1]
+    return km + PMT.oblicz_dystans(lat, lng, baza_lat, baza_lng)
+
+
+def _uporzadkuj_petle(geo, baza_nazwa, przystanki):
+    """Kolejność przystanków bez przeplotów — dwuoptymalizacja pętli.
+
+    Silnik szuka najlepszej kolejności przeglądem wszystkich permutacji
+    (optymalizuj_tsp): przy siedmiu punktach to pięć tysięcy przebiegów na
+    jeden dzień, a podgląd przelicza się po każdym klawiszu. Dwuoptymalizacja
+    (odwracanie odcinków, dopóki pętla się skraca) daje ten sam efekt —
+    trasa nie krzyżuje samej siebie — za ułamek pracy."""
+    kolejnosc = list(przystanki)
+    if len(kolejnosc) < 3:
+        return kolejnosc
+    najkrotsza = km_petli_podgladu(geo, baza_nazwa, kolejnosc)
+    for _ in range(6):
+        poprawiono = False
+        for i in range(len(kolejnosc) - 1):
+            for j in range(i + 1, len(kolejnosc)):
+                proba = kolejnosc[:i] + kolejnosc[i:j + 1][::-1] + kolejnosc[j + 1:]
+                dlugosc = km_petli_podgladu(geo, baza_nazwa, proba)
+                if dlugosc < najkrotsza - 0.01:
+                    kolejnosc, najkrotsza, poprawiono = proba, dlugosc, True
+        if not poprawiono:
             break
-        przebyte += skok
-        trasa.append(nastepny)
-        biezacy = nastepny
-    return trasa
+    return kolejnosc
+
+
+def _wolne_minuty_dnia(postoje):
+    """Ile minut doby zostaje na jazdę po posiłku i postojach."""
+    return (PMT.LIMIT_CZASU_MINUTY - PMT.PRZERWA_JEDZENIE_MIN
+            - max(0, int(postoje)) * PMT.POSTOJ_SREDNI_MIN)
+
+
+def _mnoznik_max_podgladu(km, postoje, stawka, limit_dnia):
+    """Do ilu wolno rozciągnąć dzień: godziny doby i sufit kwoty dnia.
+
+    Ten sam rachunek, co _mnoznik_max_dnia w silniku — z tą różnicą, że
+    sufit kwoty bierzemy z ustawienia okna, a nie zawsze z MAX_KWOTA_DNIA."""
+    wolne = _wolne_minuty_dnia(postoje)
+    if wolne <= 0 or km <= 0 or stawka <= 0:
+        return PMT.MNOZNIK_MIN
+    z_godzin = (wolne / 60.0) * PMT.SREDNIA_PREDKOSC / km
+    z_limitu = (float(limit_dnia) / float(stawka)) / km
+    return max(PMT.MNOZNIK_MIN, min(z_godzin, z_limitu))
+
+
+def _przytnij_do_doby(geo, baza_nazwa, przystanki):
+    """Zdejmuje ostatnie postoje, dopóki dzień nie mieści się w dobie przy
+    realnej drodze (MNOZNIK_MIN) — krok 0 przycinania z silnika."""
+    przystanki = list(przystanki)
+    while len(przystanki) > MIN_POSTOJOW_DNIA:
+        km = km_petli_podgladu(geo, baza_nazwa, przystanki)
+        wolne = _wolne_minuty_dnia(len(przystanki))
+        if wolne > 0 and km * PMT.MNOZNIK_MIN <= (wolne / 60.0) * PMT.SREDNIA_PREDKOSC:
+            break
+        przystanki.pop()
+    return przystanki
+
+
+class _DzienDoDokumentu:
+    """Atrapa dnia dla PMT._podziel_na_dokumenty — ten sam podział, co w PDF."""
+    __slots__ = ("suma", "etapy", "dokument")
+
+    def __init__(self, suma, etapow):
+        self.suma = float(suma)
+        self.etapy = [None] * max(1, int(etapow))
+        self.dokument = 0
+
+
+def numery_dokumentow(kwoty, etapy):
+    """Numer polecenia wyjazdu dla każdego dnia — regułą z generowania PDF-ów.
+
+    Sufit kwoty dokumentu i sufit wierszy strony A4 liczy sam silnik
+    (_podziel_na_dokumenty), więc podgląd rozpada się na tyle samo
+    dokumentów, ile wyjdzie plików."""
+    atrapy = [_DzienDoDokumentu(k, e) for k, e in zip(kwoty, etapy)]
+    if not atrapy:
+        return []
+    try:
+        PMT._podziel_na_dokumenty(atrapy)
+    except Exception:
+        return [1] * len(atrapy)
+    return [a.dokument or 1 for a in atrapy]
 
 
 def _hhmm(minuty):
@@ -606,13 +794,221 @@ def _godziny_podgladu(km, postoje):
     return _hhmm(GODZINA_STARTU), _hhmm(koniec)
 
 
+def _rozciagnij_dni(plan, cel_km):
+    """Mnożnik każdego dnia — dokładnie tak, jak skaluje kilometry silnik.
+
+    Wszystkie dni ruszają tym samym mnożnikiem (kilometry tego samego
+    odcinka nie mogą zależeć od dnia), dzień bez godzin zatrzymuje się na
+    swoim suficie, a brakujące kilometry dolewamy tam, gdzie zapas został."""
+    if not plan:
+        return
+    suma_km = max(sum(d["km"] for d in plan), 1.0)
+    start = max(PMT.MNOZNIK_MIN, cel_km / suma_km)
+    for d in plan:
+        d["mn"] = max(PMT.MNOZNIK_MIN, min(start, d["max"]))
+    for _ in range(24):
+        brak = cel_km - sum(d["km"] * d["mn"] for d in plan)
+        if brak <= 0.5:
+            break
+        zapas = [d for d in plan if d["max"] - d["mn"] > 1e-6 and d["km"] > 0]
+        if not zapas:
+            break
+        pojemnosc = sum((d["max"] - d["mn"]) * d["km"] for d in zapas)
+        if pojemnosc <= 0:
+            break
+        udzial = min(1.0, brak / pojemnosc)
+        for d in zapas:
+            d["mn"] += (d["max"] - d["mn"]) * udzial
+
+
+def _dosyp_grosze(plan, brak):
+    """Grosze brakujące do zamówionej kwoty rozdaje tam, gdzie dzień ma
+    jeszcze zapas do swojego sufitu; nadmiar zdejmuje tak samo.
+
+    Kolejność jest stała, więc podgląd tej samej kwoty wychodzi zawsze tak
+    samo. Gdy zapasu nie ma — kwota nie mieści się w miesiącu — zostaje
+    reszta, której podgląd świadomie NIE dorysowuje."""
+    if not plan or not brak:
+        return brak
+    znak = 1 if brak > 0 else -1
+    brak = abs(int(brak))
+    for _ in range(8):
+        if not brak:
+            break
+        luz = [(d, (d["sufit_gr"] - d["gr"]) if znak > 0 else (d["gr"] - d["dol_gr"]))
+               for d in plan]
+        luz = [(d, ile) for d, ile in luz if ile > 0]
+        if not luz:
+            break
+        razem = sum(ile for _d, ile in luz)
+        if razem <= brak:
+            for d, ile in luz:
+                d["gr"] += znak * ile
+            brak -= razem
+            continue
+        rozdane = 0
+        for d, ile in luz:
+            porcja = int(brak * ile // razem)
+            d["gr"] += znak * porcja
+            rozdane += porcja
+        reszta = brak - rozdane
+        for d, ile in luz:
+            if reszta <= 0:
+                break
+            if (d["sufit_gr"] - d["gr"]) if znak > 0 else (d["gr"] - d["dol_gr"]):
+                d["gr"] += znak
+                reszta -= 1
+        brak = reszta
+    return znak * brak
+
+
+def plan_podgladu(kwota, rok, miesiac, tryb, wylaczone, stawka, geo,
+                  baza_nazwa, limit_dnia):
+    """Dni podglądu jako słowniki — serce podglądu, bez widżetów.
+
+    Zwraca listę {data, przystanki, km, kwota, dokument} ułożoną datami.
+    Osobno od podglad_miesiaca, bo tego samego rachunku pilnują testy."""
+    kwota = max(0.0, float(kwota or 0.0))
+    stawka = float(stawka or 0.0)
+    if kwota < PMT.MIN_KWOTA or stawka <= 0 or baza_nazwa not in (geo or {}):
+        return []
+    wylaczone = set(wylaczone or ())
+    kandydaci = [d for d in dni_robocze_realne(rok, miesiac, tryb)
+                 if d.day not in wylaczone]
+    if not kandydaci:
+        return []
+    ile = ile_dni_wyjazdowych(kwota, stawka, len(kandydaci), limit_dnia)
+    if not ile:
+        return []
+
+    baza_lat, baza_lng = geo[baza_nazwa][0], geo[baza_nazwa][1]
+    blisko = sum(1 for nazwa, wsp in geo.items()
+                 if nazwa != baza_nazwa
+                 and PMT.oblicz_dystans(baza_lat, baza_lng, wsp[0], wsp[1])
+                 <= PMT.MAX_PROMIEN_PETLI_KM)
+    promien = _promien_podgladu(blisko, len(kandydaci))
+    miasta = _miasta_podgladu(geo, baza_nazwa, promien)
+    if not miasta:
+        return []
+    karencja = _karencja_podgladu(len(miasta), len(kandydaci))
+    max_skok = PMT.max_skok_bazowy(promien)
+    rng = random.Random(_ziarno_podgladu(kwota, rok, miesiac, tryb, stawka,
+                                         baza_nazwa, wylaczone))
+
+    # dni budowane: plan plus dwa dni zapasu — dokładnie jak w silniku
+    budowane = min(len(kandydaci), ile + (ZAPAS_DNI_PODGLADU if ile > 1 else 0))
+    wybrane = _rozloz_rownomiernie(kandydaci, budowane)
+    kolejnosc = wybrane + [d for d in kandydaci if d not in wybrane]
+
+    cel_km = kwota / stawka
+    plan, ostatnie, pojemnosc = [], {}, 0.0
+    for numer, data in enumerate(kolejnosc):
+        if len(plan) >= budowane and pojemnosc >= cel_km * ZAPAS_KM_PODGLADU:
+            break         # dość dni ORAZ pojemności na całą kwotę
+        sektor = PMT.SEKTORY_KOLEJNOSC[(numer * 3) % len(PMT.SEKTORY_KOLEJNOSC)]
+        if numer % 3 == 0:            # ciasna pętla pod bazą
+            pierscien, skok = (15.0, min(45.0, promien)), min(24.0, max_skok)
+        elif numer % 3 == 1:          # dojazd w dalszy rejon
+            pierscien, skok = (min(45.0, promien * 0.6), promien), max_skok
+        else:                         # dzień „po drodze"
+            pierscien, skok = (25.0, promien * 0.75), max_skok
+        zajete = {nazwa for nazwa, kiedy in ostatnie.items()
+                  if (data - kiedy).days < karencja}
+        # kilka podejść, jak w silniku: każde nieudane rozluźnia maksymalny
+        # skok, bo start trafiony w pustkę nie ma dokąd pojechać
+        przystanki = []
+        for proba in range(PROB_DNIA_PODGLADU):
+            kandydat = _przytnij_do_doby(geo, baza_nazwa, _uporzadkuj_petle(
+                geo, baza_nazwa, _petla_podgladu(
+                    miasta, sektor, pierscien, skok * (1.0 + proba * 0.15),
+                    rng.randint(*CELE_DNIA_PODGLADU), zajete, rng)))
+            if len(kandydat) >= MIN_POSTOJOW_DNIA:
+                przystanki = kandydat
+                break
+        if not przystanki:
+            continue
+        km = km_petli_podgladu(geo, baza_nazwa, przystanki)
+        if km <= 1.0:
+            continue
+        sufit = _mnoznik_max_podgladu(km, len(przystanki), stawka, limit_dnia)
+        plan.append({"data": data, "przystanki": przystanki, "km": km,
+                     "max": sufit, "mn": PMT.MNOZNIK_MIN})
+        pojemnosc += km * sufit
+        for nazwa in przystanki:
+            ostatnie[nazwa] = data
+
+    if not plan:
+        return []
+
+    # za dużo kilometrów na tę kwotę: odpadają najdłuższe dni, a gdy reszta
+    # przestałaby kwotę udźwignąć — najdłuższy dzień traci ostatni postój
+    while len(plan) > 1 and \
+            sum(d["km"] for d in plan) * PMT.MNOZNIK_MIN > cel_km + 0.5:
+        najdluzszy = max(plan, key=lambda d: (d["km"], -len(d["przystanki"])))
+        moc_reszty = sum(d["km"] * d["max"] for d in plan if d is not najdluzszy)
+        if moc_reszty >= cel_km:
+            plan.remove(najdluzszy)
+            continue
+        if len(najdluzszy["przystanki"]) <= MIN_POSTOJOW_DNIA:
+            break
+        najdluzszy["przystanki"] = najdluzszy["przystanki"][:-1]
+        najdluzszy["km"] = km_petli_podgladu(geo, baza_nazwa,
+                                             najdluzszy["przystanki"])
+        najdluzszy["max"] = _mnoznik_max_podgladu(
+            najdluzszy["km"], len(najdluzszy["przystanki"]), stawka, limit_dnia)
+
+    # został jeden dzień i nadal jest za długi: mniej postojów — krok 2
+    # przycinania z silnika. Bez tego najmniejsze kwoty wychodziły WYŻSZE
+    # od zamówionej, bo krótszej trasy niż jedna pętla już nie ma.
+    if len(plan) == 1:
+        jedyny = plan[0]
+        while (jedyny["km"] * PMT.MNOZNIK_MIN > cel_km + 0.5
+               and len(jedyny["przystanki"]) > MIN_POSTOJOW_DNIA):
+            jedyny["przystanki"] = jedyny["przystanki"][:-1]
+            jedyny["km"] = km_petli_podgladu(geo, baza_nazwa, jedyny["przystanki"])
+        if (jedyny["km"] * PMT.MNOZNIK_MIN > cel_km + 0.5
+                and len(miasta) >= MIN_POSTOJOW_DNIA):
+            # najkrótsza pętla, jaka w ogóle istnieje: dwie najbliższe
+            # miejscowości (miasta są ułożone odległością od bazy)
+            najblizsze = [m[0] for m in miasta[:MIN_POSTOJOW_DNIA]]
+            krocej = km_petli_podgladu(geo, baza_nazwa, najblizsze)
+            if 0 < krocej < jedyny["km"]:
+                jedyny["przystanki"], jedyny["km"] = najblizsze, krocej
+        jedyny["max"] = _mnoznik_max_podgladu(
+            jedyny["km"], len(jedyny["przystanki"]), stawka, limit_dnia)
+
+    _rozciagnij_dni(plan, cel_km)
+
+    # kwoty w groszach: dzień nie przekracza swojego sufitu ani nie schodzi
+    # poniżej realnej drogi, a suma dobija co do grosza do zamówionej kwoty
+    for d in plan:
+        d["dol_gr"] = int(math.ceil(d["km"] * PMT.MNOZNIK_MIN * stawka * 100 - 1e-6))
+        d["sufit_gr"] = int(math.floor(d["km"] * d["max"] * stawka * 100 + 1e-6))
+        if d["sufit_gr"] < d["dol_gr"]:
+            d["sufit_gr"] = d["dol_gr"]
+        d["gr"] = min(max(int(round(d["km"] * d["mn"] * stawka * 100)),
+                          d["dol_gr"]), d["sufit_gr"])
+    _dosyp_grosze(plan, int(round(kwota * 100)) - sum(d["gr"] for d in plan))
+
+    plan.sort(key=lambda d: d["data"])
+    numery = numery_dokumentow([d["gr"] / 100.0 for d in plan],
+                               [len(d["przystanki"]) + 1 for d in plan])
+    wynik = []
+    for d, nr in zip(plan, numery):
+        kwota_dnia = d["gr"] / 100.0
+        wynik.append({"data": d["data"], "przystanki": list(d["przystanki"]),
+                      "km": kwota_dnia / stawka, "kwota": kwota_dnia,
+                      "dokument": int(nr)})
+    return wynik
+
+
 def podglad_miesiaca(kwota, rok, miesiac, tryb, wylaczone, stawka, geo,
                      baza_nazwa, limit_dnia):
     """SZACUNEK miesiąca przed generowaniem — obiekty dla widżetów.
 
-    Liczba dni i górna granica kwoty są liczone wzorami z silnika, trasy są
-    tylko poglądowe. Prawdziwy rozkład powstaje w generuj_trasy i wchodzi tu
-    przez dni_widzetow_z_tras()."""
+    Liczba dni, kwoty, kilometry i numery dokumentów wychodzą z reguł
+    silnika (plan_podgladu); trasy są poglądowe. Prawdziwy rozkład powstaje
+    w generuj_trasy i wchodzi tu przez dni_widzetow_z_tras()."""
     ile_w_miesiacu = PMT.calendar.monthrange(rok, miesiac)[1]
     wylaczone = set(wylaczone or ())
     wszystkie = {}
@@ -622,28 +1018,17 @@ def podglad_miesiaca(kwota, rok, miesiac, tryb, wylaczone, stawka, geo,
         wszystkie[numer] = dzien
     lista = [wszystkie[n] for n in range(1, ile_w_miesiacu + 1)]
 
-    kwota = max(0.0, float(kwota or 0.0))
-    if kwota < PMT.MIN_KWOTA:
-        return lista
-    kandydaci = [d for d in dni_robocze_realne(rok, miesiac, tryb)
-                 if d.day not in wylaczone]
-    if not kandydaci:
-        return lista
-
-    ile = ile_dni_wyjazdowych(kwota, stawka, len(kandydaci), limit_dnia)
-    if not ile:
-        return lista
-    daty = _rozloz_rownomiernie(kandydaci, ile)
-    kwoty = _rozdziel_rowno(kwota, len(daty))
-    for numer, (data, kwota_dnia) in enumerate(zip(daty, kwoty)):
-        km = kwota_dnia / stawka
-        dzien = wszystkie[data.day]
+    for wpis in plan_podgladu(kwota, rok, miesiac, tryb, wylaczone, stawka,
+                              geo, baza_nazwa, limit_dnia):
+        dzien = wszystkie.get(wpis["data"].day)
+        if dzien is None:
+            continue
         dzien.wolny = False
-        dzien.przystanki = _trasa_podgladu(km, geo, baza_nazwa, numer)
-        dzien.km = round(km, 1)
-        dzien.kwota = round(kwota_dnia, 2)
-        dzien.dokument = 0
-        dzien.start, dzien.koniec = _godziny_podgladu(km, dzien.postoje)
+        dzien.przystanki = wpis["przystanki"]
+        dzien.km = round(wpis["km"], 1)
+        dzien.kwota = round(wpis["kwota"], 2)
+        dzien.dokument = wpis["dokument"]
+        dzien.start, dzien.koniec = _godziny_podgladu(dzien.km, dzien.postoje)
     return lista
 
 
@@ -746,6 +1131,25 @@ ETAPY_SILNIKA = (
     # układanie TRAS, a nie pobieranie danych bazy
     ("dane", ("współrzędn", "lokalizowanie")),
 )
+
+
+# „(Dzień 3/7)" i „(12/40)" — liczby biorą się z ostatniego nawiasu
+_ULAMEK_ETAPU = re.compile(r"(\d+)\s*/\s*(\d+)\s*\)")
+
+
+def postep_etapu(opis):
+    """Para (ile, z ilu) z meldunku silnika — np. „(Dzień 3/7)" → (3, 7).
+
+    Silnik sam liczy, przy którym dniu i przy którym pliku stoi. Taśma
+    bierze te liczby wprost od niego, zamiast zgadywać rytm z zegara.
+    """
+    m = _ULAMEK_ETAPU.search(str(opis or ""))
+    if m is None:
+        return None
+    ile, z_ilu = int(m.group(1)), int(m.group(2))
+    if z_ilu <= 0:
+        return None
+    return min(ile, z_ilu), z_ilu
 
 
 def etap_silnika(opis):
@@ -1016,8 +1420,18 @@ class NakladkaDzialu(Panel):
                 zrodlo = ""
         self.l_podtytul.setText(str(zrodlo or ""))
 
+    # Okno może wpiąć się tu na chwilę PRZED schowaniem panelu — tyle
+    # wystarczy, żeby zdjąć z niego obraz i pokazać, jak wsiąka w ikonę.
+    przed_zamknieciem = None
+
     def zamknij(self):
         if self.isVisible():
+            hak = self.przed_zamknieciem
+            if hak is not None:
+                try:
+                    hak()
+                except Exception:
+                    pass
             self.hide()
         self.zamknieto.emit()
 
@@ -1049,6 +1463,110 @@ class NakladkaDzialu(Panel):
         malarz.fillRect(self.rect(), QColor(5, 10, 20, 246))
         malarz.end()
         super().paintEvent(zdarzenie)
+
+
+class WyrastaniePanelu(QWidget):
+    """Panel wyrasta z klikniętej ikony na szynie i tam wraca.
+
+    Żeby wyrastanie kosztowało jedną klatkę, a nie przebudowę całego
+    panelu dwadzieścia razy na sekundę, panel jest raz przerysowywany do
+    pixmapy, a potem już tylko skalowany. Widżet leży NAD ramą panelu:
+    kiedy dobiega do końca, gaśnie i spod niego wychodzi prawdziwy panel,
+    który stał tam przez cały czas — dlatego nic nie mruga.
+    """
+
+    skonczone = pyqtSignal()
+
+    CZAS_WEJSCIA = 280            # ms — panel wychodzi z ikony
+    CZAS_WYJSCIA = 210            # ...i wraca do niej szybciej
+    ZASLONA = 246                 # tyle kryje tło ramy panelu (NakladkaDzialu)
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._obraz = None
+        self._skad = QRectF()
+        self._dokad = QRectF()
+        self._wstecz = False
+        self._ruch = S.Plynnie(0.0, czas=self.CZAS_WEJSCIA, krzywa="wyjscie",
+                               rodzic=self, przy_zmianie=self.update, klatka=16)
+        self._ruch.koniec.connect(self._koniec)
+        self.hide()
+
+    def gra(self):
+        return self.isVisible() and not self._ruch.gotowe()
+
+    def zacznij(self, obraz, skad, dokad, wstecz=False):
+        """``skad`` to pole ikony na szynie, ``dokad`` — pole gotowego panelu."""
+        self._obraz = obraz
+        self._skad = QRectF(skad)
+        self._dokad = QRectF(dokad)
+        self._wstecz = bool(wstecz)
+        self._ruch.ustaw_czas(self.CZAS_WYJSCIA if wstecz else self.CZAS_WEJSCIA)
+        self._ruch.zatrzymaj()
+        self._ruch.ustaw(0.0)
+        self.setGeometry(self.parentWidget().rect())
+        self.show()
+        self.raise_()
+        self._ruch.do(1.0)
+
+    def przerwij(self):
+        self._ruch.zatrzymaj()
+        self._obraz = None
+        self.hide()
+
+    def _koniec(self):
+        self._obraz = None
+        self.hide()
+        self.skonczone.emit()
+
+    @staticmethod
+    def _miedzy(a, b, t):
+        return QRectF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t,
+                      a.width() + (b.width() - a.width()) * t,
+                      a.height() + (b.height() - a.height()) * t)
+
+    def paintEvent(self, _zdarzenie):
+        if self._obraz is None:
+            return
+        t = max(0.0, min(1.0, self._ruch.teraz()))
+        widok = 1.0 - t if self._wstecz else t
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        # zasłona kładzie się TYLKO tam, gdzie stanie panel: szyna i pasek
+        # górny zostają jasne, bo one nigdzie nie znikają
+        p.fillRect(self._dokad, QColor(5, 10, 20, int(self.ZASLONA * widok)))
+        pole = self._miedzy(self._skad, self._dokad, widok)
+        promien = 6.0 + 12.0 * widok
+        obrys = QPainterPath()
+        obrys.addRoundedRect(pole, promien, promien)
+        p.save()
+        p.setClipPath(obrys)
+        p.setOpacity(0.10 + 0.90 * widok)
+        p.drawPixmap(pole, self._obraz, QRectF(self._obraz.rect()))
+        p.setOpacity(1.0)
+        # światło przechodzące po szkle — jeden przejazd na całe wyrastanie
+        self._polysk(p, pole, widok)
+        p.restore()
+        p.setPen(QPen(S.z_alfa(S.CYJAN, int(40 + 90 * (1.0 - widok))), 1.2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(obrys)
+        p.end()
+
+    def _polysk(self, p, pole, t):
+        """Pasmo światła przejeżdżające po szkle dokładnie raz."""
+        if t <= 0.02 or t >= 0.98 or pole.width() < 8.0:
+            return
+        szer = pole.width() * 0.42
+        x = pole.left() - szer + (pole.width() + szer * 2.0) * t
+        g = QLinearGradient(QPointF(x - szer * 0.5, pole.top()),
+                            QPointF(x + szer * 0.5, pole.bottom()))
+        moc = int(46 * math.sin(t * math.pi))
+        g.setColorAt(0.0, S.z_alfa(QColor(255, 255, 255), 0))
+        g.setColorAt(0.5, S.z_alfa(QColor(210, 240, 255), moc))
+        g.setColorAt(1.0, S.z_alfa(QColor(255, 255, 255), 0))
+        p.fillRect(pole, QBrush(g))
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1605,6 +2123,7 @@ class OknoNowegoWygladu(OknoPrototypu):
     USTAWIENIE_KWOTY = "nowy_kwota"
     USTAWIENIE_TRYBU = "nowy_tryb"
     USTAWIENIE_WOLNYCH = "nowy_dni_wolne"
+    USTAWIENIE_KARTKI = "nowy_kartka_zwinieta"
     PAMIEC_MIESIECY = 12          # ile miesięcy dni bez pracy zostaje w pliku
 
     def __init__(self, profil=None, rok=None, miesiac=None, rodzic=None,
@@ -1638,12 +2157,16 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._pracownik_silnika = None
         self._powod_bledu = ""
         self._etap_silnika = ""
+        self._praca_dni = None          # ile dni silnik zameldował jako gotowe
+        self._praca_dokumenty = None    # ...i ile plików PDF już napisał
         self._kwota_zamowiona = 0.0
         self._formularz_zamowiony = None
         self._osiagnieto = 0.0
         self._niepelna = False
         self._pole_pesel = None
         self._nakladka = None           # rama paneli nad nowym oknem
+        self._wyrastanie = None         # panel wyrastający z ikony na szynie
+        self._rama_w_ruchu = None       # rama schowana na czas wyrastania
         self._zegar_stylu = None        # pilnuje materiału w panelu
         self._ekran_startowy = None
         self._o_programie = None
@@ -1665,6 +2188,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._dodaj_mape_na_tace()
         self._zastosuj_konto()
         self._wolne = self._wolne_z_ustawien()
+        self.kartka.ustaw_zwiniecie(self._kartka_zwinieta_z_ustawien(), zglos=False)
+        self._uklad_mapy()
         self._przelicz_teraz(pierwszy=True)
 
         # Powiadomienia i komunikaty programu — ten sam mechanizm, co w starym
@@ -1741,7 +2266,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.baza_lat, self.baza_lng = wspolrzedne_bazy(
             self.baza_miasto, adres.get("adres_geo", ""), self.wojewodztwo)
         self.geo = miasta_wokol_bazy(self.baza_miasto, self.baza_lat,
-                                     self.baza_lng, self.wojewodztwo)
+                                     self.baza_lng, self.wojewodztwo,
+                                     MIAST_PODGLADU)
         ustaw_swiat_mapy(self.geo, self.baza_miasto, self.baza_lat,
                          self.baza_lng, self.profil)
 
@@ -1888,6 +2414,20 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._przelicz_teraz()
 
     # ── ustawienia widoku zapisane na dysku ──────────────────────────
+    def _kartka_zwinieta_z_ustawien(self):
+        """Czy kartka delegacji ma być zwinięta do brzegu — jak ją zostawiono."""
+        return bool(PMT.ustawienie(self.USTAWIENIE_KARTKI, False))
+
+    def _zapamietaj_zwiniecie_kartki(self, zwinieta):
+        """Zwinięcie kartki zostaje na następne uruchomienie."""
+        zwinieta = bool(zwinieta)
+        if bool(PMT.ustawienie(self.USTAWIENIE_KARTKI, False)) != zwinieta:
+            PMT.zapisz_ustawienie(self.USTAWIENIE_KARTKI, zwinieta)
+
+    def _przelacz_zwiniecie_kartki(self, zwinieta=False):
+        super()._przelacz_zwiniecie_kartki(zwinieta)
+        self._zapamietaj_zwiniecie_kartki(zwinieta)
+
     def _klucz_wolnych(self):
         return "%04d-%02d" % (self.rok, self.miesiac)
 
@@ -1966,8 +2506,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._zegar_kwoty.stop()
         self._powod_bledu = ""        # powód odmowy dotyczył poprzednich danych
         if pierwszy:
-            self.k_parametry.kwota.ustaw_tekst(
-                D.zl(self._wczytaj_widok(), grosze=False))
+            # kwota wraca z groszami — zapisano ją co do grosza
+            self.k_parametry.kwota.ustaw_tekst(D.zl(self._wczytaj_widok()))
         tryb = self.k_parametry.tryb.aktywna()
         self._maks_kwota = self._maks_miesiaca(tryb)
         self._za_duzo = bool(self._maks_kwota
@@ -2144,6 +2684,10 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._kwota_zamowiona = round(parametry["kwota_cel"], 2)
         self._formularz_zamowiony = self._snapshot_formularza()
         self._etap_silnika = "dane"
+        self._praca_dni = 0.0
+        self._praca_dokumenty = None
+        self.tasma.ustaw_prace(0.0)       # taśma czeka na pierwszy meldunek
+        self._zacznij_intro_generowania()
         self.k_kompas.TYTUL = "Przerwij"
         self.k_kompas.kompas.ustaw_stan("praca")
         self.ustaw_postep_pokazu(0.02)
@@ -2177,6 +2721,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         """Stan „nie da się" — nazwa albo liczba, bez zdań instruktażowych."""
         self._powod_bledu = str(powod or "")
         self._etap_silnika = ""
+        self._koniec_sekwencji()
         self.k_kompas.TYTUL = "Generuj dokumenty"
         self.k_kompas.kompas.ustaw_stan("blad" if blad else "ostrzezenie")
         self.k_kompas.kompas.setToolTip(self._powod_bledu)
@@ -2185,7 +2730,38 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     def _postep_generacji(self, tekst, ulamek):
         self._etap_silnika = etap_silnika(tekst)
+        self._postep_tasmy(tekst)
         self.ustaw_postep_pokazu(float(ulamek))
+
+    def _postep_tasmy(self, tekst):
+        """Kafle dni i klamry dokumentów zapalają się Z MELDUNKÓW SILNIKA.
+
+        Nie z zegara i nie z samego ułamka postępu: silnik mówi wprost
+        „Dzień 3/7" przy układaniu tras i „(2/6)" przy pisaniu plików, więc
+        taśma pokazuje dokładnie to, co się właśnie policzyło. Gdy akurat
+        melduje coś innego, ostatnia znana wartość zostaje — taśma nigdy
+        się nie cofa i nie miga.
+        """
+        film = getattr(self, "_intro_generowania", None)
+        if film is not None:
+            try:
+                film.ustaw_postep(self.k_kompas.kompas.postep())
+            except Exception:
+                pass
+        ile = postep_etapu(tekst)
+        dolny = str(tekst or "").lower()
+        if ile is not None and "dzień" in dolny:
+            self._praca_dni = ile[0] / float(ile[1])
+        elif self._etap_silnika == "PDF":
+            self._praca_dni = 1.0
+            if ile is not None:
+                self._praca_dokumenty = ile[0] / float(ile[1])
+        elif self._etap_silnika == "mapa":
+            self._praca_dni = 1.0
+            self._praca_dokumenty = 1.0
+        elif self._praca_dni is None:
+            self._praca_dni = 0.0
+        self.tasma.ustaw_prace(self._praca_dni, self._praca_dokumenty)
 
     def ustaw_postep_pokazu(self, t):
         """Łuk kompasu i plakietki etapów z meldunków silnika.
@@ -2209,6 +2785,67 @@ class OknoNowegoWygladu(OknoPrototypu):
              for i, nazwa in enumerate(OK.ETAPY)})
         kompas.ustaw_etap(OK.ETAPY[biezacy])
 
+    def ustaw_animacje(self, wlaczone):
+        """Jeden przełącznik gasi też to, co dokłada nowy wygląd.
+
+        Po zgaszeniu ekran ma wyglądać dokładnie tak, jak wyglądał przed
+        warstwą efektów: bez wyrastania paneli, bez fali pracy na taśmie
+        i bez życia na mapie. Na tym stoją powtarzalne zrzuty.
+        """
+        super().ustaw_animacje(wlaczone)
+        if wlaczone:
+            return
+        if self._wyrastanie is not None:
+            self._wyrastanie.przerwij()
+            self._po_wyrastaniu()
+        self._praca_dni = None
+        self._praca_dokumenty = None
+        try:
+            self.tasma.ustaw_prace(None)
+        except AttributeError:
+            pass
+        self._zakoncz_intro_generowania()
+
+    def _koniec_sekwencji(self):
+        """Koniec pracy silnika — taśma przestaje pokazywać postęp."""
+        self._praca_dni = None
+        self._praca_dokumenty = None
+        try:
+            self.tasma.ustaw_prace(None)
+        except AttributeError:
+            pass
+        self._zakoncz_intro_generowania()
+
+    # ── zaczep na intro: film w czasie generowania ───────────────────
+    #  Właściciel chce kiedyś oglądać intro_zywa_mapa DOKŁADNIE TUTAJ —
+    #  nie na starcie programu, tylko wtedy, gdy silnik pracuje i jest na
+    #  co patrzeć. Cała sekwencja generowania woła tylko te dwa punkty i
+    #  nic więcej o intrze nie wie. Dopóki INTRO_GENEROWANIA jest puste,
+    #  oba nie robią nic i program zachowuje się jak dotąd.
+    #  Wstawka dostaje okno i ma zwrócić widżet z metodą ``zakoncz`` albo
+    #  None; postęp silnika trafia do niej przez ``ustaw_postep``.
+    INTRO_GENEROWANIA = None
+
+    def _zacznij_intro_generowania(self):
+        wstawka = type(self).INTRO_GENEROWANIA
+        self._intro_generowania = None
+        if wstawka is None or not self._animacje:
+            return
+        try:
+            self._intro_generowania = wstawka(self)
+        except Exception:
+            self._intro_generowania = None
+
+    def _zakoncz_intro_generowania(self):
+        film = getattr(self, "_intro_generowania", None)
+        if film is None:
+            return
+        self._intro_generowania = None
+        try:
+            film.zakoncz()
+        except Exception:
+            pass
+
     def _blad_generacji(self, wiadomosc):
         self._watek = None
         krotko = str(wiadomosc or "").strip().splitlines()[0][:40] or "błąd"
@@ -2218,6 +2855,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         """Przerwane generowanie — ekran wraca do stanu sprzed kliknięcia."""
         self._watek = None
         self._etap_silnika = ""
+        self._koniec_sekwencji()
         self._kwota_zamowiona = 0.0
         self._formularz_zamowiony = None
         self.k_kompas.TYTUL = "Generuj dokumenty"
@@ -2232,6 +2870,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         watek = self._watek
         self._watek = None
         self._etap_silnika = ""
+        self._koniec_sekwencji()
         self._dni_silnika = list(finalne_dni)
         self._pracownik_silnika = pracownik
         self.folder_wyniku = folder
@@ -2296,8 +2935,15 @@ class OknoNowegoWygladu(OknoPrototypu):
         nowa.setGeometry(stara.geometry())
         nowa.ustaw_stan(stara._stan)
         nowa.klikniete_miasto.connect(self._klik_miasto)
+        nowa.trasa_rysuje_sie.connect(self.kartka.ustap)
+        nowa.trasa_gotowa.connect(self._kartka_na_miejsce)
+        nowa.ustaw_obecnosc_kartki(self.kartka.obecnosc())
         nowa.ustaw_animacje(self._animacje)
         self.mapa = nowa
+        # nowa mapa musi znać kartkę i paski, ZANIM dostanie miasta i dzień —
+        # inaczej jej pierwszy kadr policzy się na całej szerokości widżetu
+        self._przelicz_kotwice()
+        self._podaj_zaslony()
         self._podaj_miasta_mapie()
         stara.ustaw_animacje(False)
         stara.setParent(None)
@@ -2813,6 +3459,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         """Rama, w której panele programu stają NAD nowym ekranem."""
         if self._nakladka is None:
             self._nakladka = NakladkaDzialu(self)
+            self._nakladka.przed_zamknieciem = self._panel_wsiaka
             self._nakladka.zamknieto.connect(self.dzial_bilans_miesiaca)
             self._zegar_stylu = QTimer(self)
             self._zegar_stylu.setInterval(1200)
@@ -2824,6 +3471,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         """Panel zakrywa wszystko poza szyną i paskiem górnym."""
         if self._nakladka is None:
             return
+        if self._nakladka is self._rama_w_ruchu:
+            return                      # rama czeka za krawędzią — patrz _wyrosnij_panel
         self._nakladka.setGeometry(OK.SZYNA_W, OK.PASEK_H,
                                    max(320, self.width() - OK.SZYNA_W),
                                    max(240, self.height() - OK.PASEK_H))
@@ -2831,10 +3480,17 @@ class OknoNowegoWygladu(OknoPrototypu):
     def resizeEvent(self, zdarzenie):
         super().resizeEvent(zdarzenie)
         self._ustaw_geometrie_nakladki()
+        if self._wyrastanie is not None and self._wyrastanie.gra():
+            self._wyrastanie.przerwij()     # obraz panelu jest już nieaktualny
+            self._po_wyrastaniu()
 
     def pokaz_panel(self, widget, tytul, podtytul="", numer=None):
         """Gotowy panel programu w materiale nowego systemu, nad nowym oknem."""
         rama = self.nakladka()
+        if self._wyrastanie is not None and self._wyrastanie.gra():
+            self._wyrastanie.przerwij()      # poprzedni ruch kończy się od razu
+            self._po_wyrastaniu()
+        stal = rama.isVisible()
         if numer is not None:
             self.szyna.ustaw_aktywna(numer)
         if self.panel_powiadomien.isVisible():
@@ -2848,9 +3504,71 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._ustaw_geometrie_nakladki()
         rama.show()
         rama.raise_()
+        if not stal:                     # panel wychodzi z ikony, a nie znikąd
+            self._wyrosnij_panel(rama, numer)
         if self._zegar_stylu is not None and not self._zegar_stylu.isActive():
             self._zegar_stylu.start()
         return widget
+
+    # ── panel wyrasta z ikony na szynie i tam wraca ──────────────────
+    def wyrastanie(self):
+        if self._wyrastanie is None:
+            self._wyrastanie = WyrastaniePanelu(self)
+            self._wyrastanie.skonczone.connect(self._po_wyrastaniu)
+        return self._wyrastanie
+
+    def _po_wyrastaniu(self):
+        """Koniec ruchu: panel wjeżdża z poczekalni na swoje miejsce."""
+        rama = self._rama_w_ruchu
+        if rama is None:
+            return
+        self._rama_w_ruchu = None
+        self._ustaw_geometrie_nakladki()
+        if rama.isVisible():
+            rama.raise_()
+
+    def _pole_ikony(self, numer):
+        """Pole ikony działu na szynie, przeliczone na współrzędne okna."""
+        try:
+            pola = self.szyna._pola()
+            if numer is None:
+                numer = getattr(self.szyna, "_aktywna", 0)
+            pole = pola[int(numer)]
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return None
+        lewy_gorny = self.szyna.mapTo(self, pole.topLeft().toPoint())
+        return QRectF(lewy_gorny.x(), lewy_gorny.y(), pole.width(), pole.height())
+
+    def _wyrosnij_panel(self, rama, numer, wstecz=False):
+        """Jedno przejście: panel rośnie z ikony albo w nią wsiąka."""
+        if not self._animacje:
+            return False
+        skad = self._pole_ikony(numer)
+        if skad is None or rama.width() < 40 or rama.height() < 40:
+            return False
+        obraz = rama.grab()
+        if obraz.isNull():
+            return False
+        dokad = QRectF(rama.geometry())
+        ruch = self.wyrastanie()
+        # Panel JEST otwarty przez cały ruch — czeka tylko tuż za krawędzią
+        # okna, żeby nie przeświecał przez własny rosnący obraz. Wjeżdża na
+        # miejsce, gdy obraz dojdzie do końca; każde przerwanie (zmiana
+        # rozmiaru, zgaszenie animacji, kolejny panel) też go tam stawia.
+        if not wstecz:
+            self._rama_w_ruchu = rama
+            rama.move(self.width() + 8, rama.y())
+        else:
+            self._rama_w_ruchu = None
+        ruch.zacznij(obraz, skad, dokad, wstecz)
+        return True
+
+    def _panel_wsiaka(self):
+        """Zamykany panel wraca do swojej ikony — wywoływane tuż przed hide()."""
+        rama = self._nakladka
+        if rama is None or not rama.isVisible():
+            return
+        self._wyrosnij_panel(rama, None, wstecz=True)
 
     def _pilnuj_stylu(self):
         """Panel, który przebudował sobie wiersze, dostaje materiał na nowo."""
@@ -3316,7 +4034,13 @@ def main(argv=None):
 #  2. Te panele mówią o sobie całymi zdaniami („kliknij Zaplanuj wizyty,
 #     aby ułożyć trasy") — teksty zostają, bo są częścią ich logiki.
 #  3. Podgląd przed generowaniem to szacunek (podglad_miesiaca) — prawdziwe
-#     trasy powstają dopiero po naciśnięciu kompasu.
+#     trasy powstają dopiero po naciśnięciu kompasu. Podgląd NIE woła
+#     generuj_trasy: jedno wywołanie to 36–145 zapytań o drogi, zerowanie
+#     stanu źródła odległości, zapis pamięci dróg i wpis do dziennika
+#     diagnostycznego — a zegar kwoty odpala przeliczenie po każdym
+#     klawiszu. Zamiast tego podgląd powtarza reguły silnika na sucho
+#     (2–7 ms na przeliczenie) i tylko dlatego różni się od wyniku:
+#     przy tych samych danych wychodzi mu ±4 dni i ±1 dokument.
 #  4. Motyw jasny nie dotyczy nowego ekranu — panele w nim otwierane są
 #     zawsze ciemne (materiał nowego systemu).
 #  5. W oknie o minimalnym rozmiarze (1040×660) karta planera ma własne

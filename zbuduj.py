@@ -28,7 +28,8 @@ PROTOTYP = ["proto_styl", "proto_dane", "proto_mapa", "proto_tasma",
             "proto_kompas", "proto_taca", "proto_okno"]
 WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
             "wyglad_3d.py", "pmt_dokumenty.py", "pmt_podpis.py",
-            "pmt_wysylka.py", "nowy_wyglad.py"] + [
+            "pmt_wysylka.py", "nowy_wyglad.py",
+            "okno_logowania.py", "logo_retro.py"] + [
             os.path.join("prototyp", n + ".py") for n in PROTOTYP]
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
 # tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
@@ -43,7 +44,7 @@ DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
         "pmt_logo_retro.png", "pmt_logo_retro.ico", "menedzer.txt"]
 UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "pmt_dokumenty",
           "winsound", "PyQt6.QtMultimedia", "pmt_podpis", "pmt_wysylka",
-          "nowy_wyglad"] + PROTOTYP
+          "nowy_wyglad", "okno_logowania", "logo_retro"] + PROTOTYP
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
 # się rozjechać (tak zniknęło openpyxl z wydań budowanych w CI).

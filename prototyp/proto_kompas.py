@@ -18,6 +18,7 @@ podziałką, a między nimi stoi CZOŁO — poprzeczka w poprzek rowka z punktem
 krzyżyk, wykrzyknik, strzałka nawrotu) siada OBOK czoła, żeby go nie zasłonić.
 """
 import math
+import time
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import (QBrush, QColor, QConicalGradient, QFontMetricsF, QLinearGradient,
@@ -48,6 +49,12 @@ _TOR_GRUBOSC = 0.104                  # grubość toru
 _SOCZEWKA = 0.663                     # promień szkła
 _KRESKI_ZEW = 0.600                   # zewnętrzny koniec kresek podziałki
 _RADELKO = 104                        # liczba prążków radełka na pierścieniu
+# rozpęd igły w stanie „praca": tempo meldunków silnika na stopnie/sekundę
+OBROT_START = 90.0                    # od tyla rusza, zanim przyjdzie drugi meldunek
+OBROT_MIN = 18.0                      # przy zupełnym zastoju igła ledwo pełznie
+OBROT_MAX = 400.0                     # szybciej już nie — dalej to migotanie
+OBROT_NA_TEMPO = 1400.0               # ułamek postępu na sekundę → stopnie/sekundę
+OBROT_OPADANIE = 0.972                # bez nowego meldunku rozpęd sam opada
 _BLYSK_MS = 560.0                     # jak długo gaśnie błysk pierścienia po sukcesie
 
 
@@ -145,6 +152,10 @@ class Kompas(QAbstractButton):
         self._blysk = 0.0
         self._faza = 0
         self._anim = True
+        self._odcisk_klatki = None      # co widać z ruchomych części — patrz _tik
+        self._obrot = 0.0               # ile stopni na sekundę kręci się igła
+        self._obrot_cel = 0.0
+        self._postep_czas = None        # kiedy przyszedł ostatni meldunek postępu
         self._pod_mysza = False
         self._obwodka = False
 
@@ -182,6 +193,13 @@ class Kompas(QAbstractButton):
             return
         self._stan = nazwa
         self._postep = _POSTEP_STANU[nazwa]
+        if nazwa == "praca":
+            self._postep_czas = None
+            self._obrot_cel = OBROT_START if self._anim else 0.0
+        else:
+            self._obrot_cel = 0.0
+            if not self._anim:
+                self._obrot = 0.0
         # błysk pierścienia leci raz, zaraz po przejściu w sukces
         self._blysk = 1.0 if (nazwa == "sukces" and self._anim) else 0.0
         if nazwa in ("gotowy", "sukces", "ostrzezenie", "zmieniono"):
@@ -205,8 +223,28 @@ class Kompas(QAbstractButton):
             w = 0.0
         w = max(0.0, min(1.0, w))
         if abs(w - self._postep) > 1e-4:
+            self._rozpedz(w - self._postep)
             self._postep = w
             self.update()
+
+    # ── rozpęd igły: ile pracy silnik zrobił w ostatniej chwili ──────
+    def _rozpedz(self, przyrost):
+        """Igła kręci się tym szybciej, im szybciej silnik melduje postęp.
+
+        To nie jest ozdoba: gdy silnik czeka na sieć, meldunki przestają
+        przychodzić i igła zwalnia niemal do zera. Widać więc, czy praca
+        idzie, czy stoi — bez ani jednego zdania na ekranie.
+        """
+        if self._stan != "praca" or przyrost <= 0.0:
+            return
+        teraz = time.monotonic()
+        poprz, self._postep_czas = self._postep_czas, teraz
+        if poprz is None:
+            self._obrot_cel = OBROT_START
+            return
+        odstep = max(0.02, teraz - poprz)
+        tempo = przyrost / odstep                  # ułamek postępu na sekundę
+        self._obrot_cel = max(OBROT_MIN, min(OBROT_MAX, tempo * OBROT_NA_TEMPO))
 
     def etap(self):
         return self._etap
@@ -249,6 +287,9 @@ class Kompas(QAbstractButton):
         self._faza = 0
         self._blysk = 0.0
         self._azymut_v = 0.0
+        self._obrot = 0.0
+        self._obrot_cel = 0.0
+        self._odcisk_klatki = None
         self._azymut_biez = self._azymut_cel
         self.update()
 
@@ -266,16 +307,62 @@ class Kompas(QAbstractButton):
         self._faza = (self._faza + _OKRES_MS) % 240000
         if self._blysk > 0.0:
             self._blysk = max(0.0, self._blysk - _OKRES_MS / _BLYSK_MS)
-        # igła dochodzi do azymutu jak w prawdziwym przyrządzie: lekko przestrzela
-        # i się uspokaja, zamiast przeskakiwać
-        roznica = ((self._azymut_cel - self._azymut_biez + 180.0) % 360.0) - 180.0
-        if abs(roznica) > 0.04 or abs(self._azymut_v) > 0.04:
-            self._azymut_v = (self._azymut_v + roznica * 0.075) * 0.80
-            self._azymut_biez = (self._azymut_biez + self._azymut_v) % 360.0
+        if self._stan == "praca":
+            # bez nowego meldunku rozpęd opada, ale igła nigdy nie staje
+            self._obrot_cel = max(OBROT_MIN, self._obrot_cel * OBROT_OPADANIE)
         else:
+            self._obrot_cel = 0.0
+        if self._obrot > 0.02 or self._obrot_cel > 0.0:
+            self._obrot += (self._obrot_cel - self._obrot) * 0.18
+            if self._obrot <= 0.02:
+                self._obrot = 0.0
+            self._azymut_biez = (self._azymut_biez
+                                 + self._obrot * _OKRES_MS / 1000.0) % 360.0
             self._azymut_v = 0.0
-            self._azymut_biez = self._azymut_cel
-        self.update()
+        else:
+            # igła dochodzi do azymutu jak w prawdziwym przyrządzie: lekko
+            # przestrzela i się uspokaja, zamiast przeskakiwać
+            roznica = ((self._azymut_cel - self._azymut_biez + 180.0) % 360.0) - 180.0
+            if abs(roznica) > 0.04 or abs(self._azymut_v) > 0.04:
+                self._azymut_v = (self._azymut_v + roznica * 0.075) * 0.80
+                self._azymut_biez = (self._azymut_biez + self._azymut_v) % 360.0
+            else:
+                self._azymut_v = 0.0
+                self._azymut_biez = self._azymut_cel
+        odcisk = self._odcisk()
+        if odcisk != self._odcisk_klatki:
+            self._odcisk_klatki = odcisk
+            self.update()
+
+    # próg widoczności: o tyle musi się ruszyć część kompasu, żeby warto
+    # było przerysować całe 6 ms klatki. Poniżej tego nie zmienia się ani
+    # jeden piksel, który oko byłoby w stanie zauważyć.
+    KROK_ODDECHU = 1.0 / 26.0
+    KROK_IGLY = 0.4                 # stopnie
+
+    def _odcisk(self):
+        """Ruchome części TEGO stanu, zaokrąglone do progu widoczności.
+
+        Kompas rysuje się ponad 6 ms, a w spoczynku oddycha po jednym
+        poziomie jasności na kilka klatek. Klatka bez różnicy w tej krotce
+        nie zmieniłaby na ekranie niczego, więc jej nie rysujemy.
+        """
+        stan = self._stan
+        czesci = [round(self._blysk * 64.0),
+                  round(self._kat_igly() / self.KROK_IGLY),
+                  bool(self._pod_mysza), bool(self._obwodka)]
+        if stan == "gotowy":
+            czesci.append(round(self._oddech(4000) / self.KROK_ODDECHU))
+        elif stan == "zmieniono":
+            czesci.append(round(self._oddech(2200) / self.KROK_ODDECHU))
+            czesci.append(round(self._oddech(1600) / self.KROK_ODDECHU))
+        elif stan == "praca":
+            czesci.append(round(self._oddech(900) / self.KROK_ODDECHU))
+        return tuple(czesci)
+
+    def obrot_igly(self):
+        """Ile stopni na sekundę kręci się igła — 0 poza pracą i na zrzutach."""
+        return self._obrot
 
     def _na_klik(self):
         if self._stan in ("gotowy", "zmieniono"):

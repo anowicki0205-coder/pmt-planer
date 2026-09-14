@@ -739,18 +739,66 @@ def _menedzer_zrodlo() -> str:
 # domyślny, więc zachowanie dotychczasowych instalacji się nie zmienia.
 ADRES_ZGLOSZEN_DOMYSLNY = "anowicki@pmt.com.pl"
 
+# Sam adres, bez parametrów mailto, list po średniku i dopisków: to, co
+# wpadało z pliku prosto do „mailto:", potrafiło nieść „?bcc=" (UDW) albo
+# drugiego adresata — poczta otwierała wtedy wiadomość do kogoś innego.
+_WZOR_ADRESU_POCZTY = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}$")
+_ZNAKI_NIEWIDOCZNE = "\ufeff\u200b\u200c\u200d\u2060\u00ad"
+
+
+def _oczysc_adres_poczty(tekst) -> str:
+    """Adres z linii pliku kontaktu albo pusty napis, gdy to nie adres.
+
+    Zdejmuje BOM i znaki niewidoczne, CR/LF, białe znaki (także twardą
+    spację), przedrostek „mailto:" i wszystko od pierwszego znaku, który
+    nie należy do adresu (spacja, przecinek, średnik, „?" z parametrami,
+    nawias). Zostaje jeden adres sprawdzony prostą regułą: coś@domena.tld —
+    inaczej pusty napis, a program bierze adres domyślny."""
+    tekst = str(tekst or "")
+    for znak in _ZNAKI_NIEWIDOCZNE:
+        tekst = tekst.replace(znak, "")
+    tekst = tekst.replace("\u00a0", " ").strip()
+    if tekst.lower().startswith("mailto:"):
+        tekst = tekst[len("mailto:"):].lstrip()
+    tekst = tekst.strip("<>\"' \t")
+    koniec = len(tekst)
+    for i, znak in enumerate(tekst):
+        if znak.isspace() or znak in ",;?&<>()[]{}\"'|/\\":
+            koniec = i
+            break
+    adres = tekst[:koniec].strip()
+    return adres if _WZOR_ADRESU_POCZTY.match(adres) else ""
+
 
 def _adres_zgloszen() -> str:
     for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
         try:
             sc = os.path.join(kat, "pmt_kontakt.txt")
             if os.path.exists(sc):
-                w = _pierwsza_linia_pliku(sc)
-                if w and "@" in w and " " not in w:
+                w = _oczysc_adres_poczty(_pierwsza_linia_pliku(sc))
+                if w:
                     return w
         except Exception:
             continue
     return ADRES_ZGLOSZEN_DOMYSLNY
+
+
+def temat_zgloszenia(kod: str = "") -> str:
+    """Temat wiadomości „Zgłoś błąd": nazwa programu, wersja i kod
+    użytkownika — bez imienia, PESEL-u ani innych danych osobowych."""
+    kod = "".join(str(kod or "").split())
+    temat = "PMT Planer %s" % WERSJA_PROGRAMU
+    return temat + (" · kod %s" % kod if kod else "")
+
+
+def mailto_zgloszenia(kod: str = "") -> str:
+    """Gotowy odnośnik mailto: dla „Zgłoś błąd" — adresat z _adres_zgloszen
+    (oczyszczony i sprawdzony), jawny ?subject= zakodowany urllib.parse.quote,
+    żadnych innych parametrów (ani cc, ani bcc/UDW)."""
+    from urllib.parse import quote
+    adres = _oczysc_adres_poczty(_adres_zgloszen()) or ADRES_ZGLOSZEN_DOMYSLNY
+    return "mailto:%s?subject=%s" % (quote(adres, safe="@.+-_"),
+                                     quote(temat_zgloszenia(kod), safe=""))
 
 
 def _podpisz_zadanie(dane: dict) -> dict:
@@ -4591,16 +4639,16 @@ def historia_miesiecy(imie, pesel) -> dict:
                     („" dla wpisów zapisanych, zanim to pole istniało)
         miejsca     {miejscowość: liczba wizyt} — ślad obecności programu
                     w tym miesiącu (miejsc_wizyty wpisu; białe plamy na mapie)
-    Gdy miesiąc ma kilka wpisów (np. drugi folder), liczy się najnowszy."""
+    Gdy miesiąc ma kilka wpisów (np. drugi folder), liczy się najnowszy.
+    Miesiąc wpisu ustala _rok_miesiac_wpisu — także dla wpisów ze starszych
+    wersji programu, bez pól rok/miesiac (wykresy „Twoja praca" liczyły je
+    z daty, a tu były niewidoczne: miesiąc z danymi dostawał kropkę)."""
     wynik = {}
     for h in wczytaj_historie(imie, pesel):
         if not isinstance(h, dict):
             continue
-        try:
-            klucz = (int(h.get("rok")), int(h.get("miesiac")))
-        except (TypeError, ValueError):
-            continue
-        if not (1 <= klucz[1] <= 12) or klucz in wynik:
+        klucz = _rok_miesiac_wpisu(h)
+        if klucz is None or klucz in wynik:
             continue                          # historia idzie od najnowszego — pierwszy wygrywa
         folder = str(h.get("folder") or "")
         istnieje = bool(folder) and os.path.isdir(folder)
@@ -4628,6 +4676,45 @@ def historia_miesiecy(imie, pesel) -> dict:
             "miejsca": _miejsca_wpisu(h),
         }
     return wynik
+
+
+def _rok_miesiac_wpisu(h):
+    """(rok, miesiąc) wpisu historii albo None — JEDNA reguła dla kratki
+    roku, kropek zakładek, tacy i dociągania folderów.
+
+    Kolejno: pola rok/miesiac (liczby albo napisy z liczbą; miesiąc może
+    być też nazwą, np. „wrzesień"), nazwa folderu wyniku
+    („Rozliczenie_…_wrzesień_2026r") i na końcu pole „data"
+    („dd.mm.rrrr GG:MM" — chwila generowania, tak samo liczą wykresy
+    „Twoja praca"). Wpis bez żadnego z nich nie ma miesiąca."""
+    if not isinstance(h, dict):
+        return None
+    rok, miesiac = h.get("rok"), h.get("miesiac")
+    try:
+        rok = int(str(rok).strip()) if rok not in (None, "") else None
+    except (TypeError, ValueError):
+        rok = None
+    if isinstance(miesiac, str) and not miesiac.strip().isdigit():
+        nazwy = [_nazwa_porownawcza(m) for m in MIESIACE_PL]
+        miesiac = (nazwy.index(_nazwa_porownawcza(miesiac.strip())) + 1
+                   if _nazwa_porownawcza(miesiac.strip()) in nazwy else None)
+    try:
+        miesiac = int(str(miesiac).strip()) if miesiac not in (None, "") else None
+    except (TypeError, ValueError):
+        miesiac = None
+    if rok is None or miesiac is None:
+        _kto, m_f, r_f = _rozbierz_folder_wyniku(os.path.basename(str(h.get("folder") or "").rstrip("/\\")))
+        if m_f:
+            rok = rok if rok is not None else r_f
+            miesiac = miesiac if miesiac is not None else m_f
+    if rok is None or miesiac is None:
+        chwila = _data_wpisu(h)
+        if chwila is not None:
+            rok = rok if rok is not None else chwila.year
+            miesiac = miesiac if miesiac is not None else chwila.month
+    if rok is None or miesiac is None or not (1 <= miesiac <= 12) or rok < 1900:
+        return None
+    return (rok, miesiac)
 
 
 def _miejsca_wpisu(h) -> dict:
@@ -4802,11 +4889,9 @@ def dociagnij_historie_z_folderow(imie, pesel, katalog: str = None) -> int:
         return 0
     znane = set()
     for h in wczytaj_historie(imie, pesel):
-        if isinstance(h, dict):
-            try:
-                znane.add((int(h.get("rok")), int(h.get("miesiac"))))
-            except (TypeError, ValueError):
-                pass
+        klucz = _rok_miesiac_wpisu(h)          # ta sama reguła, co historia_miesiecy
+        if klucz is not None:
+            znane.add(klucz)
     profil = wczytaj_profil(imie, pesel) or {}
     stawka = 0.89 if profil.get("silnik_idx", 1) == 0 else 1.15
     woj_bazy = ""
@@ -5818,20 +5903,43 @@ def _wielkanoc(rok: int) -> datetime.date:
     return datetime.date(rok, miesiac, dzien)
 
 
+# Od którego roku Wigilia jest ustawowym dniem wolnym od pracy (ustawa
+# z 6 grudnia 2024 r.). Wcześniejsze lata zostają bez niej — historia
+# rozliczeń ma pokazywać dni takie, jakie były naprawdę.
+ROK_WIGILII_WOLNEJ = 2025
+
+
 def swieta_w_roku(rok: int) -> Set[datetime.date]:
-    a = rok % 19; b = rok // 100; c = rok % 100; d = b // 4; e = b % 4; f = (b + 8) // 25
-    g = (b - f + 1) // 3; h = (19 * a + b - d - g + 15) % 30; i = c // 4; k = c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7; m = (a + 11 * h + 22 * l) // 451
-    miesiac = (h + l - 7 * m + 114) // 31; dzien = ((h + l - 7 * m + 114) % 31) + 1
-    wielkanoc = datetime.date(rok, miesiac, dzien)
+    """Dni ustawowo wolne od pracy w roku (ustawa z 18 stycznia 1951 r.
+    o dniach wolnych od pracy, z późniejszymi zmianami):
+        1.01, 6.01, Wielkanoc i Poniedziałek Wielkanocny, 1.05, 3.05,
+        Zielone Świątki (49 dni po Wielkanocy), Boże Ciało (60 dni po),
+        15.08, 1.11, 11.11, 24.12 (od 2025 r.), 25.12, 26.12.
+    Wielkanoc i Zielone Świątki wypadają w niedzielę — są w zbiorze, żeby
+    kalendarz i taśma znały pełną listę, a nie tylko dni, które akurat
+    zdejmują dzień roboczy."""
+    wielkanoc = _wielkanoc(rok)
     stale = [
         datetime.date(rok, 1, 1), datetime.date(rok, 1, 6),
         datetime.date(rok, 5, 1), datetime.date(rok, 5, 3),
         datetime.date(rok, 8, 15), datetime.date(rok, 11, 1),
         datetime.date(rok, 11, 11), datetime.date(rok, 12, 25), datetime.date(rok, 12, 26),
-        wielkanoc + datetime.timedelta(days=1), wielkanoc + datetime.timedelta(days=60)
+        wielkanoc, wielkanoc + datetime.timedelta(days=1),
+        wielkanoc + datetime.timedelta(days=49), wielkanoc + datetime.timedelta(days=60)
     ]
+    if rok >= ROK_WIGILII_WOLNEJ:
+        stale.append(datetime.date(rok, 12, 24))
     return set(stale)
+
+
+def dni_zablokowane_miesiaca(rok: int, miesiac: int) -> Set[int]:
+    """Numery dni miesiąca, w które w bieżącym trybie NIE MA pracy: święta
+    i dni poza tygodniem roboczym (weekendy w trybie tygodniowym; w trybie
+    wieczornym soboty są robocze, a niedziele tylko handlowe). Dopełnienie
+    pobierz_dni_robocze — kalendarz „Dni bez pracy" blokuje je z góry."""
+    robocze = {d.day for d in pobierz_dni_robocze(rok, miesiac)}
+    _, n = calendar.monthrange(rok, miesiac)
+    return {d for d in range(1, n + 1) if d not in robocze}
 
 def pobierz_dni_robocze(rok: int, miesiac: int) -> List[datetime.date]:
     """Dni, w które można rozpisać pracę.

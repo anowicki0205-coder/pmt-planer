@@ -8,6 +8,7 @@ z kartką delegacji oraz tacę dokumentów wysuwaną od dołu.
 Nic tu nie jest tłumaczone słowami — są nazwy, liczby i stany.
 """
 import calendar
+import datetime
 import math
 import sys
 
@@ -1451,8 +1452,25 @@ class WierszWolnych(QWidget):
         p.end()
 
 
+def dni_poza_tygodniem(rok, miesiac, tryb="Tydzień"):
+    """Dni miesiąca bez pracy z samego kalendarza: w trybie tygodniowym
+    soboty i niedziele, w wieczornym tylko niedziele. Prototyp nie zna
+    świąt ani niedziel handlowych — program podstawia pełną listę
+    z silnika (PMT.dni_zablokowane_miesiaca)."""
+    ile = calendar.monthrange(int(rok), int(miesiac))[1]
+    prog = 6 if str(tryb).lower().startswith("wiecz") else 5
+    return {d for d in range(1, ile + 1)
+            if datetime.date(int(rok), int(miesiac), d).weekday() >= prog}
+
+
 class SiatkaDni(QWidget):
-    """Kalendarz miesiąca do zaznaczania dni bez pracy — klik przełącza dzień."""
+    """Kalendarz miesiąca do zaznaczania dni bez pracy — klik przełącza dzień.
+
+    Kolumna 0 to poniedziałek: dzień wpada w kolumnę swojego ``weekday()``
+    (calendar.monthrange daje dzień tygodnia pierwszego), nagłówek pn…nd
+    stoi nad tymi samymi kolumnami. Dni ZABLOKOWANE (święta i dni poza
+    tygodniem roboczym w danym trybie) nie są do wyboru: wygaszone, bez
+    pigułki, z cienką kreską zamiast dna — klik w nie nic nie robi."""
 
     SKROTY = ("pn", "wt", "śr", "cz", "pt", "sb", "nd")
     KOMORKA = 38.0
@@ -1461,20 +1479,23 @@ class SiatkaDni(QWidget):
 
     zmieniono = pyqtSignal()
 
-    def __init__(self, rok=ROK, miesiac=MIESIAC, wybrane=(), rodzic=None):
+    def __init__(self, rok=ROK, miesiac=MIESIAC, wybrane=(), rodzic=None,
+                 zablokowane=()):
         super().__init__(rodzic)
         self._pod = 0
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.ustaw(rok, miesiac, wybrane)
+        self.ustaw(rok, miesiac, wybrane, zablokowane)
 
     # — stan —
-    def ustaw(self, rok, miesiac, wybrane=()):
+    def ustaw(self, rok, miesiac, wybrane=(), zablokowane=()):
         self.rok = int(rok)
         self.miesiac = int(miesiac)
         self.ile_dni = calendar.monthrange(self.rok, self.miesiac)[1]
         self.pierwszy = calendar.monthrange(self.rok, self.miesiac)[0]
-        self.wybrane = {int(d) for d in wybrane if 1 <= int(d) <= self.ile_dni}
+        self.zablokowane = {int(d) for d in zablokowane if 1 <= int(d) <= self.ile_dni}
+        self.wybrane = {int(d) for d in wybrane
+                        if 1 <= int(d) <= self.ile_dni and int(d) not in self.zablokowane}
         self._wiersze = int(math.ceil((self.pierwszy + self.ile_dni) / 7.0))
         self.setMinimumHeight(int(self.NAGLOWEK + self._wiersze * self.KOMORKA
                                   + (self._wiersze - 1) * self.ODSTEP + 6))
@@ -1503,10 +1524,18 @@ class SiatkaDni(QWidget):
         return pola
 
     def _dzien_pod(self, punkt):
+        """Dzień pod punktem — zablokowany liczy się jak puste tło."""
         for dzien, pole in self._siatka().items():
             if pole.contains(punkt):
-                return dzien
+                return 0 if dzien in self.zablokowane else dzien
         return 0
+
+    def kolumna(self, dzien):
+        """Kolumna siatki (0 = pn … 6 = nd) dnia miesiąca."""
+        return (self.pierwszy + int(dzien) - 1) % 7
+
+    def zablokowany(self, dzien):
+        return int(dzien) in self.zablokowane
 
     # — zdarzenia —
     def mousePressEvent(self, e):
@@ -1551,6 +1580,16 @@ class SiatkaDni(QWidget):
         for dzien, pole in pola.items():
             wybrany = dzien in self.wybrane
             weekend = (self.pierwszy + dzien - 1) % 7 >= 5
+            if dzien in self.zablokowane:
+                # dzień bez pracy z góry: sam wygaszony numer i cienka kreska
+                # w miejscu dna pigułki — nic do kliknięcia
+                napis = str(dzien)
+                S.tekst(p, pole.center().x() - _szerokosc(napis, 13, 500, mono=True) / 2.0,
+                        pole.center().y() + 5, napis, S.z_alfa(S.TEKST_3, 92), 13, 500, mono=True)
+                p.setPen(QPen(S.z_alfa(S.TEKST_3, 70), 1.0))
+                p.drawLine(QPointF(pole.center().x() - 7.0, pole.bottom() - 6.5),
+                           QPointF(pole.center().x() + 7.0, pole.bottom() - 6.5))
+                continue
             if wybrany:
                 g = QLinearGradient(pole.topLeft(), pole.bottomRight())
                 g.setColorAt(0.0, S.z_alfa(S.BURSZTYN, 70))
@@ -1571,13 +1610,16 @@ class SiatkaDni(QWidget):
 
 
 class PanelDniBezPracy(Panel):
-    """Wybór dni bez pracy — kalendarz miesiąca w materiale nowego systemu."""
+    """Wybór dni bez pracy — kalendarz miesiąca w materiale nowego systemu.
+    ``zablokowane`` to dni, których nie ma co wybierać (święta, dni poza
+    tygodniem roboczym) — siatka pokazuje je wygaszone i nie przyjmuje kliknięć."""
 
-    def __init__(self, rok=ROK, miesiac=MIESIAC, wybrane=(), rodzic=None):
+    def __init__(self, rok=ROK, miesiac=MIESIAC, wybrane=(), rodzic=None,
+                 zablokowane=()):
         super().__init__("Dni bez pracy",
                          "%s %d" % (D.nazwa_miesiaca(miesiac), int(rok)), rodzic)
         self.setMinimumWidth(430)
-        self.siatka = SiatkaDni(rok, miesiac, wybrane, self)
+        self.siatka = SiatkaDni(rok, miesiac, wybrane, self, zablokowane)
         self.siatka.zmieniono.connect(self._odswiez)
         self.z.addWidget(self.siatka)
         self.z.addSpacing(4)
@@ -2284,10 +2326,16 @@ class OknoPrototypu(QWidget):
         """Miesiąc pokazywany na taśmie — program podstawia swój."""
         return ROK, MIESIAC
 
+    def _dni_zablokowane(self, rok, miesiac):
+        """Dni miesiąca, których kalendarz nie daje wybrać — z kalendarza
+        i trybu pracy; program podstawia listę z silnika (ze świętami)."""
+        return dni_poza_tygodniem(rok, miesiac, self.k_parametry.tryb.aktywna())
+
     def _wybierz_dni_bez_pracy(self):
         """Wiersz „Dni bez pracy” otwiera kalendarz miesiąca."""
         rok, miesiac = self._rok_miesiac()
-        panel = PanelDniBezPracy(rok, miesiac, self._wolne, self)
+        panel = PanelDniBezPracy(rok, miesiac, self._wolne, self,
+                                 self._dni_zablokowane(rok, miesiac))
         panel.setStyleSheet(arkusz())
         if panel.exec() == int(1):
             self._ustaw_dni_bez_pracy(panel.dni())

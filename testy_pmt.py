@@ -6309,9 +6309,17 @@ try:
     P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(2025, 11, "2 254,50", _f22 + "_gr", "03.11.2025 09:00"))
     P.dodaj_do_historii(_IMIE22, _PESEL22, {"imie": _IMIE22, "data": "12.02.2019 09:00",
                                             "kwota": "12.00", "woj": "Mazowieckie"})
+    P.dodaj_do_historii(_IMIE22, _PESEL22, {"imie": _IMIE22, "kwota": "7.00", "data": "kiedyś"})
     _api22 = P.historia_miesiecy(_IMIE22, _PESEL22)
-    sprawdz("historia_miesiecy: kwota „2 254,50” czytana co do grosza; wpis bez roku/miesiąca pomijany bez błędu",
-            list(_api22) == [(2025, 11)] and _api22[(2025, 11)]["kwota"] == 2254.5,
+    # ZMIANA ZACHOWANIA (sekcja 26, usterka 1): wpis bez pól rok/miesiac NIE
+    # jest już pomijany — miesiąc bierze się z nazwy folderu albo z daty,
+    # tak samo jak liczą go wykresy „Twoja praca". Dotąd taki wpis (ze starszej
+    # wersji programu) dawał liczby w wykresach, a kratka i zakładka stawiały
+    # przy nim kropkę „nierozliczony". Pomijany zostaje tylko wpis, z którego
+    # miesiąca nie da się ustalić niczym.
+    sprawdz("historia_miesiecy: kwota „2 254,50” czytana co do grosza; wpis bez roku/miesiąca trafia w miesiąc z daty; wpis bez daty i folderu pomijany bez błędu",
+            sorted(_api22) == [(2019, 2), (2025, 11)] and _api22[(2025, 11)]["kwota"] == 2254.5
+            and _api22[(2019, 2)]["kwota"] == 12.0,
             str(_api22))
     sprawdz("oznacz_wyslane_w_historii: udana wysyłka zostawia ślad, obcy folder — nie",
             P.oznacz_wyslane_w_historii(_f22 + "_gr") == 1
@@ -7615,6 +7623,449 @@ except Exception as _e25:
     sprawdz("zaciekawienie 3: przelot nad rejonem w czasie generowania", False, repr(_e25))
     import traceback as _tb25
     _tb25.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("26. Pięć usterek z testu właściciela: kropki, kalendarz, „Zgłoś błąd”, PESEL, uchwyt kartki")
+
+# 1. Kropka miesiąca z JEDNEJ reguły (nowy_wyglad.miesiac_nierozliczony) dla
+#    zakładek, kratki roku i tacy; miesiąc wpisu historii ustala JEDNA
+#    funkcja (PMT._rok_miesiac_wpisu) — także dla wpisów ze starszych wersji
+#    bez pól rok/miesiac, które wykresy liczyły z daty, a kratka pomijała.
+# 2. Kalendarz „Dni bez pracy”: dzień w kolumnie swojego dnia tygodnia,
+#    święta i dni poza tygodniem roboczym zablokowane; Wigilia od 2025 r.
+# 3. „Zgłoś błąd”: adres z pliku oczyszczony i sprawdzony, mailto z jawnym
+#    tematem i bez żadnego innego parametru, otwierany przez Qt.
+# 4. PESEL pod znakami z okiem podglądu; do silnika i PDF idzie pełny.
+# 5. Uchwyt zwinięcia kartki: pastylka z szewronem, poświata pod kursorem,
+#    składanie papieru do krawędzi; klik w papier nadal obraca.
+try:
+    import inspect as _insp26
+    import nowy_wyglad as _NW26
+    import proto_okno as _OK26
+    import proto_mapa as _PM26
+    import proto_dane as _DN26
+    from PyQt6.QtWidgets import QApplication as _QA26, QLineEdit as _QLE26
+    from PyQt6.QtCore import Qt as _Qt26, QPointF as _QP26, QEvent as _QE26
+    from PyQt6.QtGui import (QMouseEvent as _QME26, QFocusEvent as _QFE26, QColor as _QC26,
+                             QImage as _QI26)
+    _app26 = _QA26.instance() or _QA26(sys.argv)
+    _app26.setStyleSheet(_NW26.arkusz())
+
+    def _miel26(ile=6):
+        for _ in range(ile):
+            _app26.processEvents()
+
+    # ── 26a. jedna reguła miesiąca: wpisy, foldery, wpisy starych wersji ──
+    _IMIE26, _PESEL26 = "Olga Kropkowa", "85010112345"
+    _pulpit26 = os.path.join(_TMP_HOME, "pulpit26")
+    os.makedirs(_pulpit26, exist_ok=True)
+    _bylo_pulpit26 = P.sciezka_pulpitu
+    P.sciezka_pulpitu = lambda: _pulpit26
+    try:
+        _dzis26 = _NW26.miesiac_biezacy()
+        _n26 = _dzis26[0] * 12 + _dzis26[1] - 1
+
+        def _mies26(krok):
+            n = _n26 + int(krok)
+            return (n // 12, n % 12 + 1)
+
+        def _folder26(rok, mies):
+            return os.path.join(_pulpit26, "Rozliczenie_%s_%s_%dr"
+                                % (P.nazwa_do_pliku(_IMIE26), P.MIESIACE_PL[mies - 1], rok))
+
+        _m_folder, _m_wpis, _m_stary, _m_nazwa, _m_nic = (_mies26(-2), _mies26(-4), _mies26(-6),
+                                                          _mies26(-8), _mies26(-1))
+        _prac26 = P.DanePracownika(imie=_IMIE26, pesel=_PESEL26, adres="ul. Kwiatowa 5, 26-600 Radom",
+                                   stanowisko="KR", kod_pocztowy="26-600", baza_miasto="Radom",
+                                   baza_lat=51.40, baza_lng=21.15, wojewodztwo="mazowieckie")
+        _et26 = [P.Etap("Radom", "Iłża", "02.%02d.%dr" % (_m_folder[1], _m_folder[0]), "07:00", "07:40", 150.00, "mazowieckie"),
+                 P.Etap("Iłża", "Radom", "02.%02d.%dr" % (_m_folder[1], _m_folder[0]), "08:00", "08:40", 130.50, "mazowieckie")]
+        # (A) folder z PDF-ami na dysku, BEZ wpisu w historii
+        P.generuj_pdfy([P.DzienTrasy(data=datetime.date(_m_folder[0], _m_folder[1], 2), etapy=_et26)],
+                       _prac26, _m_folder[1], _m_folder[0], _folder26(*_m_folder), stawka=0.89,
+                       zrodlo={"stan": P.ZRODLO_SZACUNEK, "etykieta": "szacunek", "odcinki": 9, "realne": False})
+        # (B) wpis w historii, BEZ folderu na dysku
+        P.dodaj_do_historii(_IMIE26, _PESEL26, {"rok": _m_wpis[0], "miesiac": _m_wpis[1], "kwota": "999.99", "km": 800,
+                                                "dni_wyjazdowe": 4, "dni_daty": [], "dokumenty": 2,
+                                                "folder": _folder26(*_m_wpis),
+                                                "data": "01.%02d.%d 10:00" % (_m_wpis[1], _m_wpis[0])})
+        # (C) wpis ze STARSZEJ wersji: bez pól rok/miesiac — jest data i folder
+        P.dodaj_do_historii(_IMIE26, _PESEL26, {"imie": _IMIE26, "kwota": "1234.56", "km": 1073, "dokumenty": 3,
+                                                "dni_wyjazdowe": 5, "folder": _folder26(*_m_stary),
+                                                "data": "28.%02d.%d 18:10" % (_m_stary[1], _m_stary[0])})
+        # (D) wpis z miesiącem SŁOWNIE i rokiem jako napis, bez folderu
+        P.dodaj_do_historii(_IMIE26, _PESEL26, {"imie": _IMIE26, "kwota": "800.00", "km": 700, "dokumenty": 2,
+                                                "dni_wyjazdowe": 4, "miesiac": P.MIESIACE_PL[_m_nazwa[1] - 1],
+                                                "rok": str(_m_nazwa[0]), "folder": "",
+                                                "data": "30.%02d.%d 18:10" % (_m_nazwa[1], _m_nazwa[0])})
+        sprawdz("_rok_miesiac_wpisu: pola liczbowe, miesiąc słownie, nazwa folderu, na końcu data; śmieć daje None",
+                P._rok_miesiac_wpisu({"rok": 2026, "miesiac": 7}) == (2026, 7)
+                and P._rok_miesiac_wpisu({"rok": "2026", "miesiac": "wrzesień"}) == (2026, 9)
+                and P._rok_miesiac_wpisu({"folder": _folder26(2025, 3)}) == (2025, 3)
+                and P._rok_miesiac_wpisu({"data": "28.06.2026 18:10"}) == (2026, 6)
+                and P._rok_miesiac_wpisu({"rok": 2026, "miesiac": 13}) is None
+                and P._rok_miesiac_wpisu({"miesiac": "x"}) is None and P._rok_miesiac_wpisu("x") is None)
+        _hm26 = P.historia_miesiecy(_IMIE26, _PESEL26)
+        sprawdz("historia_miesiecy zna wpis starej wersji (z daty i folderu) oraz wpis z miesiącem słownie — kwoty CO DO GROSZA",
+                _hm26.get(_m_stary, {}).get("kwota") == 1234.56 and _hm26.get(_m_nazwa, {}).get("kwota") == 800.00
+                and _hm26.get(_m_wpis, {}).get("kwota") == 999.99, str({k: v.get("kwota") for k, v in _hm26.items()}))
+        _ile26 = P.dociagnij_historie_z_folderow(_IMIE26, _PESEL26, _pulpit26)
+        _hist26 = P.wczytaj_historie(_IMIE26, _PESEL26)
+        sprawdz("dociąganie dopisuje folder bez wpisu (skan z PDF-ów) i NIE dubluje miesiąca ze starego wpisu",
+                _ile26 == 1 and [P._rok_miesiac_wpisu(h) for h in _hist26].count(_m_stary) == 1
+                and P.historia_miesiecy(_IMIE26, _PESEL26).get(_m_folder, {}).get("kwota") == 280.50,
+                str((_ile26, [P._rok_miesiac_wpisu(h) for h in _hist26])))
+        _prof26 = _NW26.ProfilWidoku(_IMIE26, _PESEL26, "ul. Kwiatowa 5, 26-600 Radom", "KR")
+        _okno26 = _NW26.OknoNowegoWygladu(profil=_prof26, rok=_dzis26[0], miesiac=_dzis26[1])
+        _okno26.ustaw_animacje(False)
+        _okno26.show()
+        _okno26.showNormal()
+        _okno26.resize(1280, 800)
+        _miel26()
+        _okno26.dzial_ekran_startowy()
+        _miel26()
+        _kr26 = _okno26._ekran_startowy.kratka
+        _zn26 = _okno26._miesiace_historii()
+        _b26 = _NW26.miesiac_biezacy()
+
+        def _zgodne26(klucz):
+            """Zakładka (kropka), kratka i taca mówią o miesiącu to samo."""
+            _okno26.ustaw_miesiac(*klucz)
+            _miel26(2)
+            kropka = _okno26.pasek.kropki[1]
+            return (kropka == _kr26.nierozliczony(klucz)
+                    == _NW26.miesiac_nierozliczony(klucz, _zn26, _b26),
+                    kropka, _kr26.stan_miesiaca(klucz), klucz in _okno26._miesiace_tacy())
+
+        _w26 = {n: _zgodne26(k) for n, k in (("folder", _m_folder), ("wpis", _m_wpis), ("stary", _m_stary),
+                                              ("nazwa", _m_nazwa), ("nic", _m_nic))}
+        sprawdz("miesiąc z folderem bez wpisu, z wpisem bez folderu, ze starym wpisem i z miesiącem słownie: BEZ kropki i z liczbami — na zakładce, w kratce i wg wspólnej reguły",
+                all(_w26[n][0] and _w26[n][1] is False and _w26[n][2] == "dokumenty"
+                    for n in ("folder", "wpis", "stary", "nazwa")), str(_w26))
+        sprawdz("miesiąc, który minął bez wpisu i bez folderu: kropka na zakładce, w kratce i wg reguły; bieżący — nigdy",
+                _w26["nic"][0] and _w26["nic"][1] is True and _w26["nic"][2] == "pusty"
+                and not _NW26.miesiac_nierozliczony(_b26, {}, _b26)
+                and _NW26.stan_miesiaca(_mies26(1), {}, _b26) == "przyszly", str(_w26["nic"]))
+        sprawdz("taca miesięcy bierze z tej samej historii: pigułkę ma tylko miesiąc z folderem i czytelną kwotą",
+                _w26["folder"][3] and not _w26["wpis"][3] and not _w26["nic"][3], str(_w26))
+        _zr26 = open(os.path.join(KATALOG, "nowy_wyglad.py"), encoding="utf-8").read()
+        sprawdz("kratka roku i zakładki liczą stan miesiąca tą samą funkcją modułu (żadnej własnej reguły)",
+                "return miesiac_nierozliczony(klucz, self._miesiace, self._biezacy)" in _zr26
+                and "return stan_miesiaca(klucz, self._miesiace, self._biezacy)" in _zr26
+                and "miesiac_nierozliczony((n // 12, n % 12 + 1), znane, biezacy)" in _zr26)
+        _okno26.ustaw_miesiac(*_dzis26)
+    finally:
+        P.sciezka_pulpitu = _bylo_pulpit26
+
+    # ── 26b. święta i kalendarz „Dni bez pracy” ─────────────────────
+    def _d26(r, m, d):
+        return datetime.date(r, m, d)
+
+    _sw25 = {_d26(2025, 1, 1), _d26(2025, 1, 6), _d26(2025, 4, 20), _d26(2025, 4, 21), _d26(2025, 5, 1),
+             _d26(2025, 5, 3), _d26(2025, 6, 8), _d26(2025, 6, 19), _d26(2025, 8, 15), _d26(2025, 11, 1),
+             _d26(2025, 11, 11), _d26(2025, 12, 24), _d26(2025, 12, 25), _d26(2025, 12, 26)}
+    _sw26 = {_d26(2026, 1, 1), _d26(2026, 1, 6), _d26(2026, 4, 5), _d26(2026, 4, 6), _d26(2026, 5, 1),
+             _d26(2026, 5, 3), _d26(2026, 5, 24), _d26(2026, 6, 4), _d26(2026, 8, 15), _d26(2026, 11, 1),
+             _d26(2026, 11, 11), _d26(2026, 12, 24), _d26(2026, 12, 25), _d26(2026, 12, 26)}
+    sprawdz("swieta_w_roku 2025 i 2026 co do dnia (z Wielkanocą, Zielonymi Świątkami, Bożym Ciałem i Wigilią)",
+            P.swieta_w_roku(2025) == _sw25 and P.swieta_w_roku(2026) == _sw26,
+            str((sorted(P.swieta_w_roku(2025) ^ _sw25), sorted(P.swieta_w_roku(2026) ^ _sw26))))
+    sprawdz("Wigilia wolna od 2025 r.; w 2024 r. jej nie ma — historia zostaje prawdziwa",
+            _d26(2024, 12, 24) not in P.swieta_w_roku(2024) and _d26(2027, 12, 24) in P.swieta_w_roku(2027)
+            and P.ROK_WIGILII_WOLNEJ == 2025)
+    _byl_tryb26 = P.TRYB_PRACY
+    try:
+        _rob26 = {}
+        for _t26 in ("tydzien", "wieczory"):
+            P.ustaw_tryb_pracy(_t26)
+            _rob26[_t26] = (P.pobierz_dni_robocze(2026, 12), P.pobierz_dni_robocze(2026, 8),
+                            P.dni_zablokowane_miesiaca(2026, 8))
+        sprawdz("24.12.2026 nie jest dniem roboczym w żadnym trybie; 15.08.2026 (sobota) nie jest robocza także w trybie Wieczory",
+                all(_d26(2026, 12, 24) not in _rob26[t][0] for t in _rob26)
+                and all(_d26(2026, 8, 15) not in _rob26[t][1] for t in _rob26)
+                and _d26(2026, 8, 22) in _rob26["wieczory"][1] and _d26(2026, 8, 22) not in _rob26["tydzien"][1])
+        sprawdz("dni_zablokowane_miesiaca: Tydzień — weekendy i święta; Wieczory — soboty robocze, niedziele wolne poza handlową (30.08.2026)",
+                _rob26["tydzien"][2] == {1, 2, 8, 9, 15, 16, 22, 23, 29, 30}
+                and _rob26["wieczory"][2] == {2, 9, 15, 16, 23}, str(_rob26["tydzien"][2]) + str(_rob26["wieczory"][2]))
+    finally:
+        P.ustaw_tryb_pracy(_byl_tryb26)
+    # taśma i podgląd: święto to dzień bez trasy w OBU trybach
+    _okno26.ustaw_miesiac(2026, 12)
+    _miel26(2)
+    _swieto_tasma = {}
+    for _t26 in ("Tydzień", "Wieczory"):
+        _okno26.k_parametry.tryb.ustaw_aktywna(_t26)
+        _okno26._przelicz_teraz()
+        _miel26(2)
+        _dz26 = {d.data.day: d for d in _okno26.dni}
+        _swieto_tasma[_t26] = (_dz26[24].wolny and _dz26[25].wolny and _dz26[26].wolny,
+                               any(not d.wolny for d in _okno26.dni),
+                               24 not in {d.data.day for d in _okno26.tasma._dni if not d.wolny})
+    _okno26.ustaw_miesiac(2026, 8)
+    _okno26.k_parametry.tryb.ustaw_aktywna("Wieczory")
+    _okno26._przelicz_teraz()
+    _miel26(2)
+    _sie26 = {d.data.day: d for d in _okno26.dni}
+    sprawdz("podgląd i taśma: 24–26.12.2026 bez trasy w obu trybach, 15.08.2026 (sobota) bez trasy w trybie Wieczory, a inne soboty sierpnia z trasą",
+            all(v == (True, True, True) for v in _swieto_tasma.values())
+            and _sie26[15].wolny and any(not _sie26[d].wolny for d in (1, 8, 22, 29)),
+            str((_swieto_tasma, _sie26[15].wolny)))
+    _okno26.k_parametry.tryb.ustaw_aktywna("Tydzień")
+    _okno26.ustaw_miesiac(*_dzis26)
+    # siatka: dzień 1 i ostatni w kolumnie swojego dnia tygodnia, dla 36 miesięcy
+    _zle_siatka = []
+    _s26 = _OK26.SiatkaDni(2026, 1, (), None)
+    for _r26 in (2024, 2025, 2026, 2027):
+        for _m26 in range(1, 13):
+            _s26.ustaw(_r26, _m26, ())
+            _ost = P.calendar.monthrange(_r26, _m26)[1]
+            _pola26 = _s26._siatka()
+            _szer_k = _s26.KOMORKA + _s26.ODSTEP
+            _x0 = (_s26.width() - (7 * _s26.KOMORKA + 6 * _s26.ODSTEP)) / 2.0
+            for _dz in (1, _ost):
+                _oczek = datetime.date(_r26, _m26, _dz).weekday()
+                _kol_px = int(round((_pola26[_dz].x() - _x0) / _szer_k))
+                if _s26.kolumna(_dz) != _oczek or _kol_px != _oczek:
+                    _zle_siatka.append((_r26, _m26, _dz, _s26.kolumna(_dz), _kol_px, _oczek))
+            if len(_pola26) != _ost:
+                _zle_siatka.append((_r26, _m26, "ile", len(_pola26)))
+    sprawdz("SiatkaDni 2024–2027 (36 miesięcy): dzień 1 i ostatni leżą w kolumnie swojego weekday (0 = pn), pod nagłówkiem tej kolumny",
+            not _zle_siatka and _s26.SKROTY == ("pn", "wt", "śr", "cz", "pt", "sb", "nd"), str(_zle_siatka[:4]))
+    # dni zablokowane: wygaszone, nieklikalne, wyrzucone z wybranych
+    _zab26 = _okno26._dni_zablokowane(2026, 8)
+    _panel26 = _OK26.PanelDniBezPracy(2026, 8, {12, 15}, _okno26, _zab26)
+    _panel26.setStyleSheet(_OK26.arkusz())
+    _panel26.resize(470, max(420, _panel26.sizeHint().height()))
+    _panel26.show()
+    _miel26(3)
+    _si26 = _panel26.siatka
+    _pola26 = _si26._siatka()
+
+    def _klik_siatki26(dzien):
+        pkt = _pola26[dzien].center()
+        _si26.mousePressEvent(_QME26(_QE26.Type.MouseButtonPress, pkt, _si26.mapToGlobal(pkt.toPoint()).toPointF(),
+                                     _Qt26.MouseButton.LeftButton, _Qt26.MouseButton.LeftButton,
+                                     _Qt26.KeyboardModifier.NoModifier))
+        _miel26(2)
+
+    _klik_siatki26(15)
+    _klik_siatki26(16)
+    _klik_siatki26(14)
+    sprawdz("kalendarz z listą z silnika: 15.08 (święto w sobotę) i niedziela zablokowane — klik nic nie robi, zapisany wybór 15 znika; 14 daje się wybrać",
+            _si26.zablokowane == _zab26 and _si26.wybrane == {12, 14} and _panel26.dni() == {12, 14}
+            and _si26.zablokowany(15) and not _si26.zablokowany(14) and _si26._dzien_pod(_pola26[15].center()) == 0,
+            str((sorted(_si26.zablokowane), sorted(_si26.wybrane))))
+
+    def _jasnosc26(obraz, pole):
+        """Najjaśniejszy piksel pola — u dnia do wyboru to jasna cyfra."""
+        naj = 0
+        for x in range(int(pole.left()) + 2, int(pole.right()) - 2):
+            for y in range(int(pole.top()) + 2, int(pole.bottom()) - 2):
+                c = _QC26(obraz.pixel(x, y))
+                naj = max(naj, c.red() + c.green() + c.blue())
+        return naj
+
+    # zrzut CAŁEGO panelu: sama siatka ma przezroczyste tło i wyszłaby na białym
+    _obr26 = _panel26.grab().toImage()
+    _przes26 = _si26.mapTo(_panel26, _si26.rect().topLeft())
+    _p15 = _pola26[15].translated(float(_przes26.x()), float(_przes26.y()))
+    _p14 = _pola26[14].translated(float(_przes26.x()), float(_przes26.y()))
+    sprawdz("zablokowany dzień jest wygaszony: jego cyfra jest wyraźnie ciemniejsza niż cyfra dnia do wyboru",
+            _jasnosc26(_obr26, _p15) < _jasnosc26(_obr26, _p14) - 120,
+            str((_jasnosc26(_obr26, _p15), _jasnosc26(_obr26, _p14))))
+    sprawdz("prototyp bez silnika blokuje z kalendarza: Tydzień — sb i nd, Wieczory — tylko nd",
+            _OK26.dni_poza_tygodniem(2026, 8, "Tydzień") == {1, 2, 8, 9, 15, 16, 22, 23, 29, 30}
+            and _OK26.dni_poza_tygodniem(2026, 8, "Wieczory") == {2, 9, 16, 23, 30})
+    _panel26.close()
+
+    # ── 26c. „Zgłoś błąd”: czysty mailto, bez UDW ──────────────────
+    _plik_kontakt26 = os.path.join(KATALOG, "pmt_kontakt.txt")
+    if not os.path.exists(_plik_kontakt26):
+        try:
+            with open(_plik_kontakt26, "wb") as _f:
+                _f.write("﻿Pomoc.PMT@firma.com.pl — dział IT (bcc=szef@firma.pl)\r\n".encode("utf-8"))
+            _adr26 = P._adres_zgloszen()
+            _otwarte26 = []
+            _bylo_otworz26 = _NW26.otworz_adres
+            _NW26.otworz_adres = lambda url: _otwarte26.append(url) or True
+            try:
+                _okno26._kod_uzytkownika = "12345"
+                _url26 = _okno26.zglos_blad()
+            finally:
+                _NW26.otworz_adres = _bylo_otworz26
+            sprawdz("plik z BOM, CRLF i dopiskiem daje SAM adres; mailto ma odbiorcę, jawny temat (program, wersja, kod) i nic więcej — bez bcc/cc/UDW",
+                    _adr26 == "Pomoc.PMT@firma.com.pl"
+                    and _otwarte26 == [_url26]
+                    and _url26 == "mailto:Pomoc.PMT@firma.com.pl?subject=PMT%%20Planer%%20%s%%20%%C2%%B7%%20kod%%2012345" % P.WERSJA_PROGRAMU
+                    and "bcc" not in _url26.lower() and "cc=" not in _url26.lower() and _url26.count("?") == 1
+                    and "&" not in _url26 and _IMIE26 not in _url26 and _PESEL26 not in _url26,
+                    repr((_adr26, _url26)))
+            with open(_plik_kontakt26, "wb") as _f:
+                _f.write(b"pomoc@firma.pl?bcc=ktos@firma.pl&subject=x\r\n")
+            _z_param26 = P.mailto_zgloszenia("")
+            with open(_plik_kontakt26, "wb") as _f:
+                _f.write("mailto:pomoc@firma.pl;szef@firma.pl​\r\n".encode("utf-8"))
+            _z_lista26 = P._adres_zgloszen()
+            with open(_plik_kontakt26, "wb") as _f:
+                _f.write(b"to nie jest adres\r\n")
+            _bez26 = P._adres_zgloszen()
+            sprawdz("parametry i lista adresów w pliku nie przechodzą: zostaje pierwszy adres; wpis bez adresu wraca do domyślnego",
+                    _z_param26 == "mailto:pomoc@firma.pl?subject=PMT%%20Planer%%20%s" % P.WERSJA_PROGRAMU
+                    and _z_lista26 == "pomoc@firma.pl" and _bez26 == P.ADRES_ZGLOSZEN_DOMYSLNY,
+                    repr((_z_param26, _z_lista26, _bez26)))
+        finally:
+            try:
+                os.remove(_plik_kontakt26)
+            except Exception:
+                pass
+    sprawdz("zglos_blad otwiera odnośnik przez Qt (otworz_adres → QDesktopServices), nie przez webbrowser",
+            "import webbrowser" not in _zr26 and "webbrowser.open" not in _zr26
+            and "QDesktopServices.openUrl(QUrl(" in _zr26
+            and "PMT.mailto_zgloszenia(" in _insp26.getsource(_NW26.OknoNowegoWygladu.zglos_blad))
+
+    # ── 26d. PESEL pod znakami ─────────────────────────────────────
+    _pp26 = _okno26._pole_pesel
+    sprawdz("pole PESEL stoi pod znakami jak hasło, a text() ma pełne 11 cyfr; w polu jest jedno oko bez tekstu",
+            _pp26.echoMode() == _QLE26.EchoMode.Password and _pp26.text() == _PESEL26
+            and len(_pp26.actions()) == 1 and _pp26.actions()[0].text() == ""
+            and not _pp26.actions()[0].icon().isNull())
+    _okno26._oko_pesel.trigger()
+    _miel26(2)
+    _odsl26 = (_pp26.echoMode(), _okno26._zegar_pesel.isActive(), _okno26.pesel_odsloniety())
+    _pp26.setFocus()
+    _app26.sendEvent(_pp26, _QFE26(_QE26.Type.FocusOut))
+    _miel26(2)
+    _po_fokusie26 = (_pp26.echoMode(), _okno26._zegar_pesel.isActive())
+    sprawdz("klik w oko odsłania cyfry i nastawia zegar; utrata fokusu chowa je z powrotem",
+            _odsl26 == (_QLE26.EchoMode.Normal, True, True)
+            and _po_fokusie26 == (_QLE26.EchoMode.Password, False), str((_odsl26, _po_fokusie26)))
+    _okno26._oko_pesel.trigger()
+    _miel26(1)
+    _okno26._zegar_pesel.setInterval(30)
+    _okno26._zegar_pesel.start()
+    _t0_26 = time.time()
+    while _okno26._zegar_pesel.isActive() and time.time() - _t0_26 < 2.0:
+        _app26.processEvents()
+    _miel26(2)
+    sprawdz("po chwili (CZAS_PODGLADU_PESEL) cyfry same wracają pod znaki",
+            _pp26.echoMode() == _QLE26.EchoMode.Password and not _okno26.pesel_odsloniety()
+            and _okno26.CZAS_PODGLADU_PESEL >= 2000)
+    _okno26._zegar_pesel.setInterval(_okno26.CZAS_PODGLADU_PESEL)
+    _okno26.k_parametry.kwota.ustaw_tekst("1 850,00")
+    _men26 = os.path.join(_TMP_HOME, "menedzer.txt")     # bez przełożonego program odmawia generowania
+    _men_byl26 = os.path.exists(_men26)
+    if not _men_byl26:
+        with open(_men26, "w", encoding="utf-8") as _f:
+            _f.write("Przełożony Testowy\n")
+    try:
+        _param26, _powod26 = _okno26._dane_do_generacji()
+    finally:
+        if not _men_byl26:
+            os.remove(_men26)
+    sprawdz("silnik dostaje pełny PESEL mimo maski (walidacja i zapis profilu bez zmian)",
+            _param26 is not None and _param26.get("pesel") == _PESEL26
+            and P.waliduj_pesel(_pp26.text()), str((_powod26, (_param26 or {}).get("pesel"))))
+    sprawdz("okno logowania nie ma pola PESEL (kod i hasło pod znakami), a stare panele używają PESEL-u tylko jako klucza",
+            "pesel" not in open(os.path.join(KATALOG, "okno_logowania.py"), encoding="utf-8").read().lower()
+            and "pole_haslo.setEchoMode(QLineEdit.EchoMode.Password)" in _zrodlo10)
+
+    # ── 26e. uchwyt zwinięcia: pastylka, poświata, składanie ───────
+    _dni_k26 = _DN26.oblicz_miesiac(1850, rok=2026, miesiac=10)
+    _dz_k26 = next(d for d in _dni_k26 if not d.wolny and len(d.przystanki) >= 3)
+    _k26 = _PM26.KartkaDelegacji()
+    _k26.resize(342, 470)
+    _k26.ustaw_animacje(False)
+    _k26.ustaw_dzien(_dz_k26)
+    _k26.ustaw_numer("2026/10/01")
+    _k26.ustaw_stan("zwykla")
+    _k26.show()
+    _miel26(3)
+    _kar26 = _k26._pole_kartki()[0]
+    _pu26 = _k26._pole_uchwytu()
+
+    def _klik_k26(pkt):
+        _k26.mousePressEvent(_QME26(_QE26.Type.MouseButtonPress, pkt, _k26.mapToGlobal(pkt.toPoint()).toPointF(),
+                                    _Qt26.MouseButton.LeftButton, _Qt26.MouseButton.LeftButton,
+                                    _Qt26.KeyboardModifier.NoModifier))
+        _miel26(2)
+
+    def _ruch_k26(pkt):
+        _k26.mouseMoveEvent(_QME26(_QE26.Type.MouseMove, pkt, _k26.mapToGlobal(pkt.toPoint()).toPointF(),
+                                   _Qt26.MouseButton.NoButton, _Qt26.MouseButton.NoButton,
+                                   _Qt26.KeyboardModifier.NoModifier))
+        _miel26(2)
+
+    def _cyjan_k26(obraz, pole):
+        ile = 0
+        for x in range(int(pole.left()) - 8, int(pole.right()) + 6):
+            for y in range(int(pole.top()) - 8, int(pole.bottom()) + 8):
+                c = _QC26(obraz.pixel(x, y))
+                if c.blue() > 170 and c.green() > 150 and c.red() < 120:
+                    ile += 1
+        return ile
+
+    sprawdz("pastylka uchwytu: przy prawej krawędzi papieru, na środku wysokości, 12–16 px szeroka i wyraźnie wyższa niż szersza; poza nią papier nie jest uchwytem",
+            abs(_pu26.right() - _kar26.right()) <= 3.0 and abs(_pu26.center().y() - _kar26.center().y()) < 1.0
+            and 12.0 <= _pu26.width() <= _PM26.KartkaDelegacji.UCHWYT + 0.01 and _pu26.height() >= 3.0 * _pu26.width()
+            and _k26.w_uchwycie(_QP26(_kar26.right() - 4.0, _kar26.center().y()))
+            and not _k26.w_uchwycie(_kar26.center())
+            and not _k26.w_uchwycie(_QP26(_kar26.right() - 4.0, _kar26.top() + 20.0)),
+            str((_pu26, _kar26)))
+    _spok26 = _k26.grab().toImage()
+    _ruch_k26(_QP26(_pu26.center().x(), _pu26.center().y()))
+    _pod26 = _k26.grab().toImage()
+    _ruch_k26(_kar26.center())
+    _znow26 = _k26.grab().toImage()
+    sprawdz("kursor nad pastylką zapala cyjanową poświatę; po zejściu obraz wraca co do bajta",
+            _cyjan_k26(_spok26, _pu26) == 0 and _cyjan_k26(_pod26, _pu26) > 40 and _k26.pod_uchwytem() is False
+            and same_piksele(_znow26.convertToFormat(_QI26.Format.Format_RGB888))
+            == same_piksele(_spok26.convertToFormat(_QI26.Format.Format_RGB888)),
+            str((_cyjan_k26(_spok26, _pu26), _cyjan_k26(_pod26, _pu26))))
+    sprawdz("uchwyt nie jest w gotowej pixmapie kartki — rysuje go paintEvent nad papierem",
+            "_rysuj_uchwyt" not in _insp26.getsource(_PM26.KartkaDelegacji._pixmapa)
+            and "_rysuj_uchwyt" in _insp26.getsource(_PM26.KartkaDelegacji.paintEvent))
+    _klik_k26(_kar26.center())
+    _obr_k26 = (_k26.strona(), _k26.zwinieta())
+    _klik_k26(_kar26.center())
+    _klik_k26(_QP26(_pu26.center().x(), _pu26.center().y()))
+    sprawdz("klik w papier obraca kartkę, klik w pastylkę zwija ją (bez animacji od razu)",
+            _obr_k26 == ("tyl", False) and _k26.strona() == "przod" and _k26.zwinieta() and _k26.faza_zwijania() == 1.0)
+    _klik_k26(_QP26(_k26.width() * 0.5, _k26.height() * 0.5))
+    _zgl26 = []
+    _k26.przelaczono_zwiniecie.connect(lambda z: _zgl26.append(z))
+    _k26.ustaw_animacje(True)
+    _klik_k26(_QP26(_pu26.center().x(), _pu26.center().y()))
+    _w_ruchu26 = (_k26.zwija_sie(), _k26.zwinieta(), 0.0 < _k26.faza_zwijania() < 1.0, list(_zgl26))
+    _t0_26 = time.time()
+    while _k26.zwija_sie() and time.time() - _t0_26 < 3.0:
+        _app26.processEvents()
+    _po_ruchu26 = (_k26.zwija_sie(), _k26.zwinieta(), _k26.faza_zwijania(), list(_zgl26))
+    sprawdz("z animacjami klik w pastylkę składa papier do krawędzi: w trakcie kartka jeszcze nie jest zwinięta i nie zgłasza; na końcu zwinięta i zgłoszona raz",
+            _w_ruchu26[0] and not _w_ruchu26[1] and _w_ruchu26[3] == []
+            and _po_ruchu26 == (False, True, 1.0, [True]), str((_w_ruchu26, _po_ruchu26)))
+    _k26.ustaw_zwiniecie(False)
+    _t0_26 = time.time()
+    while _k26.faza_zwijania() > 0.0 and time.time() - _t0_26 < 3.0:
+        _app26.processEvents()
+    sprawdz("rozwinięcie zgłasza się od razu (okno oddaje kartce miejsce), a papier rozkłada się z krawędzi do zera",
+            _zgl26 == [True, False] and not _k26.zwinieta() and _k26.faza_zwijania() == 0.0)
+    _klik_k26(_QP26(_pu26.center().x(), _pu26.center().y()))
+    _k26.ustaw_animacje(False)
+    _miel26(2)
+    sprawdz("ustaw_animacje(False) w trakcie składania domyka je od razu i bez drugiego zgłoszenia",
+            _k26.zwinieta() and not _k26.zwija_sie() and _zgl26 == [True, False, True], str(_zgl26))
+    _k26.ustaw_zwiniecie(False)
+    _miel26(2)
+    _a26 = same_piksele(_k26.grab().toImage().convertToFormat(_QI26.Format.Format_RGB888))
+    _miel26(2)
+    _b_26 = same_piksele(_k26.grab().toImage().convertToFormat(_QI26.Format.Format_RGB888))
+    sprawdz("bez animacji zrzut kartki z pastylką jest powtarzalny co do bajta", _a26 == _b_26)
+    _k26.close()
+    _okno26.close()
+except Exception as _e26:
+    sprawdz("pięć usterek z testu właściciela", False, repr(_e26))
+    import traceback as _tb26
+    _tb26.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

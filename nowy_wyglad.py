@@ -43,9 +43,19 @@ CO JEST PRAWDZIWE
     · wybór miesiąca       zakładki paska górnego (także PgUp / PgDn); zakładka
                            miesiąca, który minął bez wpisu w historii i bez
                            folderu z dokumentami, nosi kropkę (PasekMiesiecy.kropki)
+                           — JEDNĄ regułą miesiac_nierozliczony / stan_miesiaca,
+                           tą samą, co kratka roku i taca; miesiąc wpisu ustala
+                           PMT._rok_miesiac_wpisu (także wpisy starszych wersji)
     · kratka roku          na ekranie startowym: 12 pól z kwotą, km i dniami
                            z historii miesięcy (historia_okna = wpisy + foldery
                            na dysku); pole przestawia program na ten miesiąc
+    · dni bez pracy        kalendarz PanelDniBezPracy z dniami zablokowanymi
+                           z silnika (_dni_zablokowane → PMT.dni_zablokowane_miesiaca:
+                           święta i dni poza tygodniem roboczym w danym trybie)
+    · PESEL                pole karty PRACOWNIK pod znakami; oko odsłania cyfry
+                           na CZAS_PODGLADU_PESEL albo do utraty fokusu
+    · zgłoś błąd           PMT.mailto_zgloszenia (adres oczyszczony, jawny temat,
+                           bez cc/bcc) otwierany przez otworz_adres (Qt)
     · taca miesięcy        pasek nad kartkami: miesiące z gotowymi dokumentami;
                            pigułka wczytuje kartki z TAMTEGO folderu (tabele
                            przejazdów PDF-ów, pmt_dokumenty.dni_kompletu) bez
@@ -144,9 +154,10 @@ PMT = modul_programu()
 KATALOG_PROTOTYPU = _wepnij_prototyp()
 
 from PyQt6.QtCore import (Qt, QEvent, QPoint, QPointF, QRectF,     # noqa: E402
-                          QSize, QTimer, pyqtSignal)
-from PyQt6.QtGui import (QBrush, QColor, QCursor, QLinearGradient,  # noqa: E402
-                         QPainter, QPainterPath, QPen, QPixmap)
+                          QSize, QTimer, QUrl, pyqtSignal)
+from PyQt6.QtGui import (QBrush, QColor, QCursor, QDesktopServices,  # noqa: E402
+                         QIcon, QLinearGradient, QPainter, QPainterPath,
+                         QPen, QPixmap)
 from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,       # noqa: E402
                              QCheckBox, QComboBox, QFrame, QHBoxLayout,
                              QLabel, QLineEdit, QMenu, QMessageBox,
@@ -329,6 +340,48 @@ def waznosc_konta(pozostalo=None):
 def miesiac_biezacy():
     dzis = datetime.date.today()
     return dzis.year, dzis.month
+
+
+def ikona_oka(odsloniete, bok=18):
+    """Oko do pola PESEL rysowane QPainterem: zamknięte — kontur z kreską
+    (cyfry pod znakami), otwarte — kontur ze źrenicą w cyjanie (cyfry widać).
+    Żadnego pliku graficznego, żadnego tekstu."""
+    dpr = 2
+    pix = QPixmap(bok * dpr, bok * dpr)
+    pix.setDevicePixelRatio(dpr)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    kolor = S.CYJAN if odsloniete else S.TEKST_3
+    pioro = QPen(kolor, 1.5)
+    pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pioro.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pioro)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    sx, sy = bok / 2.0, bok / 2.0
+    szer, wys = bok * 0.40, bok * 0.24
+    oko = QPainterPath(QPointF(sx - szer, sy))
+    oko.quadTo(QPointF(sx, sy - wys * 2.0), QPointF(sx + szer, sy))
+    oko.quadTo(QPointF(sx, sy + wys * 2.0), QPointF(sx - szer, sy))
+    p.drawPath(oko)
+    if odsloniete:
+        p.setBrush(QBrush(kolor))
+        p.drawEllipse(QPointF(sx, sy), bok * 0.11, bok * 0.11)
+    else:
+        p.drawLine(QPointF(sx - szer * 0.85, sy + wys * 1.55),
+                   QPointF(sx + szer * 0.85, sy - wys * 1.55))
+    p.end()
+    return QIcon(pix)
+
+
+def otworz_adres(odnosnik):
+    """Odnośnik (mailto:, https:) w programie wskazanym przez system —
+    jedno miejsce, które testy podmieniają atrapą."""
+    try:
+        return bool(QDesktopServices.openUrl(QUrl(str(odnosnik))))
+    except Exception as blad:
+        PMT.log_error(blad)
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1296,6 +1349,23 @@ def miesiace_z_dysku(imie, katalog=None):
     return wynik
 
 
+def stan_miesiaca(klucz, miesiace, biezacy):
+    """„dokumenty" / „pusty" / „przyszly" — JEDNA reguła dla kropki na
+    zakładce, kratki roku i tacy. ``miesiace`` to historia_okna(): miesiąc
+    z kluczem ma wpis albo folder, czyli COKOLWIEK — liczby, bez kropki."""
+    klucz = (int(klucz[0]), int(klucz[1]))
+    if klucz in miesiace:
+        return "dokumenty"
+    return "przyszly" if klucz > tuple(biezacy) else "pusty"
+
+
+def miesiac_nierozliczony(klucz, miesiace, biezacy):
+    """Miesiąc już minął, a nie ma dla niego ANI wpisu w historii, ANI
+    folderu z dokumentami — kropka. Bieżący i przyszłe nigdy jej nie mają."""
+    klucz = (int(klucz[0]), int(klucz[1]))
+    return klucz < tuple(biezacy) and klucz not in miesiace
+
+
 def historia_okna(imie, pesel, katalog=None):
     """Miesiące osoby: {(rok, miesiąc): {...}} jak PMT.historia_miesiecy,
     dołożone o foldery leżące na dysku.
@@ -2018,16 +2088,12 @@ class KratkaRoku(QWidget):
         return self._miesiace.get((self._rok, int(numer)))
 
     def stan_miesiaca(self, klucz):
-        """„dokumenty" / „pusty" / „przyszly"."""
-        klucz = (int(klucz[0]), int(klucz[1]))
-        if klucz in self._miesiace:
-            return "dokumenty"
-        return "przyszly" if klucz > self._biezacy else "pusty"
+        """„dokumenty" / „pusty" / „przyszly" — regułą wspólną z zakładkami."""
+        return stan_miesiaca(klucz, self._miesiace, self._biezacy)
 
     def nierozliczony(self, klucz):
         """Miesiąc już minął, a nie ma ani wpisu, ani folderu — kropka."""
-        klucz = (int(klucz[0]), int(klucz[1]))
-        return klucz < self._biezacy and klucz not in self._miesiace
+        return miesiac_nierozliczony(klucz, self._miesiace, self._biezacy)
 
     def sumy_roku(self, rok=None):
         """(kwota, km, dni, miesiące z liczbami) — sumy pól z liczbami."""
@@ -2765,6 +2831,7 @@ class OknoNowegoWygladu(OknoPrototypu):
     USTAWIENIE_WOLNYCH = "nowy_dni_wolne"
     USTAWIENIE_KARTKI = "nowy_kartka_zwinieta"
     PAMIEC_MIESIECY = 12          # ile miesięcy dni bez pracy zostaje w pliku
+    CZAS_PODGLADU_PESEL = 4000    # ms: tyle cyfry PESEL stoją odsłonięte po kliknięciu oka
 
     def __init__(self, profil=None, rok=None, miesiac=None, rodzic=None,
                  stare_okno=None):
@@ -2938,12 +3005,23 @@ class OknoNowegoWygladu(OknoPrototypu):
 
         # Miejsce po prototypowym haśle zajmuje PESEL — bez niego nie da się
         # wystawić delegacji, a nowy wygląd nie ma innego pola na te 11 cyfr.
+        # Cyfry stoją pod znakami jak hasło; oko w polu odsłania je na chwilę
+        # (_przelacz_podglad_pesel), a utrata fokusu chowa z powrotem.
         self._pole_pesel = karta.haslo
-        self._pole_pesel.setEchoMode(QLineEdit.EchoMode.Normal)
+        self._pole_pesel.setEchoMode(QLineEdit.EchoMode.Password)
         self._pole_pesel.setMaxLength(11)
         self._pole_pesel.setPlaceholderText("PESEL")
         self._pole_pesel.setText(self.profil.pesel)
         self._pole_pesel.show()
+        self._zegar_pesel = QTimer(self)
+        self._zegar_pesel.setSingleShot(True)
+        self._zegar_pesel.setInterval(self.CZAS_PODGLADU_PESEL)
+        self._zegar_pesel.timeout.connect(self._ukryj_pesel)
+        self._oko_pesel = self._pole_pesel.addAction(
+            ikona_oka(False), QLineEdit.ActionPosition.TrailingPosition)
+        self._oko_pesel.setToolTip("")
+        self._oko_pesel.triggered.connect(self._przelacz_podglad_pesel)
+        self._pole_pesel.installEventFilter(self)
 
         # pojemność silnika — dokładnie te dwie pozycje, co w programie
         parametry = self.k_parametry
@@ -2963,6 +3041,35 @@ class OknoNowegoWygladu(OknoPrototypu):
         if hasattr(self.taca.k_dni, "_opis"):
             self.taca.k_dni._opis = "DNI W TRASIE"
             self.taca.k_dni.updateGeometry()
+
+    # ── PESEL pod znakami ─────────────────────────────────────────────
+    def pesel_odsloniety(self):
+        pole = self._pole_pesel
+        return pole is not None and pole.echoMode() == QLineEdit.EchoMode.Normal
+
+    def _przelacz_podglad_pesel(self):
+        """Oko w polu: cyfry na chwilę widać, potem wracają pod znaki."""
+        if self.pesel_odsloniety():
+            self._ukryj_pesel()
+        else:
+            self._pokaz_pesel()
+
+    def _pokaz_pesel(self):
+        pole = self._pole_pesel
+        if pole is None:
+            return
+        pole.setEchoMode(QLineEdit.EchoMode.Normal)
+        self._oko_pesel.setIcon(ikona_oka(True))
+        self._zegar_pesel.start()
+
+    def _ukryj_pesel(self):
+        pole = self._pole_pesel
+        if pole is None:
+            return
+        self._zegar_pesel.stop()
+        if pole.echoMode() != QLineEdit.EchoMode.Password:
+            pole.setEchoMode(QLineEdit.EchoMode.Password)
+            self._oko_pesel.setIcon(ikona_oka(False))
 
     def _zapisz_pracownika(self):
         """Pola karty PRACOWNIK → profil programu (~/.pmt_uzytkownicy.json).
@@ -3148,6 +3255,15 @@ class OknoNowegoWygladu(OknoPrototypu):
         """Wybór z kalendarza — ta sama lista, co prawy przycisk na taśmie."""
         super()._ustaw_dni_bez_pracy(dni)
         self._zapamietaj_wolne()
+
+    def _dni_zablokowane(self, rok, miesiac):
+        """Kalendarz „Dni bez pracy" blokuje z góry święta i dni poza
+        tygodniem roboczym w bieżącym trybie — z tej samej listy, z której
+        silnik bierze dni robocze (PMT.pobierz_dni_robocze)."""
+        tryb = self.k_parametry.tryb.aktywna()
+        PMT.ustaw_tryb_pracy("wieczory" if str(tryb).lower().startswith("wiecz")
+                             else "tydzien")
+        return PMT.dni_zablokowane_miesiaca(int(rok), int(miesiac))
 
     # ── podgląd (zamiast uproszczonego silnika prototypu) ────────────
     def _maks_miesiaca(self, tryb):
@@ -3743,8 +3859,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         kropki = []
         for krok in (-1, 0, 1):
             n = numer + krok
-            klucz = (n // 12, n % 12 + 1)
-            kropki.append(klucz < biezacy and klucz not in znane)
+            kropki.append(miesiac_nierozliczony((n // 12, n % 12 + 1), znane, biezacy))
         return tuple(kropki)
 
     def _odswiez_kropki(self):
@@ -4204,8 +4319,18 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._odswiez_pasek_konta()
 
     def zglos_blad(self):
-        import webbrowser
-        webbrowser.open("mailto:" + PMT._adres_zgloszen())
+        """„Zgłoś błąd": nowa wiadomość do adresu z pmt_kontakt.txt.
+
+        Odnośnik składa PMT.mailto_zgloszenia — oczyszczony adresat i jawny
+        temat (program, wersja, kod użytkownika), nic więcej: żadnego cc ani
+        bcc/UDW, które potrafiły wjechać z pliku razem z adresem. Otwiera go
+        Qt (QDesktopServices), nie moduł webbrowser — ten na Windows potrafił
+        oddać mailto przeglądarce zamiast programowi pocztowemu.
+        Zwraca otwarty odnośnik."""
+        kod = self._kod_uzytkownika or PMT.online_kod_uzytkownika() or ""
+        odnosnik = PMT.mailto_zgloszenia(kod)
+        otworz_adres(odnosnik)
+        return odnosnik
 
     def menu_konta(self):
         """Awatar: hasło, karta testera, animacja startowa, wylogowanie."""
@@ -4579,6 +4704,9 @@ class OknoNowegoWygladu(OknoPrototypu):
             przycisk = getattr(self.taca, "b_mapa", None)
             if przycisk is not None:
                 przycisk.setVisible(self.taca.width() >= 1060)
+        elif rodzaj == QEvent.Type.FocusOut and obiekt is self._pole_pesel \
+                and self.pesel_odsloniety():
+            self._ukryj_pesel()               # PESEL wraca pod znaki, gdy pole traci fokus
         return super().eventFilter(obiekt, zdarzenie)
 
     def _ubierz_okno_programu(self, okno_qt):

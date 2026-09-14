@@ -45,6 +45,65 @@ BLAD          = QColor("#FF5C7A")
 PAPIER        = QColor("#FFFFFF")
 PAPIER_TEKST  = QColor("#101828")
 
+# ── mapa 3D: krajobraz w kolorze ─────────────────────────────────────
+# Wszystkie barwy krajobrazu mieszkają TU, a proto_mapa tylko je składa
+# ze światłem dnia. Jedna zasada doboru: trasa dnia (cyjan i zieleń) ma
+# zostać jedyną rzeczą na mapie z wyraźną przewagą zieleni I błękitu nad
+# czerwienią przy dużej jasności — stąd niebo i woda są przygaszone ku
+# szarości, a nie lazurowe. Pola i łąki: zieleń z żółcią (b < r), więc
+# nigdy nie udają trasy.
+#
+# Pola: sześć odcieni na porę roku — sąsiednie działki mają się różnić.
+POLA_WIOSNA = (QColor(118, 164, 70), QColor(134, 176, 82), QColor(104, 152, 62),
+               QColor(146, 172, 92), QColor(128, 158, 74), QColor(156, 182, 98))
+POLA_LATO   = (QColor(200, 176, 92), QColor(214, 190, 104), QColor(182, 166, 84),
+               QColor(160, 168, 84), QColor(222, 200, 120), QColor(190, 154, 80))
+POLA_JESIEN = (QColor(176, 128, 72), QColor(190, 142, 86), QColor(156, 116, 68),
+               QColor(166, 152, 96), QColor(200, 152, 90), QColor(146, 124, 82))
+POLA_ZIMA   = (QColor(204, 208, 208), QColor(196, 202, 204), QColor(212, 214, 214),
+               QColor(186, 194, 192), QColor(200, 206, 206), QColor(192, 198, 196))
+LAKA_WIOSNA, LAKA_LATO = QColor(140, 190, 90), QColor(150, 186, 88)
+LAKA_JESIEN, LAKA_ZIMA = QColor(162, 164, 92), QColor(208, 212, 208)
+# Las: (cień pod koronami, korony w świetle). Jesienią rdza, zimą szarość.
+LAS_WIOSNA = (QColor(50, 100, 56), QColor(82, 136, 72))
+LAS_LATO   = (QColor(40, 90, 50), QColor(66, 120, 62))
+LAS_JESIEN = (QColor(72, 84, 44), QColor(134, 104, 50))
+LAS_ZIMA   = (QColor(56, 70, 70), QColor(84, 96, 92))
+GLEBA      = QColor(112, 98, 78)         # ziemia pod polami (miedze, obrzeża)
+GLEBA_ZIMA = QColor(150, 152, 150)
+# Woda: koryto, głębia i jasny blask słońca na tafli.
+WODA        = QColor(70, 98, 138)
+WODA_GLEBOKA = QColor(48, 72, 112)
+WODA_BLASK  = QColor(196, 212, 226)
+WODA_BRZEG  = QColor(154, 150, 124)
+# Drogi: lokalna wąska i jasna, szybka szeroka i ciemna z jasnym pasem.
+DROGA_LOKALNA = QColor(172, 170, 162)
+DROGA_SZYBKA  = QColor(96, 98, 102)
+DROGA_PAS     = QColor(228, 224, 206)
+DROGA_OBRZEZE = QColor(118, 116, 108)
+MOST          = QColor(214, 208, 196)
+# Zabudowa: plama zabudowy, dachy (dachówka i szary), ściany, wieża, komin.
+PLAMA_OSADY   = QColor(178, 168, 152)
+DACH_DACHOWKA = QColor(172, 96, 70)
+DACH_SZARY    = QColor(146, 146, 144)
+DACH_BAZY     = QColor(158, 152, 150)
+SCIANA_OSADY  = QColor(214, 204, 186)
+WIEZA         = QColor(196, 188, 176)
+KOMIN         = QColor(124, 112, 106)
+OKNO_WIECZOR  = QColor(255, 206, 120)
+# Niebo i światło w trzech porach dnia: (góra nieba, horyzont, słońce, ambient).
+NIEBO_RANO     = (QColor(54, 74, 108), QColor(200, 204, 208),
+                  QColor(236, 240, 255), QColor(150, 168, 196))
+NIEBO_POLUDNIE = (QColor(44, 74, 124), QColor(176, 192, 206),
+                  QColor(255, 250, 238), QColor(158, 172, 196))
+NIEBO_WIECZOR  = (QColor(50, 40, 76), QColor(226, 166, 116),
+                  QColor(255, 196, 132), QColor(150, 134, 172))
+WZGORZA_DALEKIE = QColor(108, 128, 158)  # pasma na horyzoncie, dalsze i bliższe
+WZGORZA_BLISKIE = QColor(90, 108, 138)
+CHMURA          = QColor(224, 228, 232)
+CHMURA_CIEN     = QColor(168, 178, 194)
+POZIOMICA       = QColor(70, 58, 40)
+
 # ── miary ────────────────────────────────────────────────────────────
 PROMIEN       = 18.0     # domyślne zaokrąglenie narożnika
 PROMIEN_MALY  = 10.0

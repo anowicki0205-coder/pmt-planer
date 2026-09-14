@@ -64,9 +64,20 @@ osobno plamy zabudowy — bo cień trasy leży między nimi. Klatka animacji
 dokłada do tego płynący blask, kreski powrotu i oddech bazy; sama nic nie
 przelicza.
 
+Białe plamy rejonu: rejon leży pod delikatną mgłą (część gotowej warstwy pod
+trasą, więc klatka nic za nią nie płaci). Miejscowości ze śladem obecności
+programu — :meth:`MapaDnia.ustaw_odkryte` — są z niej wycięte i świecą,
+trasa dnia i jej przystanki zawsze. W prawym dolnym rogu ramy stoją dwie
+liczby: odkryte / w zasięgu (:meth:`MapaDnia.odkryte_w_zasiegu`). Bez śladu
+wszystko leży pod mgłą, a licznik pokazuje 0 / N.
+
+Kartka delegacji ma dwie strony: przód to polecenie wyjazdu, odwrót
+(:func:`tresc_tylu`) to ten sam dzień taki, jaki był naprawdę. Klik obraca
+kartkę — obrót jest przekształceniem gotowej pixmapy, nie rysowaniem.
+
 Zegary: MapaDnia i KartkaDelegacji mają ``ustaw_animacje(wlaczone)``.
-Wyłączenie zatrzymuje zegar i ustawia stałą fazę — zrzuty są powtarzalne.
-Zegary gasną też przy schowaniu i zamknięciu widżetu.
+Wyłączenie zatrzymuje zegar i ustawia stałą fazę (także obrót kartki) —
+zrzuty są powtarzalne. Zegary gasną też przy schowaniu i zamknięciu widżetu.
 
 Prawdziwe współrzędne: :meth:`MapaDnia.ustaw_miasta` przyjmuje słownik
 {nazwa: (szerokość, długość, ranga)} i rzutuje go na płaszczyznę mapy
@@ -74,13 +85,15 @@ z zachowaniem proporcji odległości. Tak podaje je nowy_wyglad — wprost
 z geokodowania silnika. Bez tego wywołania mapa pracuje na ułamkowych
 współrzędnych z proto_dane, dokładnie jak dotąd.
 """
+import copy
 import math
 import time
+import unicodedata
 
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, QEvent, pyqtSignal
 from PyQt6.QtGui import (QPainter, QPainterPath, QPen, QBrush, QColor, QPixmap,
                          QFontMetricsF, QLinearGradient, QRadialGradient,
-                         QPolygonF, QRegion)
+                         QPolygonF, QRegion, QTransform)
 from PyQt6.QtWidgets import QWidget
 
 import proto_styl as st
@@ -112,6 +125,22 @@ _DL_SWIATLA = math.sqrt(sum(k * k for k in SWIATLO_3D))
 SWIATLO_JEDN = tuple(k / _DL_SWIATLA for k in SWIATLO_3D)
 
 BARWA_MGLY = QColor(58, 88, 118)          # mgła odległości w głębi sceny
+# ── białe plamy rejonu ───────────────────────────────────────────────
+# Rejon pracy leży pod delikatną mgłą. Miejscowości, w których program ma
+# ślad obecności (wpis w historii — MapaDnia.ustaw_odkryte), są z niej
+# wycięte i świecą; trasa dnia i jej przystanki są odsłonięte zawsze. Mgła
+# jest częścią gotowej warstwy POD trasą (MapaDnia._warstwy), więc klatka
+# animacji nie dokłada za nią ani jednego wywołania. Licznik w rogu ramy:
+# odkryte / w zasięgu (bez bazy — w niej się mieszka, nie odkrywa).
+BARWA_MGLY_REJONU = QColor(178, 194, 212)
+ALFA_MGLY_REJONU = (36, 68)       # gęstość zasłony: w głębi sceny i przy widzu
+PROMIEN_ODKRYCIA = 2.3            # wycięcie względem promienia znaku miejscowości
+PROMIEN_ODKRYCIA_PX = (34.0, 130.0)   # najmniejsze i największe wycięcie
+BARWA_ODKRYCIA = st.MIETA         # poświata odkrytej miejscowości
+# Mgła jest miękka, więc rysuje się w POŁOWIE rozdzielczości i rozciąga —
+# szerokie, wygładzane pociągnięcia korytarza trasy kosztują cztery razy
+# mniej, a oko nie widzi różnicy (zasłona nie ma ostrych krawędzi).
+SKALA_MGLY = 0.5
 # Otwarty teren: kilka odcieni pola, żeby sąsiednie działki się różniły,
 # i jeden wyraźnie ciemniejszy las.
 BARWY_POL = (QColor(24, 40, 43), QColor(20, 34, 40), QColor(28, 44, 42),
@@ -383,6 +412,17 @@ class Rzut:
         # o ile przesuwa się cień punktu na wysokości 1 nad gruntem
         self.cien_x = -lx / lz
         self.cien_y = -ly / lz
+
+    def poszerzony(self, dodatkowo_px):
+        """Ta sama kamera na filmie szerszym o ``dodatkowo_px`` z każdej strony.
+
+        Ogniskowa, oko i kąt zostają; przesuwa się tylko środek filmu. Obraz
+        na szerokim filmie jest więc pikselowo tym samym obrazem, co na
+        wąskim, z dodanym po bokach dalszym ciągiem sceny — na tym stoi
+        przelot nad rejonem (:class:`PrzelotRejonu`)."""
+        nowy = copy.copy(self)
+        nowy.px = self.px + float(dodatkowo_px)
+        return nowy
 
     # — rzut —
     def _surowy(self, x, y, z):
@@ -691,6 +731,22 @@ def _napis(p, x, y, napis, kolor, rozmiar, waga=400, mono=False,
     return x
 
 
+# Kolor ostrzeżenia NA BIAŁEJ KARTCE — bursztyn z ciemnego tła (st.BURSZTYN)
+# na papierze ginie, więc rubryka bez nazwiska dostaje jego ciemniejszy ton.
+OSTRZEZENIE_NA_PAPIERZE = QColor("#B8730A")
+
+
+def _tekst_menedzera(wartosc):
+    """(tekst do rubryki MENEDŻER, czy to brak). Nazwisko przychodzi WYŁĄCZNIE
+    z pliku menedzer.txt; wartość w nawiasie to zaślepka za brak pliku —
+    rubryka pokazuje wtedy kreskę w kolorze ostrzeżenia, nie zielony sukces
+    (dotąd świeciło tu „uzupełniony", a na PDF rubryka wychodziła pusta)."""
+    tekst = str(wartosc or "").strip()
+    if not tekst or tekst.startswith("("):
+        return "—", True
+    return tekst, False
+
+
 def _przytnij(napis, f, szerokosc):
     """Skraca napis wielokropkiem, żeby nie wyszedł poza rubrykę."""
     m = QFontMetricsF(f)
@@ -829,6 +885,121 @@ def odcinki_dnia(dzien):
     return odcinki
 
 
+# ── druga strona kartki: dzień taki, jaki był naprawdę ───────────────
+# Skąd wzięły się kilometry odcinka — nazwy jak w PMT_Delegacje
+# (stan_zrodla_odleglosci) i ich etykiety na papierze. Barwy: realne drogi
+# zielenią sukcesu, pamięć dróg spokojnym granatem, szacunek ostrzeżeniem.
+ZRODLO_DROGI, ZRODLO_PAMIEC, ZRODLO_SZACUNEK = "drogi", "pamiec", "szacunek"
+ETYKIETY_ZRODEL = {ZRODLO_DROGI: "drogi", ZRODLO_PAMIEC: "pamięć",
+                   ZRODLO_SZACUNEK: "szacunek"}
+KOLEJNOSC_ZRODEL = (ZRODLO_DROGI, ZRODLO_PAMIEC, ZRODLO_SZACUNEK)
+
+
+def etapy_dnia(dzien):
+    """Odcinki dnia na drugą stronę kartki, w jednej postaci.
+
+    Z pola ``dzien.etapy`` (program: godziny z dokumentu, kilometry silnika,
+    linia prosta i źródło każdego odcinka), a gdy go nie ma — z
+    :func:`odcinki_dnia`, czyli z rozkładu prototypu: bez linii prostej
+    i bez źródła. Każdy wpis: {"z", "do", "wyj", "przyj", "km", "prosta",
+    "zrodlo"}; ``prosta`` to None, gdy nieznana, ``zrodlo`` to „" gdy nieznane.
+    """
+    if dzien is None or getattr(dzien, "wolny", False):
+        return []
+    surowe = list(getattr(dzien, "etapy", None) or [])
+    if not surowe:
+        surowe = odcinki_dnia(dzien)
+    wynik = []
+    for o in surowe:
+        if not isinstance(o, dict):
+            continue
+        try:
+            km = max(0.0, float(o.get("km") or 0.0))
+        except (TypeError, ValueError):
+            km = 0.0
+        prosta = o.get("prosta")
+        try:
+            prosta = float(prosta) if prosta not in (None, "") else None
+        except (TypeError, ValueError):
+            prosta = None
+        if prosta is not None and prosta <= 0.0:
+            prosta = None
+        zrodlo = str(o.get("zrodlo") or "")
+        wynik.append({"z": str(o.get("z") or ""), "do": str(o.get("do") or ""),
+                      "wyj": str(o.get("wyj") or ""), "przyj": str(o.get("przyj") or ""),
+                      "km": km, "prosta": prosta,
+                      "zrodlo": zrodlo if zrodlo in ETYKIETY_ZRODEL else ""})
+    return wynik
+
+
+def _roznica_minut(od, do):
+    """Minuty od godziny ``od`` do ``do`` (przez północ też); None bez godzin."""
+    if not od or not do:
+        return None
+    return (_na_minuty(do) - _na_minuty(od)) % (24 * 60)
+
+
+def _czas_hm(minuty):
+    """Minuty → „4 h 50" albo „23 min"; None → „—"."""
+    if minuty is None:
+        return "—"
+    minuty = int(round(minuty))
+    if minuty < 60:
+        return "%d min" % minuty
+    return "%d h %02d" % (minuty // 60, minuty % 60)
+
+
+def tresc_tylu(dzien):
+    """Liczby na odwrót kartki — jedno miejsce, z którego czyta i rysunek,
+    i sprawdzenia.
+
+    Zwraca słownik: ``etapy`` (patrz :func:`etapy_dnia`), ``wyjazd`` i
+    ``powrot`` (godziny), ``jazda_min`` / ``postoje_min`` / ``razem_min``
+    (minuty w drodze: jazda to suma odcinków, postoje to reszta dnia),
+    ``postoje`` (minuty postoju po każdym odcinku; ostatni — None),
+    ``km`` (suma odcinków), ``prosta`` (suma linii prostych, gdy ma ją KAŻDY
+    odcinek, inaczej None), ``wskaznik`` (km / prosta albo None) i ``zrodla``
+    ({źródło: liczba odcinków}, tylko znane). Dzień wolny — pusty słownik.
+    """
+    etapy = etapy_dnia(dzien)
+    if not etapy:
+        return {}
+    wyjazd = etapy[0]["wyj"]
+    powrot = etapy[-1]["przyj"]
+    razem = _roznica_minut(wyjazd, powrot)
+    jazda = 0
+    znane = True
+    for e in etapy:
+        d = _roznica_minut(e["wyj"], e["przyj"])
+        if d is None:
+            znane = False
+            break
+        jazda += d
+    postoje = []
+    for i, e in enumerate(etapy):
+        if i == len(etapy) - 1:
+            postoje.append(None)
+        else:
+            postoje.append(_roznica_minut(e["przyj"], etapy[i + 1]["wyj"]))
+    km = round(sum(e["km"] for e in etapy), 1)
+    prosta = None
+    if all(e["prosta"] is not None for e in etapy):
+        prosta = round(sum(e["prosta"] for e in etapy), 1)
+    zrodla = {}
+    for e in etapy:
+        if e["zrodlo"]:
+            zrodla[e["zrodlo"]] = zrodla.get(e["zrodlo"], 0) + 1
+    return {
+        "etapy": etapy, "wyjazd": wyjazd, "powrot": powrot,
+        "razem_min": razem,
+        "jazda_min": jazda if znane else None,
+        "postoje_min": (max(0, razem - jazda) if (znane and razem is not None) else None),
+        "postoje": postoje, "km": km, "prosta": prosta,
+        "wskaznik": (km / prosta if prosta else None),
+        "zrodla": zrodla,
+    }
+
+
 # ── mapa dnia ────────────────────────────────────────────────────────
 class MapaDnia(QWidget):
     """Trójwymiarowa mapa okolicy z trasą dnia. Cała rysowana ręcznie."""
@@ -865,6 +1036,7 @@ class MapaDnia(QWidget):
         self._jedn_na_km = JEDNOSTEK_NA_KM    # ile jednostek świata ma kilometr
         self._miasta = {n: _swiat_miasta(*fr) for n, fr in dn.MIASTA.items()}
         self._rangi = {n: _ranga_domyslna(n, n == self._baza) for n in self._miasta}
+        self._geo_odniesienie = None    # (lat0, lng0, cx, cy, skala) po ustaw_miasta
         self._ziarno = _ziarno_dnia(None)
         self._ziarno_terenu = self._ziarno    # ziarno, z którego stoi obecny teren
         self._kopuly = []               # wzniesienia w postaci do liczenia wysokości
@@ -897,6 +1069,9 @@ class MapaDnia(QWidget):
         self._pod_rzad = 0              # ile klatek z rzędu mówi to samo
         self._swiatla_pam = None        # światła na drogach, liczone raz na świat
         self._swiatla_klucz = None
+        self._odkryte_surowe = frozenset()   # ślad obecności: klucze nazw (NFC, casefold)
+        self._odkryte_pam = None        # ...dopasowane do nazw tej mapy
+        self._wersja_odkrytych = 0      # zmiana śladu unieważnia warstwę z mgłą
         self._anim = True
         # ile trasy jest już narysowane: 0 to sama baza, 1 to powrót do domu
         self._odslona = st.Plynnie(1.0, czas=CZAS_ODSLONY_MS, krzywa="lagodna",
@@ -967,6 +1142,8 @@ class MapaDnia(QWidget):
         rangi[self._baza] = RANGA_BAZA
         self._miasta = self._rzutuj_geo(punkty)
         self._rangi = rangi
+        self._odkryte_pam = None
+        self._wersja_odkrytych += 1
         self._przebuduj_swiat()
         self._rzut = None
         self._rzut_klucz = None
@@ -975,6 +1152,43 @@ class MapaDnia(QWidget):
         self._warstwy_klucz = None
         self._geo_klucz = None
         self.update()
+
+    # — białe plamy rejonu —
+    @staticmethod
+    def _klucz_nazwy(nazwa):
+        """Nazwa w postaci porównywalnej: NFC, jedna spacja, bez wielkości liter."""
+        return unicodedata.normalize("NFC", " ".join(str(nazwa or "").split())).casefold()
+
+    def ustaw_odkryte(self, nazwy):
+        """Miejscowości ze śladem obecności programu — wycięte z mgły rejonu.
+
+        ``nazwy`` to dowolny zbiór nazw (np. klucze miejsc_wizyty z historii);
+        dopasowanie do nazw mapy jest niewrażliwe na wielkość liter i formę
+        Unicode. Nazwy spoza mapy niczego nie psują — po prostu nie liczą się
+        do odkrytych. Pusty zbiór: cały rejon pod mgłą, licznik 0 / N.
+        """
+        klucze = frozenset(self._klucz_nazwy(n) for n in (nazwy or ()) if n)
+        if klucze == self._odkryte_surowe:
+            return
+        self._odkryte_surowe = klucze
+        self._odkryte_pam = None
+        self._wersja_odkrytych += 1
+        self._warstwy_klucz = None
+        self.update()
+
+    def _odkryte_na_mapie(self):
+        """Nazwy TEJ mapy ze śladem obecności — bez bazy."""
+        if self._odkryte_pam is None:
+            self._odkryte_pam = frozenset(
+                n for n in self._nazwy()
+                if n != self._baza and self._klucz_nazwy(n) in self._odkryte_surowe)
+        return self._odkryte_pam
+
+    def odkryte_w_zasiegu(self):
+        """(odkryte, w zasięgu): miejscowości mapy ze śladem obecności i
+        wszystkie miejscowości mapy — obie liczby bez bazy."""
+        zasieg = [n for n in self._nazwy() if n != self._baza]
+        return len(self._odkryte_na_mapie()), len(zasieg)
 
     # — świat —
     @staticmethod
@@ -1026,7 +1240,23 @@ class MapaDnia(QWidget):
         if zasieg * skala > granica:
             skala = granica / max(1.0, zasieg)
         self._jedn_na_km = skala
+        self._geo_odniesienie = (lat0, lng0, cx, cy, skala)
         return {n: ((x - cx) * skala, (y - cy) * skala) for n, (x, y) in km.items()}
+
+    def swiat_z_geo(self, lat, lng):
+        """Szerokość i długość → punkt świata TEJ mapy, tym samym przelicznikiem,
+        którym poszły miasta z ``ustaw_miasta``. Bez prawdziwych miast (układ
+        z proto_dane) nie ma czego przeliczać — zwraca None."""
+        if self._geo_odniesienie is None:
+            return None
+        lat0, lng0, cx, cy, skala = self._geo_odniesienie
+        x_km = (float(lng) - lng0) * 111.32 * math.cos(math.radians((float(lat) + lat0) * 0.5))
+        y_km = (float(lat) - lat0) * 110.57
+        return ((x_km - cx) * skala, (y_km - cy) * skala)
+
+    def ziarno(self):
+        """Ziarno krajobrazu — z niego stoi teren, rzeka i zabudowa."""
+        return self._ziarno
 
     def _przebuduj_swiat(self):
         """Wszystko, co zależy od układu miast i od ziarna dnia.
@@ -1173,6 +1403,40 @@ class MapaDnia(QWidget):
         self._odslonieta = self._klucz_trasy() if ile >= 0.999 else None
         self._warstwy_klucz = None
         self.update()
+
+    def rysuj_trase_od_nowa(self):
+        """Trasa dnia rysuje się jeszcze raz od bazy — po lądowaniu przelotu."""
+        self._zacznij_odslone()
+        self.update()
+
+    def wypiek_przelotu(self, zapas_px):
+        """Scena bez trasy na filmie szerszym o ``zapas_px`` z każdej strony.
+
+        Ta sama kamera co w ``rzut()``, więc środek filmu to dokładnie obraz
+        widżetu; po bokach dalszy ciąg rejonu. Zwraca (pixmapa, rzut filmu).
+        Liczone raz na przelot — to jedyna droga rzecz w całym przelocie."""
+        zapas_px = max(0, int(zapas_px))
+        rzut = self.rzut().poszerzony(zapas_px)
+        szer = self.width() + 2 * zapas_px
+        film = QRectF(0, 0, szer, self.height())
+        srodek = QRectF(zapas_px, 0, self.width(), self.height())
+        pola = self._zbuduj_pola(rzut, film)
+        dpr = self.devicePixelRatioF()
+        pix = QPixmap(max(1, int(szer * dpr)), max(1, int(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        q.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        st.tlo_sceny(q, film)
+        self._rysuj_grunt(q, rzut, film)
+        self._rysuj_pola(q, pola)
+        self._rysuj_rzeke(q, rzut)
+        self._rysuj_drogi(q, rzut, self._drogi.values())
+        self._rysuj_cienie_miejscowosci(q, rzut)
+        self._rysuj_miejscowosci(q, rzut)
+        self._rysuj_mgle(q, rzut, srodek, pole=film)
+        q.end()
+        return pix, rzut
 
     def ustaw_stan(self, nazwa):
         self._stan = nazwa if nazwa in ("zwykly", "sukces") else "zwykly"
@@ -1695,17 +1959,18 @@ class MapaDnia(QWidget):
                ciemny)
         return [(dol[0], dol[1], dol[1]), wierzch]
 
-    def _zbuduj_pola(self, rzut):
+    def _zbuduj_pola(self, rzut, r=None):
         """Działki otwartego terenu gotowe do namalowania, od dali do widza.
 
         Siatka działek jest nieregularna — wierzchołki przesuwa hasz wspólny
         dla czterech sąsiadów, więc między polami nie ma szczelin. Odcień
         bierze się z nachylenia działki względem światła i z mgły odległości,
-        dzięki czemu garb terenu widać bez rysowania warstwic.
+        dzięki czemu garb terenu widać bez rysowania warstwic. ``r`` to
+        prostokąt filmu — domyślnie widżet, przy wypieku przelotu szerszy.
         """
         z = self._ziarno
         kom = self._komorka_pola
-        r = QRectF(self.rect())
+        r = QRectF(self.rect()) if r is None else QRectF(r)
         rogi = [rzut.na_grunt(r.x(), r.y()), rzut.na_grunt(r.right(), r.y()),
                 rzut.na_grunt(r.x(), r.bottom()), rzut.na_grunt(r.right(), r.bottom())]
         xs = [p[0] for p in rogi]
@@ -1800,13 +2065,13 @@ class MapaDnia(QWidget):
         dzialki.sort(key=lambda para: -para[0])
         return [w for (_, warstwy) in dzialki for w in warstwy]
 
-    def _rysuj_pola(self, p):
+    def _rysuj_pola(self, p, pola=None):
         """Działki od najdalszej do najbliższej — bliższa zasłania dalszą.
 
         Każda dostaje cieńszą, ciemniejszą obwódkę: to i miedza między polami,
         i zasłonięcie szwu, który antyaliasing zostawiłby między działkami.
         """
-        for wiel, barwa, miedza in self._pola:
+        for wiel, barwa, miedza in (self._pola if pola is None else pola):
             p.setPen(QPen(miedza, 1.0))
             p.setBrush(QBrush(barwa))
             p.drawPolygon(wiel)
@@ -1822,8 +2087,12 @@ class MapaDnia(QWidget):
         g.setColorAt(1.0, QColor(4, 9, 17, 120))
         p.fillRect(r, QBrush(g))
 
-    def _rysuj_mgle(self, p, rzut, r):
-        """Mgła odległości: w głębi sceny mniejszy kontrast i jaśniejsze tło."""
+    def _rysuj_mgle(self, p, rzut, r, pole=None):
+        """Mgła odległości: w głębi sceny mniejszy kontrast i jaśniejsze tło.
+
+        ``r`` ustawia gradienty (widżet), ``pole`` mówi, co zamalować —
+        na szerszym filmie przelotu to cały film."""
+        pole = r if pole is None else pole
         # gdzie na ekranie leży horyzont — od niego idzie cała skala mgły
         ox, oy, osx, osy = self._obszar_swiata()
         y_gora = rzut.ekran(0.0, oy + osy * 0.5 + self._zasieg_terenu, 0.0).y()
@@ -1833,7 +2102,7 @@ class MapaDnia(QWidget):
         g.setColorAt(0.30, st.z_alfa(BARWA_MGLY, 20))
         g.setColorAt(0.72, st.z_alfa(BARWA_MGLY, 5))
         g.setColorAt(1.0, st.z_alfa(BARWA_MGLY, 0))
-        p.fillRect(r, QBrush(g))
+        p.fillRect(pole, QBrush(g))
         # światło wpadające z tej strony, z której pada na teren
         lx, ly = rzut.swiatlo_ekran
         rg = QRadialGradient(QPointF(r.center().x() + lx * r.width() * 0.55,
@@ -1841,7 +2110,7 @@ class MapaDnia(QWidget):
                              max(r.width(), r.height()) * 0.95)
         rg.setColorAt(0.0, st.z_alfa(BARWA_MGLY, 13))
         rg.setColorAt(1.0, st.z_alfa(BARWA_MGLY, 0))
-        p.fillRect(r, QBrush(rg))
+        p.fillRect(pole, QBrush(rg))
 
     # — rzeka —
     def _zbuduj_rzeke(self):
@@ -2440,7 +2709,7 @@ Górną granicą jest sąsiad: para sąsiadek dzieli dzielącą je odległość
         """
         rzut = self.rzut()
         klucz = (self._klucz_kadru(), round(self.devicePixelRatioF(), 3),
-                 self._geo_klucz, self._stan, bool(gotowa))
+                 self._geo_klucz, self._stan, bool(gotowa), self._wersja_odkrytych)
         if self._warstwy_klucz == klucz and self._dol is not None:
             return self._dol, self._gora
         # trasa wchodzi do warstw dopiero, gdy skończy się rysować
@@ -2459,6 +2728,7 @@ Górną granicą jest sąsiad: para sąsiadek dzieli dzielącą je odległość
             self._rysuj_cien_trasy(q, w_warstwie)          # cień trasy leży na gruncie
         bryly = self._pixmapa_bryl()                       # ...więc bryły idą po nim
         q.drawPixmap(cel, bryly, QRectF(bryly.rect()))
+        self._rysuj_mgle_rejonu(q, rzut, geo)              # białe plamy: mgła POD trasą
         q.end()
 
         # Trasa idzie do OSOBNEJ pixmapy, bo między terenem a trasą żyje
@@ -2477,6 +2747,10 @@ Górną granicą jest sąsiad: para sąsiadek dzieli dzielącą je odległość
         q = QPainter(gora)
         q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         q.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        # podziałka i licznik odkryć leżą NAD mgłą rejonu — mierzą i liczą,
+        # więc nie wolno ich przyćmić
+        self._rysuj_podzialke(q, rzut, cel)
+        self._rysuj_licznik_odkryc(q, cel)
         if gotowa:
             self._rysuj_slupy(q, rzut, w_warstwie)
             if w_warstwie is not None:
@@ -2522,7 +2796,6 @@ Górną granicą jest sąsiad: para sąsiadek dzieli dzielącą je odległość
         q.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self._rysuj_miejscowosci(q, rzut)
         self._rysuj_mgle(q, rzut, r)          # mgła przykrywa też dalekie plamy
-        self._rysuj_podzialke(q, rzut, r)
         q.end()
 
         self._statyk = (grunt, bryly)
@@ -2534,6 +2807,133 @@ Górną granicą jest sąsiad: para sąsiadek dzieli dzielącą je odległość
 
     def _pixmapa_bryl(self):
         return self._statyka()[1]
+
+    # — białe plamy: mgła rejonu z wycięciami —
+    def _wyciecia_mgly(self, rzut, geo):
+        """[(środek ekranu, promień, odkryta)] — gdzie mgła ma dziurę.
+
+        Baza i przystanki dnia zawsze (trasa ma być czytelna), miejscowości ze
+        śladem obecności — jako odkryte, czyli z poświatą. Promień wycięcia
+        idzie za znakiem miejscowości na ekranie, z podłogą i sufitem w
+        pikselach, więc wieś w głębi nie ginie, a baza nie zdejmuje mgły
+        z pół rejonu.
+        """
+        znaki = self._znaki_miejscowosci(rzut)
+        odkryte = self._odkryte_na_mapie()
+        trasa = set(geo["trasa"]) if geo is not None else set()
+        trasa.add(self._baza)
+        wysokosc = self._wysokosc
+        dol, gora = PROMIEN_ODKRYCIA_PX
+        wynik = []
+        for m in self._miejscowosci:
+            nazwa = m["nazwa"]
+            odkryta = nazwa in odkryte
+            if not odkryta and nazwa not in trasa:
+                continue
+            gleb = rzut.glebokosc(m["x"], m["y"], 0.0)
+            if gleb < 10.0:
+                continue
+            srodek = rzut.ekran(m["x"], m["y"], wysokosc(m["x"], m["y"]))
+            prom_px = m["promien"] * znaki.get(nazwa, 1.0) * rzut.k / gleb
+            promien = max(dol, min(gora, prom_px * PROMIEN_ODKRYCIA))
+            wynik.append((srodek, promien, odkryta and nazwa not in trasa))
+        return wynik
+
+    def _rysuj_mgle_rejonu(self, q, rzut, geo):
+        """Delikatna mgła nad nieodkrytym rejonem — w gotowej warstwie pod trasą."""
+        niska = self._mgla_niska(rzut, geo)
+        q.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        q.drawPixmap(QRectF(self.rect()), niska, QRectF(niska.rect()))
+
+    def _pixmapa_mgly(self, rzut, geo, poswiata=True):
+        """Mgła w rozdzielczości widżetu — do pomiarów i sprawdzeń; sama mapa
+        kładzie na warstwę wprost pixmapę z :meth:`_mgla_niska`."""
+        niska = self._mgla_niska(rzut, geo, poswiata)
+        pix = self._nowa_pixmapa()
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        q.drawPixmap(QRectF(self.rect()), niska, QRectF(niska.rect()))
+        q.end()
+        return pix
+
+    def _mgla_niska(self, rzut, geo, poswiata=True):
+        """Zasłona w jednej pixmapie (w skali SKALA_MGLY): najpierw równy welon
+        (gęstszy przy widzu), potem wycięcia miękkim gradientem
+        (DestinationOut) przy każdej odsłoniętej miejscowości i korytarz
+        wzdłuż trasy dnia, na koniec poświata odkrytych miejscowości
+        (``poswiata=False`` zostawia samą zasłonę — do pomiarów). Współrzędne
+        podaje się jak na widżecie — skalę bierze na siebie malarz. Rysowane
+        raz na układ; klatka animacji tego nie dotyka.
+        """
+        r = QRectF(self.rect())
+        mgla = QPixmap(max(1, int(round(self.width() * SKALA_MGLY))),
+                       max(1, int(round(self.height() * SKALA_MGLY))))
+        mgla.fill(Qt.GlobalColor.transparent)
+        m = QPainter(mgla)
+        m.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        m.scale(mgla.width() / max(1.0, r.width()), mgla.height() / max(1.0, r.height()))
+        a_dal, a_blisko = ALFA_MGLY_REJONU
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        g.setColorAt(0.0, st.z_alfa(BARWA_MGLY_REJONU, a_dal))
+        g.setColorAt(0.45, st.z_alfa(BARWA_MGLY_REJONU, (a_dal + a_blisko) // 2))
+        g.setColorAt(1.0, st.z_alfa(BARWA_MGLY_REJONU, a_blisko))
+        m.fillRect(r, QBrush(g))
+
+        wyciecia = self._wyciecia_mgly(rzut, geo)
+        m.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationOut)
+        m.setPen(Qt.PenStyle.NoPen)
+        for srodek, promien, _odkryta in wyciecia:
+            rg = QRadialGradient(srodek, promien)
+            rg.setColorAt(0.0, QColor(0, 0, 0, 255))
+            rg.setColorAt(0.5, QColor(0, 0, 0, 236))
+            rg.setColorAt(1.0, QColor(0, 0, 0, 0))
+            m.setBrush(QBrush(rg))
+            m.drawEllipse(srodek, promien, promien)
+        if geo is not None:
+            # korytarz trasy: droga dnia i jej najbliższe otoczenie bez mgły.
+            # Bez wygładzania — przy połowie rozdzielczości i rozciągnięciu
+            # brzeg i tak się rozmywa, a szeroki wygładzany pędzel kosztował
+            # tyle, co cała reszta mgły razem wzięta.
+            k = self._grubosc()
+            m.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            m.setBrush(Qt.BrushStyle.NoBrush)
+            for szer, alfa in ((28.0 * k, 96), (12.0 * k, 255)):
+                pioro = QPen(QColor(0, 0, 0, alfa), max(1.0, szer))
+                pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
+                pioro.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                m.setPen(pioro)
+                m.drawPath(geo["glowna"])
+                m.drawPath(geo["powrot"])
+            m.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        m.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        if poswiata:
+            # pod kartką i pod paskami nic nie świeci — leży tam papier,
+            # a światło wychodzące spod niego wyglądałoby jak trasa pod kartką
+            strefy = self._strefy_zajete()
+            for srodek, promien, odkryta in wyciecia:
+                if odkryta and not any(s.contains(srodek) for s in strefy):
+                    st.punkt_swiatla(m, srodek, promien * 1.05, BARWA_ODKRYCIA, 74)
+                    st.punkt_swiatla(m, srodek, promien * 0.36, BARWA_ODKRYCIA, 120)
+        m.end()
+        return mgla
+
+    def _rysuj_licznik_odkryc(self, p, r):
+        """Dwie liczby w prawym dolnym rogu ramy: odkryte / w zasięgu."""
+        odkryte, zasieg = self.odkryte_w_zasiegu()
+        if zasieg <= 0:
+            return
+        napis = "%d / %d" % (odkryte, zasieg)
+        x = r.right() - r.width() * 0.045
+        y = r.bottom() - r.height() * 0.060
+        f = st.czcionka(11.0, 600, mono=True)
+        szer = QFontMetricsF(f).horizontalAdvance(napis)
+        f2 = st.czcionka(8.6, 500, odstep=0.8)
+        szer2 = QFontMetricsF(f2).horizontalAdvance("ODKRYTE")
+        _poduszka(p, QRectF(x - max(szer, szer2) - 6, y - 26, max(szer, szer2) + 12, 32),
+                  sila=104, warstw=4)
+        _napis(p, x, y - 13.0, "ODKRYTE", st.z_alfa(st.TEKST_2, 185), 8.6, 500,
+               odstep=0.8, prawy=True)
+        _napis(p, x, y, napis, st.z_alfa(st.TEKST, 215), 11.0, 600, mono=True, prawy=True)
 
     # — geometria trasy i podpisów (liczona raz na układ) —
     def _geometria(self):
@@ -3339,21 +3739,43 @@ Górną granicą jest sąsiad: para sąsiadek dzieli dzielącą je odległość
 class KartkaDelegacji(QWidget):
     """Biała kartka polecenia wyjazdu, kładziona przez okno główne na mapie.
 
-    Kartka zna dwa niezależne stany. OBECNOŚĆ to choreografia dnia: przy
+    Kartka zna trzy niezależne stany. OBECNOŚĆ to choreografia dnia: przy
     zmianie dnia kartka ustępuje mapie, trasa rysuje się od nowa, a kartka
     wraca dopiero, gdy trasa dobiegnie do bazy. ZWINIĘCIE to wyjście awaryjne
-    dla patrzącego: klik zwija kartkę do paska przy krawędzi i odsłania całą
-    mapę, drugi klik rozwija ją z powrotem.
+    dla patrzącego: kartka zwija się do paska przy krawędzi i odsłania całą
+    mapę. STRONA to przód albo odwrót: przód jest urzędowym poleceniem
+    wyjazdu, odwrót tym samym dniem takim, jaki był NAPRAWDĘ — godziny
+    wyjazdu i powrotu, postoje z czasem, skąd wzięły się kilometry każdego
+    odcinka (realne drogi / pamięć dróg / szacunek) i droga wobec linii
+    prostej.
+
+    GESTY. Klik w kartkę OBRACA ją wokół pionowej osi — to gest ciekawości
+    i dostaje całą powierzchnię papieru. Zwinięcie idzie w stronę krawędzi
+    ekranu, więc jego uchwyt leży na tej krawędzi kartki: wąski, perforowany
+    pasek przy prawym brzegu ze strzałką „›" (:attr:`UCHWYT`) — klik w niego
+    zwija kartkę. Zwinięty pasek nie ma już nic innego do pokazania, więc klik
+    w niego po prostu rozwija kartkę z powrotem, na tę samą stronę.
+
+    Obrót jest PRZEKSZTAŁCENIEM dwóch gotowych pixmap (przód i odwrót leżą
+    w pamięci, klatka animacji tylko ściska tę, która jest zwrócona do widza),
+    a nie rysowaniem treści co klatkę. Przy wyłączonych animacjach obrót jest
+    natychmiastowy, więc zrzuty pozostają powtarzalne.
     """
 
     przelaczono_zwiniecie = pyqtSignal(bool)
     obecnosc_zmieniona = pyqtSignal(float)
+    odwrocono = pyqtSignal(str)            # "przod" albo "tyl" — dokąd zmierza obrót
 
     SZEROKOSC_WZORCOWA = 342.0     # szerokość kartki z projektu; od niej idzie skala
     SZEROKOSC_ZWINIETA = 26        # pasek, do którego zwija się kartka
     WSUNIECIE = 14.0               # o tyle kartka wjeżdża przy odświeżeniu treści
     CZAS_USTAPIENIA = 260          # jak szybko kartka schodzi mapie z drogi
     CZAS_POWROTU = 420             # ...i jak wraca, gdy trasa jest narysowana
+    CZAS_OBROTU = 560              # obrót kartki na drugą stronę
+    # pasek uchwytu zwinięcia przy prawym brzegu — mieści się w marginesie
+    # papieru (5,5% szerokości), więc treść przodu nie musi się przesuwać
+    UCHWYT = 16.0
+    STRONY = ("przod", "tyl")
 
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
@@ -3367,11 +3789,16 @@ class KartkaDelegacji(QWidget):
         self._zwinieta = False
         self._pix = None                # gotowa kartka; wsuwanie tylko ją przesuwa
         self._pix_klucz = None
+        self._pix_tyl = None            # gotowy odwrót — rysowany raz, obracany pixmapą
+        self._pix_tyl_klucz = None
         self._anim = True
         self._wejscie = st.Plynnie(1.0, czas=380, krzywa="wyjscie", rodzic=self,
                                    przy_zmianie=self.update)
         self._obecnosc = st.Plynnie(1.0, czas=self.CZAS_POWROTU, krzywa="wyjscie",
                                     rodzic=self, przy_zmianie=self._obecnosc_drgnela)
+        # 0 = przód zwrócony do widza, 1 = odwrót; między nimi kartka się obraca
+        self._obrot = st.Plynnie(0.0, czas=self.CZAS_OBROTU, krzywa="lagodna",
+                                 rodzic=self, przy_zmianie=self.update)
 
     # — interfejs publiczny —
     def ustaw_dzien(self, dzien):
@@ -3425,6 +3852,7 @@ class KartkaDelegacji(QWidget):
             return
         self._zwinieta = zwinieta
         self._pix = None
+        self._pix_tyl = None
         self.setToolTip("")
         if zglos:
             self.przelaczono_zwiniecie.emit(zwinieta)
@@ -3433,10 +3861,57 @@ class KartkaDelegacji(QWidget):
     def przelacz_zwiniecie(self):
         self.ustaw_zwiniecie(not self._zwinieta)
 
+    # — druga strona —
+    def strona(self):
+        """Dokąd zmierza kartka: „przod" albo „tyl" (w trakcie obrotu — cel)."""
+        return "tyl" if self._obrot.cel() >= 0.5 else "przod"
+
+    def obrot(self):
+        """Faza obrotu 0..1: 0 to przód zwrócony do widza, 1 to odwrót."""
+        return max(0.0, min(1.0, self._obrot.teraz()))
+
+    def ustaw_strone(self, nazwa, zglos=True):
+        """Przód albo odwrót. Z animacjami — obrót wokół pionowej osi;
+        bez nich kartka od razu leży wybraną stroną do góry."""
+        cel = 1.0 if nazwa == "tyl" else 0.0
+        if abs(self._obrot.cel() - cel) < 1e-9:
+            return
+        if self._anim and self.isVisible() and not self._zwinieta:
+            self._obrot.do(cel, czas=self.CZAS_OBROTU)
+        else:
+            self._obrot.ustaw(cel)
+        if zglos:
+            self.odwrocono.emit(self.strona())
+        self.update()
+
+    def odwroc(self):
+        """Klik w papier: przód → odwrót, odwrót → przód."""
+        self.ustaw_strone("przod" if self.strona() == "tyl" else "tyl")
+
+    def szerokosc_uchwytu(self):
+        """Pasek uchwytu zwinięcia przy prawym brzegu kartki, w pikselach."""
+        kar, _promien = self._pole_kartki()
+        return max(12.0, min(self.UCHWYT, kar.width() * 0.09))
+
+    def w_uchwycie(self, punkt):
+        """Czy punkt (współrzędne widżetu) leży na uchwycie zwinięcia."""
+        if self._zwinieta:
+            return False
+        kar, _promien = self._pole_kartki()
+        punkt = QPointF(punkt)
+        return (kar.contains(punkt)
+                and punkt.x() >= kar.right() - self.szerokosc_uchwytu())
+
     def mousePressEvent(self, zdarzenie):
-        """Klik w kartkę zwija ją do brzegu — i tym samym odsłania całą mapę."""
+        """Trzy gesty na jednym przycisku: pasek → rozwiń, uchwyt → zwiń,
+        papier → obróć na drugą stronę (patrz opis klasy)."""
         if zdarzenie.button() == Qt.MouseButton.LeftButton:
-            self.przelacz_zwiniecie()
+            if self._zwinieta:
+                self.ustaw_zwiniecie(False)
+            elif self.w_uchwycie(zdarzenie.position()):
+                self.ustaw_zwiniecie(True)
+            else:
+                self.odwroc()
             zdarzenie.accept()
             return
         super().mousePressEvent(zdarzenie)
@@ -3447,6 +3922,7 @@ class KartkaDelegacji(QWidget):
 
     def resizeEvent(self, zdarzenie):
         self._pix = None
+        self._pix_tyl = None
         super().resizeEvent(zdarzenie)
 
     def ustaw_stan(self, nazwa):
@@ -3454,13 +3930,16 @@ class KartkaDelegacji(QWidget):
         self.update()
 
     def ustaw_animacje(self, wlaczone):
-        """Włącza albo gasi wsuwanie kartki. Wyłączona siada od razu na miejscu."""
+        """Włącza albo gasi wsuwanie i obrót kartki. Wyłączona siada od razu
+        na miejscu, wybraną stroną do góry."""
         self._anim = bool(wlaczone)
         if not self._anim:
             self._wejscie.zatrzymaj()
             self._wejscie.ustaw(1.0)
             self._obecnosc.zatrzymaj()
             self._obecnosc.ustaw(1.0)
+            self._obrot.zatrzymaj()
+            self._obrot.ustaw(self._obrot.cel())
         self.update()
 
     def zatrzymaj_animacje(self):
@@ -3475,17 +3954,24 @@ class KartkaDelegacji(QWidget):
     def hideEvent(self, zdarzenie):
         self._wejscie.zatrzymaj()
         self._obecnosc.zatrzymaj()
+        self._obrot.zatrzymaj()
         super().hideEvent(zdarzenie)
 
     def closeEvent(self, zdarzenie):
         self._wejscie.zatrzymaj()
         self._obecnosc.zatrzymaj()
+        self._obrot.zatrzymaj()
         super().closeEvent(zdarzenie)
 
     def _klucz_dnia(self, dzien):
         if dzien is None:
             return None
-        return (dzien.data, dzien.wolny, round(dzien.kwota, 2), tuple(dzien.przystanki))
+        # odcinki wchodzą do klucza odciskiem: ten sam dzień z innymi
+        # kilometrami odcinków albo innym źródłem to inny odwrót kartki
+        odcisk = tuple((round(e["km"], 1), e["prosta"], e["zrodlo"], e["wyj"], e["przyj"])
+                       for e in etapy_dnia(dzien)) if getattr(dzien, "etapy", None) else ()
+        return (dzien.data, dzien.wolny, round(dzien.kwota, 2), tuple(dzien.przystanki),
+                odcisk)
 
     # — rysowanie —
     def _pole_kartki(self):
@@ -3525,6 +4011,7 @@ class KartkaDelegacji(QWidget):
             self._pix, self._pix_klucz = pix, klucz
             return pix
         self._rysuj_tresc(p, kar, pusta)
+        self._rysuj_uchwyt(p, kar, pusta)
 
         if self._stan == "podpisana" and not pusta:
             p.setPen(QPen(st.z_alfa(st.ZIELEN.darker(130), 190), 1.6))
@@ -3535,9 +4022,40 @@ class KartkaDelegacji(QWidget):
         self._pix, self._pix_klucz = pix, klucz
         return pix
 
+    def _pixmapa_tylu(self):
+        """Gotowy odwrót kartki — rysowany raz, obrót tylko go ściska."""
+        if self._zwinieta:
+            return self._pixmapa()
+        dpr = self.devicePixelRatioF()
+        klucz = (self.width(), self.height(), round(dpr, 3), self._klucz,
+                 self._stan, self._numer)
+        if self._pix_tyl is not None and self._pix_tyl_klucz == klucz:
+            return self._pix_tyl
+        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        kar, promien = self._pole_kartki()
+        pusta = (self._stan == "pusta") or self._dzien is None or self._dzien.wolny
+        _cien_miekki(p, kar, promien, przesun=2, rozmycie=6, sila=110, krok=2)
+        _cien_miekki(p, kar, promien, przesun=9, rozmycie=21, sila=96, krok=3)
+        _cien_miekki(p, kar, promien, przesun=24, rozmycie=48, sila=64, krok=6)
+        sciezka = QPainterPath()
+        sciezka.addRoundedRect(kar, promien, promien)
+        self._rysuj_papier(p, kar, sciezka, promien, pusta)
+        self._rysuj_tresc_tylu(p, kar, pusta)
+        self._rysuj_uchwyt(p, kar, pusta)
+        p.end()
+        self._pix_tyl, self._pix_tyl_klucz = pix, klucz
+        return pix
+
     def paintEvent(self, _zdarzenie):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         obec = self.obecnosc()
         if obec <= 0.004:                    # kartka zeszła mapie z drogi
             p.end()
@@ -3550,15 +4068,67 @@ class KartkaDelegacji(QWidget):
         if t < 0.999:
             p.setOpacity(p.opacity() * max(0.0, min(1.0, t * 1.15)))
             p.translate((1.0 - t) * self.WSUNIECIE, (1.0 - t) * self.WSUNIECIE * 0.22)
-        p.drawPixmap(0, 0, self._pixmapa())
+
+        # Obrót wokół pionowej osi: kartka to gotowa pixmapa ściśnięta w poziomie
+        # o cosinus kąta; do połowy obrotu widać przód, potem odwrót. Nic nie
+        # jest rysowane od nowa — to samo przekształcenie, co przy wsuwaniu.
+        faza = 0.0 if self._zwinieta else self.obrot()
+        kat = faza * math.pi
+        cos_k = math.cos(kat)
+        pix = self._pixmapa() if cos_k >= 0.0 else self._pixmapa_tylu()
+        scisk = abs(cos_k)
+        if scisk < 0.012:                    # kartka bokiem do widza — nie ma czego rysować
+            p.end()
+            return
+        kar, promien = self._pole_kartki()
+        if scisk < 0.999:
+            os_x = kar.center().x()
+            p.translate(os_x, 0.0)
+            p.scale(scisk, 1.0)
+            p.translate(-os_x, 0.0)
+        p.drawPixmap(0, 0, pix)
+        # w połowie obrotu papier ustawia się bokiem do światła i ciemnieje
+        bok = math.sin(kat)
+        if bok > 0.004:
+            sciezka = QPainterPath()
+            sciezka.addRoundedRect(kar, promien, promien)
+            p.fillPath(sciezka, QColor(20, 28, 44, int(78 * bok)))
         # rozjaśnienie przy wjeździe — kartka „zapala się” i gaśnie do normy
         rozblysk = max(1.0 - t, max(0.0, (obec - 0.62) / 0.38) * (1.0 - obec) * 2.6)
         if rozblysk > 0.004:
-            kar, promien = self._pole_kartki()
             sciezka = QPainterPath()
             sciezka.addRoundedRect(kar, promien, promien)
             p.fillPath(sciezka, QColor(255, 255, 255, int(80 * min(1.0, rozblysk))))
         p.end()
+
+    def _rysuj_uchwyt(self, p, kar, pusta):
+        """Uchwyt zwinięcia: perforowany pasek przy prawym brzegu i „›".
+
+        Żadnego napisu — perforacja mówi „tu się odrywa", a strzałka, w którą
+        stronę kartka pojedzie. Pasek leży w marginesie papieru, poza treścią.
+        """
+        szer = self.szerokosc_uchwytu()
+        x0 = kar.right() - szer
+        gora = kar.top() + kar.height() * 0.05
+        dol = kar.bottom() - kar.height() * 0.05
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        pioro = QPen(QColor(28, 34, 48, 34 if pusta else 46), 1.0)
+        pioro.setDashPattern([1.6, 2.6])
+        p.setPen(pioro)
+        p.drawLine(QPointF(x0, gora), QPointF(x0, dol))
+        sx = x0 + szer * 0.5
+        sy = kar.center().y()
+        ramie = max(2.6, szer * 0.19)
+        barwa = QColor("#8A94A6") if pusta else QColor("#4A5872")
+        pioro = QPen(barwa, max(1.3, szer * 0.09))
+        pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pioro.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pioro)
+        # strzałka w prawo: tam pojedzie kartka po zwinięciu
+        strzalka = QPainterPath(QPointF(sx - ramie * 0.5, sy - ramie))
+        strzalka.lineTo(QPointF(sx + ramie * 0.5, sy))
+        strzalka.lineTo(QPointF(sx - ramie * 0.5, sy + ramie))
+        p.drawPath(strzalka)
 
     def _rysuj_zakladke(self, p, kar, pusta):
         """Zwinięta kartka: pasek papieru z zaznaczoną krawędzią i strzałką.
@@ -3632,7 +4202,8 @@ class KartkaDelegacji(QWidget):
         s = kar.width() / self.SZEROKOSC_WZORCOWA          # skala względem projektu
         pad = kar.width() * 0.055
         lewy = kar.x() + pad
-        prawy = kar.right() - pad
+        # uchwyt zwinięcia mieści się w marginesie; wąska kartka oddaje mu miejsce
+        prawy = kar.right() - max(pad, self.szerokosc_uchwytu() + 2.0 * s)
         cw = prawy - lewy
 
         szary = QColor("#8A94A6")
@@ -3669,10 +4240,11 @@ class KartkaDelegacji(QWidget):
             _napis(p, x, yy + 14 * s, _przytnij(wartosc, f, szer), kolor, 11.5 * s, waga)
 
         y += 18 * s
-        menedzer = "uzupełniony" if dn.MENEDZER.startswith("(") else dn.MENEDZER
+        menedzer, brak_menedzera = _tekst_menedzera(dn.MENEDZER)
         rubryka(lewy, y, "PRACOWNIK", dn.PRACOWNIK, cw * 0.33)
         rubryka(lewy + cw * 0.355, y, "STANOWISKO", dn.STANOWISKO, cw * 0.34)
-        rubryka(lewy + cw * 0.715, y, "MENEDŻER", menedzer, cw * 0.285, zielony)
+        rubryka(lewy + cw * 0.715, y, "MENEDŻER", menedzer, cw * 0.285,
+                OSTRZEZENIE_NA_PAPIERZE if brak_menedzera else zielony)
 
         y += 32 * s
         rubryka(lewy, y, "ADRES", dn.ADRES, cw)
@@ -3697,23 +4269,7 @@ class KartkaDelegacji(QWidget):
         self._miejsce_pieczatki = QPointF(prawy - cw * 0.30, y_rubryki - 34 * s)
 
         if pusta:
-            srodek = (y + y_rubryki) / 2.0
-            f = st.czcionka(13 * s, 600, odstep=1.2 * s)
-            napis = "dzień wolny"
-            szer = QFontMetricsF(f).horizontalAdvance(napis)
-            x0 = kar.center().x() - szer / 2.0
-            _napis(p, x0, srodek, napis, QColor("#98A2B3"), 13 * s, 600, odstep=1.2 * s)
-            kreska = szer * 0.62
-            for kier in (-1, 1):
-                a = QPointF(kar.center().x() - kreska / 2.0, srodek + 16 * s * kier
-                            - (24 * s if kier < 0 else 0))
-                b = QPointF(a.x() + kreska, a.y())
-                g = QLinearGradient(a, b)
-                g.setColorAt(0.0, QColor(16, 24, 40, 0))
-                g.setColorAt(0.5, QColor(16, 24, 40, 56))
-                g.setColorAt(1.0, QColor(16, 24, 40, 0))
-                p.setPen(QPen(QBrush(g), 1.0))
-                p.drawLine(a, b)
+            self._rysuj_dzien_wolny(p, kar, (y + y_rubryki) / 2.0, s)
         else:
             self._rysuj_tabele(p, lewy, prawy, y, y_rubryki - 24 * s - zapas_pieczatki, s,
                                szary, ciemny, sredni, kreska_mocna, kreska_slaba)
@@ -3731,6 +4287,207 @@ class KartkaDelegacji(QWidget):
             p.drawLine(a, b)
         _napis(p, lewy, y_podpis, "podpis pracownika", szary, 9.5 * s, 400)
         _napis(p, prawy - szer_podpisu, y_podpis, "podpis przełożonego", szary, 9.5 * s, 400)
+
+    def _rysuj_dzien_wolny(self, p, kar, srodek, s):
+        """Napis dnia wolnego z dwiema gasnącymi kreskami — obie strony kartki."""
+        f = st.czcionka(13 * s, 600, odstep=1.2 * s)
+        napis = "dzień wolny"
+        szer = QFontMetricsF(f).horizontalAdvance(napis)
+        x0 = kar.center().x() - szer / 2.0
+        _napis(p, x0, srodek, napis, QColor("#98A2B3"), 13 * s, 600, odstep=1.2 * s)
+        kreska = szer * 0.62
+        for kier in (-1, 1):
+            a = QPointF(kar.center().x() - kreska / 2.0, srodek + 16 * s * kier
+                        - (24 * s if kier < 0 else 0))
+            b = QPointF(a.x() + kreska, a.y())
+            g = QLinearGradient(a, b)
+            g.setColorAt(0.0, QColor(16, 24, 40, 0))
+            g.setColorAt(0.5, QColor(16, 24, 40, 56))
+            g.setColorAt(1.0, QColor(16, 24, 40, 0))
+            p.setPen(QPen(QBrush(g), 1.0))
+            p.drawLine(a, b)
+
+    # — odwrót kartki —
+    KOLORY_ZRODEL = {ZRODLO_DROGI: QColor("#0E9B74"), ZRODLO_PAMIEC: QColor("#3B5A9A"),
+                     ZRODLO_SZACUNEK: OSTRZEZENIE_NA_PAPIERZE}
+
+    def _rysuj_tresc_tylu(self, p, kar, pusta):
+        """Odwrót: ten sam dzień, ale taki, jaki był naprawdę.
+
+        Nagłówek jak na przodzie (żeby było widać, że to ta sama kartka),
+        cztery rubryki czasu (wyjazd, powrót, jazda, postoje), oś dnia
+        z przystankami i odcinkami między nimi, a u dołu sumy: kilometry,
+        linia prosta, droga wobec prostej i z czego wzięły się odcinki.
+        Same etykiety i liczby — bez jednego zdania.
+        """
+        s = kar.width() / self.SZEROKOSC_WZORCOWA
+        pad = kar.width() * 0.055
+        lewy = kar.x() + pad
+        prawy = kar.right() - max(pad, self.szerokosc_uchwytu() + 2.0 * s)
+        cw = prawy - lewy
+
+        szary = QColor("#8A94A6")
+        ciemny = st.PAPIER_TEKST
+        sredni = QColor("#2A3853")
+        zielony = QColor("#0E9B74")
+        kreska_mocna = QColor(16, 24, 40, 120)
+
+        y = kar.y() + 30 * s
+        _napis(p, lewy, y, "Przebieg dnia", ciemny, 17 * s, 700, naglowek=True)
+        _napis(p, prawy, kar.y() + 22 * s, "PMT", sredni, 11 * s, 600, prawy=True)
+        _napis(p, prawy, kar.y() + 36 * s, dn.BAZA, sredni, 11 * s, 400, prawy=True)
+        data = self._dzien.data.strftime("%d.%m.%Y") if self._dzien else ""
+        podtytul = f"nr {self._numer} · {data}" if self._numer else data
+        y += 15 * s
+        _napis(p, lewy, y, podtytul, szary, 10.5 * s, 400)
+
+        y += 12 * s
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        g = QLinearGradient(QPointF(lewy, y), QPointF(prawy, y))
+        g.setColorAt(0.0, st.z_alfa(zielony, 185))
+        g.setColorAt(0.16, QColor(16, 24, 40, 140))
+        g.setColorAt(0.62, QColor(16, 24, 40, 52))
+        g.setColorAt(1.0, QColor(16, 24, 40, 12))
+        p.setPen(QPen(QBrush(g), 1.2))
+        p.drawLine(QPointF(lewy, y), QPointF(prawy, y))
+
+        def rubryka(x, yy, etykieta, wartosc, kolor=ciemny, waga=700, prawa=False):
+            _napis(p, x, yy, etykieta, szary, 8.6 * s, 500, odstep=0.8 * s, prawy=prawa)
+            _napis(p, x, yy + 14 * s, wartosc, kolor, 11.5 * s, waga, mono=True, prawy=prawa)
+
+        tresc = {} if pusta else tresc_tylu(self._dzien)
+
+        # — dół liczony od spodu, jak na przodzie —
+        dol = kar.bottom() - 18 * s
+        y_zrodla = dol - 4 * s
+        y_sumy = y_zrodla - 36 * s
+        y_linia = y_sumy - 12 * s
+
+        y += 18 * s
+        if not tresc:
+            self._rysuj_dzien_wolny(p, kar, (y + y_linia) / 2.0, s)
+            return
+
+        rubryka(lewy, y, "WYJAZD", tresc["wyjazd"] or "—")
+        rubryka(lewy + cw * 0.25, y, "POWRÓT", tresc["powrot"] or "—")
+        rubryka(lewy + cw * 0.50, y, "JAZDA", _czas_hm(tresc["jazda_min"]), sredni, 500)
+        rubryka(prawy, y, "POSTOJE", _czas_hm(tresc["postoje_min"]), sredni, 500, prawa=True)
+
+        y += 34 * s
+        self._rysuj_os_dnia(p, lewy, prawy, y, y_linia - 8 * s, s, tresc,
+                            szary, ciemny, sredni)
+
+        p.setPen(QPen(kreska_mocna, 1.0))
+        p.drawLine(QPointF(lewy, y_linia), QPointF(prawy, y_linia))
+        rubryka(lewy, y_sumy, "RAZEM", f'{tresc["km"]:.1f}'.replace(".", ",") + " km")
+        prosta = tresc["prosta"]
+        rubryka(lewy + cw * 0.36, y_sumy, "LINIA PROSTA",
+                (f"{prosta:.1f}".replace(".", ",") + " km") if prosta is not None else "—",
+                sredni, 500)
+        _napis(p, prawy, y_sumy, "DROGA / PROSTA", szary, 8.6 * s, 500, odstep=0.8 * s,
+               prawy=True)
+        wsk = tresc["wskaznik"]
+        if wsk:
+            napis = "×" + f"{wsk:.2f}".replace(".", ",")
+            f = st.czcionka(12 * s, 700, mono=True)
+            szer = QFontMetricsF(f).horizontalAdvance(napis)
+            pole = QRectF(prawy - szer - 7 * s, y_sumy + 3 * s, szer + 14 * s, 17 * s)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(14, 155, 116, 20)))
+            p.drawRoundedRect(pole, 4 * s, 4 * s)
+            _napis(p, prawy, y_sumy + 15 * s, napis, ciemny, 12 * s, 700, mono=True, prawy=True)
+        else:
+            _napis(p, prawy, y_sumy + 15 * s, "—", sredni, 11.5 * s, 500, mono=True, prawy=True)
+
+        # z czego wzięły się odcinki: kropka w barwie źródła i liczba odcinków
+        x = lewy
+        for zrodlo in KOLEJNOSC_ZRODEL:
+            ile = tresc["zrodla"].get(zrodlo, 0)
+            if not ile:
+                continue
+            kolor = self.KOLORY_ZRODEL[zrodlo]
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(kolor))
+            p.drawEllipse(QPointF(x + 2.6 * s, y_zrodla - 3.2 * s), 2.6 * s, 2.6 * s)
+            napis = "%s %d" % (ETYKIETY_ZRODEL[zrodlo], ile)
+            _napis(p, x + 9 * s, y_zrodla, napis, sredni, 9.5 * s, 500)
+            x += 9 * s + QFontMetricsF(st.czcionka(9.5 * s, 500)).horizontalAdvance(napis) + 14 * s
+
+    def _rysuj_os_dnia(self, p, lewy, prawy, y_gora, y_dol, s, tresc, szary, ciemny, sredni):
+        """Oś dnia: przystanki z godziną przyjazdu i czasem postoju, między
+        nimi odcinki — kilometry, źródło i droga wobec linii prostej. Odcinek
+        osi ma barwę swojego źródła, więc dzień z szacunku widać na oko."""
+        etapy = tresc["etapy"]
+        n = len(etapy)
+        x_czas = lewy + 34 * s
+        x_os = x_czas + 11 * s
+        x_tekst = x_os + 10 * s
+        wys = max(15.0 * s, min(34.0 * s, (y_dol - y_gora) / n))
+        ciasno = wys < 21.0 * s
+        y0 = y_gora + 4 * s
+
+        # oś: każdy odcinek w barwie źródła, nieznane źródło — szary papieru
+        for i, e in enumerate(etapy):
+            kolor = self.KOLORY_ZRODEL.get(e["zrodlo"], QColor(16, 24, 40))
+            alfa = 170 if e["zrodlo"] else 70
+            pioro = QPen(st.z_alfa(kolor, alfa), max(1.4, 2.0 * s))
+            pioro.setCapStyle(Qt.PenCapStyle.FlatCap)
+            p.setPen(pioro)
+            p.drawLine(QPointF(x_os, y0 + wys * i), QPointF(x_os, y0 + wys * (i + 1)))
+
+        f_nazwa = st.czcionka(10.5 * s, 500)
+        f_nazwa_baza = st.czcionka(10.5 * s, 600)
+        f_postoj = st.czcionka(9.5 * s, 500, mono=True)
+        for i in range(n + 1):
+            y = y0 + wys * i
+            baza = i in (0, n)
+            p.setPen(Qt.PenStyle.NoPen)
+            if baza:
+                p.setPen(QPen(QColor("#0E9B74"), max(1.2, 1.6 * s)))
+                p.setBrush(QBrush(QColor("#FFFDF9")))
+                p.drawEllipse(QPointF(x_os, y), 3.4 * s, 3.4 * s)
+            else:
+                p.setBrush(QBrush(ciemny))
+                p.drawEllipse(QPointF(x_os, y), 2.7 * s, 2.7 * s)
+            czas = etapy[0]["wyj"] if i == 0 else etapy[i - 1]["przyj"]
+            _napis(p, x_czas, y + 3.6 * s, czas or "—", sredni, 10 * s, 500, mono=True,
+                   prawy=True)
+            nazwa = etapy[0]["z"] if i == 0 else etapy[i - 1]["do"]
+            po_prawej = ""
+            if 0 < i < n:
+                postoj = tresc["postoje"][i - 1]
+                if postoj is not None:
+                    po_prawej = _czas_hm(postoj)
+            szer_pr = QFontMetricsF(f_postoj).horizontalAdvance(po_prawej) if po_prawej else 0.0
+            f = f_nazwa_baza if baza else f_nazwa
+            _napis(p, x_tekst, y + 3.6 * s,
+                   _przytnij(nazwa, f, prawy - x_tekst - szer_pr - 8 * s),
+                   ciemny, 10.5 * s, 600 if baza else 500)
+            if po_prawej:
+                _napis(p, prawy, y + 3.6 * s, po_prawej, sredni, 9.5 * s, 500, mono=True,
+                       prawy=True)
+
+        # odcinki między przystankami
+        f_km = st.czcionka(9.5 * s, 600, mono=True)
+        f_zr = st.czcionka(9 * s, 500)
+        f_wsk = st.czcionka(9.5 * s, 600, mono=True)
+        for i, e in enumerate(etapy):
+            ym = y0 + wys * (i + 0.5) + 3.2 * s
+            km_txt = f'{e["km"]:.1f}'.replace(".", ",") + " km"
+            _napis(p, x_tekst, ym, km_txt, ciemny, 9.5 * s, 600, mono=True)
+            x = x_tekst + QFontMetricsF(f_km).horizontalAdvance(km_txt) + 6 * s
+            if e["zrodlo"]:
+                _napis(p, x, ym, ETYKIETY_ZRODEL[e["zrodlo"]],
+                       self.KOLORY_ZRODEL[e["zrodlo"]], 9 * s, 500)
+                x += QFontMetricsF(f_zr).horizontalAdvance(ETYKIETY_ZRODEL[e["zrodlo"]]) + 6 * s
+            if e["prosta"]:
+                wsk = "×" + f'{e["km"] / e["prosta"]:.2f}'.replace(".", ",")
+                _napis(p, prawy, ym, wsk, ciemny, 9.5 * s, 600, mono=True, prawy=True)
+                if not ciasno:
+                    x_w = prawy - QFontMetricsF(f_wsk).horizontalAdvance(wsk) - 8 * s
+                    prosta_txt = "prosta " + f'{e["prosta"]:.1f}'.replace(".", ",")
+                    if x_w - QFontMetricsF(f_zr).horizontalAdvance(prosta_txt) > x:
+                        _napis(p, x_w, ym, prosta_txt, szary, 9 * s, 500, prawy=True)
 
     def _rysuj_tabele(self, p, lewy, prawy, y_gora, y_dol, s,
                       szary, ciemny, sredni, kreska_mocna, kreska_slaba):
@@ -3832,13 +4589,594 @@ class KartkaDelegacji(QWidget):
 
 
 # ── podgląd bez okna głównego ────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════
+#  PRZELOT NAD REJONEM — to, na co patrzy użytkownik, gdy pracuje silnik
+#
+#  Silnik układa trasy w swoim wątku i melduje postęp; ekran nie ma na co
+#  czekać, więc zamienia się w przelot: krajobraz rejonu sunie bokiem
+#  z paralaksą (bliższy grunt szybciej niż dalszy), a trasy dni, które
+#  silnik już ułożył, zapalają się na nim jedna po drugiej; przy pisaniu
+#  plików kolejne dokumenty stemplują swoje trasy jaśniejszą barwą.
+#  Kompas obok dalej pokazuje postęp. Gdy silnik skończy, przelot hamuje
+#  i osiada na zwykłym widoku dnia, a trasa dnia rysuje się jak zawsze.
+#  Przerwanie kończy przelot natychmiast.
+#
+#  Przelot CZYTA postęp, nigdy odwrotnie: silnik nie czeka na klatkę,
+#  a trasy przychodzą sygnałem z wątku jako gotowe krotki.
+#
+#  Budżet klatki: scena jest upieczona RAZ na filmie szerszym niż widżet
+#  (ta sama kamera — MapaDnia.wypiek_przelotu), trasy dni idą do drugiej,
+#  przezroczystej pixmapy tego samego filmu. Przesunięcie kamery wzdłuż
+#  osi wschód–zachód nie zmienia głębi punktu (kamera nie jest obrócona
+#  wokół osi patrzenia), więc każdy wiersz ekranu jedzie w bok o
+#  dx · skala(y), a skala rzutu jest w y niemal liniowa: klatka to jedno
+#  ŚCINANIE (przekształcenie afiniczne) dwóch gotowych pixmap — ok. 3 ms
+#  przy 1404×826. Uczciwy przelot kamerą (scena od nowa co klatkę) to
+#  ~100 ms i jest nie do przyjęcia.
+# ══════════════════════════════════════════════════════════════════════
+UDZIAL_WAHNIECIA = 0.32        # amplituda lotu jako ułamek rozpiętości rejonu
+ZAPAS_FILMU_MAX = 0.75         # film nie wystaje bardziej niż tyle szerokości widżetu
+OKRES_PRZELOTU_S = 56.0        # jedno pełne wahnięcie kamery: tam i z powrotem
+KLATKA_PRZELOTU = 33           # ms między klatkami
+CZAS_STARTU_MS = 700           # mapa dnia odchodzi w tył, rejon wchodzi
+CZAS_LADOWANIA_MS = 900        # hamowanie i osiadanie na nowym widoku dnia
+CZAS_ZAPALANIA_MS = 900        # rozbłysk nowo ułożonej trasy
+POWIEKSZENIE_STARTU = 1.05     # mapa dnia lekko rośnie, gdy odchodzi
+POWIEKSZENIE_LADOWANIA = 1.04  # rejon lekko rośnie, gdy osiada
+SUFIT_PRZELOTU_MS = 40.0       # tak drogie klatki z rzędu gaszą przelot
+KLATEK_PRZELOTU_DO_DECYZJI = 12
+BARWA_TRASY_PRZELOTU = st.CYJAN
+BARWA_DOKUMENTU_PRZELOTU = st.MIETA
+WARSTWY_TRASY_PRZELOTU = ((2.6, 16, 4), (1.3, 36, 2), (0.62, 104, 1), (0.30, 214, 1))
+RDZEN_TRASY_PRZELOTU = ((0.13, 150, 1),)
+PROMIEN_PRZYSTANKU_PRZELOTU = 2.4   # w jednostkach świata, jak grubości trasy
+PROMIEN_CZOLA_PRZELOTU = 4.5        # świecąca głowa biegnąca po zapalanej trasie
+ZAPAS_OBRYSU_TRASY = 30.0           # px poświaty wokół obrysu trasy na filmie
+
+
+class PrzelotRejonu(QWidget):
+    """Nakładka na mapę na czas pracy silnika — patrz opis wyżej.
+
+    ``rejon`` to niepokazywana MapaDnia z tymi samymi miejscowościami co
+    mapa na ekranie, bez dnia — jej kadr obejmuje cały rejon. ``mapa_pod``
+    zwraca mapę, na której przelot ma wylądować (po generowaniu okno stawia
+    nową). Interfejs zaczepu INTRO_GENEROWANIA: ``ustaw_postep``,
+    ``dodaj_trase``, ``ustaw_dokumenty``, ``zakoncz``, ``przerwij``.
+    """
+
+    zakonczono = pyqtSignal()
+
+    def __init__(self, rejon, mapa_pod=None, rodzic=None):
+        super().__init__(rodzic)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._rejon = rejon
+        self._mapa_pod = mapa_pod
+        self._anim = True
+        self._faza = "start"            # start → lot → ladowanie → koniec
+        self._start_pix = None          # to, co było na ekranie przed przelotem
+        self._pod = None                # to, na czym przelot osiada
+        self._scena = None              # film: cała scena bez tras
+        self._rzut = None               # kamera filmu
+        self._film_w = 0                # szerokość filmu i jego środka, w px logicznych
+        self._srodek_w = 0
+        self._srodek_h = 0
+        self._zapas_px = 0
+        self._a = 0.0                   # skala(y) ≈ a + b·y — współczynniki ścinania
+        self._b = 0.0
+        self._amplituda = 0.0           # wahnięcie kamery w jednostkach świata
+        self._t0 = None                 # chwila startu lotu (monotonic)
+        self._chwila = None             # zamrożony czas — do zrzutów i sprawdzeń
+        self._t_lad = 0.0
+        self._dx_lad = 0.0
+        self._v_lad = 0.0
+        self._postep = 0.0
+        self._trasy = []                # dni w kolejności nadejścia
+        self._zapalane = []             # trasy w trakcie rozbłysku
+        self._trasy_pix = None          # trasy już zapalone, na filmie
+        self._koszt_klatki = 0.0
+        self._drogie = 0
+        self._wejscie = st.Plynnie(0.0, czas=CZAS_STARTU_MS, krzywa="lagodna",
+                                   rodzic=self, klatka=KLATKA_PRZELOTU)
+        self._zejscie = st.Plynnie(0.0, czas=CZAS_LADOWANIA_MS, krzywa="wejscie",
+                                   rodzic=self, klatka=KLATKA_PRZELOTU)
+        self._zejscie.koniec.connect(self._osiadl)
+        self._zegar = QTimer(self)
+        self._zegar.setInterval(KLATKA_PRZELOTU)
+        self._zegar.timeout.connect(self._tik)
+        if rodzic is not None:
+            rodzic.installEventFilter(self)
+
+    @classmethod
+    def nad_mapa(cls, mapa, miasta=None, baza=None, mapa_pod=None, rodzic=None):
+        """Przelot nad rejonem mapy ``mapa``: ten sam krajobraz (ziarno) i te
+        same miejscowości (``miasta``: {nazwa: (szerokość, długość[, ranga])}),
+        bez dnia — więc kadr całego rejonu. Nakładka staje dokładnie na mapie."""
+        rejon = MapaDnia()
+        rejon.resize(mapa.size())
+        rejon._ustaw_ziarno(mapa.ziarno())
+        if miasta:
+            rejon.ustaw_miasta(miasta, baza=baza)
+        rejon.ustaw_animacje(False)
+        przelot = cls(rejon, mapa_pod=mapa_pod, rodzic=rodzic)
+        przelot.setGeometry(mapa.geometry())
+        return przelot
+
+    # — odczyt —
+    def faza(self):
+        return self._faza
+
+    def postep(self):
+        return self._postep
+
+    def przesuniecie(self):
+        """Przesunięcie kamery w jednostkach świata w tej chwili."""
+        return self._przesuniecie_w(self._czas()) if self._scena is not None else 0.0
+
+    def trasy(self):
+        """Ile tras dni już przyszło z silnika."""
+        return len(self._trasy)
+
+    def stemple(self):
+        """Ile z nich ma już stempel gotowego dokumentu."""
+        return sum(1 for t in self._trasy if t["stempel"])
+
+    def koszt_klatki(self):
+        """Średni koszt klatki w milisekundach."""
+        return self._koszt_klatki
+
+    def scena(self):
+        """Film sceny (pixmapa) — None do pierwszego tyknięcia po pokazaniu."""
+        return self._scena
+
+    def wspolczynniki(self):
+        """(zapas filmu w px, a, b): przesunięcie wiersza y to dx·(a + b·y)."""
+        return self._zapas_px, self._a, self._b
+
+    # — sterowanie z okna —
+    def ustaw_start(self, pixmapa):
+        """Obraz sprzed przelotu — odchodzi w tył w pierwszych klatkach."""
+        self._start_pix = pixmapa
+        self.update()
+
+    def ustaw_postep(self, t):
+        try:
+            self._postep = max(0.0, min(1.0, float(t)))
+        except (TypeError, ValueError):
+            pass
+
+    def ustaw_chwile(self, sekundy):
+        """Zamraża zegar lotu na zadanej sekundzie (None = zegar żywy) —
+        razem z wejściem i rozbłyskami, żeby ta sama chwila dawała zawsze
+        tę samą klatkę (zrzuty, sprawdzenia)."""
+        self._chwila = None if sekundy is None else float(sekundy)
+        if self._chwila is not None:
+            self._wejscie.zatrzymaj()
+            self._wejscie.ustaw(st.KRZYWE["lagodna"](
+                max(0.0, min(1.0, self._chwila * 1000.0 / CZAS_STARTU_MS))))
+            for trasa in list(self._zapalane):
+                trasa["zapal"].zatrzymaj()
+                self._po_rozblysku(trasa)
+        self.update()
+
+    def dodaj_trase(self, punkty, data=None):
+        """Silnik ułożył dzień: ``punkty`` to (nazwa, szerokość, długość) od
+        bazy przez przystanki do bazy (wolno też same pary szerokość,
+        długość). Zwraca True, gdy trasa da się położyć na tej mapie."""
+        swiat = []
+        for pkt in (punkty or ()):
+            try:
+                lat, lng = (pkt[-2], pkt[-1])
+                xy = self._rejon.swiat_z_geo(lat, lng)
+            except (TypeError, ValueError, IndexError):
+                xy = None
+            if xy is None:
+                return False
+            swiat.append(xy)
+        if len(swiat) < 2:
+            return False
+        trasa = {"swiat": swiat, "data": data, "stempel": False, "pix": None,
+                 "obrys": None, "punkty": None, "skale": None, "zapal": None}
+        self._trasy.append(trasa)
+        if self._scena is not None:
+            self._zapal(trasa)
+        return True
+
+    def ustaw_dokumenty(self, ile, z_ilu):
+        """Silnik pisze dokument ``ile`` z ``z_ilu``: trasy dni w kolejności dat
+        dostają stempel — pierwsze ile/z_ilu wszystkich znanych dni."""
+        try:
+            ile, z_ilu = int(ile), int(z_ilu)
+        except (TypeError, ValueError):
+            return 0
+        if z_ilu <= 0 or not self._trasy:
+            return 0
+        do_stempla = int(math.ceil(len(self._trasy) * min(ile, z_ilu) / float(z_ilu)))
+        kolejnosc = sorted(self._trasy, key=lambda t: (t["data"] is None, t["data"] or 0))
+        nowe = 0
+        for trasa in kolejnosc[:do_stempla]:
+            if trasa["stempel"]:
+                continue
+            trasa["stempel"] = True
+            nowe += 1
+            if self._scena is not None and trasa["punkty"] is not None:
+                self._upiecz_trase(trasa)
+                if trasa["zapal"] is None:
+                    self._scal(trasa)          # już scalona — stempel idzie na wierzch
+        if nowe:
+            self.update()
+        return nowe
+
+    def zakoncz(self):
+        """Silnik skończył: lądowanie. Wołane, zanim okno przebuduje mapę —
+        samo lądowanie rusza po zakończeniu tej pracy (zegar 0 ms)."""
+        if self._faza in ("ladowanie", "koniec"):
+            return
+        QTimer.singleShot(0, self._laduj)
+
+    def przerwij(self):
+        """Koniec natychmiast — przerwanie, zgaszone animacje, zamknięcie."""
+        if self._faza == "koniec":
+            return
+        self._faza = "koniec"
+        self._zegar.stop()
+        self._wejscie.zatrzymaj()
+        self._zejscie.zatrzymaj()
+        for trasa in self._zapalane:
+            if trasa["zapal"] is not None:
+                trasa["zapal"].zatrzymaj()
+        self._zapalane = []
+        if self._pod is not None:
+            self._wznow_trase_pod()          # lądowanie było w toku
+        self.hide()
+        self.zakonczono.emit()
+        self._sprzatnij()
+
+    def ustaw_animacje(self, wlaczone):
+        """Ten sam wyłącznik co reszta ekranu: zgaszony przelot znika bez śladu."""
+        self._anim = bool(wlaczone)
+        if not self._anim:
+            self.przerwij()
+
+    def animacje_wlaczone(self):
+        return self._anim
+
+    def sizeHint(self):
+        return QSize(900, 600)
+
+    # — lot —
+    def _czas(self):
+        if self._chwila is not None:
+            return self._chwila
+        if self._t0 is None:
+            return 0.0
+        return time.monotonic() - self._t0
+
+    def _przesuniecie_w(self, t):
+        """Kamera waha się jak wahadło o okresie OKRES_PRZELOTU_S; przy lądowaniu
+        dojeżdża z prędkością, którą miała, hamując równomiernie do zera."""
+        if self._faza == "ladowanie":
+            czas = CZAS_LADOWANIA_MS / 1000.0
+            u = max(0.0, min(1.0, (t - self._t_lad) / czas))
+            return self._dx_lad + self._v_lad * czas * (u - 0.5 * u * u)
+        w = 2.0 * math.pi / OKRES_PRZELOTU_S
+        return self._amplituda * math.sin(w * t)
+
+    def _predkosc_w(self, t):
+        w = 2.0 * math.pi / OKRES_PRZELOTU_S
+        return self._amplituda * w * math.cos(w * t)
+
+    def _tik(self):
+        if self._scena is None:
+            self._upiecz()
+        self.update()
+
+    def _upiecz(self):
+        """Jedyny drogi krok przelotu: film sceny i współczynniki ścinania."""
+        rejon = self._rejon
+        W, H = max(1, rejon.width()), max(1, rejon.height())
+        rzut0 = rejon.rzut()
+        gx, gy = rzut0.na_grunt(W * 0.5, H * 0.94)
+        s_blisko = max(1e-6, rzut0.skala(gx, gy, 0.0))
+        self._amplituda = UDZIAL_WAHNIECIA * rejon._miara
+        zapas = int(math.ceil(self._amplituda * s_blisko)) + 8
+        if zapas > ZAPAS_FILMU_MAX * W:
+            zapas = int(ZAPAS_FILMU_MAX * W)
+            self._amplituda = max(0.0, (zapas - 8) / s_blisko)
+        self._zapas_px = zapas
+        self._scena, self._rzut = rejon.wypiek_przelotu(zapas)
+        self._film_w = W + 2 * zapas
+        self._srodek_w, self._srodek_h = W, H
+        self._a, self._b = self._szer_paralaksy(self._rzut, self._film_w, H)
+        self._trasy_pix = None
+        for trasa in self._trasy:
+            trasa["punkty"] = None
+        for trasa in self._trasy:
+            self._zapal(trasa, od_razu=True)
+        self._t0 = time.monotonic()
+        self._faza = "lot"
+        self._wejscie.ustaw(0.0)
+        self._wejscie.do(1.0)
+
+    @staticmethod
+    def _szer_paralaksy(rzut, szer, wys):
+        """Prosta skala(y) ≈ a + b·y dopasowana do wierszy z gruntem w kadrze.
+
+        Głębia punktu gruntu nie zależy od x, więc jedna próbka na wiersz
+        wystarcza; wiersze nad horyzontem (promień nie trafia w grunt) nie
+        wchodzą do dopasowania — w tej samej prostej dostają skalę bliską
+        zera, czyli niebo prawie stoi."""
+        ys, ss = [], []
+        krok = max(4.0, wys / 48.0)
+        y = krok * 0.5
+        while y < wys:
+            gx, gy = rzut.na_grunt(szer * 0.5, y, dal_max=2600.0)
+            if rzut.glebokosc(gx, gy, 0.0) < 2400.0:
+                ys.append(y)
+                ss.append(rzut.skala(gx, gy, 0.0))
+            y += krok
+        if len(ys) < 2:
+            return (rzut.k / 300.0, 0.0)
+        n = float(len(ys))
+        sy, ssk = sum(ys) / n, sum(ss) / n
+        licznik = sum((y - sy) * (s - ssk) for y, s in zip(ys, ss))
+        mianownik = sum((y - sy) ** 2 for y in ys) or 1.0
+        b = licznik / mianownik
+        return (ssk - b * sy, b)
+
+    # — trasy dni —
+    def _nowa_pixmapa_filmu(self):
+        pix = QPixmap(self._scena.size())
+        pix.setDevicePixelRatio(self._scena.devicePixelRatio())
+        pix.fill(Qt.GlobalColor.transparent)
+        return pix
+
+    def _upiecz_trase(self, trasa):
+        """Świecąca linia dnia na filmie: łagodna krzywa przez przystanki,
+        uniesiona nad teren jak trasa dnia na mapie, w barwie dnia albo
+        dokumentu. Pixmapa obejmuje tylko obrys trasy — rozbłysk i scalenie
+        kosztują tyle, co ten obrys, nie cały film."""
+        rejon, rzut = self._rejon, self._rzut
+        wznios = rejon._wznios_trasy
+        odn = rejon._odniesienie()
+        punkty, skale = [], []
+        for (x, y) in _gladko_2d(trasa["swiat"], na_odcinek=6):
+            pt, s = rzut.rzutuj(x, y, rejon._wysokosc(x, y) + wznios)
+            punkty.append(pt)
+            skale.append(s * odn)
+        film = QRectF(0, 0, self._film_w, self._srodek_h)
+        xs = [p.x() for p in punkty]
+        ys = [p.y() for p in punkty]
+        obrys = QRectF(min(xs) - ZAPAS_OBRYSU_TRASY, min(ys) - ZAPAS_OBRYSU_TRASY,
+                       max(xs) - min(xs) + 2 * ZAPAS_OBRYSU_TRASY,
+                       max(ys) - min(ys) + 2 * ZAPAS_OBRYSU_TRASY).intersected(film)
+        obrys = QRectF(math.floor(obrys.x()), math.floor(obrys.y()),
+                       math.ceil(obrys.width()) + 1, math.ceil(obrys.height()) + 1)
+        kolor = BARWA_DOKUMENTU_PRZELOTU if trasa["stempel"] else BARWA_TRASY_PRZELOTU
+        dpr = self._scena.devicePixelRatio()
+        pix = QPixmap(max(1, int(obrys.width() * dpr)), max(1, int(obrys.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.GlobalColor.transparent)
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        q.translate(-obrys.x(), -obrys.y())
+        _poswiata_zmienna(q, punkty, skale, kolor, WARSTWY_TRASY_PRZELOTU)
+        _poswiata_zmienna(q, punkty, skale, QColor(232, 255, 255), RDZEN_TRASY_PRZELOTU)
+        for (x, y) in trasa["swiat"][1:-1]:
+            pt, s = rzut.rzutuj(x, y, rejon._wysokosc(x, y) + wznios)
+            st.punkt_swiatla(q, pt, PROMIEN_PRZYSTANKU_PRZELOTU * s * odn, kolor, 120)
+        q.end()
+        trasa["pix"], trasa["obrys"] = pix, obrys
+        trasa["punkty"], trasa["skale"] = punkty, skale
+
+    def _zapal(self, trasa, od_razu=False):
+        """Trasa wchodzi na film: rozbłyskiem (zegar), albo od razu."""
+        self._upiecz_trase(trasa)
+        if od_razu or not self._anim or self._chwila is not None:
+            self._scal(trasa)
+            return
+        zapal = st.Plynnie(0.0, czas=CZAS_ZAPALANIA_MS, krzywa="lagodna",
+                           rodzic=self, klatka=KLATKA_PRZELOTU)
+        trasa["zapal"] = zapal
+        zapal.koniec.connect(lambda t=trasa: self._po_rozblysku(t))
+        self._zapalane.append(trasa)
+        zapal.do(1.0)
+        self.update()
+
+    def _po_rozblysku(self, trasa):
+        if trasa in self._zapalane:
+            self._zapalane.remove(trasa)
+        trasa["zapal"] = None
+        self._scal(trasa)
+        self.update()
+
+    def _scal(self, trasa):
+        """Gotowa trasa przechodzi do wspólnej pixmapy — klatka jej nie liczy."""
+        if trasa["pix"] is None:
+            return
+        if self._trasy_pix is None:
+            self._trasy_pix = self._nowa_pixmapa_filmu()
+        q = QPainter(self._trasy_pix)
+        q.drawPixmap(trasa["obrys"].topLeft(), trasa["pix"])
+        q.end()
+        if trasa["zapal"] is None:
+            trasa["pix"] = None            # scalona — osobna pixmapa niepotrzebna
+
+    # — lądowanie —
+    def _laduj(self):
+        if self._faza in ("ladowanie", "koniec"):
+            return
+        if self._scena is None or not self._anim or not self.isVisible():
+            self.przerwij()
+            return
+        mapa = self._mapa_pod() if self._mapa_pod is not None else None
+        if mapa is not None:
+            try:
+                mapa.ustaw_postep_rysowania(0.0)   # trasa dnia narysuje się PO lądowaniu
+                mapa.trasa_rysuje_sie.emit()       # ...więc kartka ustępuje już teraz
+                mapa.ustaw_obecnosc_kartki(0.0)    # i w obrazie pod nakładką nie ma jej cienia
+            except Exception:
+                pass
+            # sama mapa, bez kartki i pigułki: kartka właśnie ustępuje trasie
+            # i w przenikaniu zamarłaby w pół ruchu
+            self._pod = mapa.grab()
+        t = self._czas()
+        self._dx_lad = self._przesuniecie_w(t)
+        self._v_lad = self._predkosc_w(t)
+        self._t_lad = t
+        self._faza = "ladowanie"
+        self._zejscie.ustaw(0.0)
+        if self._chwila is not None:
+            return                                # zamrożony zegar: lądowanie stoi
+        self._zejscie.do(1.0)
+
+    def _wznow_trase_pod(self):
+        mapa = self._mapa_pod() if self._mapa_pod is not None else None
+        self._pod = None
+        if mapa is None:
+            return
+        try:
+            mapa.rysuj_trase_od_nowa()
+        except Exception:
+            pass
+
+    def _osiadl(self):
+        if self._faza == "koniec":
+            return
+        self._faza = "koniec"
+        self._zegar.stop()
+        self.hide()
+        self._wznow_trase_pod()
+        self.zakonczono.emit()
+        self._sprzatnij()
+
+    def _sprzatnij(self):
+        rejon, self._rejon = self._rejon, None
+        if rejon is not None:
+            rejon.deleteLater()
+        self._scena = None
+        self._trasy_pix = None
+        self._start_pix = None
+        rodzic = self.parentWidget()
+        if rodzic is not None:
+            rodzic.removeEventFilter(self)
+            self.setParent(None)           # okno nie ma już tego dziecka — od razu
+        self.deleteLater()
+
+    # — zdarzenia —
+    def eventFilter(self, obj, zdarzenie):
+        if obj is self.parentWidget() and zdarzenie.type() == QEvent.Type.Resize:
+            QTimer.singleShot(0, self._dopasuj)
+        return False
+
+    def _dopasuj(self):
+        mapa = self._mapa_pod() if self._mapa_pod is not None else None
+        if mapa is not None and self._faza != "koniec" \
+                and mapa.parentWidget() is self.parentWidget():
+            self.setGeometry(mapa.geometry())
+
+    def showEvent(self, zdarzenie):
+        super().showEvent(zdarzenie)
+        if self._anim and self._faza != "koniec" and not self._zegar.isActive():
+            self._zegar.start()
+
+    def hideEvent(self, zdarzenie):
+        self._zegar.stop()
+        super().hideEvent(zdarzenie)
+
+    def mousePressEvent(self, zdarzenie):
+        zdarzenie.accept()               # pod nakładką nic nie ma dostać kliknięcia
+
+    # — klatka —
+    def _kamera(self, p, r, dx, powiekszenie):
+        """Ścinanie paralaksy złożone z lekkim powiększeniem wokół środka."""
+        sw = r.width() / float(max(1, self._srodek_w))
+        sh = r.height() / float(max(1, self._srodek_h))
+        p.translate(r.center().x(), r.center().y())
+        p.scale(sw * powiekszenie, sh * powiekszenie)
+        p.translate(-self._srodek_w * 0.5, -self._srodek_h * 0.5)
+        scinanie = QTransform(1.0, 0.0, -dx * self._b, 1.0,
+                              -self._zapas_px - dx * self._a, 0.0)
+        p.setWorldTransform(scinanie * p.worldTransform())
+
+    def _rysuj_start(self, p, r, alfa, powiekszenie):
+        pix = self._start_pix
+        if pix is None:
+            st.tlo_sceny(p, r)
+            return
+        p.setOpacity(alfa)
+        cel = QRectF(r.center().x() - r.width() * 0.5 * powiekszenie,
+                     r.center().y() - r.height() * 0.5 * powiekszenie,
+                     r.width() * powiekszenie, r.height() * powiekszenie)
+        p.drawPixmap(cel, pix, QRectF(pix.rect()))
+        p.setOpacity(1.0)
+
+    def paintEvent(self, _zdarzenie):
+        zegar = time.perf_counter()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        r = QRectF(self.rect())
+        if self._scena is None:
+            self._rysuj_start(p, r, 1.0, 1.0)       # przed wypiekiem nic się nie rusza
+            p.end()
+            return
+        t = self._czas()
+        dx = self._przesuniecie_w(t)
+        u = self._zejscie.teraz() if self._faza == "ladowanie" else 0.0
+        alfa = 1.0 - u
+        if self._pod is not None and u > 0.0:
+            p.drawPixmap(r, self._pod, QRectF(self._pod.rect()))
+        p.save()
+        self._kamera(p, r, dx, 1.0 + (POWIEKSZENIE_LADOWANIA - 1.0) * u)
+        p.setOpacity(alfa)
+        p.drawPixmap(0, 0, self._scena)
+        if self._trasy_pix is not None:
+            p.drawPixmap(0, 0, self._trasy_pix)
+        for trasa in self._zapalane:                  # rozbłysk nowej trasy
+            z = max(0.0, min(1.0, trasa["zapal"].teraz()))
+            if trasa["pix"] is not None:
+                p.setOpacity(alfa * z)
+                p.drawPixmap(trasa["obrys"].topLeft(), trasa["pix"])
+            punkty = trasa["punkty"] or ()
+            if punkty:
+                i = min(len(punkty) - 1, int(z * (len(punkty) - 1)))
+                p.setOpacity(alfa * (1.0 - z * z))
+                st.punkt_swiatla(p, punkty[i], PROMIEN_CZOLA_PRZELOTU * trasa["skale"][i],
+                                 BARWA_TRASY_PRZELOTU, 100)
+                st.punkt_swiatla(p, punkty[i], 1.4 * trasa["skale"][i],
+                                 QColor(236, 255, 255), 150)
+        p.restore()
+        p.setOpacity(alfa)
+        wyk = self._rejon._wykonczenie()
+        p.drawPixmap(r, wyk, QRectF(wyk.rect()))
+        p.setOpacity(1.0)
+        e = self._wejscie.teraz()
+        if e < 0.999:
+            self._rysuj_start(p, r, 1.0 - e, 1.0 + (POWIEKSZENIE_STARTU - 1.0) * e)
+        p.end()
+        self._odnotuj_klatke((time.perf_counter() - zegar) * 1000.0)
+
+    def _odnotuj_klatke(self, ms):
+        """Klatka droższa niż sufit przez kilkanaście klatek z rzędu — komputer
+        nie wyrabia i przelot gaśnie; zostaje sam postęp na kompasie."""
+        self._koszt_klatki = (self._koszt_klatki * 0.8 + float(ms) * 0.2
+                              if self._koszt_klatki else float(ms))
+        if self._koszt_klatki > SUFIT_PRZELOTU_MS:
+            self._drogie += 1
+            if self._drogie >= KLATEK_PRZELOTU_DO_DECYZJI and self._faza == "lot":
+                QTimer.singleShot(0, self.przerwij)
+        else:
+            self._drogie = 0
+
+
 if __name__ == "__main__":
     import sys
     from PyQt6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
 
-    def scena(nazwa, dzien, stan_mapy="zwykly", stan_kartki="zwykla", szer=980, wys=620):
+    def scena(nazwa, dzien, stan_mapy="zwykly", stan_kartki="zwykla", szer=980, wys=620,
+              strona="przod", odkryte=()):
         okno = QWidget()
         okno.resize(szer, wys)
         okno.setStyleSheet(f"background: {st.TLO_GORA.name()};")
@@ -3853,10 +5191,12 @@ if __name__ == "__main__":
         kartka.ustaw_animacje(False)
         mapa.ustaw_dzien(dzien)
         mapa.ustaw_stan(stan_mapy)
+        mapa.ustaw_odkryte(odkryte)
         mapa.ustaw_kotwice_kartki(QPointF(kartka.x() + 8, kartka.y() + 26),
                                   QRectF(kartka.geometry()))
         kartka.ustaw_dzien(dzien)
         kartka.ustaw_stan(stan_kartki)
+        kartka.ustaw_strone(strona)
 
         okno.show()
         for _ in range(4):

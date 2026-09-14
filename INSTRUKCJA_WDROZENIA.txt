@@ -66,6 +66,6 @@ KROK 4 — WERYFIKACJA
   d) macOS (dla osoby z Makiem): rozpakuj archiwum, zdejmij
      kwarantannę systemu — w Terminalu „xattr -cr" na folderze
      programu albo prawy klik na pliku programu → Otwórz → Otwórz.
-     Następnie: logowanie, animacja startowa, jedna delegacja
+     Następnie: logowanie, jedna delegacja
      testowa (sprawdź polskie znaki w PDF).
   e) Linux: rozpakuj i uruchom „./PMT_Planer" w terminalu.

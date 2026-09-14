@@ -37,6 +37,7 @@ import urllib.parse
 import tempfile
 import shutil
 import hashlib
+import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Set
@@ -266,6 +267,22 @@ PROCENT_SASIEDNIE = 0.50
 KARA_DYSTANSOWA       = 500.0   
 MIN_SIECI             = 1       
 MIN_DYSTANS_LINIA     = 10.0    
+
+# WAGA LICZBY SIECI — ile sieci handlowych (Żabka, Biedronka, Lidl, Stokrotka)
+# ma miejscowość. Miasto z 4–5 sieciami jest wybierane wyraźnie chętniej niż
+# wieś z jedną, ale jedynki nie znikają: zostają jako postoje „po drodze".
+# Mnożnik działa w dwóch miejscach silnika: podbija wagę punktu startowego
+# dnia i „skraca" skok w łańcuchu sąsiadów (miejscowość z wagą 2,5 jest
+# warta 2,5 razy dłuższego dojazdu niż jedynka).
+WAGI_SIECI = {1: 1.0, 2: 1.4, 3: 1.9, 4: 2.5, 5: 3.0}
+
+def waga_sieci(sieci) -> float:
+    """Mnożnik atrakcyjności miejscowości wg liczby sieci (1 → 1,0; 5 → 3,0)."""
+    try:
+        n = int(sieci)
+    except (TypeError, ValueError):
+        return 1.0
+    return WAGI_SIECI.get(max(1, min(n, max(WAGI_SIECI))), 1.0)
 
 COOLDOWN_DNI = 35   
 
@@ -597,7 +614,7 @@ def _rozgrzej_backend():
     """Budzi backend (Apps Script) w tle, gdy tylko pojawi się okno
     logowania. Zimny start serwera potrafi trwać kilka sekund — po
     rozgrzewce właściwe logowanie odpowiada niemal od ręki, więc czas
-    od kliknięcia "Zaloguj" do intro spada do ułamka dawnego."""
+    od kliknięcia "Zaloguj" do okna programu spada do ułamka dawnego."""
     def _w():
         try:
             if "TU_WKLEJ" in URL_BACKENDU:
@@ -1261,8 +1278,11 @@ def _okno_zmiany_hasla(rodzic, ciemny):
     ukl = QVBoxLayout(karta); ukl.setContentsMargins(26, 22, 26, 20)
     ukl.setSpacing(8)
     t1 = QLabel("Zmiana has\u0142a"); t1.setObjectName("tytul"); ukl.addWidget(t1)
-    t2 = QLabel("Dotychczasowe has\u0142o — a je\u015bli go nie pami\u0119tasz, "
-                "wpisz sw\u00f3j numer telefonu z kartoteki.")
+    # Telefon zastępuje hasło TYLKO na koncie, które hasła jeszcze nie ma
+    # (backend 3.23.0). Kto zapomniał hasła — „Nie pamiętam hasła" w oknie
+    # logowania (reset), nie tutaj.
+    t2 = QLabel("Dotychczasowe has\u0142o (konto bez has\u0142a: numer telefonu "
+                "z kartoteki).")
     t2.setObjectName("pod"); t2.setWordWrap(True); ukl.addWidget(t2)
     e1 = QLabel("DOTYCHCZASOWE HAS\u0141O / TELEFON"); e1.setObjectName("etyk")
     ukl.addWidget(e1)
@@ -1686,7 +1706,7 @@ def dialog_logowania():
             return
         # Weryfikacja w WĄTKU: okno nie zamiera, a kropki pokazują życie.
         # Wcześniej zapytanie szło na wątku interfejsu i to ONO było
-        # ~5-sekundową "przerwą" między kliknięciem a intro.
+        # ~5-sekundową "przerwą" między kliknięciem a oknem programu.
         _tryb_auto = bool(_auto.get("tryb"))
         _auto["w_toku"] = True
         try:
@@ -2354,7 +2374,8 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.22.0"   # (numer pilnowany przez buduj.bat; wpiete intro wideo — patrz ZMIANY_WPIECIE_INTRO.txt)
+WERSJA_PROGRAMU = "3.23.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
+                             # wersja_exe.txt uzgadnia zbuduj.py, wersja.txt podbija CI po zbudowaniu paczki
 # ETYKIETA WYDANIA — w wydaniu oficjalnym PUSTA (""), w paczce dla testera
 # niesie oznaczenie, ktore ma zobaczyc czlowiek. Dlaczego OSOBNA stala, a nie
 # dopisek do numeru: WERSJA_PROGRAMU musi zostac czystym X.Y.Z, bo skrypt
@@ -4164,70 +4185,16 @@ def zapisz_profil(imie, pesel, adres, stanowisko, silnik_idx):
     _zapisz_store(store)
 
 # ═══════════════════════════════════════════════════════════════════════
-#  INTRO „Z ORBITY DO TRASY", KARTA TESTERA, GŁĘBIA 3D  (linia PMT_NOWY)
-#  Trzy moduły obok programu: intro_zywa_mapa.py, karta_testera.py,
-#  wyglad_3d.py. Każdy brak kończy się cichym powrotem do dotychczasowego
+#  KARTA TESTERA I GŁĘBIA 3D — moduły obok programu (karta_testera.py,
+#  wyglad_3d.py). Każdy brak kończy się cichym powrotem do dotychczasowego
 #  zachowania — program NIGDY nie pada z ich powodu.
 # ═══════════════════════════════════════════════════════════════════════
-SIECI_Z_LOGO = ("ŻABKA", "BIEDRONKA", "GROSZEK", "STOKROTKA", "ABC", "LEWIATAN")
-
-
-def _siec_ma_logo(nazwa: str) -> bool:
-    """Czy dla tej sieci intro ma gotowy logotyp (wtopiony w intro_zywa_mapa)."""
-    n = (nazwa or "").upper().strip()
-    if not n:
-        return False
-    for z in SIECI_Z_LOGO:
-        if n == z or n.startswith(z + " ") or n.startswith(z):
-            return True
-    return False
-
-
-def _losowa_trasa_pokazowa(miasto="") -> list:
-    """Użytkownik bez historii delegacji: losowa kolejność NASZYCH sieci."""
-    import random as _r
-    ile = _r.randint(4, 6)
-    sieci = list(SIECI_Z_LOGO)
-    _r.shuffle(sieci)
-    wybrane = (sieci * 2)[:ile]
-    km = 0
-    wezly = []
-    for s in wybrane:
-        km += _r.randint(5, 13)
-        wezly.append({"siec": s, "adres": "", "km": km})
-    return wezly
-
-
-# ── INTRO PRZY STARCIE: W TEJ WERSJI WYŁĄCZONE ────────────────────────
-# Program wstaje od razu w oknie głównym — bez żywej mapy i bez czekania.
-# Kod intra (intro_zywa_mapa.py, AnimacjaStartowa, pokaz_intro) zostaje
-# NIETKNIĘTY: intro wróci, ale nie na starcie — będzie pojawiać się
-# PODCZAS GENEROWANIA DOKUMENTÓW DELEGACJI. Żeby je z powrotem zobaczyć
-# przy starcie, wystarczy ustawić tu True.
-INTRO_NA_STARCIE = False
-
-
-def _intro_wylaczone_plikiem(katalog: str = "") -> bool:
-    """Plik BEZ_INTRA.txt (obok programu albo w katalogu użytkownika)
-    wyłącza KAŻDE intro — bez niego użytkownik zamiast żywej mapy dostawał
-    klasyczną animację, a nie program od razu."""
-    try:
-        for _p in (os.path.join(katalog or "", "BEZ_INTRA.txt"),
-                   os.path.join(os.path.expanduser("~"), "BEZ_INTRA.txt")):
-            if _p and os.path.exists(_p):
-                return True
-    except Exception:
-        pass
-    return False
-
-
 def _aktualizacje_wylaczone_plikiem(katalog: str = "") -> bool:
     """Pusty plik BEZ_AKTUALIZACJI.txt OBOK PROGRAMU wylacza sprawdzanie
     i pobieranie aktualizacji — ubezpieczenie paczki testowej, zeby nie
     podmienila sie sama w trakcie testow.
 
-    Inaczej niz BEZ_INTRA.txt ten przelacznik NIE dziala z katalogu
-    uzytkownika. Plik w katalogu domowym zostalby na cudzym komputerze
+    Ten przelacznik NIE dziala z katalogu uzytkownika. Plik w katalogu domowym zostalby na cudzym komputerze
     na stale i bylby trwalym obejsciem blokady wersji — a blokada to
     jedyny sposob, zeby wycofac wadliwe wydanie z 65 komputerow."""
     try:
@@ -4235,168 +4202,6 @@ def _aktualizacje_wylaczone_plikiem(katalog: str = "") -> bool:
         return bool(p) and os.path.exists(p)
     except Exception:
         return False
-
-
-def dane_intra_z_dysku(imie_zalogowany: str = "") -> dict:
-    """Dane dla intra czytane z dysku — bez interfejsu.
-
-    Trasa pochodzi z REALNEJ delegacji poprzedniego miesiąca, ale zostają
-    w niej wyłącznie sieci, których logotypy mamy w programie. Gdy takiej
-    historii nie ma — losowa kolejność naszych sieci. Miasto i współrzędne
-    globusa biorą się z tych wizyt albo z adresu w profilu, więc osoba
-    startująca z Białegostoku nigdy nie zobaczy Warszawy.
-    """
-    import datetime as _dt
-    d = {}
-    try:
-        store = _wczytaj_store()
-        profile = [w.get("profil") for w in store.values()
-                   if isinstance(w, dict) and w.get("profil")]
-        pr = None
-        if imie_zalogowany:
-            # TYLKO pełna zgodność imienia i nazwiska (bez względu na wielkość
-            # liter i nadmiarowe spacje) — dopasowanie „po początku" potrafiło
-            # oddać intru profil (i miasto) innej osoby o podobnym imieniu.
-            szukane = " ".join(str(imie_zalogowany).split()).lower()
-            for kand in profile:
-                imie_pr = " ".join(str(kand.get("imie") or "").split()).lower()
-                if imie_pr and imie_pr == szukane:
-                    pr = kand
-                    break
-        elif len(profile) == 1:
-            pr = profile[0]            # jedyna osoba na tym komputerze
-        if pr:
-            imie = (pr.get("imie") or "").strip()
-            if imie:
-                d["imie"] = imie.split()[0]
-            adres = (pr.get("adres") or "").strip()
-            miasto = ""
-            if adres:
-                # 1) najpewniej: nazwa tuż po kodzie pocztowym  „03-185 Warszawa"
-                m = re.search(r"\d{2}-\d{3}\s+([^\d,;]+)", adres)
-                if m:
-                    miasto = m.group(1)
-                else:
-                    # 2) inaczej: człon bez oznaczeń ulicy i bez numeru
-                    for c in re.split(r"[,;]", adres):
-                        c = c.strip()
-                        if not c or re.match(r"^(ul\.|al\.|os\.|pl\.)", c, flags=re.I):
-                            continue
-                        if re.search(r"\d", c):
-                            continue
-                        miasto = c
-                        break
-                miasto = re.sub(r"\s+\d+[A-Za-z]?$", "", miasto).strip(" .,")
-            if miasto:
-                d["miasto"] = miasto.upper()
-    except Exception:
-        pass
-    try:
-        plan = wczytaj_plan()
-    except Exception:
-        plan = None
-    try:
-        if plan:
-            dzis = _dt.date.today()
-            pop_r, pop_m = ((dzis.year, dzis.month - 1) if dzis.month > 1
-                            else (dzis.year - 1, 12))
-            dni = []
-            for mm in plan.get("miesiace", []):
-                if (int(mm.get("rok", 0)) == pop_r
-                        and int(mm.get("miesiac", 0)) == pop_m):
-                    dni.extend(mm.get("dni", []))
-            if not dni:
-                dni = list(plan.get("dni", []))
-
-            def _nasze(dz):
-                return [w for w in (getattr(dz, "wizyty", []) or [])
-                        if _siec_ma_logo(getattr(w, "siec", "")
-                                         or getattr(w, "nazwa", ""))]
-
-            dobre = [dz for dz in dni if len(_nasze(dz)) >= 2]
-            if dobre:
-                def ocena(dz):
-                    wz = _nasze(dz)
-                    sieci = {(getattr(w, "siec", "") or "").upper() for w in wz}
-                    return (len(sieci) * 26 + len(wz) * 6
-                            + float(getattr(dz, "km", 0) or 0) * 0.08)
-                naj = max(dobre, key=ocena)
-                wz = _nasze(naj)[:9]
-                km_dnia = float(getattr(naj, "km", 0) or 0)
-                wezly = []
-                for i, w in enumerate(wz, 1):
-                    wezly.append({
-                        "siec": (getattr(w, "siec", "") or getattr(w, "nazwa", "")).upper(),
-                        "adres": (getattr(w, "adres", "") or "")[:34],
-                        "km": int(round(km_dnia * i / max(1, len(wz))))})
-                d["wezly"] = wezly
-                d["km_dzis"] = int(round(km_dnia))
-                wsp = [(w.lat, w.lng) for w in wz
-                       if getattr(w, "lat", None) and getattr(w, "lng", None)]
-                if wsp:
-                    d["lat"] = sum(a for a, _ in wsp) / len(wsp)
-                    d["lon"] = sum(b for _, b in wsp) / len(wsp)
-                miasta = [(getattr(w, "miasto", "") or "") for w in wz
-                          if getattr(w, "miasto", "")]
-                if miasta:
-                    d["miasto"] = max(set(miasta), key=miasta.count).upper()
-            try:
-                wszystkie = list(plan.get("dni", []))
-                d["wizyty"] = int(sum(len(getattr(x, "wizyty", []) or [])
-                                      for x in wszystkie))
-                d["km_rok"] = int(sum(float(getattr(x, "km", 0) or 0)
-                                      for x in wszystkie))
-                daty = [getattr(x, "data", None) for x in wszystkie
-                        if getattr(x, "data", None)]
-                if daty:
-                    d["dni"] = (max(daty) - min(daty)).days + 1
-            except Exception:
-                pass
-    except Exception:
-        pass
-    if not d.get("wezly"):
-        d["wezly"] = _losowa_trasa_pokazowa(d.get("miasto", ""))
-        d["km_dzis"] = d["wezly"][-1]["km"]
-    # Brakujące liczby to ZERA (intro chowa wtedy statystyki), a nie dane
-    # pokazowe z modułu — nikt nie zobaczy cudzego imienia ani 3189 wizyt.
-    for _k in ("dni", "wizyty", "km_rok", "km_dzis"):
-        try:
-            d[_k] = int(d.get(_k) or 0)
-        except Exception:
-            d[_k] = 0
-    d.setdefault("imie", "")
-    # WSPÓŁRZĘDNE MIASTA — kolejno: z wizyt, z pamięci geokodowania,
-    # z bazy miast programu, a na końcu środek Polski. Nigdy Warszawa
-    # „z automatu" — ktoś z Sarnowej Góry ma zobaczyć Sarnową Górę.
-    nazwa = (d.get("miasto") or "").strip().lower()
-    if nazwa and not (d.get("lat") and d.get("lon")):
-        try:
-            for klucz, wart in (_geo_cache or {}).items():
-                if nazwa in str(klucz).lower():
-                    if isinstance(wart, (list, tuple)) and len(wart) >= 2:
-                        d["lat"], d["lon"] = float(wart[0]), float(wart[1])
-                    elif isinstance(wart, dict):
-                        d["lat"] = float(wart.get("lat") or wart.get("latitude"))
-                        d["lon"] = float(wart.get("lng") or wart.get("lon"))
-                    break
-        except Exception:
-            pass
-    if nazwa and not (d.get("lat") and d.get("lon")):
-        try:
-            for woj, lista in MIASTA_RAW.items():
-                for m in lista:
-                    if str(m.get("n", "")).strip().lower() == nazwa:
-                        d["lat"], d["lon"] = float(m["lat"]), float(m["lng"])
-                        break
-                if d.get("lat"):
-                    break
-        except Exception:
-            pass
-    if not (d.get("lat") and d.get("lon")):
-        d["lat"], d["lon"] = 52.03, 19.48       # środek Polski
-    # zera i puste imię ZOSTAJĄ — nadpisują dane pokazowe modułu intra
-    return {k: v for k, v in d.items()
-            if v or k in ("dni", "wizyty", "km_rok", "km_dzis", "imie")}
 
 
 def _katalog_programu() -> str:
@@ -4424,7 +4229,7 @@ ZAPROSZEN_TESTERA_MAX = 3          # łącznie, potem tylko przycisk ★ w pasku
 
 
 def zaproszenie_testera(rodzic=None, imie: str = "", ciemny: bool = True):
-    """Krótkie zaproszenie do testowania — po intrze, najwyżej raz na
+    """Krótkie zaproszenie do testowania — chwilę po starcie, najwyżej raz na
     siedem dni i najwyżej ZAPROSZEN_TESTERA_MAX razy w ogóle; zawsze da
     się pominąć. Kto chce, ma potem przycisk ★ obok „Zgłoś błąd"."""
     from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -4638,23 +4443,395 @@ def szukaj_profilu_po_nazwisku(imie) -> Optional[dict]:
             return prof
     return None
 
+# ── HISTORIA MIESIĘCY ────────────────────────────────────────────────
+# Jeden wpis = jeden wygenerowany miesiąc (kwota, km, dni, miejscowości,
+# województwa, folder). Z tej listy żyją wykresy „Twoja praca → Delegacje"
+# (StatystykiOverlay._przelicz_delegacje), Archiwum i panel administratora.
+# Wpis buduje WYŁĄCZNIE wpis_historii_generacji — dla obu okien programu.
+LIMIT_HISTORII = 60                   # wpisów na osobę: 5 lat miesięcy (20 to niecałe dwa lata)
+FORMAT_DATY_HISTORII = "%d.%m.%Y %H:%M"
+ZRODLO_HISTORII_PROGRAM = "program"   # zapisane zaraz po wygenerowaniu
+ZRODLO_HISTORII_SKAN = "skan"         # dociągnięte z gotowego folderu na dysku
+
+
+def _data_wpisu(wpis: dict):
+    """Chwila wpisu jako datetime albo None, gdy pole „data" nie daje się odczytać."""
+    try:
+        return datetime.datetime.strptime(str(wpis.get("data", "")), FORMAT_DATY_HISTORII)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ten_sam_folder(a, b) -> bool:
+    if not a or not b:
+        return False
+    try:
+        return os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+    except (TypeError, ValueError):
+        return False
+
+
 def dodaj_do_historii(imie, pesel, wpis_historii: dict):
+    """Dopisuje wpis do prywatnej historii osoby (klucz: imię + PESEL).
+
+    Ten sam folder wyniku = ten sam pracownik i miesiąc, a jego poprzednie
+    dokumenty zeszły z dysku (uprzatnij_poprzedni_komplet) — poprzedni wpis
+    ustępuje nowemu, inaczej wykresy sumowałyby miesiąc dwa razy. Lista jest
+    ułożona od najnowszej daty, także gdy dociągamy stare miesiące, i ucięta
+    do LIMIT_HISTORII wpisów."""
     if not (imie and pesel): return
     store = _wczytaj_store()
     k = _klucz_uzytkownika(imie, pesel)
     wpis = store.get(k, {})
     # data pierwszej aktywności (do panelu administratora — "od kiedy korzysta")
     if not wpis.get("pierwsza_aktywnosc"):
-        wpis["pierwsza_aktywnosc"] = wpis_historii.get("data") or datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-    hist = wpis.get("historia", [])
+        wpis["pierwsza_aktywnosc"] = wpis_historii.get("data") or datetime.datetime.now().strftime(FORMAT_DATY_HISTORII)
+    hist = [h for h in (wpis.get("historia") or []) if isinstance(h, dict)]
+    folder = wpis_historii.get("folder")
+    if folder:
+        hist = [h for h in hist if not _ten_sam_folder(h.get("folder"), folder)]
     hist.insert(0, wpis_historii)      # najnowsze na górze
-    wpis["historia"] = hist[:20]        # trzymamy max 20 ostatnich
+    hist.sort(key=lambda h: _data_wpisu(h) or datetime.datetime.min, reverse=True)
+    wpis["historia"] = hist[:LIMIT_HISTORII]
     store[k] = wpis
     _zapisz_store(store)
 
 def wczytaj_historie(imie, pesel) -> list:
     store = _wczytaj_store()
     return store.get(_klucz_uzytkownika(imie, pesel), {}).get("historia", [])
+
+
+def wpis_historii_generacji(p: dict, finalne_dni, folder: str) -> dict:
+    """Wpis historii po udanym generowaniu — JEDEN format dla obu okien.
+
+    p — parametry GeneratorThread (imie, pesel, woj, baza_miasto, miesiac,
+    rok); finalne_dni — dni z silnika; folder — folder z gotowymi PDF-ami.
+    Wołają to App._finalizuj_sukces (stare okno) i
+    OknoNowegoWygladu._sukces_generacji (nowe okno). Zły format daje ciche
+    zera w wykresach, dlatego test porównuje wpisy z obu ścieżek pole po polu."""
+    suma = round(sum(d.suma for d in finalne_dni), 2)
+    # łączne kilometry z tras (realny dystans po drogach)
+    km_total = 0.0
+    for d in finalne_dni:
+        for e in d.etapy_surowe:
+            km_total += getattr(e, 'dystans_rzeczywisty', e.d_line)
+    # Zbierz WSZYSTKIE odwiedzone województwa (nie tylko bazę!) — z etapów.
+    # Dzięki temu analityka pokaże realny udział regionów, także sąsiednich.
+    woj_wizyty = {}
+    for d in finalne_dni:
+        for e in d.etapy_surowe:
+            w = getattr(e, 'dokad_woj', '') or ''
+            w = w.strip()
+            if w:                                  # pomijamy powroty do bazy (puste)
+                klucz = w.capitalize()
+                woj_wizyty[klucz] = woj_wizyty.get(klucz, 0) + 1
+    # awaryjnie: gdyby etapy nie miały województw, użyj bazy
+    if not woj_wizyty:
+        woj_wizyty = {p['woj'].capitalize(): 1}
+
+    # Zbierz ODWIEDZANE MIEJSCOWOŚCI (z etapów), POMIJAJĄC bazę startową/
+    # końcową — to punkty pośrednie trasy. Do wykresu "top miejscowości".
+    baza_nazwa = (p.get('baza_miasto', '') or '').strip().lower()
+    miejsc_wizyty = {}
+    for d in finalne_dni:
+        for e in d.etapy_surowe:
+            cel = (getattr(e, 'dokad', '') or '').strip()
+            if cel and cel.lower() != baza_nazwa:
+                miejsc_wizyty[cel] = miejsc_wizyty.get(cel, 0) + 1
+    # Konkretne DATY dni wyjazdowych (ISO) — do oznaczenia w kalendarzu.
+    # Delegacja obejmuje wiele dni jazdy; zapisujemy każdy z nich.
+    dni_daty = []
+    for d in finalne_dni:
+        try:
+            dni_daty.append(d.data.isoformat())     # "2026-07-01"
+        except Exception:
+            pass
+    return {
+        "imie": p['imie'],
+        "data": datetime.datetime.now().strftime(FORMAT_DATY_HISTORII),
+        "kwota": f"{suma:.2f}",
+        "woj": p['woj'].capitalize(),          # baza (dla zgodności wstecz)
+        "woj_wizyty": woj_wizyty,              # WSZYSTKIE odwiedzone regiony
+        "baza": p.get('baza_miasto', '') or '', # miejscowość bazowa
+        "miejsc_wizyty": miejsc_wizyty,        # odwiedzane miejscowości (bez bazy)
+        # liczymy PLIKI, które naprawdę powstały — podział na dokumenty
+        # zależy też od limitu 30 etapów, nie tylko od kwoty
+        "dokumenty": (len([_n for _n in os.listdir(folder)
+                           if _n.lower().startswith("delegacja_") and _n.lower().endswith(".pdf")])
+                      if os.path.isdir(folder) else 0)
+                     or (ile_dokumentow(suma) if suma else 0),
+        "km": round(km_total),
+        "miesiac": p['miesiac'],
+        "rok": p['rok'],
+        "dni_wyjazdowe": len(finalne_dni),
+        "dni_daty": dni_daty,                  # daty dni wyjazdowych (ISO)
+        "folder": folder,
+        "zrodlo": ZRODLO_HISTORII_PROGRAM,
+    }
+
+
+def historia_miesiecy(imie, pesel) -> dict:
+    """Historia rozliczeń jednej osoby ułożona po miesiącach.
+
+    API dla kolejnych kroków (kratka roku, kropka nierozliczonego miesiąca,
+    taca miesięcy). Zwraca {(rok, miesiac): {...}} — miesiąc bez klucza jest
+    NIEROZLICZONY (program nic o nim nie zapisał ani nie dociągnął z dysku).
+    Pola każdego miesiąca:
+        kwota       float, co do grosza (suma miesiąca z wpisu)
+        km          int, zaokrąglone kilometry miesiąca
+        dni         int, dni wyjazdowe
+        dni_daty    lista dat ISO „RRRR-MM-DD" dni wyjazdowych
+        dokumenty   int, liczba poleceń wyjazdu (delegacja_NN.pdf)
+        folder      str, folder wyniku (może już nie istnieć na dysku)
+        istnieje    bool, czy folder jest teraz na dysku
+        data        str „dd.mm.rrrr GG:MM" — kiedy wygenerowano (skan: data folderu)
+        podpisany   bool, ślad podpisu w folderze (Podpisane / manifest) — patrz _slad_podpisu
+        wyslany     bool, wysyłka pocztą z programu zakończona sukcesem
+        zrodlo      ZRODLO_HISTORII_PROGRAM albo ZRODLO_HISTORII_SKAN
+                    („" dla wpisów zapisanych, zanim to pole istniało)
+        miejsca     {miejscowość: liczba wizyt} — ślad obecności programu
+                    w tym miesiącu (miejsc_wizyty wpisu; białe plamy na mapie)
+    Gdy miesiąc ma kilka wpisów (np. drugi folder), liczy się najnowszy."""
+    wynik = {}
+    for h in wczytaj_historie(imie, pesel):
+        if not isinstance(h, dict):
+            continue
+        try:
+            klucz = (int(h.get("rok")), int(h.get("miesiac")))
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= klucz[1] <= 12) or klucz in wynik:
+            continue                          # historia idzie od najnowszego — pierwszy wygrywa
+        folder = str(h.get("folder") or "")
+        istnieje = bool(folder) and os.path.isdir(folder)
+        try:
+            km = int(round(float(h.get("km") or 0)))
+        except (TypeError, ValueError):
+            km = 0
+        dni_daty = [str(d) for d in (h.get("dni_daty") or []) if d]
+        try:
+            dni = int(h.get("dni_wyjazdowe") or len(dni_daty))
+        except (TypeError, ValueError):
+            dni = len(dni_daty)
+        try:
+            dokumenty = int(h.get("dokumenty") or 0)
+        except (TypeError, ValueError):
+            dokumenty = 0
+        wynik[klucz] = {
+            "kwota": round(_parsuj_kwote(h.get("kwota", 0)), 2),
+            "km": km, "dni": dni, "dni_daty": dni_daty, "dokumenty": dokumenty,
+            "folder": folder, "istnieje": istnieje,
+            "data": str(h.get("data") or ""),
+            "podpisany": bool(istnieje and _slad_podpisu(folder)),
+            "wyslany": bool(h.get("wyslano")),
+            "zrodlo": str(h.get("zrodlo") or ""),
+            "miejsca": _miejsca_wpisu(h),
+        }
+    return wynik
+
+
+def _miejsca_wpisu(h) -> dict:
+    """{miejscowość: liczba wizyt} z pola miejsc_wizyty wpisu historii;
+    napisy bez liczby (stare wpisy) liczą się jako jedna wizyta."""
+    surowe = h.get("miejsc_wizyty") if isinstance(h, dict) else None
+    wynik = {}
+    if isinstance(surowe, dict):
+        pary = surowe.items()
+    elif isinstance(surowe, (list, tuple, set)):
+        pary = ((m, 1) for m in surowe)
+    else:
+        return wynik
+    for nazwa, ile in pary:
+        nazwa = " ".join(str(nazwa or "").split())
+        if not nazwa:
+            continue
+        try:
+            ile = max(1, int(ile))
+        except (TypeError, ValueError):
+            ile = 1
+        wynik[nazwa] = wynik.get(nazwa, 0) + ile
+    return wynik
+
+
+def oznacz_wyslane_w_historii(folder: str) -> int:
+    """Po udanej wysyłce pocztą: wpisy historii z tym folderem dostają
+    „wyslano" (chwila wysyłki). Folder wyniku jest jednoznaczny — w nazwie
+    ma imię, miesiąc i rok — więc szukamy we wszystkich kontach na tym
+    komputerze. Zwraca liczbę oznaczonych wpisów."""
+    if not folder:
+        return 0
+    store = _wczytaj_store()
+    ile = 0
+    for wpis in store.values():
+        for h in (wpis.get("historia") or []):
+            if isinstance(h, dict) and _ten_sam_folder(h.get("folder"), folder):
+                h["wyslano"] = datetime.datetime.now().strftime(FORMAT_DATY_HISTORII)
+                ile += 1
+    if ile:
+        _zapisz_store(store)
+    return ile
+
+
+def _nazwa_porownawcza(tekst: str) -> str:
+    """Nazwa folderu i imię w tej samej postaci: NFC + casefold (macOS zapisuje
+    nazwy w NFD)."""
+    return unicodedata.normalize("NFC", str(tekst or "")).casefold()
+
+
+def _rozbierz_folder_wyniku(nazwa: str):
+    """(„Jan Testowy", 3, 2026) z „Rozliczenie_Jan_Testowy_marzec_2026r".
+
+    Tylko foldery GENERATORA (nazwa z GeneratorThread.run); „Rozliczenie_z_planu_…"
+    to inny tryb i osobny komplet — pomijamy. Reszta zwraca (None, None, None)."""
+    czesci = [c for c in str(nazwa or "").split("_") if c]
+    if len(czesci) < 4 or _nazwa_porownawcza(czesci[0]) != "rozliczenie":
+        return (None, None, None)
+    if _nazwa_porownawcza(czesci[1]) == "z" and _nazwa_porownawcza(czesci[2]) == "planu":
+        return (None, None, None)
+    rok_txt = czesci[-1]
+    if not (rok_txt.endswith("r") and rok_txt[:-1].isdigit() and len(rok_txt) == 5):
+        return (None, None, None)
+    miesiace = [_nazwa_porownawcza(m) for m in MIESIACE_PL]
+    if _nazwa_porownawcza(czesci[-2]) not in miesiace:
+        return (None, None, None)
+    return (" ".join(czesci[1:-2]), miesiace.index(_nazwa_porownawcza(czesci[-2])) + 1, int(rok_txt[:-1]))
+
+
+def _z_mapy_html(folder: str):
+    """(baza, miejsc_wizyty, woj_wizyty, daty) z Trasy_Mapa.html — to samo,
+    co wpis_historii_generacji bierze z etapów: podgląd wypisuje każdy etap
+    („Trasa: 🏠 Radom ➔ Iłża ➔ …"), a w linku do map stoi województwo celu.
+    Bez pliku wszystko puste."""
+    try:
+        with open(os.path.join(folder, "Trasy_Mapa.html"), encoding="utf-8") as f:
+            html = f.read()
+    except OSError:
+        return "", {}, {}, []
+    daty = sorted({"%s-%s-%s" % (r, m, d)
+                   for d, m, r in re.findall(r"Data: (\d{2})\.(\d{2})\.(\d{4})", html)})
+    baza = ""
+    miejsc = {}
+    for trasa in re.findall(r"<strong>Trasa:</strong> (.*?)</div>", html, re.S):
+        for punkt in (t.strip() for t in trasa.split("➔")):
+            if punkt.startswith("🏠"):
+                if not baza:
+                    baza = punkt[1:].strip()
+                continue
+            if punkt and punkt.lower() != baza.lower():
+                miejsc[punkt] = miejsc.get(punkt, 0) + 1
+    woj = {}
+    for link in re.findall(r'maps/dir/([^"]+)"', html):
+        for czesc in link.split("/"):
+            czesci = [c.strip() for c in urllib.parse.unquote(czesc).split(",")]
+            if len(czesci) == 3 and czesci[2] == "Polska" and czesci[1]:
+                klucz = czesci[1].capitalize()
+                woj[klucz] = woj.get(klucz, 0) + 1
+    return baza, miejsc, woj, daty
+
+
+def _wpis_z_folderu_wyniku(imie: str, folder: str, miesiac: int, rok: int,
+                           stawka_domyslna: float, woj_bazy: str):
+    """Wpis historii z gotowego folderu: liczby z PDF-ów (pmt_dokumenty),
+    miejscowości i województwa z Trasy_Mapa.html. Bez czytelnej kwoty —
+    None: zero we wpisie byłoby kłamstwem w wykresach."""
+    dok = modul_pomocniczy("pmt_dokumenty")
+    if dok is None:
+        return None
+    liczby = dok.liczby_kompletu(folder)
+    if not liczby.get("delegacje") or liczby.get("kwota") is None:
+        return None
+    kwota = round(float(liczby["kwota"]), 2)
+    stawka = float(liczby.get("stawka") or stawka_domyslna or 0)
+    if liczby.get("km") is not None:
+        km = float(liczby["km"])
+    else:
+        km = kwota / stawka if stawka > 0 else 0.0   # pliki sprzed rubryki z kilometrami
+    baza, miejsc, woj_wizyty, daty_html = _z_mapy_html(folder)
+    daty = list(liczby.get("daty") or daty_html)
+    if not woj_wizyty:
+        woj_wizyty = {woj_bazy: 1} if woj_bazy else {}
+    try:
+        chwila = datetime.datetime.fromtimestamp(os.path.getmtime(folder))
+    except (OSError, ValueError, OverflowError):
+        chwila = datetime.datetime.now()
+    return {
+        "imie": imie,
+        "data": chwila.strftime(FORMAT_DATY_HISTORII),
+        "kwota": f"{kwota:.2f}",
+        "woj": woj_bazy or (max(woj_wizyty.items(), key=lambda x: x[1])[0] if woj_wizyty else "—"),
+        "woj_wizyty": woj_wizyty,
+        "baza": baza,
+        "miejsc_wizyty": miejsc,
+        "dokumenty": int(liczby["delegacje"]),
+        "km": round(km),
+        "miesiac": int(miesiac),
+        "rok": int(rok),
+        "dni_wyjazdowe": len(daty),
+        "dni_daty": daty,
+        "folder": folder,
+        "zrodlo": ZRODLO_HISTORII_SKAN,
+    }
+
+
+def dociagnij_historie_z_folderow(imie, pesel, katalog: str = None) -> int:
+    """Dopisuje do historii miesiące, które leżą w folderze wyników jako
+    gotowe komplety PDF, a historii ich brakuje (miesiące wygenerowane,
+    zanim nowe okno zaczęło zapisywać historię, albo na innym koncie).
+
+    katalog — gdzie program zapisuje foldery „Rozliczenie_…" (domyślnie
+    Pulpit, jak GeneratorThread). Bierze wyłącznie foldery TEJ osoby (imię
+    z nazwy folderu = nazwa_do_pliku(imie)) i tylko miesiące (rok, miesiąc),
+    których w historii nie ma. Idempotentne: drugie wywołanie nic nie dopisze.
+    Koszt: gdy nic nowego — sam przegląd katalogu (ułamek milisekundy na
+    folder); dopisanie miesiąca = odczyt jego PDF-ów (ok. 3 ms na delegację).
+    Zwraca liczbę dopisanych miesięcy."""
+    if not (imie and pesel):
+        return 0
+    katalog = katalog or sciezka_pulpitu()
+    try:
+        nazwy = os.listdir(katalog)
+    except OSError:
+        return 0
+    cel = _nazwa_porownawcza(nazwa_do_pliku(imie).replace("_", " "))
+    kandydaci = []
+    for nazwa in nazwy:
+        kto, miesiac, rok = _rozbierz_folder_wyniku(nazwa)
+        if kto and _nazwa_porownawcza(kto) == cel:
+            kandydaci.append((rok, miesiac, nazwa))
+    if not kandydaci:
+        return 0
+    znane = set()
+    for h in wczytaj_historie(imie, pesel):
+        if isinstance(h, dict):
+            try:
+                znane.add((int(h.get("rok")), int(h.get("miesiac"))))
+            except (TypeError, ValueError):
+                pass
+    profil = wczytaj_profil(imie, pesel) or {}
+    stawka = 0.89 if profil.get("silnik_idx", 1) == 0 else 1.15
+    woj_bazy = ""
+    try:
+        woj_bazy = rozpoznaj_wojewodztwo(waliduj_adres(profil.get("adres", ""))["kod_pocztowy"]).capitalize()
+    except Exception:
+        woj_bazy = ""
+    dodane = 0
+    for rok, miesiac, nazwa in sorted(kandydaci):
+        if (rok, miesiac) in znane:
+            continue
+        folder = os.path.join(katalog, nazwa)
+        if not os.path.isdir(folder):
+            continue
+        try:
+            wpis = _wpis_z_folderu_wyniku(imie, folder, miesiac, rok, stawka, woj_bazy)
+        except Exception as e:
+            log_error(e)
+            wpis = None
+        if wpis is None:
+            continue
+        dodaj_do_historii(imie, pesel, wpis)
+        znane.add((rok, miesiac))
+        dodane += 1
+    return dodane
 
 
 # --- Inteligentny import plików (Excel/CSV) --------------------------------
@@ -5116,22 +5293,22 @@ SEKTORY_KOLEJNOSC = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 #  OGÓLNOPOLSKA BAZA GMIN (Skompresowana objętościowo)
 # ============================================================================= 
 MIASTA_RAW = { 
-  "mazowieckie": [{"n":"Goszczyn","lat":51.74,"lng":20.85,"typ":"gmina","sieci":3},{"n":"Błędów","lat":51.78,"lng":20.70,"typ":"gmina","sieci":4},{"n":"Mogielnica","lat":51.69,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Promna","lat":51.68,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Wyśmierzyce","lat":51.61,"lng":20.81,"typ":"gmina","sieci":2},{"n":"Stromiec","lat":51.64,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Jedlińsk","lat":51.52,"lng":21.11,"typ":"gmina","sieci":3},{"n":"Zakrzew","lat":51.46,"lng":21.02,"typ":"gmina","sieci":2},{"n":"Przytyk","lat":51.46850,"lng":20.90424,"typ":"gmina","sieci":3},{"n":"Potworów","lat":51.52,"lng":20.72,"typ":"gmina","sieci":2},{"n":"Rusinów","lat":51.45,"lng":20.52,"typ":"gmina","sieci":2},{"n":"Odrzywół","lat":51.51914,"lng":20.55594,"typ":"gmina","sieci":2},{"n":"Maciejowice","lat":51.71,"lng":21.56,"typ":"gmina","sieci":3},{"n":"Sobolew","lat":51.74,"lng":21.67,"typ":"gmina","sieci":2},{"n":"Wilga","lat":51.85,"lng":21.38,"typ":"gmina","sieci":2},{"n":"Trojanów","lat":51.68,"lng":21.81,"typ":"gmina","sieci":2},{"n":"Wodynie","lat":52.04051,"lng":21.95615,"typ":"gmina","sieci":2},{"n":"Repki","lat":52.39,"lng":22.42,"typ":"gmina","sieci":3},{"n":"Sabnie","lat":52.51,"lng":22.30,"typ":"gmina","sieci":2},{"n":"Sterdyń","lat":52.58,"lng":22.29,"typ":"gmina","sieci":2},{"n":"Korczew","lat":52.35,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Przesmyki","lat":52.26,"lng":22.58,"typ":"gmina","sieci":2},{"n":"Paprotnia","lat":52.26,"lng":22.46,"typ":"gmina","sieci":2},{"n":"Wiśniew","lat":52.09,"lng":22.28,"typ":"gmina","sieci":3},{"n":"Kotuń","lat":52.17,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Mokobody","lat":52.26,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Skórzec","lat":52.11,"lng":22.12,"typ":"gmina","sieci":2},{"n":"Korytnica","lat":52.41,"lng":21.82,"typ":"gmina","sieci":3},{"n":"Jadów","lat":52.47,"lng":21.62,"typ":"gmina","sieci":3},{"n":"Strachówka","lat":52.42768,"lng":21.63544,"typ":"gmina","sieci":2},{"n":"Poświętne","lat":52.33,"lng":21.43,"typ":"gmina","sieci":2},{"n":"Osieck","lat":51.97,"lng":21.44,"typ":"gmina","sieci":2},{"n":"Celestynów","lat":52.06,"lng":21.39,"typ":"gmina","sieci":3},{"n":"Kołbiel","lat":52.06,"lng":21.48,"typ":"gmina","sieci":3},{"n":"Sobienie-Jeziory","lat":51.93,"lng":21.31,"typ":"gmina","sieci":2},{"n":"Latowicz","lat":52.03,"lng":21.80,"typ":"gmina","sieci":2},{"n":"Parysów","lat":51.98,"lng":21.68,"typ":"gmina","sieci":2},{"n":"Borowie","lat":51.94,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Górzno","lat":51.84701,"lng":21.70906,"typ":"gmina","sieci":2},{"n":"Miastków","lat":51.86,"lng":21.81,"typ":"gmina","sieci":2},{"n":"Siennica","lat":52.09,"lng":21.61,"typ":"gmina","sieci":3},{"n":"Cegłów","lat":52.14,"lng":21.71,"typ":"gmina","sieci":3},{"n":"Dębe Wielkie","lat":52.20,"lng":21.46,"typ":"gmina","sieci":3},{"n":"Halinów","lat":52.23,"lng":21.35,"typ":"gmina","sieci":3},{"n":"Zwoleń","lat":51.35,"lng":21.58,"typ":"powiat","sieci":4},{"n":"Kazanów","lat":51.27,"lng":21.46,"typ":"gmina","sieci":2},{"n":"Głowaczów","lat":51.61,"lng":21.30,"typ":"gmina","sieci":2},{"n":"Magnuszew","lat":51.75,"lng":21.38,"typ":"gmina","sieci":3},{"n":"Mniszew","lat":51.84637,"lng":21.28112,"typ":"gmina","sieci":2},{"n":"Tarczyn","lat":51.98,"lng":20.83,"typ":"gmina","sieci":3},{"n":"Chynów","lat":51.90,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Pniewy","lat":51.90,"lng":20.73,"typ":"gmina","sieci":1},{"n":"Mszczonów","lat":51.97,"lng":20.52,"typ":"gmina","sieci":4},{"n":"Radziejowice","lat":52.00420,"lng":20.55576,"typ":"gmina","sieci":2},{"n":"Żabia Wola","lat":52.05,"lng":20.66,"typ":"gmina","sieci":2},{"n":"Nadarzyn","lat":52.09,"lng":20.80,"typ":"gmina","sieci":3},{"n":"Lesznowola","lat":52.08,"lng":20.93,"typ":"gmina","sieci":3},{"n":"Błonie","lat":52.19,"lng":20.61,"typ":"gmina","sieci":4},{"n":"Teresin","lat":52.19,"lng":20.41,"typ":"gmina","sieci":3},{"n":"Kampinos","lat":52.26,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Leszno","lat":52.26,"lng":20.59,"typ":"gmina","sieci":2},{"n":"Izabelin","lat":52.29,"lng":20.81,"typ":"gmina","sieci":2},{"n":"Czosnów","lat":52.39,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Leoncin","lat":52.40,"lng":20.52,"typ":"gmina","sieci":2},{"n":"Pomiechówek","lat":52.48,"lng":20.73,"typ":"gmina","sieci":3},{"n":"Zakroczym","lat":52.43,"lng":20.61,"typ":"gmina","sieci":2},{"n":"Nasielsk","lat":52.59,"lng":20.79,"typ":"gmina","sieci":4},{"n":"Winnica","lat":52.64,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Serock","lat":52.51,"lng":21.06,"typ":"gmina","sieci":4},{"n":"Nieporęt","lat":52.42,"lng":21.03,"typ":"gmina","sieci":3},{"n":"Wieliszew","lat":52.45,"lng":20.95,"typ":"gmina","sieci":3},{"n":"Radzymin","lat":52.41,"lng":21.18,"typ":"gmina","sieci":4},{"n":"Klembów","lat":52.40,"lng":21.33,"typ":"gmina","sieci":2},{"n":"Stanisławów","lat":52.28,"lng":21.56,"typ":"gmina","sieci":2},{"n":"Grójec","lat":51.86,"lng":20.87,"typ":"powiat","sieci":5},{"n":"Warka","lat":51.78,"lng":21.20,"typ":"powiat","sieci":5},{"n":"Mińsk Maz.","lat":52.18,"lng":21.56,"typ":"powiat","sieci":5},{"n":"Góra Kalwaria","lat":51.98,"lng":21.22,"typ":"powiat","sieci":5},{"n":"Glinojeck","lat":52.82,"lng":20.29,"typ":"gmina","sieci":3},{"n":"Strzegowo","lat":52.90,"lng":20.28,"typ":"gmina","sieci":2},{"n":"Raciąż","lat":52.78,"lng":20.12,"typ":"gmina","sieci":3},{"n":"Baboszewo","lat":52.68139,"lng":20.25833,"typ":"gmina","sieci":2},{"n":"Ojrzeń","lat":52.78,"lng":20.53,"typ":"gmina","sieci":1},{"n":"Sochocin","lat":52.68733,"lng":20.47224,"typ":"gmina","sieci":2},{"n":"Nowe Miasto","lat":52.65648,"lng":20.62991,"typ":"gmina","sieci":2},{"n":"Joniec","lat":52.60178,"lng":20.58029,"typ":"gmina","sieci":1},{"n":"Załuski","lat":52.54,"lng":20.53,"typ":"gmina","sieci":1},{"n":"Drobin","lat":52.74,"lng":19.98,"typ":"gmina","sieci":2},{"n":"Gąbin","lat":52.39,"lng":19.73,"typ":"gmina","sieci":2},{"n":"Czerwińsk","lat":52.39,"lng":20.30,"typ":"gmina","sieci":2},{"n":"Wyszogród","lat":52.39,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Sierpc","lat":52.85,"lng":19.66,"typ":"gmina","sieci":4},{"n":"Gozdowo","lat":52.72256,"lng":19.68961,"typ":"gmina","sieci":1},{"n":"Rościszewo","lat":52.90,"lng":19.77,"typ":"gmina","sieci":1},{"n":"Mochowo","lat":52.76529,"lng":19.55823,"typ":"gmina","sieci":1},{"n":"Szczutowo","lat":52.93850,"lng":19.57556,"typ":"gmina","sieci":1},{"n":"Żuromin","lat":53.06,"lng":19.90,"typ":"gmina","sieci":3},{"n":"Bieżuń","lat":52.96,"lng":19.89,"typ":"gmina","sieci":2},{"n":"Kuczbork","lat":53.07,"lng":19.99,"typ":"gmina","sieci":1},{"n":"Lipowiec K.","lat":53.11,"lng":20.06,"typ":"gmina","sieci":1},{"n":"Lubowidz","lat":53.12082,"lng":19.84153,"typ":"gmina","sieci":1},{"n":"Brudzeń Duży","lat":52.66,"lng":19.83,"typ":"gmina","sieci":1},{"n":"Bielsk","lat":52.67136,"lng":19.80433,"typ":"gmina","sieci":2},{"n":"Zawidz","lat":52.80,"lng":19.90,"typ":"gmina","sieci":2},{"n":"Sanniki","lat":52.33,"lng":19.86,"typ":"gmina","sieci":2},{"n":"Gostynin","lat":52.42,"lng":19.46,"typ":"gmina","sieci":4},{"n":"Szczawin","lat":52.36,"lng":19.79,"typ":"gmina","sieci":1},{"n":"Młodzieszyn","lat":52.81,"lng":20.19,"typ":"gmina","sieci":1},{"n":"Stara Biała","lat":52.61067,"lng":19.64797,"typ":"gmina","sieci":1},{"n":"Radzanowo","lat":52.57485,"lng":19.89648,"typ":"gmina","sieci":1},{"n":"Bulkowo","lat":52.54104,"lng":20.12807,"typ":"gmina","sieci":1},{"n":"Dąbrówka","lat":52.30,"lng":21.57,"typ":"gmina","sieci":1},{"n":"Małkinia G.","lat":52.69,"lng":21.89,"typ":"gmina","sieci":3},{"n":"Lochów","lat":52.63,"lng":21.71,"typ":"gmina","sieci":3},{"n":"Brok","lat":52.69,"lng":21.84,"typ":"gmina","sieci":2},{"n":"Jabłonna","lat":52.37,"lng":20.92,"typ":"gmina","sieci":3},{"n":"Tłuszcz","lat":52.43,"lng":21.44,"typ":"gmina","sieci":3},{"n":"Wołomin","lat":52.34,"lng":21.24,"typ":"gmina","sieci":4},{"n":"Kobyłka","lat":52.34,"lng":21.2,"typ":"gmina","sieci":3},{"n":"Zielonka","lat":52.3,"lng":21.15,"typ":"gmina","sieci":3},{"n":"Ząbki","lat":52.28933,"lng":21.11801,"typ":"gmina","sieci":4},{"n":"Sulejówek","lat":52.25,"lng":21.27,"typ":"gmina","sieci":3},{"n":"Wiązowna","lat":52.17172,"lng":21.30661,"typ":"gmina","sieci":2},{"n":"Karczew","lat":52.08,"lng":21.25,"typ":"gmina","sieci":3},{"n":"Otwock","lat":52.11,"lng":21.26,"typ":"gmina","sieci":4},{"n":"Piaseczno","lat":52.08,"lng":21.02,"typ":"gmina","sieci":5},{"n":"Konstancin","lat":51.99,"lng":21.11,"typ":"gmina","sieci":3},{"n":"Prażmów","lat":51.94027,"lng":20.95479,"typ":"gmina","sieci":2},{"n":"Grabów","lat":51.62,"lng":21.6,"typ":"gmina","sieci":1},{"n":"Iłża","lat":51.16,"lng":21.24,"typ":"gmina","sieci":3},{"n":"Skaryszew","lat":51.31,"lng":21.25,"typ":"gmina","sieci":2},{"n":"Pionki","lat":51.48,"lng":21.45,"typ":"gmina","sieci":4},{"n":"Jastrzębia","lat":51.42,"lng":21.3,"typ":"gmina","sieci":1},{"n":"Wierzbica","lat":51.2,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Wolanów","lat":51.37926,"lng":20.97644,"typ":"gmina","sieci":1},{"n":"Gózd","lat":51.4,"lng":21.33,"typ":"gmina","sieci":1},{"n":"Kowala","lat":51.3,"lng":21.1,"typ":"gmina","sieci":1},{"n":"Marki","lat":52.32,"lng":21.1,"typ":"gmina","sieci":3},{"n":"Ostrów Maz.","lat":52.8,"lng":21.89,"typ":"gmina","sieci":3},{"n":"Wyszków","lat":52.59,"lng":21.46,"typ":"gmina","sieci":3},{"n":"Maków Maz.","lat":52.86,"lng":21.1,"typ":"gmina","sieci":2},{"n":"Różan","lat":52.88,"lng":21.39,"typ":"gmina","sieci":1},{"n":"Pułtusk","lat":52.7,"lng":21.08,"typ":"gmina","sieci":3},{"n":"Płońsk","lat":52.62,"lng":20.38,"typ":"gmina","sieci":3},{"n":"Mława","lat":53.11,"lng":20.38,"typ":"gmina","sieci":3},{"n":"Przasnysz","lat":53.02,"lng":20.88,"typ":"gmina","sieci":3},{"n":"Chorzele","lat":53.27,"lng":20.9,"typ":"gmina","sieci":1},{"n":"Krasnosielc","lat":53.02,"lng":21.15,"typ":"gmina","sieci":1},{"n":"Białobrzegi","lat":51.64,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Kozienice","lat":51.58,"lng":21.55,"typ":"gmina","sieci":3},{"n":"Lipsko","lat":51.16,"lng":21.65,"typ":"gmina","sieci":1},{"n":"Przysucha","lat":51.36,"lng":20.63,"typ":"gmina","sieci":2},{"n":"Szydłowiec","lat":51.23,"lng":20.85,"typ":"gmina","sieci":2}],
-  "wielkopolskie": [{"n":"Luboń","lat":52.33,"lng":16.88,"typ":"gmina","sieci":4},{"n":"Komorniki","lat":52.33,"lng":16.80,"typ":"gmina","sieci":3},{"n":"Tarnowo Podg.","lat":52.46,"lng":16.66,"typ":"gmina","sieci":4},{"n":"Dopiewo","lat":52.35,"lng":16.67,"typ":"gmina","sieci":3},{"n":"Rokietnica","lat":52.50,"lng":16.75,"typ":"gmina","sieci":2},{"n":"Suchy Las","lat":52.48,"lng":16.86,"typ":"gmina","sieci":3},{"n":"Czerwonak","lat":52.46,"lng":16.98,"typ":"gmina","sieci":2},{"n":"Swarzędz","lat":52.41,"lng":17.07,"typ":"gmina","sieci":5},{"n":"Kostrzyn","lat":52.39,"lng":17.22,"typ":"gmina","sieci":3},{"n":"Kórnik","lat":52.24,"lng":17.09,"typ":"gmina","sieci":3},{"n":"Mosina","lat":52.24,"lng":16.84,"typ":"gmina","sieci":3},{"n":"Puszczykowo","lat":52.27,"lng":16.93,"typ":"gmina","sieci":2},{"n":"Stęszew","lat":52.28,"lng":16.70,"typ":"gmina","sieci":2},{"n":"Pobiedziska","lat":52.47,"lng":17.28,"typ":"gmina","sieci":2},{"n":"Mur. Goślina","lat":52.57,"lng":17.00,"typ":"gmina","sieci":2},{"n":"Opalenica","lat":52.30,"lng":16.41,"typ":"gmina","sieci":3},{"n":"Buk","lat":52.35,"lng":16.52,"typ":"gmina","sieci":2},{"n":"Kleszczewo","lat":52.33,"lng":17.17,"typ":"gmina","sieci":2},{"n":"Nekla","lat":52.36,"lng":17.41,"typ":"gmina","sieci":2},{"n":"Środa Wlkp.","lat":52.23,"lng":17.28,"typ":"gmina","sieci":4},{"n":"Zaniemyśl","lat":52.15,"lng":17.16,"typ":"gmina","sieci":2},{"n":"Pniewy","lat":52.51,"lng":16.26,"typ":"gmina","sieci":3},{"n":"Szamotuły","lat":52.61,"lng":16.58,"typ":"gmina","sieci":4},{"n":"Oborniki","lat":52.65,"lng":16.81,"typ":"gmina","sieci":4},{"n":"Rogoźno","lat":52.75,"lng":16.99,"typ":"gmina","sieci":3},{"n":"Skoki","lat":52.67,"lng":17.16,"typ":"gmina","sieci":2},{"n":"Kłecko","lat":52.63,"lng":17.43,"typ":"gmina","sieci":2},{"n":"Czerniejewo","lat":52.42657,"lng":17.49005,"typ":"gmina","sieci":2},{"n":"Trzemeszno","lat":52.56,"lng":17.82,"typ":"gmina","sieci":3},{"n":"Witkowo","lat":52.44046,"lng":17.77233,"typ":"gmina","sieci":3},{"n":"Miłosław","lat":52.20299,"lng":17.48949,"typ":"gmina","sieci":2},{"n":"Nowe Miasto nad Wartą","lat":52.09,"lng":17.41,"typ":"gmina","sieci":2},{"n":"Jarocin","lat":51.65,"lng":17.85,"typ":"gmina","sieci":4},{"n":"Pleszew","lat":51.90,"lng":17.78,"typ":"gmina","sieci":4},{"n":"Koźmin Wlkp.","lat":51.83,"lng":17.46,"typ":"gmina","sieci":3},{"n":"Krotoszyn","lat":51.69,"lng":17.44,"typ":"gmina","sieci":4},{"n":"Bojanowo","lat":52.01,"lng":16.54,"typ":"gmina","sieci":2},{"n":"Śmigiel","lat":52.01,"lng":16.52,"typ":"gmina","sieci":2},{"n":"Kościan","lat":52.08,"lng":16.65,"typ":"gmina","sieci":4},{"n":"Wolsztyn","lat":52.11,"lng":16.11,"typ":"gmina","sieci":4},{"n":"Rakoniewice","lat":52.14,"lng":16.27,"typ":"gmina","sieci":2},{"n":"Granowo","lat":52.11,"lng":16.22,"typ":"gmina","sieci":2},{"n":"Grodzisk Wlkp.","lat":52.22,"lng":16.36,"typ":"gmina","sieci":3},{"n":"Wronki","lat":52.71,"lng":16.38,"typ":"gmina","sieci":3},{"n":"Krzyż Wlkp.","lat":52.88,"lng":16.01,"typ":"gmina","sieci":2},{"n":"Trzcianka","lat":53.04,"lng":16.45,"typ":"gmina","sieci":3},{"n":"Ujście","lat":53.05,"lng":16.73,"typ":"gmina","sieci":2},{"n":"Wyrzysk","lat":53.15343,"lng":17.26712,"typ":"gmina","sieci":2},{"n":"Kaczory","lat":53.10204,"lng":16.88408,"typ":"gmina","sieci":1},{"n":"Wysoka","lat":53.14,"lng":17.08,"typ":"gmina","sieci":2},{"n":"Łobżenica","lat":53.27,"lng":17.26,"typ":"gmina","sieci":2},{"n":"Wągrowiec","lat":52.80,"lng":17.20,"typ":"gmina","sieci":4},{"n":"Margonin","lat":52.97,"lng":17.09,"typ":"gmina","sieci":2},{"n":"Mieścisko","lat":52.19,"lng":17.32,"typ":"gmina","sieci":1},{"n":"Zagorów","lat":52.01,"lng":15.72,"typ":"gmina","sieci":2},{"n":"Pyzdry","lat":52.16,"lng":17.67,"typ":"gmina","sieci":2},{"n":"Rychwał","lat":52.06976,"lng":18.16627,"typ":"gmina","sieci":2},{"n":"Czempiń","lat":52.16,"lng":16.76,"typ":"gmina","sieci":1},{"n":"Krzywiń","lat":51.96,"lng":16.83,"typ":"gmina","sieci":1},{"n":"Gostyń","lat":51.88,"lng":17.01,"typ":"gmina","sieci":3},{"n":"Poniec","lat":51.76340,"lng":16.80867,"typ":"gmina","sieci":1},{"n":"Krobia","lat":51.77418,"lng":16.98463,"typ":"gmina","sieci":1},{"n":"Borek Wlkp.","lat":51.91,"lng":17.22,"typ":"gmina","sieci":1},{"n":"Pogorzela","lat":51.82245,"lng":17.23035,"typ":"gmina","sieci":1},{"n":"Rozdrażew","lat":51.77876,"lng":17.50500,"typ":"gmina","sieci":1}],
-  "łódzkie": [{"n":"Rzgów","lat":51.66,"lng":19.49,"typ":"gmina","sieci":3},{"n":"Tuszyn","lat":51.60,"lng":19.53,"typ":"gmina","sieci":2},{"n":"Stryków","lat":51.90,"lng":19.61,"typ":"gmina","sieci":3},{"n":"Głowno","lat":51.96,"lng":19.71,"typ":"gmina","sieci":3},{"n":"Ozorków","lat":51.96,"lng":19.29,"typ":"gmina","sieci":4},{"n":"Poddębice","lat":51.89,"lng":18.96,"typ":"gmina","sieci":3},{"n":"Dobroń","lat":51.63844,"lng":19.24530,"typ":"gmina","sieci":2},{"n":"Szadek","lat":51.69,"lng":18.98,"typ":"gmina","sieci":2},{"n":"Wodzierady","lat":51.72,"lng":19.13,"typ":"gmina","sieci":1},{"n":"Zelów","lat":51.46,"lng":19.22,"typ":"gmina","sieci":3},{"n":"Lutomiersk","lat":51.75,"lng":19.21,"typ":"gmina","sieci":2},{"n":"Dalików","lat":51.88,"lng":19.11,"typ":"gmina","sieci":1},{"n":"Parzęczew","lat":51.95,"lng":19.20,"typ":"gmina","sieci":2},{"n":"Dmosin","lat":51.91,"lng":19.75,"typ":"gmina","sieci":2},{"n":"Piątek","lat":52.06,"lng":19.48,"typ":"gmina","sieci":2},{"n":"Zduńska Wola","lat":51.60,"lng":18.94,"typ":"gmina","sieci":4},{"n":"Łask","lat":51.59,"lng":19.13,"typ":"gmina","sieci":4},{"n":"Aleksandrów Ł.","lat":51.81,"lng":19.30,"typ":"gmina","sieci":4},{"n":"Ksawerów","lat":51.67,"lng":19.46,"typ":"gmina","sieci":2},{"n":"Koluszki","lat":51.74,"lng":19.81,"typ":"gmina","sieci":3},{"n":"Brzeziny","lat":51.80,"lng":19.74,"typ":"gmina","sieci":3},{"n":"Widawa","lat":51.43829,"lng":18.94213,"typ":"gmina","sieci":2},{"n":"Złoczew","lat":51.41,"lng":18.60,"typ":"gmina","sieci":2},{"n":"Warta","lat":51.70694,"lng":18.62444,"typ":"gmina","sieci":2},{"n":"Błaszki","lat":51.65167,"lng":18.43774,"typ":"gmina","sieci":2},{"n":"Wieruszów","lat":51.29,"lng":18.15,"typ":"gmina","sieci":3},{"n":"Działoszyn","lat":51.11,"lng":18.86,"typ":"gmina","sieci":2},{"n":"Pajęczno","lat":51.14,"lng":18.99,"typ":"gmina","sieci":2},{"n":"Dębiak","lat":51.35,"lng":19.15,"typ":"gmina","sieci":1},{"n":"Rusiec","lat":51.32,"lng":18.98,"typ":"gmina","sieci":1},{"n":"Kleszczów","lat":51.22,"lng":19.30,"typ":"gmina","sieci":2},{"n":"Sulmierzyce","lat":51.18,"lng":19.19,"typ":"gmina","sieci":1},{"n":"Rząśnia","lat":51.22182,"lng":19.04251,"typ":"gmina","sieci":1},{"n":"Kiełczygłów","lat":51.23,"lng":18.97,"typ":"gmina","sieci":1},{"n":"Szczerców","lat":51.33225,"lng":19.11553,"typ":"gmina","sieci":1},{"n":"Rozprza","lat":51.30260,"lng":19.64606,"typ":"gmina","sieci":1},{"n":"Zgierz","lat":51.86,"lng":19.41,"typ":"gmina","sieci":3},{"n":"Konstantynów","lat":51.75,"lng":19.33,"typ":"gmina","sieci":2},{"n":"Pabianice","lat":51.66,"lng":19.35,"typ":"gmina","sieci":3},{"n":"Rogów","lat":51.81,"lng":19.9,"typ":"gmina","sieci":1},{"n":"Łęczyca","lat":52.06,"lng":19.2,"typ":"gmina","sieci":2},{"n":"Góra św.Małg.","lat":52.03,"lng":19.55,"typ":"gmina","sieci":1},{"n":"Sędziejowice","lat":51.52,"lng":19.0,"typ":"gmina","sieci":1},{"n":"Wieluń","lat":51.22,"lng":18.57,"typ":"gmina","sieci":3}],
-  "śląskie": [{"n":"Pszczyna","lat":49.98,"lng":18.94,"typ":"gmina","sieci":4},{"n":"Łaziska Górne","lat":50.15,"lng":18.84,"typ":"gmina","sieci":3},{"n":"Orzesze","lat":50.10868,"lng":18.79256,"typ":"gmina","sieci":2},{"n":"Czerwionka","lat":50.15,"lng":18.67,"typ":"gmina","sieci":3},{"n":"Knułów","lat":50.22,"lng":18.67,"typ":"gmina","sieci":3},{"n":"Pyskowice","lat":50.39,"lng":18.62,"typ":"gmina","sieci":2},{"n":"Toszek","lat":50.45,"lng":18.52,"typ":"gmina","sieci":2},{"n":"Radzionków","lat":50.39,"lng":18.90,"typ":"gmina","sieci":3},{"n":"Siewierz","lat":50.46940,"lng":19.23635,"typ":"gmina","sieci":2},{"n":"Poręba","lat":50.49,"lng":19.33,"typ":"gmina","sieci":2},{"n":"Lędziny","lat":50.13,"lng":19.11,"typ":"gmina","sieci":2},{"n":"Imielin","lat":50.14,"lng":19.17,"typ":"gmina","sieci":2},{"n":"Czechowice","lat":49.91,"lng":19.00,"typ":"gmina","sieci":3},{"n":"Bojszowy","lat":50.05977,"lng":19.09111,"typ":"gmina","sieci":2},{"n":"Chełm Śląski","lat":50.11,"lng":19.18,"typ":"gmina","sieci":2},{"n":"Suszec","lat":50.03792,"lng":18.78838,"typ":"gmina","sieci":2},{"n":"Kobiór","lat":50.05,"lng":18.94,"typ":"gmina","sieci":2},{"n":"Pawłowice","lat":49.96,"lng":18.71,"typ":"gmina","sieci":3},{"n":"Goczałkowice","lat":49.94,"lng":18.97,"typ":"gmina","sieci":2},{"n":"Wyry","lat":50.13,"lng":18.89,"typ":"gmina","sieci":2},{"n":"Ornontowice","lat":50.18,"lng":18.75,"typ":"gmina","sieci":2},{"n":"Wielowieś","lat":50.50,"lng":18.62,"typ":"gmina","sieci":1},{"n":"Rudziniec","lat":50.35,"lng":18.41,"typ":"gmina","sieci":2},{"n":"Tworóg","lat":50.53,"lng":18.71,"typ":"gmina","sieci":2},{"n":"Krupski Młyn","lat":50.57,"lng":18.62,"typ":"gmina","sieci":1},{"n":"Zbrosławice","lat":50.41,"lng":18.76,"typ":"gmina","sieci":2},{"n":"Miasteczko Śl.","lat":50.49,"lng":18.92,"typ":"gmina","sieci":2},{"n":"Ożarowice","lat":50.47,"lng":19.04,"typ":"gmina","sieci":2},{"n":"Świerklaniec","lat":50.43,"lng":18.95,"typ":"gmina","sieci":2},{"n":"Bieruń","lat":50.08,"lng":19.09,"typ":"powiat","sieci":3},{"n":"Kłobuck","lat":50.90,"lng":18.93,"typ":"gmina","sieci":4},{"n":"Krzepice","lat":50.97083,"lng":18.72833,"typ":"gmina","sieci":2},{"n":"Wręczyca Wlk.","lat":50.85,"lng":18.93,"typ":"gmina","sieci":2},{"n":"Przystajń","lat":50.88334,"lng":18.69038,"typ":"gmina","sieci":1},{"n":"Opatów","lat":50.95,"lng":18.81,"typ":"gmina","sieci":1},{"n":"Lipie","lat":51.02,"lng":18.80,"typ":"gmina","sieci":1},{"n":"Popów","lat":51.05,"lng":18.95,"typ":"gmina","sieci":1},{"n":"Miedźno","lat":50.96,"lng":18.96,"typ":"gmina","sieci":2},{"n":"Mykanów","lat":50.92126,"lng":19.19821,"typ":"gmina","sieci":2},{"n":"Rędziny","lat":50.86,"lng":19.22,"typ":"gmina","sieci":2},{"n":"Kłomnice","lat":50.92180,"lng":19.35681,"typ":"gmina","sieci":2},{"n":"Kruszyna","lat":50.96744,"lng":19.27543,"typ":"gmina","sieci":1},{"n":"Lubliniec","lat":50.66,"lng":18.68,"typ":"gmina","sieci":4},{"n":"Koszęcin","lat":50.63,"lng":18.84,"typ":"gmina","sieci":2},{"n":"Boronów","lat":50.67,"lng":18.90,"typ":"gmina","sieci":1},{"n":"Woźniki","lat":50.43,"lng":18.99,"typ":"gmina","sieci":2},{"n":"Wilamowice","lat":49.91,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Kozy","lat":49.86,"lng":19.14,"typ":"gmina","sieci":2},{"n":"Wilkowice","lat":49.75,"lng":19.05,"typ":"gmina","sieci":2},{"n":"Buczkowice","lat":49.72,"lng":19.06,"typ":"gmina","sieci":1},{"n":"Szczyrk","lat":49.72,"lng":19.02,"typ":"gmina","sieci":2},{"n":"Jaworze","lat":49.79149,"lng":18.94816,"typ":"gmina","sieci":1},{"n":"Jasienica","lat":49.81,"lng":18.9,"typ":"gmina","sieci":2},{"n":"Jaworzynka","lat":49.53,"lng":18.85,"typ":"gmina","sieci":1},{"n":"Istebna","lat":49.55,"lng":18.9,"typ":"gmina","sieci":2},{"n":"Wisła","lat":49.66,"lng":18.86,"typ":"gmina","sieci":3},{"n":"Ustroń","lat":49.72,"lng":18.81,"typ":"gmina","sieci":3},{"n":"Skoczów","lat":49.8,"lng":18.79,"typ":"gmina","sieci":3},{"n":"Strumień","lat":49.91714,"lng":18.76337,"typ":"gmina","sieci":2},{"n":"Zebrzydowice","lat":49.87,"lng":18.6,"typ":"gmina","sieci":2},{"n":"Hażlach","lat":49.80259,"lng":18.66235,"typ":"gmina","sieci":1},{"n":"Dębowiec","lat":49.85,"lng":18.75,"typ":"gmina","sieci":1},{"n":"Chybie","lat":49.9,"lng":18.81,"typ":"gmina","sieci":1},{"n":"Brenna","lat":49.72,"lng":18.9,"typ":"gmina","sieci":1},{"n":"Miedźna","lat":49.98,"lng":19.03,"typ":"gmina","sieci":1},{"n":"Chełm Śl.","lat":50.1,"lng":19.2,"typ":"gmina","sieci":1},{"n":"Mysłowice","lat":50.21208,"lng":19.14765,"typ":"gmina","sieci":3},{"n":"Jaworzno","lat":50.2,"lng":19.27,"typ":"gmina","sieci":3},{"n":"Sosnowiec","lat":50.28526,"lng":19.17804,"typ":"gmina","sieci":4},{"n":"Będzin","lat":50.33,"lng":19.13,"typ":"gmina","sieci":3},{"n":"Czeladź","lat":50.32,"lng":19.08,"typ":"gmina","sieci":2},{"n":"Wojkowice","lat":50.36,"lng":19.02,"typ":"gmina","sieci":1},{"n":"Łazy","lat":50.43,"lng":19.4,"typ":"gmina","sieci":1},{"n":"Ogrodzieniec","lat":50.45,"lng":19.52,"typ":"gmina","sieci":1},{"n":"Zawiercie","lat":50.49,"lng":19.43,"typ":"gmina","sieci":3},{"n":"Kroczyce","lat":50.56143,"lng":19.57010,"typ":"gmina","sieci":1},{"n":"Włodowice","lat":50.55216,"lng":19.45035,"typ":"gmina","sieci":1},{"n":"Myszków","lat":50.58,"lng":19.32,"typ":"gmina","sieci":3},{"n":"Koziegłowy","lat":50.61,"lng":19.14,"typ":"gmina","sieci":1},{"n":"Kalety","lat":50.56430,"lng":18.88416,"typ":"gmina","sieci":1}],
-  "małopolskie": [{"n":"Skawina","lat":49.97,"lng":19.82,"typ":"gmina","sieci":4},{"n":"Niepołomice","lat":50.03,"lng":20.21,"typ":"gmina","sieci":3},{"n":"Krzeszowice","lat":50.13,"lng":19.63,"typ":"gmina","sieci":3},{"n":"Zabierzów","lat":50.11,"lng":19.79,"typ":"gmina","sieci":2},{"n":"Liszki","lat":50.03,"lng":19.78,"typ":"gmina","sieci":2},{"n":"Zielonki","lat":50.11,"lng":19.93,"typ":"gmina","sieci":3},{"n":"Michałowice","lat":50.15884,"lng":19.97919,"typ":"gmina","sieci":2},{"n":"Słomniki","lat":50.24,"lng":20.08,"typ":"gmina","sieci":2},{"n":"Kocmyrzów","lat":50.12846,"lng":20.12987,"typ":"gmina","sieci":2},{"n":"Dobczyce","lat":49.88071,"lng":20.09276,"typ":"gmina","sieci":2},{"n":"Kłaj","lat":49.99337,"lng":20.29914,"typ":"gmina","sieci":2},{"n":"Biskupice","lat":49.96,"lng":20.12,"typ":"gmina","sieci":2},{"n":"Drwinia","lat":50.11,"lng":20.43,"typ":"gmina","sieci":1},{"n":"Rzezawa","lat":49.98,"lng":20.50,"typ":"gmina","sieci":2},{"n":"Koszyce","lat":50.16,"lng":20.57,"typ":"gmina","sieci":2},{"n":"Koniusza","lat":50.18776,"lng":20.21802,"typ":"gmina","sieci":1},{"n":"Igołomia","lat":50.09192,"lng":20.24742,"typ":"gmina","sieci":2},{"n":"Czernichów","lat":49.98,"lng":19.68,"typ":"gmina","sieci":2},{"n":"Świątniki Górne","lat":49.93,"lng":19.95,"typ":"gmina","sieci":2},{"n":"Gdów","lat":49.90,"lng":20.19,"typ":"gmina","sieci":3},{"n":"Sułkowice","lat":49.83,"lng":19.79,"typ":"gmina","sieci":3},{"n":"Pcim","lat":49.75,"lng":19.97,"typ":"gmina","sieci":2},{"n":"Wieliczka","lat":49.98,"lng":20.06,"typ":"gmina","sieci":5},{"n":"Proszowice","lat":50.19,"lng":20.28,"typ":"gmina","sieci":3},{"n":"Tuchów","lat":49.89,"lng":21.05,"typ":"gmina","sieci":2},{"n":"Ryglice","lat":49.87,"lng":21.13,"typ":"gmina","sieci":2},{"n":"Gromnik","lat":49.83,"lng":20.96,"typ":"gmina","sieci":2},{"n":"Żabno","lat":50.13,"lng":20.88,"typ":"gmina","sieci":2},{"n":"Wojnicz","lat":49.96,"lng":20.84,"typ":"gmina","sieci":2},{"n":"Radłów","lat":50.08,"lng":20.85,"typ":"gmina","sieci":2},{"n":"Wietrzychowice","lat":50.19104,"lng":20.76308,"typ":"gmina","sieci":1},{"n":"Bolesław","lat":50.23,"lng":20.87,"typ":"gmina","sieci":1},{"n":"Olesno","lat":50.21,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Szczucin","lat":50.31,"lng":21.07,"typ":"gmina","sieci":2},{"n":"Radgoszcz","lat":50.11,"lng":20.80,"typ":"gmina","sieci":1},{"n":"Dąbrowa Tarn.","lat":50.17,"lng":20.98,"typ":"gmina","sieci":4},{"n":"Skrzyszów","lat":49.99604,"lng":21.05464,"typ":"gmina","sieci":1},{"n":"Pleśna","lat":49.93,"lng":20.94,"typ":"gmina","sieci":2},{"n":"Tarnów Opol.","lat":49.95,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Ciężkowice","lat":49.78,"lng":20.97,"typ":"gmina","sieci":2},{"n":"Świątniki","lat":49.92,"lng":19.95,"typ":"gmina","sieci":2},{"n":"Mogilany","lat":49.94,"lng":19.9,"typ":"gmina","sieci":2},{"n":"Myślenice","lat":49.83,"lng":19.94,"typ":"gmina","sieci":4},{"n":"Kalwaria Z.","lat":49.85,"lng":19.68,"typ":"gmina","sieci":3},{"n":"Wadowice","lat":49.88,"lng":19.49,"typ":"gmina","sieci":4},{"n":"Andrychów","lat":49.86,"lng":19.34,"typ":"gmina","sieci":4},{"n":"Kęty","lat":49.88,"lng":19.22,"typ":"gmina","sieci":4},{"n":"Zator","lat":49.99,"lng":19.43,"typ":"gmina","sieci":2},{"n":"Brzeźnica","lat":49.98,"lng":19.63,"typ":"gmina","sieci":2},{"n":"Alwernia","lat":50.06,"lng":19.54,"typ":"gmina","sieci":2},{"n":"Wielka Wieś","lat":50.15,"lng":19.83,"typ":"gmina","sieci":2},{"n":"Iwanowice","lat":50.2,"lng":19.93,"typ":"gmina","sieci":1},{"n":"Trzebinia","lat":50.16,"lng":19.47,"typ":"gmina","sieci":3},{"n":"Chrzanów","lat":50.14,"lng":19.4,"typ":"gmina","sieci":3},{"n":"Libiąż","lat":50.1,"lng":19.32,"typ":"gmina","sieci":2},{"n":"Olkusz","lat":50.28,"lng":19.56,"typ":"gmina","sieci":3},{"n":"Bukowno","lat":50.27,"lng":19.46,"typ":"gmina","sieci":2},{"n":"Wolbrom","lat":50.38,"lng":19.76,"typ":"gmina","sieci":2},{"n":"Miechów","lat":50.36,"lng":20.03,"typ":"gmina","sieci":2},{"n":"Książ Wielki","lat":50.45,"lng":20.13,"typ":"gmina","sieci":1},{"n":"Charsznica","lat":50.42,"lng":19.93,"typ":"gmina","sieci":1},{"n":"Gołcza","lat":50.33572,"lng":19.92647,"typ":"gmina","sieci":1},{"n":"Skała","lat":50.22,"lng":19.86,"typ":"gmina","sieci":1},{"n":"Sułoszowa","lat":50.27085,"lng":19.72150,"typ":"gmina","sieci":1},{"n":"Jerzmanowice","lat":50.2,"lng":19.75,"typ":"gmina","sieci":1},{"n":"Chełmek","lat":50.1,"lng":19.25,"typ":"gmina","sieci":1},{"n":"Oświęcim","lat":50.04,"lng":19.22,"typ":"gmina","sieci":3},{"n":"Brzeszcze","lat":49.98,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Polanka W.","lat":49.99,"lng":19.35,"typ":"gmina","sieci":1},{"n":"Spytkowice","lat":49.99,"lng":19.53,"typ":"gmina","sieci":1},{"n":"Tomice","lat":49.90045,"lng":19.48514,"typ":"gmina","sieci":1},{"n":"Wieprz","lat":49.89913,"lng":19.36515,"typ":"gmina","sieci":1},{"n":"Stryszów","lat":49.82,"lng":19.6,"typ":"gmina","sieci":1},{"n":"Lanckorona","lat":49.85,"lng":19.72,"typ":"gmina","sieci":1},{"n":"Budzów","lat":49.78,"lng":19.7,"typ":"gmina","sieci":1},{"n":"Zembrzyce","lat":49.77377,"lng":19.60034,"typ":"gmina","sieci":1}],
-  "dolnośląskie": [{"n":"Kąty Wrocławskie","lat":51.03,"lng":16.77,"typ":"gmina","sieci":3},{"n":"Kobierzyce","lat":50.96,"lng":16.93,"typ":"gmina","sieci":3},{"n":"Żórawina","lat":50.98,"lng":17.04,"typ":"gmina","sieci":2},{"n":"Siechnice","lat":51.03,"lng":17.15,"typ":"gmina","sieci":3},{"n":"Długołęka","lat":51.17,"lng":17.18,"typ":"gmina","sieci":3},{"n":"Czernica","lat":51.06,"lng":17.25,"typ":"gmina","sieci":2},{"n":"Miękinia","lat":51.19051,"lng":16.73623,"typ":"gmina","sieci":2},{"n":"Sobótka","lat":50.90,"lng":16.74,"typ":"gmina","sieci":3},{"n":"Oborniki Śląskie","lat":51.30,"lng":16.91,"typ":"gmina","sieci":3},{"n":"Jelcz-Laskowice","lat":51.03,"lng":17.33,"typ":"gmina","sieci":3},{"n":"Brzeg Dolny","lat":51.26,"lng":16.72,"typ":"gmina","sieci":2},{"n":"Wołów","lat":51.34,"lng":16.64,"typ":"gmina","sieci":3},{"n":"Żmigród","lat":51.47,"lng":16.90,"typ":"gmina","sieci":3},{"n":"Prusice","lat":51.37,"lng":16.96,"typ":"gmina","sieci":2},{"n":"Milicz","lat":51.53,"lng":17.28,"typ":"gmina","sieci":3},{"n":"Twardogóra","lat":51.36,"lng":17.47,"typ":"gmina","sieci":2},{"n":"Bierutów","lat":51.12523,"lng":17.54408,"typ":"gmina","sieci":2},{"n":"Strzelin","lat":50.78,"lng":17.06,"typ":"gmina","sieci":4},{"n":"Wiązów","lat":50.81,"lng":17.20,"typ":"gmina","sieci":2},{"n":"Borów","lat":50.79,"lng":17.02,"typ":"gmina","sieci":1},{"n":"Kondratowice","lat":50.77,"lng":16.93,"typ":"gmina","sieci":1},{"n":"Jordanów Śląski","lat":50.86,"lng":16.87,"typ":"gmina","sieci":2},{"n":"Marcinowice","lat":50.95,"lng":16.53,"typ":"gmina","sieci":2},{"n":"Żarów","lat":50.94,"lng":16.50,"typ":"gmina","sieci":3},{"n":"Jaworzyna Śl.","lat":50.91,"lng":16.44,"typ":"gmina","sieci":2},{"n":"Strzegom","lat":50.96,"lng":16.35,"typ":"gmina","sieci":4},{"n":"Udanin","lat":51.03689,"lng":16.45383,"typ":"gmina","sieci":2},{"n":"Kostomłoty","lat":51.01,"lng":16.27,"typ":"gmina","sieci":2},{"n":"Ziębice","lat":50.60,"lng":17.04,"typ":"gmina","sieci":3},{"n":"Ząbkowice Śl.","lat":50.59,"lng":16.81,"typ":"gmina","sieci":4},{"n":"Ciepłowody","lat":50.67,"lng":16.90,"typ":"gmina","sieci":1},{"n":"Kamieniec Ząb.","lat":50.52,"lng":16.88,"typ":"gmina","sieci":2},{"n":"Przeworno","lat":50.68,"lng":17.15,"typ":"gmina","sieci":1},{"n":"Grodków","lat":50.69,"lng":17.38,"typ":"gmina","sieci":3},{"n":"Łagiewniki","lat":50.79,"lng":16.84,"typ":"gmina","sieci":2},{"n":"Niemcza","lat":50.72,"lng":16.83,"typ":"gmina","sieci":2},{"n":"Piława Górna","lat":50.68,"lng":16.74,"typ":"gmina","sieci":2},{"n":"Dzierżoniów","lat":50.73,"lng":16.65,"typ":"gmina","sieci":4},{"n":"Pieszyce","lat":50.71212,"lng":16.58084,"typ":"gmina","sieci":2},{"n":"Bielawa","lat":50.68,"lng":16.61,"typ":"gmina","sieci":3},{"n":"Stoszowice","lat":50.60,"lng":16.74,"typ":"gmina","sieci":1},{"n":"Złoty Stok","lat":50.44,"lng":16.87,"typ":"gmina","sieci":2},{"n":"Kąty Wr.","lat":51.03,"lng":16.77,"typ":"gmina","sieci":3},{"n":"Wisznia Mała","lat":51.25124,"lng":17.04698,"typ":"gmina","sieci":2},{"n":"Oborniki Śl.","lat":51.3,"lng":16.92,"typ":"gmina","sieci":3},{"n":"Trzebnica","lat":51.31,"lng":17.06,"typ":"gmina","sieci":4},{"n":"Środa Śl.","lat":51.16,"lng":16.6,"typ":"gmina","sieci":3},{"n":"Jordanów","lat":50.94,"lng":16.83,"typ":"gmina","sieci":2},{"n":"Mietków","lat":50.97463,"lng":16.65056,"typ":"gmina","sieci":1},{"n":"Oleśnica","lat":51.21,"lng":17.38,"typ":"gmina","sieci":3},{"n":"Dobroszyce","lat":51.26530,"lng":17.34092,"typ":"gmina","sieci":1},{"n":"Syców","lat":51.3,"lng":17.72,"typ":"gmina","sieci":2},{"n":"Międzybórz","lat":51.39827,"lng":17.66556,"typ":"gmina","sieci":1},{"n":"Oława","lat":50.94,"lng":17.3,"typ":"gmina","sieci":3},{"n":"Jelcz","lat":51.02,"lng":17.32,"typ":"gmina","sieci":2},{"n":"Domaniów","lat":50.89409,"lng":17.13087,"typ":"gmina","sieci":1},{"n":"Bardo","lat":50.5,"lng":16.75,"typ":"gmina","sieci":1},{"n":"Kamieniec Z.","lat":50.52,"lng":16.88,"typ":"gmina","sieci":1}],
-  "pomorskie": [{"n":"Żukowo","lat":54.34,"lng":18.36,"typ":"gmina","sieci":3},{"n":"Skarszewy","lat":54.06,"lng":18.45,"typ":"gmina","sieci":2},{"n":"Rumia","lat":54.57,"lng":18.39,"typ":"gmina","sieci":4},{"n":"Reda","lat":54.60,"lng":18.35,"typ":"gmina","sieci":3},{"n":"Luzino","lat":54.56,"lng":18.10,"typ":"gmina","sieci":2},{"n":"Szemud","lat":54.49,"lng":18.22,"typ":"gmina","sieci":2},{"n":"Kosakowo","lat":54.59,"lng":18.48,"typ":"gmina","sieci":2},{"n":"Przodkowo","lat":54.38,"lng":18.26,"typ":"gmina","sieci":2},{"n":"Kolbudy","lat":54.27,"lng":18.46,"typ":"gmina","sieci":2},{"n":"Trąbki Wielkie","lat":54.17,"lng":18.54,"typ":"gmina","sieci":2},{"n":"Pszczółki","lat":54.17,"lng":18.70,"typ":"gmina","sieci":2},{"n":"Przywidz","lat":54.19,"lng":18.32,"typ":"gmina","sieci":2},{"n":"Somonino","lat":54.28,"lng":18.19,"typ":"gmina","sieci":2},{"n":"Stężyca","lat":54.21,"lng":17.96,"typ":"gmina","sieci":2},{"n":"Chmielno","lat":54.32,"lng":18.10,"typ":"gmina","sieci":2},{"n":"Sierakowice","lat":54.34,"lng":17.89,"typ":"gmina","sieci":3},{"n":"Sulęczyno","lat":54.23,"lng":17.77,"typ":"gmina","sieci":2},{"n":"Linia","lat":54.45142,"lng":17.93481,"typ":"gmina","sieci":2},{"n":"Krokowa","lat":54.78,"lng":18.16,"typ":"gmina","sieci":2},{"n":"Władysławowo","lat":54.79,"lng":18.40,"typ":"gmina","sieci":4},{"n":"Gniewino","lat":54.71,"lng":18.01,"typ":"gmina","sieci":2},{"n":"Łęczyce","lat":54.60,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Kartuzy","lat":54.33,"lng":18.19,"typ":"gmina","sieci":4},{"n":"Pruszcz Gdań.","lat":54.26,"lng":18.63,"typ":"gmina","sieci":4},{"n":"Puck","lat":54.71,"lng":18.40,"typ":"gmina","sieci":3},{"n":"Kępice","lat":54.24,"lng":16.88,"typ":"gmina","sieci":2},{"n":"Trzebielino","lat":54.33,"lng":16.81,"typ":"gmina","sieci":1},{"n":"Kołczygłowy","lat":54.24,"lng":17.23,"typ":"gmina","sieci":1},{"n":"Dębnica Kasz.","lat":54.26,"lng":17.16,"typ":"gmina","sieci":2},{"n":"Czarna Dąbr.","lat":54.35,"lng":17.56,"typ":"gmina","sieci":2},{"n":"Borzytuchom","lat":54.19,"lng":17.37,"typ":"gmina","sieci":1},{"n":"Tuchomie","lat":54.12,"lng":17.33,"typ":"gmina","sieci":1},{"n":"Lipnica","lat":54.00,"lng":17.40,"typ":"gmina","sieci":2},{"n":"Parchowo","lat":54.20,"lng":17.66,"typ":"gmina","sieci":2},{"n":"Studzienice","lat":54.09,"lng":17.57,"typ":"gmina","sieci":1},{"n":"Bytów","lat":54.17,"lng":17.49,"typ":"gmina","sieci":4},{"n":"Miastko","lat":54.00,"lng":16.98,"typ":"gmina","sieci":4},{"n":"Koczała","lat":54.05,"lng":17.06,"typ":"gmina","sieci":1},{"n":"Przechlewo","lat":53.80054,"lng":17.25323,"typ":"gmina","sieci":2},{"n":"Pruszcz Gd.","lat":54.26,"lng":18.63,"typ":"gmina","sieci":4},{"n":"Trąbki Wlk.","lat":54.19,"lng":18.62,"typ":"gmina","sieci":1},{"n":"Cedry Wlk.","lat":54.24,"lng":18.79,"typ":"gmina","sieci":1},{"n":"Suchy Dąb","lat":54.20664,"lng":18.76769,"typ":"gmina","sieci":1},{"n":"Tczew okolice","lat":54.09,"lng":18.78,"typ":"gmina","sieci":2},{"n":"Subkowy","lat":54.00239,"lng":18.76893,"typ":"gmina","sieci":1},{"n":"Gniew","lat":53.84,"lng":18.82,"typ":"gmina","sieci":2},{"n":"Starogard okolice","lat":53.96,"lng":18.53,"typ":"gmina","sieci":2},{"n":"Zblewo","lat":53.93,"lng":18.32,"typ":"gmina","sieci":1},{"n":"Kaliska","lat":53.90532,"lng":18.21804,"typ":"gmina","sieci":1},{"n":"Lubichowo","lat":53.86,"lng":18.42,"typ":"gmina","sieci":1},{"n":"Osieczna","lat":53.9,"lng":18.13,"typ":"gmina","sieci":1},{"n":"Czarna Woda","lat":53.84451,"lng":18.09995,"typ":"gmina","sieci":1},{"n":"Osiek","lat":53.79,"lng":18.35,"typ":"gmina","sieci":1},{"n":"Wejherowo","lat":54.6,"lng":18.24,"typ":"gmina","sieci":3},{"n":"Jastarnia","lat":54.7,"lng":18.68,"typ":"gmina","sieci":1},{"n":"Hel","lat":54.61,"lng":18.8,"typ":"gmina","sieci":1},{"n":"Choczewo","lat":54.74046,"lng":17.89163,"typ":"gmina","sieci":1},{"n":"Czarne","lat":53.68,"lng":16.93,"typ":"gmina","sieci":1},{"n":"Człuchów","lat":53.66,"lng":17.36,"typ":"gmina","sieci":3},{"n":"Debrzno","lat":53.54,"lng":17.24,"typ":"gmina","sieci":1}],
-  "lubelskie": [{"n":"Niemce","lat":51.35,"lng":22.63,"typ":"gmina","sieci":2},{"n":"Poniatowa","lat":51.17,"lng":22.06,"typ":"gmina","sieci":2},{"n":"Bychawa","lat":51.01,"lng":22.53,"typ":"gmina","sieci":2},{"n":"Bełżyce","lat":51.17,"lng":22.28,"typ":"gmina","sieci":2},{"n":"Niedrzwica D.","lat":51.11,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Piaski","lat":51.13,"lng":22.84,"typ":"gmina","sieci":2},{"n":"Nałęczów","lat":51.28,"lng":22.21,"typ":"gmina","sieci":2},{"n":"Garbów","lat":51.35,"lng":22.33,"typ":"gmina","sieci":2},{"n":"Jastków","lat":51.30,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Wąwolnica","lat":51.29,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Kurów","lat":51.39,"lng":22.18,"typ":"gmina","sieci":2},{"n":"Końskowola","lat":51.41,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Kock","lat":51.64,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Kamionka","lat":51.47,"lng":22.46,"typ":"gmina","sieci":2},{"n":"Firlej","lat":51.55,"lng":22.50,"typ":"gmina","sieci":2},{"n":"Spiczyn","lat":51.34174,"lng":22.75342,"typ":"gmina","sieci":2},{"n":"Milejów","lat":51.22,"lng":22.92,"typ":"gmina","sieci":2},{"n":"Rybczewice","lat":51.06,"lng":22.86,"typ":"gmina","sieci":1},{"n":"Świdnik","lat":51.21,"lng":22.69,"typ":"gmina","sieci":4},{"n":"Łęczna","lat":51.30,"lng":22.88,"typ":"gmina","sieci":3},{"n":"Lubartów","lat":51.46,"lng":22.60,"typ":"gmina","sieci":4},{"n":"Urzędów","lat":50.99,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Zakrzówek","lat":50.95123,"lng":22.38029,"typ":"gmina","sieci":1},{"n":"Batorz","lat":50.84928,"lng":22.49307,"typ":"gmina","sieci":1},{"n":"Chodel","lat":51.11,"lng":22.13,"typ":"gmina","sieci":2},{"n":"Opole Lub.","lat":51.14,"lng":21.97,"typ":"gmina","sieci":3},{"n":"Karczmiska","lat":51.22,"lng":22.01,"typ":"gmina","sieci":2},{"n":"Wojciechów","lat":51.23,"lng":22.03,"typ":"gmina","sieci":1},{"n":"Puławy","lat":51.41,"lng":21.96,"typ":"gmina","sieci":5},{"n":"Gołąb","lat":51.35,"lng":22.33,"typ":"gmina","sieci":1},{"n":"Markuszów","lat":51.37,"lng":22.26,"typ":"gmina","sieci":1},{"n":"Baranów","lat":51.55,"lng":22.13,"typ":"gmina","sieci":2},{"n":"Michów","lat":51.52,"lng":22.31,"typ":"gmina","sieci":2},{"n":"Jeziorzany","lat":51.59,"lng":22.27,"typ":"gmina","sieci":1},{"n":"Abramów","lat":51.46,"lng":22.31,"typ":"gmina","sieci":1},{"n":"Ryki","lat":51.62,"lng":21.93,"typ":"gmina","sieci":3},{"n":"Dęblin","lat":51.56,"lng":21.84,"typ":"gmina","sieci":3},{"n":"Stężyca","lat":51.58033,"lng":21.77666,"typ":"gmina","sieci":2},{"n":"Mełgiew","lat":51.23085,"lng":22.78056,"typ":"gmina","sieci":2},{"n":"Wólka","lat":51.24,"lng":22.66,"typ":"gmina","sieci":2},{"n":"Konopnica","lat":51.22,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Głusk","lat":51.18858,"lng":22.63002,"typ":"gmina","sieci":2},{"n":"Strzyżewice","lat":51.05207,"lng":22.44602,"typ":"gmina","sieci":1},{"n":"Krzczonów","lat":51.00704,"lng":22.71056,"typ":"gmina","sieci":1},{"n":"Borzechów","lat":51.1,"lng":22.3,"typ":"gmina","sieci":1},{"n":"Lubartów okolice","lat":51.46,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Kraśnik","lat":50.92,"lng":22.22,"typ":"gmina","sieci":3},{"n":"Annopol","lat":50.88,"lng":21.85,"typ":"gmina","sieci":1},{"n":"Zaklików","lat":50.79,"lng":22.1,"typ":"gmina","sieci":1},{"n":"Modliborzyce","lat":50.75,"lng":22.33,"typ":"gmina","sieci":1},{"n":"Janów Lub.","lat":50.71,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Frampol","lat":50.67,"lng":22.67,"typ":"gmina","sieci":1},{"n":"Goraj","lat":50.72,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Turobin","lat":50.83,"lng":22.74,"typ":"gmina","sieci":1},{"n":"Szczebrzeszyn","lat":50.7,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Zwierzyniec","lat":50.61,"lng":22.97,"typ":"gmina","sieci":1},{"n":"Józefów","lat":50.48,"lng":23.05,"typ":"gmina","sieci":1},{"n":"Krasnobród","lat":50.55,"lng":23.21,"typ":"gmina","sieci":1},{"n":"Tomaszów Lub.","lat":50.45,"lng":23.42,"typ":"gmina","sieci":3},{"n":"Tarnawatka","lat":50.53,"lng":23.4,"typ":"gmina","sieci":1},{"n":"Łaszczów","lat":50.53,"lng":23.72,"typ":"gmina","sieci":1},{"n":"Tyszowce","lat":50.62,"lng":23.7,"typ":"gmina","sieci":1},{"n":"Komarów","lat":50.65,"lng":23.45,"typ":"gmina","sieci":1},{"n":"Zamość okolice","lat":50.72,"lng":23.25,"typ":"gmina","sieci":3},{"n":"Sitno","lat":50.68,"lng":23.38,"typ":"gmina","sieci":1},{"n":"Skierbieszów","lat":50.85153,"lng":23.36520,"typ":"gmina","sieci":1},{"n":"Izbica","lat":50.88,"lng":23.16,"typ":"gmina","sieci":1},{"n":"Krasnystaw","lat":50.98,"lng":23.17,"typ":"gmina","sieci":3},{"n":"Fajsławice","lat":51.09515,"lng":22.96307,"typ":"gmina","sieci":1},{"n":"Łopiennik","lat":51.06,"lng":23.13,"typ":"gmina","sieci":1},{"n":"Siennica Róż.","lat":51.07,"lng":23.25,"typ":"gmina","sieci":1}],
-  "kujawsko-pomorskie": [{"n":"Solec Kujawski","lat":53.08,"lng":18.22,"typ":"gmina","sieci":3},{"n":"Koronowo","lat":53.31,"lng":17.93,"typ":"gmina","sieci":3},{"n":"Chełmża","lat":53.18,"lng":18.60,"typ":"gmina","sieci":3},{"n":"Szubin","lat":53.00,"lng":17.74,"typ":"gmina","sieci":3},{"n":"Barcin","lat":52.85,"lng":17.95,"typ":"gmina","sieci":2},{"n":"Łabiszyn","lat":52.95,"lng":17.91,"typ":"gmina","sieci":2},{"n":"Złotniki Kuj.","lat":52.89,"lng":18.14,"typ":"gmina","sieci":2},{"n":"Pakość","lat":52.80,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Ciechocinek","lat":52.88,"lng":18.79,"typ":"gmina","sieci":3},{"n":"Gniewkowo","lat":52.89,"lng":18.41,"typ":"gmina","sieci":2},{"n":"Janikowo","lat":52.75,"lng":18.11,"typ":"gmina","sieci":2},{"n":"Kruszwica","lat":52.68,"lng":18.32,"typ":"gmina","sieci":3},{"n":"Strzelno","lat":52.63,"lng":18.17,"typ":"gmina","sieci":2},{"n":"Radziejów","lat":52.62,"lng":18.52,"typ":"gmina","sieci":3},{"n":"Piotrków Kuj.","lat":52.55,"lng":18.49,"typ":"gmina","sieci":2},{"n":"Zakrzewo","lat":52.76,"lng":18.63,"typ":"gmina","sieci":1},{"n":"Koneck","lat":52.78,"lng":18.71,"typ":"gmina","sieci":1},{"n":"Aleksandrów Kuj.","lat":52.87,"lng":18.70,"typ":"gmina","sieci":3},{"n":"Raciążek","lat":52.85759,"lng":18.80815,"typ":"gmina","sieci":2},{"n":"Lubanie","lat":52.74748,"lng":18.92003,"typ":"gmina","sieci":2},{"n":"Waganiec","lat":52.80,"lng":18.85,"typ":"gmina","sieci":1},{"n":"Skępe","lat":52.86,"lng":19.34,"typ":"gmina","sieci":2},{"n":"Tłuchowo","lat":52.74,"lng":19.46,"typ":"gmina","sieci":2},{"n":"Dobrzyń n. Wisłą","lat":52.63,"lng":19.32,"typ":"gmina","sieci":2},{"n":"Nakło n. Notecią","lat":53.14,"lng":17.60,"typ":"gmina","sieci":3},{"n":"Sadki","lat":53.15,"lng":17.44,"typ":"gmina","sieci":2},{"n":"Mrocza","lat":53.24,"lng":17.60,"typ":"gmina","sieci":2},{"n":"Kcynia","lat":52.99165,"lng":17.48835,"typ":"gmina","sieci":2},{"n":"Sicienko","lat":53.20,"lng":17.81,"typ":"gmina","sieci":1},{"n":"Witosław","lat":53.24008,"lng":17.48645,"typ":"gmina","sieci":1},{"n":"Śmielin","lat":53.15025,"lng":17.48696,"typ":"gmina","sieci":1},{"n":"Dziewierzewo","lat":53.21,"lng":17.51,"typ":"gmina","sieci":1},{"n":"Gołańcz","lat":52.94,"lng":17.29,"typ":"gmina","sieci":2},{"n":"Damasławek","lat":52.84,"lng":17.48,"typ":"gmina","sieci":2},{"n":"Wapno","lat":53.07,"lng":17.24,"typ":"gmina","sieci":1},{"n":"Żnin","lat":52.84927,"lng":17.72077,"typ":"gmina","sieci":3},{"n":"Janowiec Wlkp.","lat":52.75,"lng":17.49,"typ":"gmina","sieci":2},{"n":"Rogowo","lat":52.72,"lng":17.64,"typ":"gmina","sieci":2},{"n":"Gąsawa","lat":52.76,"lng":17.74,"typ":"gmina","sieci":2},{"n":"Solec Kuj.","lat":53.08,"lng":18.22,"typ":"gmina","sieci":3},{"n":"Białe Błota","lat":53.08,"lng":17.93,"typ":"gmina","sieci":2},{"n":"Nowa Wieś Wlk.","lat":53.14,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Osielsko","lat":53.18,"lng":18.05,"typ":"gmina","sieci":2},{"n":"Dobrcz","lat":53.26540,"lng":18.14645,"typ":"gmina","sieci":1},{"n":"Dąbrowa Chełm.","lat":53.13,"lng":18.42,"typ":"gmina","sieci":1},{"n":"Unisław","lat":53.20991,"lng":18.38240,"typ":"gmina","sieci":1},{"n":"Kowalewo Pom.","lat":53.17,"lng":18.86,"typ":"gmina","sieci":2},{"n":"Łysomice","lat":53.09,"lng":18.63,"typ":"gmina","sieci":1},{"n":"Lubicz","lat":53.02,"lng":18.78,"typ":"gmina","sieci":2},{"n":"Obrowo","lat":52.96,"lng":18.87,"typ":"gmina","sieci":1},{"n":"Czernikowo","lat":52.94,"lng":18.92,"typ":"gmina","sieci":1},{"n":"Wielka Nieszawka","lat":53.0,"lng":18.5,"typ":"gmina","sieci":1},{"n":"Zławieś Wlk.","lat":53.08,"lng":18.42,"typ":"gmina","sieci":1},{"n":"Nakło","lat":53.14,"lng":17.6,"typ":"gmina","sieci":3},{"n":"Więcbork","lat":53.35,"lng":17.51,"typ":"gmina","sieci":1},{"n":"Sępólno Kr.","lat":53.45,"lng":17.53,"typ":"gmina","sieci":2},{"n":"Tuchola","lat":53.59,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Śliwice","lat":53.7,"lng":18.19,"typ":"gmina","sieci":1},{"n":"Cekcyn","lat":53.57295,"lng":18.01018,"typ":"gmina","sieci":1},{"n":"Kęsowo","lat":53.55791,"lng":17.71466,"typ":"gmina","sieci":1},{"n":"Gostycyn","lat":53.48988,"lng":17.80968,"typ":"gmina","sieci":1},{"n":"Świecie","lat":53.41,"lng":18.44,"typ":"gmina","sieci":3},{"n":"Nowe","lat":53.65,"lng":18.73,"typ":"gmina","sieci":1},{"n":"Warlubie","lat":53.58763,"lng":18.62997,"typ":"gmina","sieci":1},{"n":"Jeżewo","lat":53.51,"lng":18.55,"typ":"gmina","sieci":1},{"n":"Bukowiec","lat":53.44,"lng":18.34,"typ":"gmina","sieci":1},{"n":"Pruszcz","lat":53.36,"lng":18.32,"typ":"gmina","sieci":1},{"n":"Świekatowo","lat":53.41912,"lng":18.09102,"typ":"gmina","sieci":1},{"n":"Lniano","lat":53.52798,"lng":18.21455,"typ":"gmina","sieci":1},{"n":"Drzycim","lat":53.51353,"lng":18.31649,"typ":"gmina","sieci":1},{"n":"Grudziądz","lat":53.48,"lng":18.75,"typ":"gmina","sieci":4},{"n":"Łasin","lat":53.52,"lng":19.09,"typ":"gmina","sieci":1},{"n":"Radzyń Chełm.","lat":53.38,"lng":18.93,"typ":"gmina","sieci":1},{"n":"Gruta","lat":53.46,"lng":18.98,"typ":"gmina","sieci":1},{"n":"Rogóźno","lat":53.53561,"lng":18.92870,"typ":"gmina","sieci":1},{"n":"Świecie nad Osą","lat":53.44401,"lng":19.10279,"typ":"gmina","sieci":1}],
-  "zachodniopomorskie": [{"n":"Chojna","lat":52.96,"lng":14.42,"typ":"gmina","sieci":2},{"n":"Nowogard","lat":53.66,"lng":15.11,"typ":"gmina","sieci":3},{"n":"Maszewo","lat":53.49,"lng":15.05,"typ":"gmina","sieci":2},{"n":"Stepnica","lat":53.65,"lng":14.62,"typ":"gmina","sieci":2},{"n":"Wolin","lat":53.84,"lng":14.61,"typ":"gmina","sieci":3},{"n":"Międzyzdroje","lat":53.92,"lng":14.44,"typ":"gmina","sieci":3},{"n":"Kołbaskowo","lat":53.33,"lng":14.43,"typ":"gmina","sieci":2},{"n":"Nowe Warpno","lat":53.72,"lng":14.28,"typ":"gmina","sieci":1},{"n":"Banie","lat":53.10,"lng":14.66,"typ":"gmina","sieci":2},{"n":"Widuchowa","lat":53.12,"lng":14.38,"typ":"gmina","sieci":2},{"n":"Cedynia","lat":52.88,"lng":14.20,"typ":"gmina","sieci":2},{"n":"Mieszkowice","lat":52.78,"lng":14.49,"typ":"gmina","sieci":2},{"n":"Moryń","lat":52.85,"lng":14.39,"typ":"gmina","sieci":2},{"n":"Trzcińsko-Zdrój","lat":52.96,"lng":14.61,"typ":"gmina","sieci":2},{"n":"Kozielice","lat":53.07,"lng":14.80,"typ":"gmina","sieci":1},{"n":"Warnice","lat":53.25,"lng":14.99,"typ":"gmina","sieci":1},{"n":"Bielice","lat":53.16,"lng":14.65,"typ":"gmina","sieci":2},{"n":"Przelewice","lat":53.10,"lng":15.08,"typ":"gmina","sieci":2},{"n":"Stare Czarnowo","lat":53.27,"lng":14.77,"typ":"gmina","sieci":2},{"n":"Kobylanka","lat":53.34,"lng":14.88,"typ":"gmina","sieci":2},{"n":"Stara Dąbrowa","lat":53.42133,"lng":15.14300,"typ":"gmina","sieci":1},{"n":"Dziwnów","lat":54.02478,"lng":14.75330,"typ":"gmina","sieci":3},{"n":"Kamień Pomorski","lat":53.97,"lng":14.76,"typ":"gmina","sieci":3},{"n":"Świerzno","lat":54.12,"lng":16.03,"typ":"gmina","sieci":1},{"n":"Gryfice","lat":53.91,"lng":15.19,"typ":"gmina","sieci":4},{"n":"Karnice","lat":54.02,"lng":15.02,"typ":"gmina","sieci":1},{"n":"Rewal","lat":54.08,"lng":15.01,"typ":"gmina","sieci":3},{"n":"Trzebiatów","lat":54.06,"lng":15.26,"typ":"gmina","sieci":3},{"n":"Brojce","lat":53.95747,"lng":15.35110,"typ":"gmina","sieci":1},{"n":"Płoty","lat":53.27,"lng":17.02,"typ":"gmina","sieci":2},{"n":"Resko","lat":53.77302,"lng":15.40611,"typ":"gmina","sieci":2},{"n":"Radowo Małe","lat":53.66567,"lng":15.44744,"typ":"gmina","sieci":1},{"n":"Węgorzyno","lat":53.54,"lng":15.55,"typ":"gmina","sieci":2},{"n":"Dobra","lat":53.58,"lng":15.30,"typ":"gmina","sieci":2},{"n":"Marianowo","lat":53.38252,"lng":15.26720,"typ":"gmina","sieci":1},{"n":"Suchań","lat":53.27,"lng":15.32,"typ":"gmina","sieci":1},{"n":"Dobrzany","lat":53.35,"lng":15.42,"typ":"gmina","sieci":2},{"n":"Chociwel","lat":53.46688,"lng":15.33348,"typ":"gmina","sieci":2},{"n":"Dobra Szcz.","lat":53.46,"lng":14.44,"typ":"gmina","sieci":2},{"n":"Police","lat":53.55,"lng":14.57,"typ":"gmina","sieci":4},{"n":"Goleniów","lat":53.56,"lng":14.83,"typ":"gmina","sieci":4},{"n":"Gryfino","lat":53.25,"lng":14.49,"typ":"gmina","sieci":3},{"n":"Stargard okolice","lat":53.34,"lng":15.05,"typ":"gmina","sieci":2},{"n":"Pyrzyce","lat":53.15,"lng":14.89,"typ":"gmina","sieci":3},{"n":"Lipiany","lat":53.01,"lng":14.97,"typ":"gmina","sieci":1},{"n":"Barlinek","lat":52.99,"lng":15.22,"typ":"gmina","sieci":3},{"n":"Myślibórz","lat":52.92,"lng":14.87,"typ":"gmina","sieci":3},{"n":"Dębno","lat":52.74,"lng":14.7,"typ":"gmina","sieci":3},{"n":"Boleszkowice","lat":52.72,"lng":14.57,"typ":"gmina","sieci":1},{"n":"Świnoujście","lat":53.91,"lng":14.25,"typ":"gmina","sieci":3},{"n":"Kamień Pom.","lat":53.97,"lng":14.77,"typ":"gmina","sieci":2},{"n":"Golczewo","lat":53.82,"lng":14.98,"typ":"gmina","sieci":1},{"n":"Świdwin","lat":53.77,"lng":15.78,"typ":"gmina","sieci":2},{"n":"Połczyn-Zdrój","lat":53.76,"lng":16.1,"typ":"gmina","sieci":2},{"n":"Białogard","lat":54.01,"lng":15.99,"typ":"gmina","sieci":3},{"n":"Karlino","lat":54.04,"lng":15.87,"typ":"gmina","sieci":1},{"n":"Tychowo","lat":53.9,"lng":16.25,"typ":"gmina","sieci":1},{"n":"Szczecinek","lat":53.71,"lng":16.7,"typ":"gmina","sieci":3},{"n":"Borne Sulinowo","lat":53.58,"lng":16.53,"typ":"gmina","sieci":1},{"n":"Barwice","lat":53.75,"lng":16.35,"typ":"gmina","sieci":1},{"n":"Grzmiąca","lat":53.83,"lng":16.42,"typ":"gmina","sieci":1},{"n":"Czaplinek","lat":53.55,"lng":16.23,"typ":"gmina","sieci":2},{"n":"Drawsko Pom.","lat":53.53,"lng":15.81,"typ":"gmina","sieci":2},{"n":"Złocieniec","lat":53.53,"lng":16.01,"typ":"gmina","sieci":2},{"n":"Kalisz Pom.","lat":53.3,"lng":15.9,"typ":"gmina","sieci":1},{"n":"Wałcz","lat":53.27,"lng":16.47,"typ":"gmina","sieci":3},{"n":"Mirosławiec","lat":53.35,"lng":16.09,"typ":"gmina","sieci":1}],
-  "świętokrzyskie": [{"n":"Chęciny","lat":50.79,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Morawica","lat":50.75,"lng":20.61,"typ":"gmina","sieci":2},{"n":"Suchedniów","lat":51.04,"lng":20.83,"typ":"gmina","sieci":2},{"n":"Piekoszów","lat":50.88,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Daleszyce","lat":50.80,"lng":20.80,"typ":"gmina","sieci":2},{"n":"Górno","lat":50.84882,"lng":20.82202,"typ":"gmina","sieci":1},{"n":"Masłów","lat":50.90,"lng":20.72,"typ":"gmina","sieci":1},{"n":"Zagnańsk","lat":50.98,"lng":20.66,"typ":"gmina","sieci":2},{"n":"Bodzentyn","lat":50.94,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Miedziana Góra","lat":50.94,"lng":20.58,"typ":"gmina","sieci":2},{"n":"Strawczyn","lat":50.93,"lng":20.42,"typ":"gmina","sieci":2},{"n":"Łopuszno","lat":50.94862,"lng":20.25060,"typ":"gmina","sieci":2},{"n":"Sobków","lat":50.69,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Małogoszcz","lat":50.81,"lng":20.26,"typ":"gmina","sieci":2},{"n":"Mniów","lat":51.02,"lng":20.48,"typ":"gmina","sieci":2},{"n":"Smyków","lat":51.05,"lng":20.40,"typ":"gmina","sieci":1},{"n":"Stąporków","lat":51.14,"lng":20.55,"typ":"gmina","sieci":3},{"n":"Bliżyn","lat":51.10,"lng":20.76,"typ":"gmina","sieci":2},{"n":"Wąchock","lat":51.07,"lng":21.01,"typ":"gmina","sieci":2},{"n":"Bieliny","lat":50.84,"lng":20.94,"typ":"gmina","sieci":2},{"n":"Łagów","lat":50.77,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Raków","lat":50.67,"lng":21.04,"typ":"gmina","sieci":2},{"n":"Nowa Słupia","lat":50.86,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Krasocin","lat":50.88972,"lng":20.11742,"typ":"gmina","sieci":2},{"n":"Ruda Maleniecka","lat":51.01,"lng":20.30,"typ":"gmina","sieci":1},{"n":"Fałków","lat":51.13473,"lng":20.10063,"typ":"gmina","sieci":1},{"n":"Gowarczów","lat":51.27839,"lng":20.43802,"typ":"gmina","sieci":2},{"n":"Słupia Konecka","lat":51.00,"lng":20.00,"typ":"gmina","sieci":1},{"n":"Secemin","lat":50.58,"lng":19.06,"typ":"gmina","sieci":2},{"n":"Radków","lat":50.71,"lng":19.98,"typ":"gmina","sieci":1},{"n":"Moskorzew","lat":50.64639,"lng":19.93065,"typ":"gmina","sieci":1},{"n":"Słupia","lat":50.61,"lng":20.01,"typ":"gmina","sieci":2},{"n":"Kluczewsko","lat":50.92712,"lng":19.91917,"typ":"gmina","sieci":2},{"n":"Włoszczowa","lat":50.85,"lng":19.96,"typ":"gmina","sieci":3},{"n":"Buczek","lat":51.48,"lng":19.16,"typ":"gmina","sieci":1},{"n":"Złotniki","lat":50.74989,"lng":20.25037,"typ":"gmina","sieci":1},{"n":"Nowy Korczyn","lat":50.31,"lng":20.80,"typ":"gmina","sieci":2},{"n":"Wiślica","lat":50.34,"lng":20.67,"typ":"gmina","sieci":2},{"n":"Opatowiec","lat":50.24,"lng":20.72,"typ":"gmina","sieci":1},{"n":"Solec-Zdrój","lat":50.36659,"lng":20.88693,"typ":"gmina","sieci":2},{"n":"Sitkówka","lat":50.81114,"lng":20.55493,"typ":"gmina","sieci":2},{"n":"Pierzchnica","lat":50.69738,"lng":20.75381,"typ":"gmina","sieci":1},{"n":"Busko-Zdrój","lat":50.47,"lng":20.72,"typ":"gmina","sieci":4},{"n":"Stopnica","lat":50.45,"lng":20.94,"typ":"gmina","sieci":1},{"n":"Jędrzejów","lat":50.64,"lng":20.3,"typ":"gmina","sieci":3},{"n":"Sędziszów","lat":50.57,"lng":20.06,"typ":"gmina","sieci":2},{"n":"Końskie","lat":51.19,"lng":20.41,"typ":"gmina","sieci":3},{"n":"Radoszyce","lat":51.07,"lng":20.25,"typ":"gmina","sieci":1},{"n":"Ruda Malen.","lat":51.15,"lng":20.48,"typ":"gmina","sieci":1},{"n":"Skarżysko","lat":51.11,"lng":20.87,"typ":"gmina","sieci":3},{"n":"Ostrowiec Św.","lat":50.93,"lng":21.39,"typ":"gmina","sieci":4},{"n":"Kunów","lat":50.95473,"lng":21.27937,"typ":"gmina","sieci":1},{"n":"Ćmielów","lat":50.9,"lng":21.51,"typ":"gmina","sieci":1},{"n":"Bodzechów","lat":50.90888,"lng":21.43933,"typ":"gmina","sieci":1},{"n":"Waśniów","lat":50.89924,"lng":21.22317,"typ":"gmina","sieci":1},{"n":"Ożarów","lat":50.88,"lng":21.66,"typ":"gmina","sieci":1},{"n":"Sandomierz","lat":50.68,"lng":21.75,"typ":"gmina","sieci":3},{"n":"Zawichost","lat":50.8,"lng":21.85,"typ":"gmina","sieci":1},{"n":"Klimontów","lat":50.68,"lng":21.42,"typ":"gmina","sieci":1},{"n":"Koprzywnica","lat":50.61,"lng":21.58,"typ":"gmina","sieci":1},{"n":"Łoniów","lat":50.56,"lng":21.55,"typ":"gmina","sieci":1}],
-  "podkarpackie": [{"n":"Boguchwała","lat":49.98,"lng":21.93,"typ":"gmina","sieci":3},{"n":"Głogów Młp.","lat":50.15,"lng":21.96,"typ":"gmina","sieci":3},{"n":"Tyczyn","lat":49.96,"lng":22.02,"typ":"gmina","sieci":2},{"n":"Trzebownisko","lat":50.08,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Sędziszów Młp.","lat":50.07,"lng":21.70,"typ":"gmina","sieci":3},{"n":"Dynów","lat":49.82,"lng":22.23,"typ":"gmina","sieci":2},{"n":"Czudec","lat":49.94,"lng":21.83,"typ":"gmina","sieci":2},{"n":"Świlcza","lat":50.06,"lng":21.91,"typ":"gmina","sieci":2},{"n":"Krasne","lat":50.04,"lng":22.06,"typ":"gmina","sieci":2},{"n":"Chmielnik","lat":49.98351,"lng":22.11606,"typ":"gmina","sieci":2},{"n":"Błażowa","lat":49.88,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Niebylec","lat":49.85,"lng":21.89,"typ":"gmina","sieci":2},{"n":"Wiśniowa","lat":49.87,"lng":21.65,"typ":"gmina","sieci":2},{"n":"Wielopole","lat":49.95,"lng":21.61,"typ":"gmina","sieci":2},{"n":"Iwierzyce","lat":50.03,"lng":21.78,"typ":"gmina","sieci":2},{"n":"Sokołów Młp.","lat":50.23,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Raniżów","lat":50.26,"lng":21.98,"typ":"gmina","sieci":1},{"n":"Dzikowiec","lat":50.27,"lng":21.84,"typ":"gmina","sieci":1},{"n":"Kolbuszowa","lat":50.24,"lng":21.76,"typ":"gmina","sieci":4},{"n":"Niwiska","lat":50.22415,"lng":21.63911,"typ":"gmina","sieci":1},{"n":"Majdan Król.","lat":50.36,"lng":21.76,"typ":"gmina","sieci":2},{"n":"Cmolas","lat":50.29504,"lng":21.74464,"typ":"gmina","sieci":1},{"n":"Tuszów Nar.","lat":50.37,"lng":21.46,"typ":"gmina","sieci":2},{"n":"Mielec","lat":50.28,"lng":21.42,"typ":"gmina","sieci":5},{"n":"Przecław","lat":50.19,"lng":21.48,"typ":"gmina","sieci":2},{"n":"Radomyśl Wlk.","lat":50.19,"lng":21.27,"typ":"gmina","sieci":3},{"n":"Wadowice G.","lat":50.20,"lng":21.24,"typ":"gmina","sieci":1},{"n":"Żyraków","lat":50.08554,"lng":21.39596,"typ":"gmina","sieci":2},{"n":"Czarna","lat":50.06,"lng":21.24,"typ":"gmina","sieci":2},{"n":"Pilzno","lat":49.97,"lng":21.29,"typ":"gmina","sieci":2},{"n":"Jodłowa","lat":49.88,"lng":21.29,"typ":"gmina","sieci":2},{"n":"Brzostek","lat":49.87912,"lng":21.41165,"typ":"gmina","sieci":2},{"n":"Frysztak","lat":49.83,"lng":21.61,"typ":"gmina","sieci":2},{"n":"Kołaczyce","lat":49.81,"lng":21.43,"typ":"gmina","sieci":2},{"n":"Brzyska","lat":49.82176,"lng":21.38856,"typ":"gmina","sieci":1},{"n":"Jasło","lat":49.74,"lng":21.47,"typ":"gmina","sieci":4},{"n":"Hyżne","lat":49.92093,"lng":22.17192,"typ":"gmina","sieci":1},{"n":"Kańczuga","lat":49.99,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Pruchnik","lat":49.9,"lng":22.51,"typ":"gmina","sieci":1},{"n":"Roźwienica","lat":49.95257,"lng":22.59427,"typ":"gmina","sieci":1},{"n":"Jawornik","lat":49.89,"lng":22.3,"typ":"gmina","sieci":1},{"n":"Kamień","lat":50.19,"lng":22.05,"typ":"gmina","sieci":1},{"n":"Łańcut","lat":50.07,"lng":22.23,"typ":"gmina","sieci":3},{"n":"Leżajsk","lat":50.26,"lng":22.42,"typ":"gmina","sieci":3},{"n":"Nowa Sarzyna","lat":50.32,"lng":22.32,"typ":"gmina","sieci":1},{"n":"Nisko","lat":50.52,"lng":22.14,"typ":"gmina","sieci":3},{"n":"Stalowa Wola","lat":50.58,"lng":22.05,"typ":"gmina","sieci":4},{"n":"Rudnik","lat":50.44,"lng":22.25,"typ":"gmina","sieci":1},{"n":"Ulanów","lat":50.49,"lng":22.27,"typ":"gmina","sieci":1},{"n":"Krzeszów","lat":50.42,"lng":22.34,"typ":"gmina","sieci":1},{"n":"Tarnobrzeg","lat":50.57,"lng":21.68,"typ":"gmina","sieci":3},{"n":"Baranów Sand.","lat":50.5,"lng":21.53,"typ":"gmina","sieci":1},{"n":"Nowa Dęba","lat":50.41637,"lng":21.75027,"typ":"gmina","sieci":2},{"n":"Majdan Kr.","lat":50.36,"lng":21.9,"typ":"gmina","sieci":1},{"n":"Ropczyce","lat":50.05,"lng":21.61,"typ":"gmina","sieci":3},{"n":"Dębica","lat":50.05,"lng":21.41,"typ":"gmina","sieci":3},{"n":"Strzyżów","lat":49.87,"lng":21.79,"typ":"gmina","sieci":2}],
-  "podlaskie": [{"n":"Choroszcz","lat":53.14,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Wasilków","lat":53.20,"lng":23.20,"typ":"gmina","sieci":3},{"n":"Supraśl","lat":53.21,"lng":23.33,"typ":"gmina","sieci":2},{"n":"Czarna Białost.","lat":53.30,"lng":23.28,"typ":"gmina","sieci":2},{"n":"Zabłudów","lat":53.01,"lng":23.34,"typ":"gmina","sieci":2},{"n":"Łapy","lat":52.99,"lng":22.88,"typ":"gmina","sieci":3},{"n":"Michałowo","lat":53.03,"lng":23.60,"typ":"gmina","sieci":2},{"n":"Juchnowiec Kośc.","lat":53.01,"lng":23.13,"typ":"gmina","sieci":2},{"n":"Dobrzyniewo","lat":53.20,"lng":23.01,"typ":"gmina","sieci":2},{"n":"Turośń Kościelna","lat":53.01509,"lng":23.05491,"typ":"gmina","sieci":2},{"n":"Suraż","lat":52.95,"lng":22.95,"typ":"gmina","sieci":1},{"n":"Narew","lat":52.91,"lng":23.52,"typ":"gmina","sieci":2},{"n":"Narewka","lat":52.83,"lng":23.76,"typ":"gmina","sieci":2},{"n":"Czyże","lat":52.78,"lng":23.42,"typ":"gmina","sieci":1},{"n":"Krynki","lat":53.26,"lng":23.77,"typ":"gmina","sieci":2},{"n":"Janów","lat":53.47,"lng":23.22,"typ":"gmina","sieci":2},{"n":"Dąbrowa Białost.","lat":53.65,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Suchowola","lat":53.58,"lng":23.10,"typ":"gmina","sieci":2},{"n":"Korycin","lat":53.44,"lng":23.15,"typ":"gmina","sieci":2},{"n":"Jaświły","lat":53.48013,"lng":22.94809,"typ":"gmina","sieci":1},{"n":"Knyszyn","lat":53.31,"lng":22.92,"typ":"gmina","sieci":2},{"n":"Trzcianne","lat":53.34376,"lng":22.68158,"typ":"gmina","sieci":1},{"n":"Mońki","lat":53.40,"lng":22.79,"typ":"gmina","sieci":3},{"n":"Goniądz","lat":53.48,"lng":22.73,"typ":"gmina","sieci":2},{"n":"Krypno","lat":53.27,"lng":22.87,"typ":"gmina","sieci":1},{"n":"Sokółka","lat":53.40,"lng":23.49,"typ":"gmina","sieci":4},{"n":"Szudziałowo","lat":53.29,"lng":23.65,"typ":"gmina","sieci":1},{"n":"Kuznica","lat":53.50,"lng":23.64,"typ":"gmina","sieci":1},{"n":"Sidra","lat":53.54,"lng":23.46,"typ":"gmina","sieci":1},{"n":"Lipsk","lat":53.73,"lng":23.39,"typ":"gmina","sieci":2},{"n":"Sztabin","lat":54.14,"lng":23.11,"typ":"gmina","sieci":1},{"n":"Augustów","lat":53.84,"lng":22.97,"typ":"gmina","sieci":4},{"n":"Bargłów Kośc.","lat":53.76,"lng":22.82,"typ":"gmina","sieci":1},{"n":"Grajewo","lat":53.64,"lng":22.45,"typ":"gmina","sieci":4},{"n":"Szczuczyn","lat":53.56,"lng":22.28,"typ":"gmina","sieci":2},{"n":"Wąsosz","lat":53.52,"lng":22.31,"typ":"gmina","sieci":1},{"n":"Radziłów","lat":53.40975,"lng":22.40982,"typ":"gmina","sieci":1},{"n":"Zawady","lat":53.15,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Kobylin-Borzymy","lat":53.10,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Czarna Białostocka","lat":53.3,"lng":23.29,"typ":"gmina","sieci":2},{"n":"Turośń","lat":52.98,"lng":23.05,"typ":"gmina","sieci":1},{"n":"Juchnowiec","lat":53.06,"lng":23.24,"typ":"gmina","sieci":2},{"n":"Sokoły","lat":52.98,"lng":22.68,"typ":"gmina","sieci":1},{"n":"Kobylin","lat":52.9,"lng":22.71,"typ":"gmina","sieci":1},{"n":"Kulesze","lat":52.92,"lng":22.6,"typ":"gmina","sieci":1},{"n":"Wysokie Maz.","lat":52.92,"lng":22.51,"typ":"gmina","sieci":3},{"n":"Czyżew","lat":52.8,"lng":22.3,"typ":"gmina","sieci":2},{"n":"Szepietowo","lat":52.86,"lng":22.55,"typ":"gmina","sieci":2},{"n":"Ciechanowiec","lat":52.68,"lng":22.5,"typ":"gmina","sieci":2},{"n":"Brańsk","lat":52.74,"lng":22.84,"typ":"gmina","sieci":2},{"n":"Rajgród","lat":53.73,"lng":22.7,"typ":"gmina","sieci":1},{"n":"Dąbrowa Biał.","lat":53.65,"lng":23.35,"typ":"gmina","sieci":1},{"n":"Kuźnica","lat":53.51,"lng":23.65,"typ":"gmina","sieci":1},{"n":"Gródek","lat":53.1,"lng":23.66,"typ":"gmina","sieci":1},{"n":"Bielsk Podl.","lat":52.77,"lng":23.19,"typ":"gmina","sieci":3},{"n":"Boćki","lat":52.66,"lng":23.04,"typ":"gmina","sieci":1},{"n":"Orla","lat":52.71,"lng":23.33,"typ":"gmina","sieci":1},{"n":"Kleszczele","lat":52.58,"lng":23.32,"typ":"gmina","sieci":1},{"n":"Hajnówka","lat":52.74,"lng":23.58,"typ":"gmina","sieci":3},{"n":"Siemiatycze","lat":52.43,"lng":22.86,"typ":"gmina","sieci":3},{"n":"Drohiczyn","lat":52.4,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Mielnik","lat":52.33,"lng":23.05,"typ":"gmina","sieci":1},{"n":"Nurzec","lat":52.44,"lng":23.06,"typ":"gmina","sieci":1},{"n":"Milejczyce","lat":52.53,"lng":23.13,"typ":"gmina","sieci":1},{"n":"Dziadkowice","lat":52.55,"lng":22.9,"typ":"gmina","sieci":1},{"n":"Grodzisk","lat":52.62,"lng":22.75,"typ":"gmina","sieci":1}],
-  "warmińsko-mazurskie": [{"n":"Barczewo","lat":53.82,"lng":20.69,"typ":"gmina","sieci":2},{"n":"Dobre Miasto","lat":53.98,"lng":20.39,"typ":"gmina","sieci":3},{"n":"Olsztynek","lat":53.58,"lng":20.28,"typ":"gmina","sieci":3},{"n":"Biskupiec","lat":53.86,"lng":20.95,"typ":"gmina","sieci":3},{"n":"Jeziorany","lat":53.97,"lng":20.74,"typ":"gmina","sieci":2},{"n":"Pasym","lat":53.65015,"lng":20.79148,"typ":"gmina","sieci":2},{"n":"Stawiguda","lat":53.66,"lng":20.39,"typ":"gmina","sieci":2},{"n":"Jonkowo","lat":53.83,"lng":20.31,"typ":"gmina","sieci":2},{"n":"Purda","lat":53.71,"lng":20.70,"typ":"gmina","sieci":2},{"n":"Morąg","lat":53.91,"lng":19.92,"typ":"gmina","sieci":3},{"n":"Gietrzwałd","lat":53.73,"lng":20.23,"typ":"gmina","sieci":2},{"n":"Dywity","lat":53.83,"lng":20.47,"typ":"gmina","sieci":2},{"n":"Świątki","lat":53.92,"lng":20.24,"typ":"gmina","sieci":2},{"n":"Lubomino","lat":54.06,"lng":20.24,"typ":"gmina","sieci":1},{"n":"Miłakowo","lat":54.00,"lng":20.07,"typ":"gmina","sieci":2},{"n":"Małdyty","lat":53.92,"lng":19.74,"typ":"gmina","sieci":2},{"n":"Miłomłyn","lat":53.76,"lng":19.84,"typ":"gmina","sieci":2},{"n":"Łukta","lat":53.80,"lng":20.08,"typ":"gmina","sieci":2},{"n":"Grunwald","lat":53.48,"lng":20.12,"typ":"gmina","sieci":1},{"n":"Kozłowo","lat":53.30,"lng":20.30,"typ":"gmina","sieci":1},{"n":"Janowiec Kośc.","lat":53.28,"lng":20.52,"typ":"gmina","sieci":1},{"n":"Jedwabno","lat":53.52871,"lng":20.72616,"typ":"gmina","sieci":2},{"n":"Dźwierzuty","lat":53.70,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Działdowo","lat":53.23,"lng":20.18,"typ":"gmina","sieci":4},{"n":"Iłowo-Osada","lat":53.16,"lng":20.29,"typ":"gmina","sieci":2},{"n":"Nidzica","lat":53.36,"lng":20.42,"typ":"gmina","sieci":3},{"n":"Rybno","lat":53.38,"lng":19.98,"typ":"gmina","sieci":2},{"n":"Lidzbark","lat":53.26,"lng":19.82,"typ":"gmina","sieci":3},{"n":"Płośnica","lat":53.27256,"lng":20.01003,"typ":"gmina","sieci":1},{"n":"Kurzętnik","lat":53.39,"lng":19.58,"typ":"gmina","sieci":2},{"n":"Biskupiec Pom.","lat":53.48,"lng":19.33,"typ":"gmina","sieci":2},{"n":"Iława","lat":53.59,"lng":19.56,"typ":"gmina","sieci":4},{"n":"Kisielice","lat":53.60,"lng":19.26,"typ":"gmina","sieci":2},{"n":"Susz","lat":53.72,"lng":19.34,"typ":"gmina","sieci":2},{"n":"Zalewo","lat":53.84,"lng":19.60,"typ":"gmina","sieci":2},{"n":"Lubawa","lat":53.50271,"lng":19.74978,"typ":"gmina","sieci":3},{"n":"Nowe Miasto L.","lat":53.42,"lng":19.59,"typ":"gmina","sieci":3},{"n":"Grodziczno","lat":53.41440,"lng":19.76603,"typ":"gmina","sieci":1},{"n":"Kolno","lat":53.99699,"lng":20.99457,"typ":"gmina","sieci":1},{"n":"Reszel","lat":54.05,"lng":21.15,"typ":"gmina","sieci":2},{"n":"Bisztynek","lat":54.09,"lng":20.9,"typ":"gmina","sieci":2},{"n":"Lidzbark W.","lat":54.13,"lng":20.58,"typ":"gmina","sieci":3},{"n":"Orneta","lat":54.12,"lng":20.13,"typ":"gmina","sieci":2},{"n":"Ostróda","lat":53.7,"lng":19.97,"typ":"gmina","sieci":3},{"n":"Iłowo","lat":53.14,"lng":20.3,"typ":"gmina","sieci":1},{"n":"Dąbrówno","lat":53.42,"lng":20.03,"typ":"gmina","sieci":1},{"n":"Janowo","lat":53.3,"lng":20.51,"typ":"gmina","sieci":1},{"n":"Pasłęk","lat":54.06,"lng":19.66,"typ":"gmina","sieci":2},{"n":"Młynary","lat":54.18,"lng":19.75,"typ":"gmina","sieci":1},{"n":"Godkowo","lat":54.07974,"lng":19.90426,"typ":"gmina","sieci":1},{"n":"Elbląg","lat":54.16,"lng":19.4,"typ":"gmina","sieci":4},{"n":"Tolkmicko","lat":54.32,"lng":19.53,"typ":"gmina","sieci":1},{"n":"Frombork","lat":54.36,"lng":19.68,"typ":"gmina","sieci":1},{"n":"Braniewo","lat":54.38,"lng":19.82,"typ":"gmina","sieci":3},{"n":"Pieniężno","lat":54.24,"lng":20.13,"typ":"gmina","sieci":1},{"n":"Górowo Iław.","lat":54.28,"lng":20.49,"typ":"gmina","sieci":1},{"n":"Bartoszyce","lat":54.25,"lng":20.81,"typ":"gmina","sieci":3},{"n":"Sępopol","lat":54.26808,"lng":21.01493,"typ":"gmina","sieci":1},{"n":"Korsze","lat":54.17,"lng":21.15,"typ":"gmina","sieci":1},{"n":"Kętrzyn","lat":54.08,"lng":21.38,"typ":"gmina","sieci":3},{"n":"Mrągowo","lat":53.87,"lng":21.3,"typ":"gmina","sieci":3}],
-  "opolskie": [{"n":"Ozimek","lat":50.67,"lng":18.21,"typ":"gmina","sieci":3},{"n":"Gogolin","lat":50.48,"lng":18.02,"typ":"gmina","sieci":2},{"n":"Zdzieszowice","lat":50.42,"lng":18.12,"typ":"gmina","sieci":2},{"n":"Grodków","lat":50.69,"lng":17.38,"typ":"gmina","sieci":3},{"n":"Prószków","lat":50.57,"lng":17.87,"typ":"gmina","sieci":2},{"n":"Niemodlin","lat":50.64,"lng":17.62,"typ":"gmina","sieci":2},{"n":"Dobrzeń Wielki","lat":50.75,"lng":17.84,"typ":"gmina","sieci":2},{"n":"Komprachcice","lat":50.63,"lng":17.81,"typ":"gmina","sieci":2},{"n":"Tarnów Opolski","lat":50.57,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Chrząstowice","lat":50.66,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Turawa","lat":50.73,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Murów","lat":50.86,"lng":17.93,"typ":"gmina","sieci":2},{"n":"Łubniany","lat":50.77881,"lng":17.99866,"typ":"gmina","sieci":2},{"n":"Popielów","lat":50.82,"lng":17.74,"typ":"gmina","sieci":2},{"n":"Pokój","lat":50.90,"lng":17.83,"typ":"gmina","sieci":2},{"n":"Lewin Brzeski","lat":50.75,"lng":17.61,"typ":"gmina","sieci":2},{"n":"Tułowice","lat":50.59,"lng":17.65,"typ":"gmina","sieci":2},{"n":"Zawadzkie","lat":50.61,"lng":18.47,"typ":"gmina","sieci":3},{"n":"Ujazd","lat":50.39,"lng":18.35,"typ":"gmina","sieci":2},{"n":"Krapkowice","lat":50.47,"lng":17.96,"typ":"gmina","sieci":3},{"n":"Głuchołazy","lat":50.31,"lng":17.38,"typ":"gmina","sieci":3},{"n":"Biała","lat":50.38,"lng":17.66,"typ":"gmina","sieci":2},{"n":"Strzeleczki","lat":50.46,"lng":17.86,"typ":"gmina","sieci":1},{"n":"Walce","lat":50.37185,"lng":18.00832,"typ":"gmina","sieci":1},{"n":"Głogówek","lat":50.35,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Otmuchów","lat":50.46621,"lng":17.17540,"typ":"gmina","sieci":2},{"n":"Paczków","lat":50.46,"lng":17.00,"typ":"gmina","sieci":2},{"n":"Kamiennik","lat":50.56,"lng":17.48,"typ":"gmina","sieci":1},{"n":"Lubsza","lat":50.91617,"lng":17.52187,"typ":"gmina","sieci":1},{"n":"Skarbimierz","lat":50.84806,"lng":17.43556,"typ":"gmina","sieci":1},{"n":"Namysłów","lat":51.07,"lng":17.71,"typ":"gmina","sieci":4},{"n":"Wilków","lat":51.01,"lng":17.65,"typ":"gmina","sieci":1},{"n":"Domaszowice","lat":51.04247,"lng":17.88858,"typ":"gmina","sieci":1},{"n":"Kluczbork","lat":50.97,"lng":18.21,"typ":"gmina","sieci":4},{"n":"Wołczyn","lat":51.01,"lng":18.05,"typ":"gmina","sieci":2},{"n":"Byczyna","lat":51.11,"lng":18.21,"typ":"gmina","sieci":2},{"n":"Gorzów Śl.","lat":50.29,"lng":18.52,"typ":"gmina","sieci":2},{"n":"Praszka","lat":51.05377,"lng":18.45313,"typ":"gmina","sieci":2},{"n":"Olesno","lat":50.87,"lng":18.42,"typ":"gmina","sieci":3},{"n":"Dobrzeń Wlk.","lat":50.75,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Kolonowskie","lat":50.65323,"lng":18.38424,"typ":"gmina","sieci":1},{"n":"Dobrodzień","lat":50.72,"lng":18.44,"typ":"gmina","sieci":2},{"n":"Lubrza","lat":50.33554,"lng":17.62604,"typ":"gmina","sieci":1},{"n":"Prudnik","lat":50.32,"lng":17.58,"typ":"gmina","sieci":4},{"n":"Nysa okolice","lat":50.47,"lng":17.33,"typ":"gmina","sieci":3},{"n":"Lasowice","lat":50.78,"lng":18.28,"typ":"gmina","sieci":1},{"n":"Rudniki","lat":51.03894,"lng":18.59817,"typ":"gmina","sieci":1},{"n":"Świerczów","lat":50.96028,"lng":17.76100,"typ":"gmina","sieci":1},{"n":"Namysłów ok.","lat":51.05,"lng":17.75,"typ":"gmina","sieci":1},{"n":"Brzeg","lat":50.86,"lng":17.47,"typ":"gmina","sieci":3},{"n":"Lewin Brz.","lat":50.75,"lng":17.61,"typ":"gmina","sieci":1},{"n":"Skoroszyce","lat":50.59748,"lng":17.38247,"typ":"gmina","sieci":1},{"n":"Pakosławice","lat":50.54547,"lng":17.36185,"typ":"gmina","sieci":1},{"n":"Nysa","lat":50.47,"lng":17.33,"typ":"gmina","sieci":3},{"n":"Korfantów","lat":50.48623,"lng":17.59771,"typ":"gmina","sieci":1},{"n":"Łambinowice","lat":50.53846,"lng":17.55988,"typ":"gmina","sieci":1}],
-  "lubuskie": [{"n":"Sulechów","lat":52.08,"lng":15.62,"typ":"gmina","sieci":4},{"n":"Czerwieńsk","lat":52.01,"lng":15.42,"typ":"gmina","sieci":2},{"n":"Nowogród Bobrz.","lat":51.79,"lng":15.23,"typ":"gmina","sieci":2},{"n":"Kargowa","lat":52.07197,"lng":15.86517,"typ":"gmina","sieci":2},{"n":"Babimost","lat":52.16,"lng":15.82,"typ":"gmina","sieci":2},{"n":"Zbąszynek","lat":52.24,"lng":15.81,"typ":"gmina","sieci":2},{"n":"Rzepin","lat":52.34,"lng":14.83,"typ":"gmina","sieci":3},{"n":"Skwierzyna","lat":52.59,"lng":15.50,"typ":"gmina","sieci":3},{"n":"Ośno Lubuskie","lat":52.45,"lng":14.87,"typ":"gmina","sieci":2},{"n":"Cybinka","lat":52.19,"lng":14.79,"typ":"gmina","sieci":2},{"n":"Torzym","lat":52.31,"lng":15.08,"typ":"gmina","sieci":2},{"n":"Lubniewice","lat":52.51,"lng":15.24,"typ":"gmina","sieci":2},{"n":"Krzeszyce","lat":52.58308,"lng":15.00722,"typ":"gmina","sieci":2},{"n":"Bytnica","lat":52.14,"lng":15.16,"typ":"gmina","sieci":1},{"n":"Trzebiechów","lat":52.02,"lng":15.73,"typ":"gmina","sieci":2},{"n":"Bojadła","lat":51.95,"lng":15.81,"typ":"gmina","sieci":1},{"n":"Świdnica","lat":51.88,"lng":15.39,"typ":"gmina","sieci":2},{"n":"Zabór","lat":51.95,"lng":15.71,"typ":"gmina","sieci":1},{"n":"Sława","lat":51.87,"lng":16.08,"typ":"gmina","sieci":3},{"n":"Wschowa","lat":51.80,"lng":16.31,"typ":"gmina","sieci":4},{"n":"Szlichtyngowa","lat":51.71,"lng":16.24,"typ":"gmina","sieci":2},{"n":"Kolsko","lat":51.96147,"lng":15.96482,"typ":"gmina","sieci":1},{"n":"Trzciel","lat":52.37,"lng":15.88,"typ":"gmina","sieci":2},{"n":"Bledzew","lat":52.51,"lng":15.41,"typ":"gmina","sieci":1},{"n":"Deszczno","lat":52.67,"lng":15.32,"typ":"gmina","sieci":2},{"n":"Santok","lat":52.73,"lng":15.40,"typ":"gmina","sieci":2},{"n":"Bogdaniec","lat":52.68888,"lng":15.07066,"typ":"gmina","sieci":2},{"n":"Lubiszyn","lat":52.77981,"lng":14.94786,"typ":"gmina","sieci":1},{"n":"Witnica","lat":52.67,"lng":14.90,"typ":"gmina","sieci":2},{"n":"Kostrzyn n. Odrą","lat":52.58,"lng":14.66,"typ":"gmina","sieci":4},{"n":"Górzyca","lat":52.49439,"lng":14.65485,"typ":"gmina","sieci":2},{"n":"Słońsk","lat":51.95,"lng":16.08,"typ":"gmina","sieci":2},{"n":"Nowa Sól","lat":51.80,"lng":15.71,"typ":"gmina","sieci":5},{"n":"Otyń","lat":51.84,"lng":15.71,"typ":"gmina","sieci":2},{"n":"Kozuchów","lat":51.76,"lng":15.53,"typ":"gmina","sieci":3},{"n":"Brodce","lat":51.64,"lng":15.33,"typ":"gmina","sieci":2},{"n":"Lubsko","lat":51.79,"lng":14.97,"typ":"gmina","sieci":3},{"n":"Tuplice","lat":52.18,"lng":14.83,"typ":"gmina","sieci":1},{"n":"Żary","lat":51.64,"lng":15.13,"typ":"gmina","sieci":5},{"n":"Jasień","lat":51.75,"lng":15.01,"typ":"gmina","sieci":2},{"n":"Międzyrzecz","lat":52.44,"lng":15.58,"typ":"gmina","sieci":3},{"n":"Przytoczna","lat":52.57739,"lng":15.67963,"typ":"gmina","sieci":1},{"n":"Kłodawa","lat":52.78935,"lng":15.21317,"typ":"gmina","sieci":1},{"n":"Sulęcin","lat":52.44,"lng":15.12,"typ":"gmina","sieci":2},{"n":"Zielona Góra ok.","lat":51.94,"lng":15.51,"typ":"gmina","sieci":3},{"n":"Nowogród Bob.","lat":51.79,"lng":15.24,"typ":"gmina","sieci":1},{"n":"Żagań","lat":51.62,"lng":15.32,"typ":"gmina","sieci":3},{"n":"Iłowa","lat":51.5,"lng":15.21,"typ":"gmina","sieci":1},{"n":"Gozdnica","lat":51.44,"lng":15.1,"typ":"gmina","sieci":1},{"n":"Wymiarki","lat":51.51000,"lng":15.08201,"typ":"gmina","sieci":1},{"n":"Szprotawa","lat":51.56,"lng":15.54,"typ":"gmina","sieci":2},{"n":"Małomice","lat":51.57,"lng":15.44,"typ":"gmina","sieci":1},{"n":"Niegosławice","lat":51.58858,"lng":15.71749,"typ":"gmina","sieci":1},{"n":"Kożuchów","lat":51.75,"lng":15.59,"typ":"gmina","sieci":2},{"n":"Bytom Odrz.","lat":51.73,"lng":15.83,"typ":"gmina","sieci":1},{"n":"Nowe Miasteczko","lat":51.68,"lng":15.72,"typ":"gmina","sieci":1},{"n":"Krosno Odrz.","lat":52.05,"lng":15.09,"typ":"gmina","sieci":2},{"n":"Gubin","lat":51.95,"lng":14.72,"typ":"gmina","sieci":2},{"n":"Brody","lat":51.79,"lng":14.77,"typ":"gmina","sieci":1},{"n":"Łęknica","lat":51.55,"lng":14.74,"typ":"gmina","sieci":1},{"n":"Trzebiel","lat":51.63,"lng":14.82,"typ":"gmina","sieci":1},{"n":"Przewóz","lat":51.48,"lng":14.94,"typ":"gmina","sieci":1}]
+  "mazowieckie": [{"n":"Goszczyn","lat":51.74,"lng":20.85,"typ":"gmina","sieci":3},{"n":"Błędów","lat":51.78,"lng":20.70,"typ":"gmina","sieci":4},{"n":"Mogielnica","lat":51.69,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Promna","lat":51.68,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Wyśmierzyce","lat":51.61,"lng":20.81,"typ":"gmina","sieci":2},{"n":"Stromiec","lat":51.64,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Jedlińsk","lat":51.52,"lng":21.11,"typ":"gmina","sieci":3},{"n":"Zakrzew","lat":51.46,"lng":21.02,"typ":"gmina","sieci":2},{"n":"Przytyk","lat":51.46850,"lng":20.90424,"typ":"gmina","sieci":3},{"n":"Potworów","lat":51.52,"lng":20.72,"typ":"gmina","sieci":2},{"n":"Rusinów","lat":51.45,"lng":20.52,"typ":"gmina","sieci":2},{"n":"Odrzywół","lat":51.51914,"lng":20.55594,"typ":"gmina","sieci":2},{"n":"Maciejowice","lat":51.71,"lng":21.56,"typ":"gmina","sieci":3},{"n":"Sobolew","lat":51.74,"lng":21.67,"typ":"gmina","sieci":2},{"n":"Wilga","lat":51.85,"lng":21.38,"typ":"gmina","sieci":2},{"n":"Trojanów","lat":51.68,"lng":21.81,"typ":"gmina","sieci":2},{"n":"Wodynie","lat":52.04051,"lng":21.95615,"typ":"gmina","sieci":2},{"n":"Repki","lat":52.39,"lng":22.42,"typ":"gmina","sieci":3},{"n":"Sabnie","lat":52.51,"lng":22.30,"typ":"gmina","sieci":2},{"n":"Sterdyń","lat":52.58,"lng":22.29,"typ":"gmina","sieci":2},{"n":"Korczew","lat":52.35,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Przesmyki","lat":52.26,"lng":22.58,"typ":"gmina","sieci":2},{"n":"Paprotnia","lat":52.26,"lng":22.46,"typ":"gmina","sieci":2},{"n":"Wiśniew","lat":52.09,"lng":22.28,"typ":"gmina","sieci":3},{"n":"Kotuń","lat":52.17,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Mokobody","lat":52.26,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Skórzec","lat":52.11,"lng":22.12,"typ":"gmina","sieci":2},{"n":"Korytnica","lat":52.41,"lng":21.82,"typ":"gmina","sieci":3},{"n":"Jadów","lat":52.47,"lng":21.62,"typ":"gmina","sieci":3},{"n":"Strachówka","lat":52.42768,"lng":21.63544,"typ":"gmina","sieci":2},{"n":"Poświętne","lat":52.33,"lng":21.43,"typ":"gmina","sieci":2},{"n":"Osieck","lat":51.97,"lng":21.44,"typ":"gmina","sieci":2},{"n":"Celestynów","lat":52.06,"lng":21.39,"typ":"gmina","sieci":3},{"n":"Kołbiel","lat":52.06,"lng":21.48,"typ":"gmina","sieci":3},{"n":"Sobienie-Jeziory","lat":51.93,"lng":21.31,"typ":"gmina","sieci":2},{"n":"Latowicz","lat":52.03,"lng":21.80,"typ":"gmina","sieci":2},{"n":"Parysów","lat":51.98,"lng":21.68,"typ":"gmina","sieci":2},{"n":"Borowie","lat":51.94,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Górzno","lat":51.84701,"lng":21.70906,"typ":"gmina","sieci":2},{"n":"Miastków","lat":51.86,"lng":21.81,"typ":"gmina","sieci":2},{"n":"Siennica","lat":52.09,"lng":21.61,"typ":"gmina","sieci":3},{"n":"Cegłów","lat":52.14,"lng":21.71,"typ":"gmina","sieci":3},{"n":"Dębe Wielkie","lat":52.20,"lng":21.46,"typ":"gmina","sieci":3},{"n":"Halinów","lat":52.23,"lng":21.35,"typ":"gmina","sieci":3},{"n":"Zwoleń","lat":51.35,"lng":21.58,"typ":"powiat","sieci":4},{"n":"Kazanów","lat":51.27,"lng":21.46,"typ":"gmina","sieci":2},{"n":"Głowaczów","lat":51.61,"lng":21.30,"typ":"gmina","sieci":2},{"n":"Magnuszew","lat":51.75,"lng":21.38,"typ":"gmina","sieci":3},{"n":"Mniszew","lat":51.84637,"lng":21.28112,"typ":"gmina","sieci":2},{"n":"Tarczyn","lat":51.98,"lng":20.83,"typ":"gmina","sieci":3},{"n":"Chynów","lat":51.90,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Pniewy","lat":51.90,"lng":20.73,"typ":"gmina","sieci":1},{"n":"Mszczonów","lat":51.97,"lng":20.52,"typ":"gmina","sieci":4},{"n":"Radziejowice","lat":52.00420,"lng":20.55576,"typ":"gmina","sieci":2},{"n":"Żabia Wola","lat":52.05,"lng":20.66,"typ":"gmina","sieci":2},{"n":"Nadarzyn","lat":52.09,"lng":20.80,"typ":"gmina","sieci":3},{"n":"Lesznowola","lat":52.08,"lng":20.93,"typ":"gmina","sieci":3},{"n":"Błonie","lat":52.19,"lng":20.61,"typ":"gmina","sieci":4},{"n":"Teresin","lat":52.19,"lng":20.41,"typ":"gmina","sieci":3},{"n":"Kampinos","lat":52.26,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Leszno","lat":52.26,"lng":20.59,"typ":"gmina","sieci":2},{"n":"Izabelin","lat":52.29746,"lng":20.81063,"typ":"gmina","sieci":2},{"n":"Czosnów","lat":52.39,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Leoncin","lat":52.40,"lng":20.52,"typ":"gmina","sieci":2},{"n":"Pomiechówek","lat":52.48,"lng":20.73,"typ":"gmina","sieci":3},{"n":"Zakroczym","lat":52.43,"lng":20.61,"typ":"gmina","sieci":2},{"n":"Nasielsk","lat":52.59,"lng":20.79,"typ":"gmina","sieci":4},{"n":"Winnica","lat":52.64,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Serock","lat":52.51,"lng":21.06,"typ":"gmina","sieci":4},{"n":"Nieporęt","lat":52.42,"lng":21.03,"typ":"gmina","sieci":3},{"n":"Wieliszew","lat":52.45,"lng":20.95,"typ":"gmina","sieci":3},{"n":"Radzymin","lat":52.41,"lng":21.18,"typ":"gmina","sieci":4},{"n":"Klembów","lat":52.40,"lng":21.33,"typ":"gmina","sieci":2},{"n":"Stanisławów","lat":52.28,"lng":21.56,"typ":"gmina","sieci":2},{"n":"Grójec","lat":51.86,"lng":20.87,"typ":"powiat","sieci":5},{"n":"Warka","lat":51.78,"lng":21.20,"typ":"powiat","sieci":5},{"n":"Mińsk Maz.","lat":52.18,"lng":21.56,"typ":"powiat","sieci":5},{"n":"Góra Kalwaria","lat":51.98,"lng":21.22,"typ":"powiat","sieci":5},{"n":"Glinojeck","lat":52.82,"lng":20.29,"typ":"gmina","sieci":3},{"n":"Strzegowo","lat":52.90,"lng":20.28,"typ":"gmina","sieci":2},{"n":"Raciąż","lat":52.78,"lng":20.12,"typ":"gmina","sieci":3},{"n":"Baboszewo","lat":52.68139,"lng":20.25833,"typ":"gmina","sieci":2},{"n":"Ojrzeń","lat":52.78,"lng":20.53,"typ":"gmina","sieci":1},{"n":"Sochocin","lat":52.68733,"lng":20.47224,"typ":"gmina","sieci":2},{"n":"Nowe Miasto","lat":52.65648,"lng":20.62991,"typ":"gmina","sieci":2},{"n":"Joniec","lat":52.60178,"lng":20.58029,"typ":"gmina","sieci":1},{"n":"Załuski","lat":52.54,"lng":20.53,"typ":"gmina","sieci":1},{"n":"Drobin","lat":52.74,"lng":19.98,"typ":"gmina","sieci":2},{"n":"Gąbin","lat":52.39,"lng":19.73,"typ":"gmina","sieci":2},{"n":"Czerwińsk nad Wisłą","lat":52.39384,"lng":20.31277,"typ":"gmina","sieci":2},{"n":"Wyszogród","lat":52.39,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Sierpc","lat":52.85,"lng":19.66,"typ":"gmina","sieci":4},{"n":"Gozdowo","lat":52.72256,"lng":19.68961,"typ":"gmina","sieci":1},{"n":"Rościszewo","lat":52.90,"lng":19.77,"typ":"gmina","sieci":1},{"n":"Mochowo","lat":52.76529,"lng":19.55823,"typ":"gmina","sieci":1},{"n":"Szczutowo","lat":52.93850,"lng":19.57556,"typ":"gmina","sieci":1},{"n":"Żuromin","lat":53.06,"lng":19.90,"typ":"gmina","sieci":3},{"n":"Bieżuń","lat":52.96,"lng":19.89,"typ":"gmina","sieci":2},{"n":"Kuczbork","lat":53.07,"lng":19.99,"typ":"gmina","sieci":1},{"n":"Lipowiec K.","lat":53.11,"lng":20.06,"typ":"gmina","sieci":1},{"n":"Lubowidz","lat":53.12082,"lng":19.84153,"typ":"gmina","sieci":1},{"n":"Brudzeń Duży","lat":52.66821,"lng":19.50476,"typ":"gmina","sieci":1},{"n":"Bielsk","lat":52.67136,"lng":19.80433,"typ":"gmina","sieci":2},{"n":"Zawidz","lat":52.80,"lng":19.90,"typ":"gmina","sieci":2},{"n":"Sanniki","lat":52.33,"lng":19.86,"typ":"gmina","sieci":2},{"n":"Gostynin","lat":52.42,"lng":19.46,"typ":"gmina","sieci":4},{"n":"Szczawin Kościelny","lat":52.37094,"lng":19.61346,"typ":"gmina","sieci":1},{"n":"Młodzieszyn","lat":52.29865,"lng":20.18605,"typ":"gmina","sieci":1},{"n":"Stara Biała","lat":52.61067,"lng":19.64797,"typ":"gmina","sieci":1},{"n":"Radzanowo","lat":52.57485,"lng":19.89648,"typ":"gmina","sieci":1},{"n":"Bulkowo","lat":52.54104,"lng":20.12807,"typ":"gmina","sieci":1},{"n":"Dąbrówka","lat":52.48389,"lng":21.29757,"typ":"gmina","sieci":1},{"n":"Małkinia G.","lat":52.69,"lng":21.89,"typ":"gmina","sieci":3},{"n":"Lochów","lat":52.63,"lng":21.71,"typ":"gmina","sieci":3},{"n":"Brok","lat":52.69,"lng":21.84,"typ":"gmina","sieci":2},{"n":"Jabłonna","lat":52.37,"lng":20.92,"typ":"gmina","sieci":3},{"n":"Tłuszcz","lat":52.43,"lng":21.44,"typ":"gmina","sieci":3},{"n":"Wołomin","lat":52.34,"lng":21.24,"typ":"gmina","sieci":4},{"n":"Kobyłka","lat":52.34,"lng":21.2,"typ":"gmina","sieci":3},{"n":"Zielonka","lat":52.3,"lng":21.15,"typ":"gmina","sieci":3},{"n":"Ząbki","lat":52.28933,"lng":21.11801,"typ":"gmina","sieci":4},{"n":"Sulejówek","lat":52.25,"lng":21.27,"typ":"gmina","sieci":3},{"n":"Wiązowna","lat":52.17172,"lng":21.30661,"typ":"gmina","sieci":2},{"n":"Karczew","lat":52.08,"lng":21.25,"typ":"gmina","sieci":3},{"n":"Otwock","lat":52.11,"lng":21.26,"typ":"gmina","sieci":4},{"n":"Piaseczno","lat":52.08,"lng":21.02,"typ":"gmina","sieci":5},{"n":"Prażmów","lat":51.94027,"lng":20.95479,"typ":"gmina","sieci":2},{"n":"Grabów nad Pilicą","lat":51.72556,"lng":21.22583,"typ":"gmina","sieci":1},{"n":"Iłża","lat":51.16,"lng":21.24,"typ":"gmina","sieci":3},{"n":"Skaryszew","lat":51.31,"lng":21.25,"typ":"gmina","sieci":2},{"n":"Pionki","lat":51.48,"lng":21.45,"typ":"gmina","sieci":4},{"n":"Jastrzębia","lat":51.42,"lng":21.3,"typ":"gmina","sieci":1},{"n":"Wierzbica","lat":51.2,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Wolanów","lat":51.37926,"lng":20.97644,"typ":"gmina","sieci":1},{"n":"Gózd","lat":51.4,"lng":21.33,"typ":"gmina","sieci":1},{"n":"Kowala","lat":51.32495,"lng":21.07071,"typ":"gmina","sieci":1},{"n":"Marki","lat":52.32,"lng":21.1,"typ":"gmina","sieci":3},{"n":"Ostrów Maz.","lat":52.8,"lng":21.89,"typ":"gmina","sieci":3},{"n":"Wyszków","lat":52.59,"lng":21.46,"typ":"gmina","sieci":3},{"n":"Maków Maz.","lat":52.86,"lng":21.1,"typ":"gmina","sieci":2},{"n":"Różan","lat":52.88,"lng":21.39,"typ":"gmina","sieci":1},{"n":"Pułtusk","lat":52.7,"lng":21.08,"typ":"gmina","sieci":3},{"n":"Płońsk","lat":52.62,"lng":20.38,"typ":"gmina","sieci":3},{"n":"Mława","lat":53.11,"lng":20.38,"typ":"gmina","sieci":3},{"n":"Przasnysz","lat":53.02,"lng":20.88,"typ":"gmina","sieci":3},{"n":"Chorzele","lat":53.27,"lng":20.9,"typ":"gmina","sieci":1},{"n":"Krasnosielc","lat":53.02,"lng":21.15,"typ":"gmina","sieci":1},{"n":"Białobrzegi","lat":51.64,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Kozienice","lat":51.58,"lng":21.55,"typ":"gmina","sieci":3},{"n":"Lipsko","lat":51.16,"lng":21.65,"typ":"gmina","sieci":1},{"n":"Przysucha","lat":51.36,"lng":20.63,"typ":"gmina","sieci":2},{"n":"Szydłowiec","lat":51.23,"lng":20.85,"typ":"gmina","sieci":2},{"n":"Andrzejewo","lat":52.83059,"lng":22.20047,"typ":"gmina","sieci":2}],
+  "wielkopolskie": [{"n":"Luboń","lat":52.33,"lng":16.88,"typ":"gmina","sieci":4},{"n":"Komorniki","lat":52.33,"lng":16.80,"typ":"gmina","sieci":3},{"n":"Tarnowo Podg.","lat":52.46,"lng":16.66,"typ":"gmina","sieci":4},{"n":"Dopiewo","lat":52.35,"lng":16.67,"typ":"gmina","sieci":3},{"n":"Rokietnica","lat":52.50,"lng":16.75,"typ":"gmina","sieci":2},{"n":"Suchy Las","lat":52.48,"lng":16.86,"typ":"gmina","sieci":3},{"n":"Czerwonak","lat":52.46,"lng":16.98,"typ":"gmina","sieci":2},{"n":"Swarzędz","lat":52.41,"lng":17.07,"typ":"gmina","sieci":5},{"n":"Kostrzyn","lat":52.39,"lng":17.22,"typ":"gmina","sieci":3},{"n":"Kórnik","lat":52.24,"lng":17.09,"typ":"gmina","sieci":3},{"n":"Mosina","lat":52.24,"lng":16.84,"typ":"gmina","sieci":3},{"n":"Puszczykowo","lat":52.27,"lng":16.93,"typ":"gmina","sieci":2},{"n":"Stęszew","lat":52.28,"lng":16.70,"typ":"gmina","sieci":2},{"n":"Pobiedziska","lat":52.47,"lng":17.28,"typ":"gmina","sieci":2},{"n":"Mur. Goślina","lat":52.57,"lng":17.00,"typ":"gmina","sieci":2},{"n":"Opalenica","lat":52.30,"lng":16.41,"typ":"gmina","sieci":3},{"n":"Buk","lat":52.35,"lng":16.52,"typ":"gmina","sieci":2},{"n":"Kleszczewo","lat":52.33,"lng":17.17,"typ":"gmina","sieci":2},{"n":"Nekla","lat":52.36,"lng":17.41,"typ":"gmina","sieci":2},{"n":"Środa Wlkp.","lat":52.23,"lng":17.28,"typ":"gmina","sieci":4},{"n":"Zaniemyśl","lat":52.15,"lng":17.16,"typ":"gmina","sieci":2},{"n":"Pniewy","lat":52.51,"lng":16.26,"typ":"gmina","sieci":3},{"n":"Szamotuły","lat":52.61,"lng":16.58,"typ":"gmina","sieci":4},{"n":"Oborniki","lat":52.65,"lng":16.81,"typ":"gmina","sieci":4},{"n":"Rogoźno","lat":52.75,"lng":16.99,"typ":"gmina","sieci":3},{"n":"Skoki","lat":52.67,"lng":17.16,"typ":"gmina","sieci":2},{"n":"Kłecko","lat":52.63,"lng":17.43,"typ":"gmina","sieci":2},{"n":"Czerniejewo","lat":52.42657,"lng":17.49005,"typ":"gmina","sieci":2},{"n":"Trzemeszno","lat":52.56,"lng":17.82,"typ":"gmina","sieci":3},{"n":"Witkowo","lat":52.44046,"lng":17.77233,"typ":"gmina","sieci":3},{"n":"Miłosław","lat":52.20299,"lng":17.48949,"typ":"gmina","sieci":2},{"n":"Nowe Miasto nad Wartą","lat":52.09,"lng":17.41,"typ":"gmina","sieci":2},{"n":"Jarocin","lat":51.97238,"lng":17.50163,"typ":"gmina","sieci":4},{"n":"Pleszew","lat":51.90,"lng":17.78,"typ":"gmina","sieci":4},{"n":"Koźmin Wlkp.","lat":51.83,"lng":17.46,"typ":"gmina","sieci":3},{"n":"Krotoszyn","lat":51.69,"lng":17.44,"typ":"gmina","sieci":4},{"n":"Bojanowo","lat":51.70742,"lng":16.74890,"typ":"gmina","sieci":2},{"n":"Śmigiel","lat":52.01,"lng":16.52,"typ":"gmina","sieci":2},{"n":"Kościan","lat":52.08,"lng":16.65,"typ":"gmina","sieci":4},{"n":"Wolsztyn","lat":52.11,"lng":16.11,"typ":"gmina","sieci":4},{"n":"Rakoniewice","lat":52.14,"lng":16.27,"typ":"gmina","sieci":2},{"n":"Granowo","lat":52.22241,"lng":16.52881,"typ":"gmina","sieci":2},{"n":"Grodzisk Wlkp.","lat":52.22,"lng":16.36,"typ":"gmina","sieci":3},{"n":"Wronki","lat":52.71,"lng":16.38,"typ":"gmina","sieci":3},{"n":"Krzyż Wlkp.","lat":52.88,"lng":16.01,"typ":"gmina","sieci":2},{"n":"Trzcianka","lat":53.04,"lng":16.45,"typ":"gmina","sieci":3},{"n":"Ujście","lat":53.05,"lng":16.73,"typ":"gmina","sieci":2},{"n":"Wyrzysk","lat":53.15343,"lng":17.26712,"typ":"gmina","sieci":2},{"n":"Kaczory","lat":53.10204,"lng":16.88408,"typ":"gmina","sieci":1},{"n":"Wysoka","lat":53.14,"lng":17.08,"typ":"gmina","sieci":2},{"n":"Łobżenica","lat":53.27,"lng":17.26,"typ":"gmina","sieci":2},{"n":"Wągrowiec","lat":52.80,"lng":17.20,"typ":"gmina","sieci":4},{"n":"Margonin","lat":52.97,"lng":17.09,"typ":"gmina","sieci":2},{"n":"Mieścisko","lat":52.74375,"lng":17.32843,"typ":"gmina","sieci":1},{"n":"Zagorów","lat":52.01,"lng":15.72,"typ":"gmina","sieci":2},{"n":"Pyzdry","lat":52.16,"lng":17.67,"typ":"gmina","sieci":2},{"n":"Rychwał","lat":52.06976,"lng":18.16627,"typ":"gmina","sieci":2},{"n":"Czempiń","lat":52.16,"lng":16.76,"typ":"gmina","sieci":1},{"n":"Krzywiń","lat":51.96,"lng":16.83,"typ":"gmina","sieci":1},{"n":"Gostyń","lat":51.88,"lng":17.01,"typ":"gmina","sieci":3},{"n":"Poniec","lat":51.76340,"lng":16.80867,"typ":"gmina","sieci":1},{"n":"Krobia","lat":51.77418,"lng":16.98463,"typ":"gmina","sieci":1},{"n":"Borek Wlkp.","lat":51.91,"lng":17.22,"typ":"gmina","sieci":1},{"n":"Pogorzela","lat":51.82245,"lng":17.23035,"typ":"gmina","sieci":1},{"n":"Rozdrażew","lat":51.77876,"lng":17.50500,"typ":"gmina","sieci":1},{"n":"Wapno","lat":52.91090,"lng":17.47176,"typ":"gmina","sieci":1},{"n":"Dąbie","lat":52.08836,"lng":18.82230,"typ":"gmina","sieci":2},{"n":"Gołańcz","lat":52.94319,"lng":17.29968,"typ":"gmina","sieci":2},{"n":"Damasławek","lat":52.84011,"lng":17.49936,"typ":"gmina","sieci":2}],
+  "łódzkie": [{"n":"Rzgów","lat":51.66,"lng":19.49,"typ":"gmina","sieci":3},{"n":"Tuszyn","lat":51.60,"lng":19.53,"typ":"gmina","sieci":2},{"n":"Stryków","lat":51.90,"lng":19.61,"typ":"gmina","sieci":3},{"n":"Głowno","lat":51.96,"lng":19.71,"typ":"gmina","sieci":3},{"n":"Ozorków","lat":51.96,"lng":19.29,"typ":"gmina","sieci":4},{"n":"Poddębice","lat":51.89,"lng":18.96,"typ":"gmina","sieci":3},{"n":"Dobroń","lat":51.63844,"lng":19.24530,"typ":"gmina","sieci":2},{"n":"Szadek","lat":51.69,"lng":18.98,"typ":"gmina","sieci":2},{"n":"Wodzierady","lat":51.72,"lng":19.13,"typ":"gmina","sieci":1},{"n":"Zelów","lat":51.46,"lng":19.22,"typ":"gmina","sieci":3},{"n":"Lutomiersk","lat":51.75,"lng":19.21,"typ":"gmina","sieci":2},{"n":"Dalików","lat":51.88,"lng":19.11,"typ":"gmina","sieci":1},{"n":"Parzęczew","lat":51.95,"lng":19.20,"typ":"gmina","sieci":2},{"n":"Dmosin","lat":51.91,"lng":19.75,"typ":"gmina","sieci":2},{"n":"Piątek","lat":52.06,"lng":19.48,"typ":"gmina","sieci":2},{"n":"Zduńska Wola","lat":51.60,"lng":18.94,"typ":"gmina","sieci":4},{"n":"Łask","lat":51.59,"lng":19.13,"typ":"gmina","sieci":4},{"n":"Aleksandrów Ł.","lat":51.81,"lng":19.30,"typ":"gmina","sieci":4},{"n":"Ksawerów","lat":51.67,"lng":19.46,"typ":"gmina","sieci":2},{"n":"Koluszki","lat":51.74,"lng":19.81,"typ":"gmina","sieci":3},{"n":"Brzeziny","lat":51.80,"lng":19.74,"typ":"gmina","sieci":3},{"n":"Widawa","lat":51.43829,"lng":18.94213,"typ":"gmina","sieci":2},{"n":"Złoczew","lat":51.41,"lng":18.60,"typ":"gmina","sieci":2},{"n":"Warta","lat":51.70694,"lng":18.62444,"typ":"gmina","sieci":2},{"n":"Błaszki","lat":51.65167,"lng":18.43774,"typ":"gmina","sieci":2},{"n":"Wieruszów","lat":51.29,"lng":18.15,"typ":"gmina","sieci":3},{"n":"Działoszyn","lat":51.11,"lng":18.86,"typ":"gmina","sieci":2},{"n":"Pajęczno","lat":51.14,"lng":18.99,"typ":"gmina","sieci":2},{"n":"Dębiak","lat":51.35,"lng":19.15,"typ":"gmina","sieci":1},{"n":"Rusiec","lat":51.32,"lng":18.98,"typ":"gmina","sieci":1},{"n":"Kleszczów","lat":51.22,"lng":19.30,"typ":"gmina","sieci":2},{"n":"Sulmierzyce","lat":51.18,"lng":19.19,"typ":"gmina","sieci":1},{"n":"Rząśnia","lat":51.22182,"lng":19.04251,"typ":"gmina","sieci":1},{"n":"Kiełczygłów","lat":51.23,"lng":18.97,"typ":"gmina","sieci":1},{"n":"Szczerców","lat":51.33225,"lng":19.11553,"typ":"gmina","sieci":1},{"n":"Rozprza","lat":51.30260,"lng":19.64606,"typ":"gmina","sieci":1},{"n":"Zgierz","lat":51.86,"lng":19.41,"typ":"gmina","sieci":3},{"n":"Konstantynów","lat":51.75,"lng":19.33,"typ":"gmina","sieci":2},{"n":"Pabianice","lat":51.66,"lng":19.35,"typ":"gmina","sieci":3},{"n":"Rogów","lat":51.80180,"lng":19.88360,"typ":"gmina","sieci":1},{"n":"Łęczyca","lat":52.06,"lng":19.2,"typ":"gmina","sieci":2},{"n":"Góra św.Małg.","lat":52.03,"lng":19.55,"typ":"gmina","sieci":1},{"n":"Sędziejowice","lat":51.52,"lng":19.0,"typ":"gmina","sieci":1},{"n":"Wieluń","lat":51.22,"lng":18.57,"typ":"gmina","sieci":3},{"n":"Buczek","lat":51.50095,"lng":19.16410,"typ":"gmina","sieci":1}],
+  "śląskie": [{"n":"Pszczyna","lat":49.98,"lng":18.94,"typ":"gmina","sieci":4},{"n":"Łaziska Górne","lat":50.15,"lng":18.84,"typ":"gmina","sieci":3},{"n":"Orzesze","lat":50.10868,"lng":18.79256,"typ":"gmina","sieci":2},{"n":"Czerwionka","lat":50.15,"lng":18.67,"typ":"gmina","sieci":3},{"n":"Knułów","lat":50.22,"lng":18.67,"typ":"gmina","sieci":3},{"n":"Pyskowice","lat":50.39,"lng":18.62,"typ":"gmina","sieci":2},{"n":"Toszek","lat":50.45,"lng":18.52,"typ":"gmina","sieci":2},{"n":"Radzionków","lat":50.39,"lng":18.90,"typ":"gmina","sieci":3},{"n":"Siewierz","lat":50.46940,"lng":19.23635,"typ":"gmina","sieci":2},{"n":"Poręba","lat":50.49,"lng":19.33,"typ":"gmina","sieci":2},{"n":"Lędziny","lat":50.13,"lng":19.11,"typ":"gmina","sieci":2},{"n":"Imielin","lat":50.14,"lng":19.17,"typ":"gmina","sieci":2},{"n":"Czechowice-Dziedzice","lat":49.91118,"lng":19.00712,"typ":"gmina","sieci":3},{"n":"Bojszowy","lat":50.05977,"lng":19.09111,"typ":"gmina","sieci":2},{"n":"Chełm Śląski","lat":50.11,"lng":19.18,"typ":"gmina","sieci":2},{"n":"Suszec","lat":50.03792,"lng":18.78838,"typ":"gmina","sieci":2},{"n":"Kobiór","lat":50.05,"lng":18.94,"typ":"gmina","sieci":2},{"n":"Pawłowice","lat":49.96,"lng":18.71,"typ":"gmina","sieci":3},{"n":"Goczałkowice","lat":49.94,"lng":18.97,"typ":"gmina","sieci":2},{"n":"Wyry","lat":50.13,"lng":18.89,"typ":"gmina","sieci":2},{"n":"Ornontowice","lat":50.18,"lng":18.75,"typ":"gmina","sieci":2},{"n":"Wielowieś","lat":50.50,"lng":18.62,"typ":"gmina","sieci":1},{"n":"Rudziniec","lat":50.35,"lng":18.41,"typ":"gmina","sieci":2},{"n":"Tworóg","lat":50.53,"lng":18.71,"typ":"gmina","sieci":2},{"n":"Krupski Młyn","lat":50.57,"lng":18.62,"typ":"gmina","sieci":1},{"n":"Zbrosławice","lat":50.41,"lng":18.76,"typ":"gmina","sieci":2},{"n":"Miasteczko Śl.","lat":50.49,"lng":18.92,"typ":"gmina","sieci":2},{"n":"Ożarowice","lat":50.47,"lng":19.04,"typ":"gmina","sieci":2},{"n":"Świerklaniec","lat":50.43,"lng":18.95,"typ":"gmina","sieci":2},{"n":"Bieruń","lat":50.08,"lng":19.09,"typ":"powiat","sieci":3},{"n":"Kłobuck","lat":50.90,"lng":18.93,"typ":"gmina","sieci":4},{"n":"Krzepice","lat":50.97083,"lng":18.72833,"typ":"gmina","sieci":2},{"n":"Wręczyca Wlk.","lat":50.85,"lng":18.93,"typ":"gmina","sieci":2},{"n":"Przystajń","lat":50.88334,"lng":18.69038,"typ":"gmina","sieci":1},{"n":"Opatów","lat":50.95,"lng":18.81,"typ":"gmina","sieci":1},{"n":"Lipie","lat":51.02,"lng":18.80,"typ":"gmina","sieci":1},{"n":"Popów","lat":51.05,"lng":18.95,"typ":"gmina","sieci":1},{"n":"Miedźno","lat":50.96,"lng":18.96,"typ":"gmina","sieci":2},{"n":"Mykanów","lat":50.92126,"lng":19.19821,"typ":"gmina","sieci":2},{"n":"Rędziny","lat":50.86,"lng":19.22,"typ":"gmina","sieci":2},{"n":"Kłomnice","lat":50.92180,"lng":19.35681,"typ":"gmina","sieci":2},{"n":"Kruszyna","lat":50.96744,"lng":19.27543,"typ":"gmina","sieci":1},{"n":"Lubliniec","lat":50.66,"lng":18.68,"typ":"gmina","sieci":4},{"n":"Koszęcin","lat":50.63,"lng":18.84,"typ":"gmina","sieci":2},{"n":"Boronów","lat":50.67,"lng":18.90,"typ":"gmina","sieci":1},{"n":"Woźniki","lat":50.58581,"lng":19.05920,"typ":"gmina","sieci":2},{"n":"Wilamowice","lat":49.91,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Kozy","lat":49.86,"lng":19.14,"typ":"gmina","sieci":2},{"n":"Wilkowice","lat":49.75,"lng":19.05,"typ":"gmina","sieci":2},{"n":"Buczkowice","lat":49.72,"lng":19.06,"typ":"gmina","sieci":1},{"n":"Szczyrk","lat":49.72,"lng":19.02,"typ":"gmina","sieci":2},{"n":"Jaworze","lat":49.79149,"lng":18.94816,"typ":"gmina","sieci":1},{"n":"Jasienica","lat":49.81,"lng":18.9,"typ":"gmina","sieci":2},{"n":"Jaworzynka","lat":49.53,"lng":18.85,"typ":"gmina","sieci":1},{"n":"Istebna","lat":49.55,"lng":18.9,"typ":"gmina","sieci":2},{"n":"Wisła","lat":49.66,"lng":18.86,"typ":"gmina","sieci":3},{"n":"Ustroń","lat":49.72,"lng":18.81,"typ":"gmina","sieci":3},{"n":"Skoczów","lat":49.8,"lng":18.79,"typ":"gmina","sieci":3},{"n":"Strumień","lat":49.91714,"lng":18.76337,"typ":"gmina","sieci":2},{"n":"Zebrzydowice","lat":49.87,"lng":18.6,"typ":"gmina","sieci":2},{"n":"Hażlach","lat":49.80259,"lng":18.66235,"typ":"gmina","sieci":1},{"n":"Dębowiec","lat":49.85,"lng":18.75,"typ":"gmina","sieci":1},{"n":"Chybie","lat":49.9,"lng":18.81,"typ":"gmina","sieci":1},{"n":"Brenna","lat":49.72,"lng":18.9,"typ":"gmina","sieci":1},{"n":"Miedźna","lat":49.98,"lng":19.03,"typ":"gmina","sieci":1},{"n":"Chełm Śl.","lat":50.1,"lng":19.2,"typ":"gmina","sieci":1},{"n":"Mysłowice","lat":50.21208,"lng":19.14765,"typ":"gmina","sieci":3},{"n":"Jaworzno","lat":50.2,"lng":19.27,"typ":"gmina","sieci":3},{"n":"Sosnowiec","lat":50.28526,"lng":19.17804,"typ":"gmina","sieci":4},{"n":"Będzin","lat":50.33,"lng":19.13,"typ":"gmina","sieci":3},{"n":"Czeladź","lat":50.32,"lng":19.08,"typ":"gmina","sieci":2},{"n":"Wojkowice","lat":50.36,"lng":19.02,"typ":"gmina","sieci":1},{"n":"Łazy","lat":50.43,"lng":19.4,"typ":"gmina","sieci":1},{"n":"Ogrodzieniec","lat":50.45,"lng":19.52,"typ":"gmina","sieci":1},{"n":"Zawiercie","lat":50.49,"lng":19.43,"typ":"gmina","sieci":3},{"n":"Kroczyce","lat":50.56143,"lng":19.57010,"typ":"gmina","sieci":1},{"n":"Włodowice","lat":50.55216,"lng":19.45035,"typ":"gmina","sieci":1},{"n":"Myszków","lat":50.58,"lng":19.32,"typ":"gmina","sieci":3},{"n":"Koziegłowy","lat":50.61,"lng":19.14,"typ":"gmina","sieci":1},{"n":"Kalety","lat":50.56430,"lng":18.88416,"typ":"gmina","sieci":1}],
+  "małopolskie": [{"n":"Skawina","lat":49.97,"lng":19.82,"typ":"gmina","sieci":4},{"n":"Niepołomice","lat":50.03,"lng":20.21,"typ":"gmina","sieci":3},{"n":"Krzeszowice","lat":50.13,"lng":19.63,"typ":"gmina","sieci":3},{"n":"Zabierzów","lat":50.11,"lng":19.79,"typ":"gmina","sieci":2},{"n":"Liszki","lat":50.03,"lng":19.78,"typ":"gmina","sieci":2},{"n":"Zielonki","lat":50.11,"lng":19.93,"typ":"gmina","sieci":3},{"n":"Michałowice","lat":50.15884,"lng":19.97919,"typ":"gmina","sieci":2},{"n":"Słomniki","lat":50.24,"lng":20.08,"typ":"gmina","sieci":2},{"n":"Kocmyrzów","lat":50.12846,"lng":20.12987,"typ":"gmina","sieci":2},{"n":"Dobczyce","lat":49.88071,"lng":20.09276,"typ":"gmina","sieci":2},{"n":"Kłaj","lat":49.99337,"lng":20.29914,"typ":"gmina","sieci":2},{"n":"Biskupice","lat":49.96,"lng":20.12,"typ":"gmina","sieci":2},{"n":"Drwinia","lat":50.11,"lng":20.43,"typ":"gmina","sieci":1},{"n":"Rzezawa","lat":49.98,"lng":20.50,"typ":"gmina","sieci":2},{"n":"Koszyce","lat":50.16,"lng":20.57,"typ":"gmina","sieci":2},{"n":"Koniusza","lat":50.18776,"lng":20.21802,"typ":"gmina","sieci":1},{"n":"Igołomia","lat":50.09192,"lng":20.24742,"typ":"gmina","sieci":2},{"n":"Czernichów","lat":49.98,"lng":19.68,"typ":"gmina","sieci":2},{"n":"Świątniki Górne","lat":49.93,"lng":19.95,"typ":"gmina","sieci":2},{"n":"Gdów","lat":49.90,"lng":20.19,"typ":"gmina","sieci":3},{"n":"Sułkowice","lat":49.83,"lng":19.79,"typ":"gmina","sieci":3},{"n":"Pcim","lat":49.75,"lng":19.97,"typ":"gmina","sieci":2},{"n":"Wieliczka","lat":49.98,"lng":20.06,"typ":"gmina","sieci":5},{"n":"Proszowice","lat":50.19,"lng":20.28,"typ":"gmina","sieci":3},{"n":"Tuchów","lat":49.89,"lng":21.05,"typ":"gmina","sieci":2},{"n":"Ryglice","lat":49.87,"lng":21.13,"typ":"gmina","sieci":2},{"n":"Gromnik","lat":49.83,"lng":20.96,"typ":"gmina","sieci":2},{"n":"Żabno","lat":50.13,"lng":20.88,"typ":"gmina","sieci":2},{"n":"Wojnicz","lat":49.96,"lng":20.84,"typ":"gmina","sieci":2},{"n":"Radłów","lat":50.08,"lng":20.85,"typ":"gmina","sieci":2},{"n":"Wietrzychowice","lat":50.19104,"lng":20.76308,"typ":"gmina","sieci":1},{"n":"Bolesław","lat":50.23,"lng":20.87,"typ":"gmina","sieci":1},{"n":"Olesno","lat":50.21,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Szczucin","lat":50.31,"lng":21.07,"typ":"gmina","sieci":2},{"n":"Radgoszcz","lat":50.20548,"lng":21.11102,"typ":"gmina","sieci":1},{"n":"Dąbrowa Tarn.","lat":50.17,"lng":20.98,"typ":"gmina","sieci":4},{"n":"Skrzyszów","lat":49.99604,"lng":21.05464,"typ":"gmina","sieci":1},{"n":"Pleśna","lat":49.93,"lng":20.94,"typ":"gmina","sieci":2},{"n":"Tarnów Opol.","lat":49.95,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Ciężkowice","lat":49.78,"lng":20.97,"typ":"gmina","sieci":2},{"n":"Świątniki","lat":49.92,"lng":19.95,"typ":"gmina","sieci":2},{"n":"Mogilany","lat":49.94,"lng":19.9,"typ":"gmina","sieci":2},{"n":"Myślenice","lat":49.83,"lng":19.94,"typ":"gmina","sieci":4},{"n":"Kalwaria Z.","lat":49.85,"lng":19.68,"typ":"gmina","sieci":3},{"n":"Wadowice","lat":49.88,"lng":19.49,"typ":"gmina","sieci":4},{"n":"Andrychów","lat":49.86,"lng":19.34,"typ":"gmina","sieci":4},{"n":"Kęty","lat":49.88,"lng":19.22,"typ":"gmina","sieci":4},{"n":"Zator","lat":49.99,"lng":19.43,"typ":"gmina","sieci":2},{"n":"Brzeźnica","lat":49.98,"lng":19.63,"typ":"gmina","sieci":2},{"n":"Alwernia","lat":50.06,"lng":19.54,"typ":"gmina","sieci":2},{"n":"Wielka Wieś","lat":50.15,"lng":19.83,"typ":"gmina","sieci":2},{"n":"Iwanowice","lat":50.22567,"lng":19.96377,"typ":"gmina","sieci":1},{"n":"Trzebinia","lat":50.16,"lng":19.47,"typ":"gmina","sieci":3},{"n":"Chrzanów","lat":50.14,"lng":19.4,"typ":"gmina","sieci":3},{"n":"Libiąż","lat":50.1,"lng":19.32,"typ":"gmina","sieci":2},{"n":"Olkusz","lat":50.28,"lng":19.56,"typ":"gmina","sieci":3},{"n":"Bukowno","lat":50.27,"lng":19.46,"typ":"gmina","sieci":2},{"n":"Wolbrom","lat":50.38,"lng":19.76,"typ":"gmina","sieci":2},{"n":"Miechów","lat":50.36,"lng":20.03,"typ":"gmina","sieci":2},{"n":"Książ Wielki","lat":50.45,"lng":20.13,"typ":"gmina","sieci":1},{"n":"Charsznica","lat":50.42,"lng":19.93,"typ":"gmina","sieci":1},{"n":"Gołcza","lat":50.33572,"lng":19.92647,"typ":"gmina","sieci":1},{"n":"Skała","lat":50.22,"lng":19.86,"typ":"gmina","sieci":1},{"n":"Sułoszowa","lat":50.27085,"lng":19.72150,"typ":"gmina","sieci":1},{"n":"Jerzmanowice","lat":50.2,"lng":19.75,"typ":"gmina","sieci":1},{"n":"Chełmek","lat":50.1,"lng":19.25,"typ":"gmina","sieci":1},{"n":"Oświęcim","lat":50.04,"lng":19.22,"typ":"gmina","sieci":3},{"n":"Brzeszcze","lat":49.98,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Polanka W.","lat":49.99,"lng":19.35,"typ":"gmina","sieci":1},{"n":"Spytkowice","lat":49.99,"lng":19.53,"typ":"gmina","sieci":1},{"n":"Tomice","lat":49.90045,"lng":19.48514,"typ":"gmina","sieci":1},{"n":"Wieprz","lat":49.89913,"lng":19.36515,"typ":"gmina","sieci":1},{"n":"Stryszów","lat":49.82,"lng":19.6,"typ":"gmina","sieci":1},{"n":"Lanckorona","lat":49.85,"lng":19.72,"typ":"gmina","sieci":1},{"n":"Budzów","lat":49.78,"lng":19.7,"typ":"gmina","sieci":1},{"n":"Zembrzyce","lat":49.77377,"lng":19.60034,"typ":"gmina","sieci":1}],
+  "dolnośląskie": [{"n":"Kąty Wrocławskie","lat":51.03,"lng":16.77,"typ":"gmina","sieci":3},{"n":"Kobierzyce","lat":50.96,"lng":16.93,"typ":"gmina","sieci":3},{"n":"Żórawina","lat":50.98,"lng":17.04,"typ":"gmina","sieci":2},{"n":"Siechnice","lat":51.03,"lng":17.15,"typ":"gmina","sieci":3},{"n":"Długołęka","lat":51.17,"lng":17.18,"typ":"gmina","sieci":3},{"n":"Czernica","lat":51.06,"lng":17.25,"typ":"gmina","sieci":2},{"n":"Miękinia","lat":51.19051,"lng":16.73623,"typ":"gmina","sieci":2},{"n":"Sobótka","lat":50.90,"lng":16.74,"typ":"gmina","sieci":3},{"n":"Oborniki Śląskie","lat":51.30,"lng":16.91,"typ":"gmina","sieci":3},{"n":"Jelcz-Laskowice","lat":51.03,"lng":17.33,"typ":"gmina","sieci":3},{"n":"Brzeg Dolny","lat":51.26,"lng":16.72,"typ":"gmina","sieci":2},{"n":"Wołów","lat":51.34,"lng":16.64,"typ":"gmina","sieci":3},{"n":"Żmigród","lat":51.47,"lng":16.90,"typ":"gmina","sieci":3},{"n":"Prusice","lat":51.37,"lng":16.96,"typ":"gmina","sieci":2},{"n":"Milicz","lat":51.53,"lng":17.28,"typ":"gmina","sieci":3},{"n":"Twardogóra","lat":51.36,"lng":17.47,"typ":"gmina","sieci":2},{"n":"Bierutów","lat":51.12523,"lng":17.54408,"typ":"gmina","sieci":2},{"n":"Strzelin","lat":50.78,"lng":17.06,"typ":"gmina","sieci":4},{"n":"Wiązów","lat":50.81,"lng":17.20,"typ":"gmina","sieci":2},{"n":"Borów","lat":50.79,"lng":17.02,"typ":"gmina","sieci":1},{"n":"Kondratowice","lat":50.77,"lng":16.93,"typ":"gmina","sieci":1},{"n":"Jordanów Śląski","lat":50.86,"lng":16.87,"typ":"gmina","sieci":2},{"n":"Marcinowice","lat":50.95,"lng":16.53,"typ":"gmina","sieci":2},{"n":"Żarów","lat":50.94,"lng":16.50,"typ":"gmina","sieci":3},{"n":"Jaworzyna Śl.","lat":50.91,"lng":16.44,"typ":"gmina","sieci":2},{"n":"Strzegom","lat":50.96,"lng":16.35,"typ":"gmina","sieci":4},{"n":"Udanin","lat":51.03689,"lng":16.45383,"typ":"gmina","sieci":2},{"n":"Kostomłoty","lat":51.04617,"lng":16.61097,"typ":"gmina","sieci":2},{"n":"Ziębice","lat":50.60,"lng":17.04,"typ":"gmina","sieci":3},{"n":"Ząbkowice Śl.","lat":50.59,"lng":16.81,"typ":"gmina","sieci":4},{"n":"Ciepłowody","lat":50.67,"lng":16.90,"typ":"gmina","sieci":1},{"n":"Kamieniec Ząb.","lat":50.52,"lng":16.88,"typ":"gmina","sieci":2},{"n":"Przeworno","lat":50.68,"lng":17.15,"typ":"gmina","sieci":1},{"n":"Łagiewniki","lat":50.79,"lng":16.84,"typ":"gmina","sieci":2},{"n":"Niemcza","lat":50.72,"lng":16.83,"typ":"gmina","sieci":2},{"n":"Piława Górna","lat":50.68,"lng":16.74,"typ":"gmina","sieci":2},{"n":"Dzierżoniów","lat":50.73,"lng":16.65,"typ":"gmina","sieci":4},{"n":"Pieszyce","lat":50.71212,"lng":16.58084,"typ":"gmina","sieci":2},{"n":"Bielawa","lat":50.68,"lng":16.61,"typ":"gmina","sieci":3},{"n":"Stoszowice","lat":50.60,"lng":16.74,"typ":"gmina","sieci":1},{"n":"Złoty Stok","lat":50.44,"lng":16.87,"typ":"gmina","sieci":2},{"n":"Kąty Wr.","lat":51.03,"lng":16.77,"typ":"gmina","sieci":3},{"n":"Wisznia Mała","lat":51.25124,"lng":17.04698,"typ":"gmina","sieci":2},{"n":"Oborniki Śl.","lat":51.3,"lng":16.92,"typ":"gmina","sieci":3},{"n":"Trzebnica","lat":51.31,"lng":17.06,"typ":"gmina","sieci":4},{"n":"Środa Śl.","lat":51.16,"lng":16.6,"typ":"gmina","sieci":3},{"n":"Mietków","lat":50.97463,"lng":16.65056,"typ":"gmina","sieci":1},{"n":"Oleśnica","lat":51.21,"lng":17.38,"typ":"gmina","sieci":3},{"n":"Dobroszyce","lat":51.26530,"lng":17.34092,"typ":"gmina","sieci":1},{"n":"Syców","lat":51.3,"lng":17.72,"typ":"gmina","sieci":2},{"n":"Międzybórz","lat":51.39827,"lng":17.66556,"typ":"gmina","sieci":1},{"n":"Oława","lat":50.94,"lng":17.3,"typ":"gmina","sieci":3},{"n":"Jelcz","lat":51.02,"lng":17.32,"typ":"gmina","sieci":2},{"n":"Domaniów","lat":50.89409,"lng":17.13087,"typ":"gmina","sieci":1},{"n":"Bardo","lat":50.5,"lng":16.75,"typ":"gmina","sieci":1},{"n":"Kamieniec Z.","lat":50.52,"lng":16.88,"typ":"gmina","sieci":1}],
+  "pomorskie": [{"n":"Żukowo","lat":54.34,"lng":18.36,"typ":"gmina","sieci":3},{"n":"Skarszewy","lat":54.06,"lng":18.45,"typ":"gmina","sieci":2},{"n":"Rumia","lat":54.57,"lng":18.39,"typ":"gmina","sieci":4},{"n":"Reda","lat":54.60,"lng":18.35,"typ":"gmina","sieci":3},{"n":"Luzino","lat":54.56,"lng":18.10,"typ":"gmina","sieci":2},{"n":"Szemud","lat":54.49,"lng":18.22,"typ":"gmina","sieci":2},{"n":"Kosakowo","lat":54.59,"lng":18.48,"typ":"gmina","sieci":2},{"n":"Przodkowo","lat":54.38,"lng":18.26,"typ":"gmina","sieci":2},{"n":"Kolbudy","lat":54.27,"lng":18.46,"typ":"gmina","sieci":2},{"n":"Trąbki Wielkie","lat":54.17,"lng":18.54,"typ":"gmina","sieci":2},{"n":"Pszczółki","lat":54.17,"lng":18.70,"typ":"gmina","sieci":2},{"n":"Przywidz","lat":54.19,"lng":18.32,"typ":"gmina","sieci":2},{"n":"Somonino","lat":54.28,"lng":18.19,"typ":"gmina","sieci":2},{"n":"Stężyca","lat":54.21,"lng":17.96,"typ":"gmina","sieci":2},{"n":"Chmielno","lat":54.32,"lng":18.10,"typ":"gmina","sieci":2},{"n":"Sierakowice","lat":54.34,"lng":17.89,"typ":"gmina","sieci":3},{"n":"Sulęczyno","lat":54.23,"lng":17.77,"typ":"gmina","sieci":2},{"n":"Linia","lat":54.45142,"lng":17.93481,"typ":"gmina","sieci":2},{"n":"Krokowa","lat":54.78,"lng":18.16,"typ":"gmina","sieci":2},{"n":"Władysławowo","lat":54.79,"lng":18.40,"typ":"gmina","sieci":4},{"n":"Gniewino","lat":54.71,"lng":18.01,"typ":"gmina","sieci":2},{"n":"Łęczyce","lat":54.60,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Kartuzy","lat":54.33,"lng":18.19,"typ":"gmina","sieci":4},{"n":"Pruszcz Gdań.","lat":54.26,"lng":18.63,"typ":"gmina","sieci":4},{"n":"Puck","lat":54.71,"lng":18.40,"typ":"gmina","sieci":3},{"n":"Kępice","lat":54.24,"lng":16.88,"typ":"gmina","sieci":2},{"n":"Trzebielino","lat":54.20073,"lng":17.08790,"typ":"gmina","sieci":1},{"n":"Kołczygłowy","lat":54.24,"lng":17.23,"typ":"gmina","sieci":1},{"n":"Dębnica Kasz.","lat":54.26,"lng":17.16,"typ":"gmina","sieci":2},{"n":"Czarna Dąbr.","lat":54.35,"lng":17.56,"typ":"gmina","sieci":2},{"n":"Borzytuchom","lat":54.19,"lng":17.37,"typ":"gmina","sieci":1},{"n":"Tuchomie","lat":54.12,"lng":17.33,"typ":"gmina","sieci":1},{"n":"Lipnica","lat":54.00,"lng":17.40,"typ":"gmina","sieci":2},{"n":"Parchowo","lat":54.20,"lng":17.66,"typ":"gmina","sieci":2},{"n":"Studzienice","lat":54.09,"lng":17.57,"typ":"gmina","sieci":1},{"n":"Bytów","lat":54.17,"lng":17.49,"typ":"gmina","sieci":4},{"n":"Miastko","lat":54.00,"lng":16.98,"typ":"gmina","sieci":4},{"n":"Koczała","lat":53.90220,"lng":17.06621,"typ":"gmina","sieci":1},{"n":"Przechlewo","lat":53.80054,"lng":17.25323,"typ":"gmina","sieci":2},{"n":"Pruszcz Gd.","lat":54.26,"lng":18.63,"typ":"gmina","sieci":4},{"n":"Trąbki Wlk.","lat":54.19,"lng":18.62,"typ":"gmina","sieci":1},{"n":"Cedry Wlk.","lat":54.24,"lng":18.79,"typ":"gmina","sieci":1},{"n":"Suchy Dąb","lat":54.20664,"lng":18.76769,"typ":"gmina","sieci":1},{"n":"Tczew okolice","lat":54.09,"lng":18.78,"typ":"gmina","sieci":2},{"n":"Subkowy","lat":54.00239,"lng":18.76893,"typ":"gmina","sieci":1},{"n":"Gniew","lat":53.84,"lng":18.82,"typ":"gmina","sieci":2},{"n":"Starogard okolice","lat":53.96,"lng":18.53,"typ":"gmina","sieci":2},{"n":"Zblewo","lat":53.93,"lng":18.32,"typ":"gmina","sieci":1},{"n":"Kaliska","lat":53.90532,"lng":18.21804,"typ":"gmina","sieci":1},{"n":"Lubichowo","lat":53.86,"lng":18.42,"typ":"gmina","sieci":1},{"n":"Osieczna","lat":53.77127,"lng":18.20232,"typ":"gmina","sieci":1},{"n":"Czarna Woda","lat":53.84451,"lng":18.09995,"typ":"gmina","sieci":1},{"n":"Osiek","lat":53.79,"lng":18.35,"typ":"gmina","sieci":1},{"n":"Wejherowo","lat":54.6,"lng":18.24,"typ":"gmina","sieci":3},{"n":"Jastarnia","lat":54.7,"lng":18.68,"typ":"gmina","sieci":1},{"n":"Hel","lat":54.61,"lng":18.8,"typ":"gmina","sieci":1},{"n":"Choczewo","lat":54.74046,"lng":17.89163,"typ":"gmina","sieci":1},{"n":"Czarne","lat":53.68,"lng":16.93,"typ":"gmina","sieci":1},{"n":"Człuchów","lat":53.66,"lng":17.36,"typ":"gmina","sieci":3},{"n":"Debrzno","lat":53.54,"lng":17.24,"typ":"gmina","sieci":1}],
+  "lubelskie": [{"n":"Niemce","lat":51.35,"lng":22.63,"typ":"gmina","sieci":2},{"n":"Poniatowa","lat":51.17,"lng":22.06,"typ":"gmina","sieci":2},{"n":"Bychawa","lat":51.01,"lng":22.53,"typ":"gmina","sieci":2},{"n":"Bełżyce","lat":51.17,"lng":22.28,"typ":"gmina","sieci":2},{"n":"Niedrzwica D.","lat":51.11,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Piaski","lat":51.13,"lng":22.84,"typ":"gmina","sieci":2},{"n":"Nałęczów","lat":51.28,"lng":22.21,"typ":"gmina","sieci":2},{"n":"Garbów","lat":51.35,"lng":22.33,"typ":"gmina","sieci":2},{"n":"Jastków","lat":51.30,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Wąwolnica","lat":51.29,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Kurów","lat":51.39,"lng":22.18,"typ":"gmina","sieci":2},{"n":"Końskowola","lat":51.41,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Kock","lat":51.64,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Kamionka","lat":51.47,"lng":22.46,"typ":"gmina","sieci":2},{"n":"Firlej","lat":51.55,"lng":22.50,"typ":"gmina","sieci":2},{"n":"Spiczyn","lat":51.34174,"lng":22.75342,"typ":"gmina","sieci":2},{"n":"Milejów","lat":51.22,"lng":22.92,"typ":"gmina","sieci":2},{"n":"Rybczewice","lat":51.06,"lng":22.86,"typ":"gmina","sieci":1},{"n":"Świdnik","lat":51.21,"lng":22.69,"typ":"gmina","sieci":4},{"n":"Łęczna","lat":51.30,"lng":22.88,"typ":"gmina","sieci":3},{"n":"Lubartów","lat":51.46,"lng":22.60,"typ":"gmina","sieci":4},{"n":"Urzędów","lat":50.99,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Zakrzówek","lat":50.95123,"lng":22.38029,"typ":"gmina","sieci":1},{"n":"Batorz","lat":50.84928,"lng":22.49307,"typ":"gmina","sieci":1},{"n":"Chodel","lat":51.11,"lng":22.13,"typ":"gmina","sieci":2},{"n":"Opole Lub.","lat":51.14,"lng":21.97,"typ":"gmina","sieci":3},{"n":"Karczmiska","lat":51.22,"lng":22.01,"typ":"gmina","sieci":2},{"n":"Wojciechów","lat":51.23,"lng":22.03,"typ":"gmina","sieci":1},{"n":"Puławy","lat":51.41,"lng":21.96,"typ":"gmina","sieci":5},{"n":"Gołąb","lat":51.35,"lng":22.33,"typ":"gmina","sieci":1},{"n":"Markuszów","lat":51.37,"lng":22.26,"typ":"gmina","sieci":1},{"n":"Baranów","lat":51.55,"lng":22.13,"typ":"gmina","sieci":2},{"n":"Michów","lat":51.52,"lng":22.31,"typ":"gmina","sieci":2},{"n":"Jeziorzany","lat":51.59,"lng":22.27,"typ":"gmina","sieci":1},{"n":"Abramów","lat":51.46,"lng":22.31,"typ":"gmina","sieci":1},{"n":"Ryki","lat":51.62,"lng":21.93,"typ":"gmina","sieci":3},{"n":"Dęblin","lat":51.56,"lng":21.84,"typ":"gmina","sieci":3},{"n":"Stężyca","lat":51.58033,"lng":21.77666,"typ":"gmina","sieci":2},{"n":"Mełgiew","lat":51.23085,"lng":22.78056,"typ":"gmina","sieci":2},{"n":"Wólka","lat":51.24,"lng":22.66,"typ":"gmina","sieci":2},{"n":"Konopnica","lat":51.22,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Głusk","lat":51.18858,"lng":22.63002,"typ":"gmina","sieci":2},{"n":"Strzyżewice","lat":51.05207,"lng":22.44602,"typ":"gmina","sieci":1},{"n":"Krzczonów","lat":51.00704,"lng":22.71056,"typ":"gmina","sieci":1},{"n":"Borzechów","lat":51.1,"lng":22.3,"typ":"gmina","sieci":1},{"n":"Lubartów okolice","lat":51.46,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Kraśnik","lat":50.92,"lng":22.22,"typ":"gmina","sieci":3},{"n":"Annopol","lat":50.88,"lng":21.85,"typ":"gmina","sieci":1},{"n":"Modliborzyce","lat":50.75,"lng":22.33,"typ":"gmina","sieci":1},{"n":"Janów Lub.","lat":50.71,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Frampol","lat":50.67,"lng":22.67,"typ":"gmina","sieci":1},{"n":"Goraj","lat":50.72,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Turobin","lat":50.83,"lng":22.74,"typ":"gmina","sieci":1},{"n":"Szczebrzeszyn","lat":50.7,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Zwierzyniec","lat":50.61,"lng":22.97,"typ":"gmina","sieci":1},{"n":"Józefów","lat":50.48,"lng":23.05,"typ":"gmina","sieci":1},{"n":"Krasnobród","lat":50.55,"lng":23.21,"typ":"gmina","sieci":1},{"n":"Tomaszów Lub.","lat":50.45,"lng":23.42,"typ":"gmina","sieci":3},{"n":"Tarnawatka","lat":50.53,"lng":23.4,"typ":"gmina","sieci":1},{"n":"Łaszczów","lat":50.53,"lng":23.72,"typ":"gmina","sieci":1},{"n":"Tyszowce","lat":50.62,"lng":23.7,"typ":"gmina","sieci":1},{"n":"Komarów","lat":50.65,"lng":23.45,"typ":"gmina","sieci":1},{"n":"Zamość okolice","lat":50.72,"lng":23.25,"typ":"gmina","sieci":3},{"n":"Sitno","lat":50.68,"lng":23.38,"typ":"gmina","sieci":1},{"n":"Skierbieszów","lat":50.85153,"lng":23.36520,"typ":"gmina","sieci":1},{"n":"Izbica","lat":50.88,"lng":23.16,"typ":"gmina","sieci":1},{"n":"Krasnystaw","lat":50.98,"lng":23.17,"typ":"gmina","sieci":3},{"n":"Fajsławice","lat":51.09515,"lng":22.96307,"typ":"gmina","sieci":1},{"n":"Łopiennik Górny","lat":51.03810,"lng":23.01748,"typ":"gmina","sieci":1},{"n":"Siennica Róż.","lat":51.07,"lng":23.25,"typ":"gmina","sieci":1},{"n":"Stoczek Łukowski","lat":51.96165,"lng":21.96874,"typ":"gmina","sieci":2}],
+  "kujawsko-pomorskie": [{"n":"Solec Kujawski","lat":53.08,"lng":18.22,"typ":"gmina","sieci":3},{"n":"Koronowo","lat":53.31,"lng":17.93,"typ":"gmina","sieci":3},{"n":"Chełmża","lat":53.18,"lng":18.60,"typ":"gmina","sieci":3},{"n":"Szubin","lat":53.00,"lng":17.74,"typ":"gmina","sieci":3},{"n":"Barcin","lat":52.85,"lng":17.95,"typ":"gmina","sieci":2},{"n":"Łabiszyn","lat":52.95,"lng":17.91,"typ":"gmina","sieci":2},{"n":"Złotniki Kuj.","lat":52.89,"lng":18.14,"typ":"gmina","sieci":2},{"n":"Pakość","lat":52.80,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Ciechocinek","lat":52.88,"lng":18.79,"typ":"gmina","sieci":3},{"n":"Gniewkowo","lat":52.89,"lng":18.41,"typ":"gmina","sieci":2},{"n":"Janikowo","lat":52.75,"lng":18.11,"typ":"gmina","sieci":2},{"n":"Kruszwica","lat":52.68,"lng":18.32,"typ":"gmina","sieci":3},{"n":"Strzelno","lat":52.63,"lng":18.17,"typ":"gmina","sieci":2},{"n":"Radziejów","lat":52.62,"lng":18.52,"typ":"gmina","sieci":3},{"n":"Piotrków Kuj.","lat":52.55,"lng":18.49,"typ":"gmina","sieci":2},{"n":"Zakrzewo","lat":52.76,"lng":18.63,"typ":"gmina","sieci":1},{"n":"Koneck","lat":52.78,"lng":18.71,"typ":"gmina","sieci":1},{"n":"Aleksandrów Kuj.","lat":52.87,"lng":18.70,"typ":"gmina","sieci":3},{"n":"Raciążek","lat":52.85759,"lng":18.80815,"typ":"gmina","sieci":2},{"n":"Lubanie","lat":52.74748,"lng":18.92003,"typ":"gmina","sieci":2},{"n":"Waganiec","lat":52.80,"lng":18.85,"typ":"gmina","sieci":1},{"n":"Skępe","lat":52.86,"lng":19.34,"typ":"gmina","sieci":2},{"n":"Tłuchowo","lat":52.74,"lng":19.46,"typ":"gmina","sieci":2},{"n":"Dobrzyń n. Wisłą","lat":52.63,"lng":19.32,"typ":"gmina","sieci":2},{"n":"Nakło n. Notecią","lat":53.14,"lng":17.60,"typ":"gmina","sieci":3},{"n":"Sadki","lat":53.15,"lng":17.44,"typ":"gmina","sieci":2},{"n":"Mrocza","lat":53.24,"lng":17.60,"typ":"gmina","sieci":2},{"n":"Kcynia","lat":52.99165,"lng":17.48835,"typ":"gmina","sieci":2},{"n":"Sicienko","lat":53.20,"lng":17.81,"typ":"gmina","sieci":1},{"n":"Witosław","lat":53.24008,"lng":17.48645,"typ":"gmina","sieci":1},{"n":"Śmielin","lat":53.15025,"lng":17.48696,"typ":"gmina","sieci":1},{"n":"Dziewierzewo","lat":52.94627,"lng":17.52253,"typ":"gmina","sieci":1},{"n":"Żnin","lat":52.84927,"lng":17.72077,"typ":"gmina","sieci":3},{"n":"Janowiec Wlkp.","lat":52.75,"lng":17.49,"typ":"gmina","sieci":2},{"n":"Rogowo","lat":52.72,"lng":17.64,"typ":"gmina","sieci":2},{"n":"Gąsawa","lat":52.76,"lng":17.74,"typ":"gmina","sieci":2},{"n":"Solec Kuj.","lat":53.08,"lng":18.22,"typ":"gmina","sieci":3},{"n":"Białe Błota","lat":53.08,"lng":17.93,"typ":"gmina","sieci":2},{"n":"Nowa Wieś Wlk.","lat":53.14,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Osielsko","lat":53.18,"lng":18.05,"typ":"gmina","sieci":2},{"n":"Dobrcz","lat":53.26540,"lng":18.14645,"typ":"gmina","sieci":1},{"n":"Dąbrowa Chełm.","lat":53.13,"lng":18.42,"typ":"gmina","sieci":1},{"n":"Unisław","lat":53.20991,"lng":18.38240,"typ":"gmina","sieci":1},{"n":"Kowalewo Pom.","lat":53.17,"lng":18.86,"typ":"gmina","sieci":2},{"n":"Łysomice","lat":53.09,"lng":18.63,"typ":"gmina","sieci":1},{"n":"Lubicz","lat":53.03221,"lng":18.74987,"typ":"gmina","sieci":2},{"n":"Obrowo","lat":52.96,"lng":18.87,"typ":"gmina","sieci":1},{"n":"Czernikowo","lat":52.94,"lng":18.92,"typ":"gmina","sieci":1},{"n":"Wielka Nieszawka","lat":53.0,"lng":18.5,"typ":"gmina","sieci":1},{"n":"Zławieś Wlk.","lat":53.08,"lng":18.42,"typ":"gmina","sieci":1},{"n":"Nakło","lat":53.14,"lng":17.6,"typ":"gmina","sieci":3},{"n":"Więcbork","lat":53.35,"lng":17.51,"typ":"gmina","sieci":1},{"n":"Sępólno Kr.","lat":53.45,"lng":17.53,"typ":"gmina","sieci":2},{"n":"Tuchola","lat":53.59,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Śliwice","lat":53.7,"lng":18.19,"typ":"gmina","sieci":1},{"n":"Cekcyn","lat":53.57295,"lng":18.01018,"typ":"gmina","sieci":1},{"n":"Kęsowo","lat":53.55791,"lng":17.71466,"typ":"gmina","sieci":1},{"n":"Gostycyn","lat":53.48988,"lng":17.80968,"typ":"gmina","sieci":1},{"n":"Świecie","lat":53.41,"lng":18.44,"typ":"gmina","sieci":3},{"n":"Nowe","lat":53.65,"lng":18.73,"typ":"gmina","sieci":1},{"n":"Warlubie","lat":53.58763,"lng":18.62997,"typ":"gmina","sieci":1},{"n":"Jeżewo","lat":53.51,"lng":18.55,"typ":"gmina","sieci":1},{"n":"Bukowiec","lat":53.44,"lng":18.34,"typ":"gmina","sieci":1},{"n":"Pruszcz","lat":53.36,"lng":18.32,"typ":"gmina","sieci":1},{"n":"Świekatowo","lat":53.41912,"lng":18.09102,"typ":"gmina","sieci":1},{"n":"Lniano","lat":53.52798,"lng":18.21455,"typ":"gmina","sieci":1},{"n":"Drzycim","lat":53.51353,"lng":18.31649,"typ":"gmina","sieci":1},{"n":"Grudziądz","lat":53.48,"lng":18.75,"typ":"gmina","sieci":4},{"n":"Łasin","lat":53.52,"lng":19.09,"typ":"gmina","sieci":1},{"n":"Radzyń Chełm.","lat":53.38,"lng":18.93,"typ":"gmina","sieci":1},{"n":"Gruta","lat":53.46,"lng":18.98,"typ":"gmina","sieci":1},{"n":"Rogóźno","lat":53.53561,"lng":18.92870,"typ":"gmina","sieci":1},{"n":"Świecie nad Osą","lat":53.44401,"lng":19.10279,"typ":"gmina","sieci":1}],
+  "zachodniopomorskie": [{"n":"Chojna","lat":52.96,"lng":14.42,"typ":"gmina","sieci":2},{"n":"Nowogard","lat":53.66,"lng":15.11,"typ":"gmina","sieci":3},{"n":"Maszewo","lat":53.49,"lng":15.05,"typ":"gmina","sieci":2},{"n":"Stepnica","lat":53.65,"lng":14.62,"typ":"gmina","sieci":2},{"n":"Wolin","lat":53.84,"lng":14.61,"typ":"gmina","sieci":3},{"n":"Międzyzdroje","lat":53.92,"lng":14.44,"typ":"gmina","sieci":3},{"n":"Kołbaskowo","lat":53.33,"lng":14.43,"typ":"gmina","sieci":2},{"n":"Nowe Warpno","lat":53.72,"lng":14.28,"typ":"gmina","sieci":1},{"n":"Banie","lat":53.10,"lng":14.66,"typ":"gmina","sieci":2},{"n":"Widuchowa","lat":53.12,"lng":14.38,"typ":"gmina","sieci":2},{"n":"Cedynia","lat":52.88,"lng":14.20,"typ":"gmina","sieci":2},{"n":"Mieszkowice","lat":52.78,"lng":14.49,"typ":"gmina","sieci":2},{"n":"Moryń","lat":52.85,"lng":14.39,"typ":"gmina","sieci":2},{"n":"Trzcińsko-Zdrój","lat":52.96,"lng":14.61,"typ":"gmina","sieci":2},{"n":"Kozielice","lat":53.07,"lng":14.80,"typ":"gmina","sieci":1},{"n":"Warnice","lat":53.25,"lng":14.99,"typ":"gmina","sieci":1},{"n":"Bielice","lat":53.16,"lng":14.65,"typ":"gmina","sieci":2},{"n":"Przelewice","lat":53.10,"lng":15.08,"typ":"gmina","sieci":2},{"n":"Stare Czarnowo","lat":53.27,"lng":14.77,"typ":"gmina","sieci":2},{"n":"Kobylanka","lat":53.34,"lng":14.88,"typ":"gmina","sieci":2},{"n":"Stara Dąbrowa","lat":53.42133,"lng":15.14300,"typ":"gmina","sieci":1},{"n":"Dziwnów","lat":54.02478,"lng":14.75330,"typ":"gmina","sieci":3},{"n":"Kamień Pomorski","lat":53.97,"lng":14.76,"typ":"gmina","sieci":3},{"n":"Świerzno","lat":53.96515,"lng":14.96612,"typ":"gmina","sieci":1},{"n":"Gryfice","lat":53.91,"lng":15.19,"typ":"gmina","sieci":4},{"n":"Karnice","lat":54.02,"lng":15.02,"typ":"gmina","sieci":1},{"n":"Rewal","lat":54.08,"lng":15.01,"typ":"gmina","sieci":3},{"n":"Trzebiatów","lat":54.06,"lng":15.26,"typ":"gmina","sieci":3},{"n":"Brojce","lat":53.95747,"lng":15.35110,"typ":"gmina","sieci":1},{"n":"Płoty","lat":53.80316,"lng":15.26728,"typ":"gmina","sieci":2},{"n":"Resko","lat":53.77302,"lng":15.40611,"typ":"gmina","sieci":2},{"n":"Radowo Małe","lat":53.66567,"lng":15.44744,"typ":"gmina","sieci":1},{"n":"Węgorzyno","lat":53.54,"lng":15.55,"typ":"gmina","sieci":2},{"n":"Dobra","lat":53.58,"lng":15.30,"typ":"gmina","sieci":2},{"n":"Marianowo","lat":53.38252,"lng":15.26720,"typ":"gmina","sieci":1},{"n":"Suchań","lat":53.27,"lng":15.32,"typ":"gmina","sieci":1},{"n":"Dobrzany","lat":53.35,"lng":15.42,"typ":"gmina","sieci":2},{"n":"Chociwel","lat":53.46688,"lng":15.33348,"typ":"gmina","sieci":2},{"n":"Dobra Szcz.","lat":53.46,"lng":14.44,"typ":"gmina","sieci":2},{"n":"Police","lat":53.55,"lng":14.57,"typ":"gmina","sieci":4},{"n":"Goleniów","lat":53.56,"lng":14.83,"typ":"gmina","sieci":4},{"n":"Gryfino","lat":53.25,"lng":14.49,"typ":"gmina","sieci":3},{"n":"Stargard okolice","lat":53.34,"lng":15.05,"typ":"gmina","sieci":2},{"n":"Pyrzyce","lat":53.15,"lng":14.89,"typ":"gmina","sieci":3},{"n":"Lipiany","lat":53.01,"lng":14.97,"typ":"gmina","sieci":1},{"n":"Barlinek","lat":52.99,"lng":15.22,"typ":"gmina","sieci":3},{"n":"Myślibórz","lat":52.92,"lng":14.87,"typ":"gmina","sieci":3},{"n":"Dębno","lat":52.74,"lng":14.7,"typ":"gmina","sieci":3},{"n":"Boleszkowice","lat":52.72,"lng":14.57,"typ":"gmina","sieci":1},{"n":"Świnoujście","lat":53.91,"lng":14.25,"typ":"gmina","sieci":3},{"n":"Kamień Pom.","lat":53.97,"lng":14.77,"typ":"gmina","sieci":2},{"n":"Golczewo","lat":53.82,"lng":14.98,"typ":"gmina","sieci":1},{"n":"Świdwin","lat":53.77,"lng":15.78,"typ":"gmina","sieci":2},{"n":"Połczyn-Zdrój","lat":53.76,"lng":16.1,"typ":"gmina","sieci":2},{"n":"Białogard","lat":54.01,"lng":15.99,"typ":"gmina","sieci":3},{"n":"Karlino","lat":54.04,"lng":15.87,"typ":"gmina","sieci":1},{"n":"Tychowo","lat":53.9,"lng":16.25,"typ":"gmina","sieci":1},{"n":"Szczecinek","lat":53.71,"lng":16.7,"typ":"gmina","sieci":3},{"n":"Borne Sulinowo","lat":53.58,"lng":16.53,"typ":"gmina","sieci":1},{"n":"Barwice","lat":53.75,"lng":16.35,"typ":"gmina","sieci":1},{"n":"Grzmiąca","lat":53.83,"lng":16.42,"typ":"gmina","sieci":1},{"n":"Czaplinek","lat":53.55,"lng":16.23,"typ":"gmina","sieci":2},{"n":"Drawsko Pom.","lat":53.53,"lng":15.81,"typ":"gmina","sieci":2},{"n":"Złocieniec","lat":53.53,"lng":16.01,"typ":"gmina","sieci":2},{"n":"Kalisz Pom.","lat":53.3,"lng":15.9,"typ":"gmina","sieci":1},{"n":"Wałcz","lat":53.27,"lng":16.47,"typ":"gmina","sieci":3},{"n":"Mirosławiec","lat":53.35,"lng":16.09,"typ":"gmina","sieci":1}],
+  "świętokrzyskie": [{"n":"Chęciny","lat":50.79,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Morawica","lat":50.75,"lng":20.61,"typ":"gmina","sieci":2},{"n":"Suchedniów","lat":51.04,"lng":20.83,"typ":"gmina","sieci":2},{"n":"Piekoszów","lat":50.88,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Daleszyce","lat":50.80,"lng":20.80,"typ":"gmina","sieci":2},{"n":"Górno","lat":50.84882,"lng":20.82202,"typ":"gmina","sieci":1},{"n":"Masłów","lat":50.90374,"lng":20.72767,"typ":"gmina","sieci":1},{"n":"Zagnańsk","lat":50.98,"lng":20.66,"typ":"gmina","sieci":2},{"n":"Bodzentyn","lat":50.94,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Miedziana Góra","lat":50.94,"lng":20.58,"typ":"gmina","sieci":2},{"n":"Strawczyn","lat":50.93,"lng":20.42,"typ":"gmina","sieci":2},{"n":"Łopuszno","lat":50.94862,"lng":20.25060,"typ":"gmina","sieci":2},{"n":"Sobków","lat":50.69,"lng":20.46,"typ":"gmina","sieci":2},{"n":"Małogoszcz","lat":50.81,"lng":20.26,"typ":"gmina","sieci":2},{"n":"Mniów","lat":51.02,"lng":20.48,"typ":"gmina","sieci":2},{"n":"Smyków","lat":51.05,"lng":20.40,"typ":"gmina","sieci":1},{"n":"Stąporków","lat":51.14,"lng":20.55,"typ":"gmina","sieci":3},{"n":"Bliżyn","lat":51.10,"lng":20.76,"typ":"gmina","sieci":2},{"n":"Wąchock","lat":51.07,"lng":21.01,"typ":"gmina","sieci":2},{"n":"Bieliny","lat":50.84,"lng":20.94,"typ":"gmina","sieci":2},{"n":"Łagów","lat":50.77,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Raków","lat":50.67,"lng":21.04,"typ":"gmina","sieci":2},{"n":"Nowa Słupia","lat":50.86,"lng":21.08,"typ":"gmina","sieci":2},{"n":"Krasocin","lat":50.88972,"lng":20.11742,"typ":"gmina","sieci":2},{"n":"Ruda Maleniecka","lat":51.14688,"lng":20.22112,"typ":"gmina","sieci":1},{"n":"Fałków","lat":51.13473,"lng":20.10063,"typ":"gmina","sieci":1},{"n":"Gowarczów","lat":51.27839,"lng":20.43802,"typ":"gmina","sieci":2},{"n":"Słupia Konecka","lat":51.00,"lng":20.00,"typ":"gmina","sieci":1},{"n":"Secemin","lat":50.76815,"lng":19.83725,"typ":"gmina","sieci":2},{"n":"Radków","lat":50.71,"lng":19.98,"typ":"gmina","sieci":1},{"n":"Moskorzew","lat":50.64639,"lng":19.93065,"typ":"gmina","sieci":1},{"n":"Słupia","lat":50.61,"lng":20.01,"typ":"gmina","sieci":2},{"n":"Kluczewsko","lat":50.92712,"lng":19.91917,"typ":"gmina","sieci":2},{"n":"Włoszczowa","lat":50.85,"lng":19.96,"typ":"gmina","sieci":3},{"n":"Złotniki","lat":50.74989,"lng":20.25037,"typ":"gmina","sieci":1},{"n":"Nowy Korczyn","lat":50.31,"lng":20.80,"typ":"gmina","sieci":2},{"n":"Wiślica","lat":50.34,"lng":20.67,"typ":"gmina","sieci":2},{"n":"Opatowiec","lat":50.24,"lng":20.72,"typ":"gmina","sieci":1},{"n":"Solec-Zdrój","lat":50.36659,"lng":20.88693,"typ":"gmina","sieci":2},{"n":"Sitkówka","lat":50.81114,"lng":20.55493,"typ":"gmina","sieci":2},{"n":"Pierzchnica","lat":50.69738,"lng":20.75381,"typ":"gmina","sieci":1},{"n":"Busko-Zdrój","lat":50.47,"lng":20.72,"typ":"gmina","sieci":4},{"n":"Stopnica","lat":50.45,"lng":20.94,"typ":"gmina","sieci":1},{"n":"Jędrzejów","lat":50.64,"lng":20.3,"typ":"gmina","sieci":3},{"n":"Sędziszów","lat":50.57,"lng":20.06,"typ":"gmina","sieci":2},{"n":"Końskie","lat":51.19,"lng":20.41,"typ":"gmina","sieci":3},{"n":"Radoszyce","lat":51.07,"lng":20.25,"typ":"gmina","sieci":1},{"n":"Skarżysko","lat":51.11,"lng":20.87,"typ":"gmina","sieci":3},{"n":"Ostrowiec Św.","lat":50.93,"lng":21.39,"typ":"gmina","sieci":4},{"n":"Kunów","lat":50.95473,"lng":21.27937,"typ":"gmina","sieci":1},{"n":"Ćmielów","lat":50.9,"lng":21.51,"typ":"gmina","sieci":1},{"n":"Bodzechów","lat":50.90888,"lng":21.43933,"typ":"gmina","sieci":1},{"n":"Waśniów","lat":50.89924,"lng":21.22317,"typ":"gmina","sieci":1},{"n":"Ożarów","lat":50.88,"lng":21.66,"typ":"gmina","sieci":1},{"n":"Sandomierz","lat":50.68,"lng":21.75,"typ":"gmina","sieci":3},{"n":"Zawichost","lat":50.8,"lng":21.85,"typ":"gmina","sieci":1},{"n":"Klimontów","lat":50.68,"lng":21.42,"typ":"gmina","sieci":1},{"n":"Koprzywnica","lat":50.61,"lng":21.58,"typ":"gmina","sieci":1},{"n":"Łoniów","lat":50.56,"lng":21.55,"typ":"gmina","sieci":1}],
+  "podkarpackie": [{"n":"Boguchwała","lat":49.98,"lng":21.93,"typ":"gmina","sieci":3},{"n":"Głogów Młp.","lat":50.15,"lng":21.96,"typ":"gmina","sieci":3},{"n":"Tyczyn","lat":49.96,"lng":22.02,"typ":"gmina","sieci":2},{"n":"Trzebownisko","lat":50.08,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Sędziszów Młp.","lat":50.07,"lng":21.70,"typ":"gmina","sieci":3},{"n":"Dynów","lat":49.82,"lng":22.23,"typ":"gmina","sieci":2},{"n":"Czudec","lat":49.94,"lng":21.83,"typ":"gmina","sieci":2},{"n":"Świlcza","lat":50.06,"lng":21.91,"typ":"gmina","sieci":2},{"n":"Krasne","lat":50.04,"lng":22.06,"typ":"gmina","sieci":2},{"n":"Chmielnik","lat":49.98351,"lng":22.11606,"typ":"gmina","sieci":2},{"n":"Błażowa","lat":49.88,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Niebylec","lat":49.85,"lng":21.89,"typ":"gmina","sieci":2},{"n":"Wiśniowa","lat":49.87,"lng":21.65,"typ":"gmina","sieci":2},{"n":"Wielopole Skrzyńskie","lat":49.94613,"lng":21.61513,"typ":"gmina","sieci":2},{"n":"Iwierzyce","lat":50.03,"lng":21.78,"typ":"gmina","sieci":2},{"n":"Sokołów Młp.","lat":50.23,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Raniżów","lat":50.26,"lng":21.98,"typ":"gmina","sieci":1},{"n":"Dzikowiec","lat":50.27,"lng":21.84,"typ":"gmina","sieci":1},{"n":"Kolbuszowa","lat":50.24,"lng":21.76,"typ":"gmina","sieci":4},{"n":"Niwiska","lat":50.22415,"lng":21.63911,"typ":"gmina","sieci":1},{"n":"Majdan Król.","lat":50.36,"lng":21.76,"typ":"gmina","sieci":2},{"n":"Cmolas","lat":50.29504,"lng":21.74464,"typ":"gmina","sieci":1},{"n":"Tuszów Nar.","lat":50.37,"lng":21.46,"typ":"gmina","sieci":2},{"n":"Mielec","lat":50.28,"lng":21.42,"typ":"gmina","sieci":5},{"n":"Przecław","lat":50.19,"lng":21.48,"typ":"gmina","sieci":2},{"n":"Radomyśl Wlk.","lat":50.19,"lng":21.27,"typ":"gmina","sieci":3},{"n":"Wadowice G.","lat":50.20,"lng":21.24,"typ":"gmina","sieci":1},{"n":"Żyraków","lat":50.08554,"lng":21.39596,"typ":"gmina","sieci":2},{"n":"Czarna","lat":50.06,"lng":21.24,"typ":"gmina","sieci":2},{"n":"Pilzno","lat":49.97,"lng":21.29,"typ":"gmina","sieci":2},{"n":"Jodłowa","lat":49.88,"lng":21.29,"typ":"gmina","sieci":2},{"n":"Brzostek","lat":49.87912,"lng":21.41165,"typ":"gmina","sieci":2},{"n":"Frysztak","lat":49.83,"lng":21.61,"typ":"gmina","sieci":2},{"n":"Kołaczyce","lat":49.81,"lng":21.43,"typ":"gmina","sieci":2},{"n":"Brzyska","lat":49.82176,"lng":21.38856,"typ":"gmina","sieci":1},{"n":"Jasło","lat":49.74,"lng":21.47,"typ":"gmina","sieci":4},{"n":"Hyżne","lat":49.92093,"lng":22.17192,"typ":"gmina","sieci":1},{"n":"Kańczuga","lat":49.99,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Pruchnik","lat":49.9,"lng":22.51,"typ":"gmina","sieci":1},{"n":"Roźwienica","lat":49.95257,"lng":22.59427,"typ":"gmina","sieci":1},{"n":"Jawornik Polski","lat":49.88909,"lng":22.28578,"typ":"gmina","sieci":1},{"n":"Kamień","lat":50.32914,"lng":22.13831,"typ":"gmina","sieci":1},{"n":"Łańcut","lat":50.07,"lng":22.23,"typ":"gmina","sieci":3},{"n":"Leżajsk","lat":50.26,"lng":22.42,"typ":"gmina","sieci":3},{"n":"Nowa Sarzyna","lat":50.32,"lng":22.32,"typ":"gmina","sieci":1},{"n":"Nisko","lat":50.52,"lng":22.14,"typ":"gmina","sieci":3},{"n":"Stalowa Wola","lat":50.58,"lng":22.05,"typ":"gmina","sieci":4},{"n":"Rudnik nad Sanem","lat":50.44160,"lng":22.24656,"typ":"gmina","sieci":1},{"n":"Ulanów","lat":50.49,"lng":22.27,"typ":"gmina","sieci":1},{"n":"Krzeszów","lat":50.42,"lng":22.34,"typ":"gmina","sieci":1},{"n":"Tarnobrzeg","lat":50.57,"lng":21.68,"typ":"gmina","sieci":3},{"n":"Baranów Sand.","lat":50.5,"lng":21.53,"typ":"gmina","sieci":1},{"n":"Nowa Dęba","lat":50.41637,"lng":21.75027,"typ":"gmina","sieci":2},{"n":"Majdan Kr.","lat":50.36,"lng":21.9,"typ":"gmina","sieci":1},{"n":"Ropczyce","lat":50.05,"lng":21.61,"typ":"gmina","sieci":3},{"n":"Dębica","lat":50.05,"lng":21.41,"typ":"gmina","sieci":3},{"n":"Strzyżów","lat":49.87,"lng":21.79,"typ":"gmina","sieci":2},{"n":"Zaklików","lat":50.75589,"lng":22.10196,"typ":"gmina","sieci":1}],
+  "podlaskie": [{"n":"Choroszcz","lat":53.14,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Wasilków","lat":53.20,"lng":23.20,"typ":"gmina","sieci":3},{"n":"Supraśl","lat":53.21,"lng":23.33,"typ":"gmina","sieci":2},{"n":"Czarna Białost.","lat":53.30,"lng":23.28,"typ":"gmina","sieci":2},{"n":"Zabłudów","lat":53.01,"lng":23.34,"typ":"gmina","sieci":2},{"n":"Łapy","lat":52.99,"lng":22.88,"typ":"gmina","sieci":3},{"n":"Michałowo","lat":53.03,"lng":23.60,"typ":"gmina","sieci":2},{"n":"Juchnowiec Kośc.","lat":53.01,"lng":23.13,"typ":"gmina","sieci":2},{"n":"Dobrzyniewo Duże","lat":53.19930,"lng":23.01080,"typ":"gmina","sieci":2},{"n":"Turośń Kościelna","lat":53.01509,"lng":23.05491,"typ":"gmina","sieci":2},{"n":"Suraż","lat":52.95,"lng":22.95,"typ":"gmina","sieci":1},{"n":"Narew","lat":52.91,"lng":23.52,"typ":"gmina","sieci":2},{"n":"Narewka","lat":52.83,"lng":23.76,"typ":"gmina","sieci":2},{"n":"Czyże","lat":52.78,"lng":23.42,"typ":"gmina","sieci":1},{"n":"Krynki","lat":53.26,"lng":23.77,"typ":"gmina","sieci":2},{"n":"Janów","lat":53.47,"lng":23.22,"typ":"gmina","sieci":2},{"n":"Dąbrowa Białost.","lat":53.65,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Suchowola","lat":53.58,"lng":23.10,"typ":"gmina","sieci":2},{"n":"Korycin","lat":53.44,"lng":23.15,"typ":"gmina","sieci":2},{"n":"Jaświły","lat":53.48013,"lng":22.94809,"typ":"gmina","sieci":1},{"n":"Knyszyn","lat":53.31,"lng":22.92,"typ":"gmina","sieci":2},{"n":"Trzcianne","lat":53.34376,"lng":22.68158,"typ":"gmina","sieci":1},{"n":"Mońki","lat":53.40,"lng":22.79,"typ":"gmina","sieci":3},{"n":"Goniądz","lat":53.48,"lng":22.73,"typ":"gmina","sieci":2},{"n":"Krypno","lat":53.27,"lng":22.87,"typ":"gmina","sieci":1},{"n":"Sokółka","lat":53.40,"lng":23.49,"typ":"gmina","sieci":4},{"n":"Szudziałowo","lat":53.29,"lng":23.65,"typ":"gmina","sieci":1},{"n":"Kuznica","lat":53.50,"lng":23.64,"typ":"gmina","sieci":1},{"n":"Sidra","lat":53.54,"lng":23.46,"typ":"gmina","sieci":1},{"n":"Lipsk","lat":53.73,"lng":23.39,"typ":"gmina","sieci":2},{"n":"Sztabin","lat":53.68090,"lng":23.09802,"typ":"gmina","sieci":1},{"n":"Augustów","lat":53.84,"lng":22.97,"typ":"gmina","sieci":4},{"n":"Bargłów Kośc.","lat":53.76,"lng":22.82,"typ":"gmina","sieci":1},{"n":"Grajewo","lat":53.64,"lng":22.45,"typ":"gmina","sieci":4},{"n":"Szczuczyn","lat":53.56,"lng":22.28,"typ":"gmina","sieci":2},{"n":"Wąsosz","lat":53.52,"lng":22.31,"typ":"gmina","sieci":1},{"n":"Radziłów","lat":53.40975,"lng":22.40982,"typ":"gmina","sieci":1},{"n":"Zawady","lat":53.15,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Kobylin-Borzymy","lat":53.10,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Czarna Białostocka","lat":53.3,"lng":23.29,"typ":"gmina","sieci":2},{"n":"Turośń","lat":52.98,"lng":23.05,"typ":"gmina","sieci":1},{"n":"Juchnowiec","lat":53.06,"lng":23.24,"typ":"gmina","sieci":2},{"n":"Sokoły","lat":52.98,"lng":22.68,"typ":"gmina","sieci":1},{"n":"Wysokie Maz.","lat":52.92,"lng":22.51,"typ":"gmina","sieci":3},{"n":"Czyżew","lat":52.8,"lng":22.3,"typ":"gmina","sieci":2},{"n":"Szepietowo","lat":52.86,"lng":22.55,"typ":"gmina","sieci":2},{"n":"Ciechanowiec","lat":52.68,"lng":22.5,"typ":"gmina","sieci":2},{"n":"Brańsk","lat":52.74,"lng":22.84,"typ":"gmina","sieci":2},{"n":"Rajgród","lat":53.73,"lng":22.7,"typ":"gmina","sieci":1},{"n":"Dąbrowa Biał.","lat":53.65,"lng":23.35,"typ":"gmina","sieci":1},{"n":"Kuźnica","lat":53.51,"lng":23.65,"typ":"gmina","sieci":1},{"n":"Gródek","lat":53.1,"lng":23.66,"typ":"gmina","sieci":1},{"n":"Bielsk Podl.","lat":52.77,"lng":23.19,"typ":"gmina","sieci":3},{"n":"Boćki","lat":52.66,"lng":23.04,"typ":"gmina","sieci":1},{"n":"Orla","lat":52.71,"lng":23.33,"typ":"gmina","sieci":1},{"n":"Kleszczele","lat":52.58,"lng":23.32,"typ":"gmina","sieci":1},{"n":"Hajnówka","lat":52.74,"lng":23.58,"typ":"gmina","sieci":3},{"n":"Siemiatycze","lat":52.43,"lng":22.86,"typ":"gmina","sieci":3},{"n":"Drohiczyn","lat":52.4,"lng":22.66,"typ":"gmina","sieci":1},{"n":"Mielnik","lat":52.33,"lng":23.05,"typ":"gmina","sieci":1},{"n":"Nurzec","lat":52.44,"lng":23.06,"typ":"gmina","sieci":1},{"n":"Milejczyce","lat":52.53,"lng":23.13,"typ":"gmina","sieci":1},{"n":"Dziadkowice","lat":52.55,"lng":22.9,"typ":"gmina","sieci":1},{"n":"Grodzisk","lat":52.62,"lng":22.75,"typ":"gmina","sieci":1}],
+  "warmińsko-mazurskie": [{"n":"Barczewo","lat":53.82,"lng":20.69,"typ":"gmina","sieci":2},{"n":"Dobre Miasto","lat":53.98,"lng":20.39,"typ":"gmina","sieci":3},{"n":"Olsztynek","lat":53.58,"lng":20.28,"typ":"gmina","sieci":3},{"n":"Biskupiec","lat":53.86,"lng":20.95,"typ":"gmina","sieci":3},{"n":"Jeziorany","lat":53.97,"lng":20.74,"typ":"gmina","sieci":2},{"n":"Pasym","lat":53.65015,"lng":20.79148,"typ":"gmina","sieci":2},{"n":"Stawiguda","lat":53.66,"lng":20.39,"typ":"gmina","sieci":2},{"n":"Jonkowo","lat":53.83,"lng":20.31,"typ":"gmina","sieci":2},{"n":"Purda","lat":53.71,"lng":20.70,"typ":"gmina","sieci":2},{"n":"Morąg","lat":53.91,"lng":19.92,"typ":"gmina","sieci":3},{"n":"Gietrzwałd","lat":53.73,"lng":20.23,"typ":"gmina","sieci":2},{"n":"Dywity","lat":53.83,"lng":20.47,"typ":"gmina","sieci":2},{"n":"Świątki","lat":53.92,"lng":20.24,"typ":"gmina","sieci":2},{"n":"Lubomino","lat":54.06,"lng":20.24,"typ":"gmina","sieci":1},{"n":"Miłakowo","lat":54.00,"lng":20.07,"typ":"gmina","sieci":2},{"n":"Małdyty","lat":53.92,"lng":19.74,"typ":"gmina","sieci":2},{"n":"Miłomłyn","lat":53.76,"lng":19.84,"typ":"gmina","sieci":2},{"n":"Łukta","lat":53.80,"lng":20.08,"typ":"gmina","sieci":2},{"n":"Grunwald","lat":53.48,"lng":20.12,"typ":"gmina","sieci":1},{"n":"Kozłowo","lat":53.30,"lng":20.30,"typ":"gmina","sieci":1},{"n":"Janowiec Kośc.","lat":53.28,"lng":20.52,"typ":"gmina","sieci":1},{"n":"Jedwabno","lat":53.52871,"lng":20.72616,"typ":"gmina","sieci":2},{"n":"Dźwierzuty","lat":53.70,"lng":20.95,"typ":"gmina","sieci":2},{"n":"Działdowo","lat":53.23,"lng":20.18,"typ":"gmina","sieci":4},{"n":"Iłowo-Osada","lat":53.16,"lng":20.29,"typ":"gmina","sieci":2},{"n":"Nidzica","lat":53.36,"lng":20.42,"typ":"gmina","sieci":3},{"n":"Rybno","lat":53.38,"lng":19.98,"typ":"gmina","sieci":2},{"n":"Lidzbark","lat":53.26,"lng":19.82,"typ":"gmina","sieci":3},{"n":"Płośnica","lat":53.27256,"lng":20.01003,"typ":"gmina","sieci":1},{"n":"Kurzętnik","lat":53.39,"lng":19.58,"typ":"gmina","sieci":2},{"n":"Biskupiec Pom.","lat":53.48,"lng":19.33,"typ":"gmina","sieci":2},{"n":"Iława","lat":53.59,"lng":19.56,"typ":"gmina","sieci":4},{"n":"Kisielice","lat":53.60,"lng":19.26,"typ":"gmina","sieci":2},{"n":"Susz","lat":53.72,"lng":19.34,"typ":"gmina","sieci":2},{"n":"Zalewo","lat":53.84,"lng":19.60,"typ":"gmina","sieci":2},{"n":"Lubawa","lat":53.50271,"lng":19.74978,"typ":"gmina","sieci":3},{"n":"Nowe Miasto L.","lat":53.42,"lng":19.59,"typ":"gmina","sieci":3},{"n":"Grodziczno","lat":53.41440,"lng":19.76603,"typ":"gmina","sieci":1},{"n":"Kolno","lat":53.99699,"lng":20.99457,"typ":"gmina","sieci":1},{"n":"Reszel","lat":54.05,"lng":21.15,"typ":"gmina","sieci":2},{"n":"Bisztynek","lat":54.09,"lng":20.9,"typ":"gmina","sieci":2},{"n":"Lidzbark W.","lat":54.13,"lng":20.58,"typ":"gmina","sieci":3},{"n":"Orneta","lat":54.12,"lng":20.13,"typ":"gmina","sieci":2},{"n":"Ostróda","lat":53.7,"lng":19.97,"typ":"gmina","sieci":3},{"n":"Dąbrówno","lat":53.42,"lng":20.03,"typ":"gmina","sieci":1},{"n":"Janowo","lat":53.3,"lng":20.51,"typ":"gmina","sieci":1},{"n":"Pasłęk","lat":54.06,"lng":19.66,"typ":"gmina","sieci":2},{"n":"Młynary","lat":54.18,"lng":19.75,"typ":"gmina","sieci":1},{"n":"Godkowo","lat":54.07974,"lng":19.90426,"typ":"gmina","sieci":1},{"n":"Elbląg","lat":54.16,"lng":19.4,"typ":"gmina","sieci":4},{"n":"Tolkmicko","lat":54.32,"lng":19.53,"typ":"gmina","sieci":1},{"n":"Frombork","lat":54.36,"lng":19.68,"typ":"gmina","sieci":1},{"n":"Braniewo","lat":54.38,"lng":19.82,"typ":"gmina","sieci":3},{"n":"Pieniężno","lat":54.24,"lng":20.13,"typ":"gmina","sieci":1},{"n":"Górowo Iław.","lat":54.28,"lng":20.49,"typ":"gmina","sieci":1},{"n":"Bartoszyce","lat":54.25,"lng":20.81,"typ":"gmina","sieci":3},{"n":"Sępopol","lat":54.26808,"lng":21.01493,"typ":"gmina","sieci":1},{"n":"Korsze","lat":54.17,"lng":21.15,"typ":"gmina","sieci":1},{"n":"Kętrzyn","lat":54.08,"lng":21.38,"typ":"gmina","sieci":3},{"n":"Mrągowo","lat":53.87,"lng":21.3,"typ":"gmina","sieci":3}],
+  "opolskie": [{"n":"Ozimek","lat":50.67,"lng":18.21,"typ":"gmina","sieci":3},{"n":"Gogolin","lat":50.48,"lng":18.02,"typ":"gmina","sieci":2},{"n":"Zdzieszowice","lat":50.42,"lng":18.12,"typ":"gmina","sieci":2},{"n":"Grodków","lat":50.69850,"lng":17.38519,"typ":"gmina","sieci":3},{"n":"Prószków","lat":50.57,"lng":17.87,"typ":"gmina","sieci":2},{"n":"Niemodlin","lat":50.64,"lng":17.62,"typ":"gmina","sieci":2},{"n":"Dobrzeń Wielki","lat":50.75,"lng":17.84,"typ":"gmina","sieci":2},{"n":"Komprachcice","lat":50.63,"lng":17.81,"typ":"gmina","sieci":2},{"n":"Tarnów Opolski","lat":50.57,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Chrząstowice","lat":50.66,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Turawa","lat":50.73,"lng":18.08,"typ":"gmina","sieci":2},{"n":"Murów","lat":50.86,"lng":17.93,"typ":"gmina","sieci":2},{"n":"Łubniany","lat":50.77881,"lng":17.99866,"typ":"gmina","sieci":2},{"n":"Popielów","lat":50.82,"lng":17.74,"typ":"gmina","sieci":2},{"n":"Pokój","lat":50.90,"lng":17.83,"typ":"gmina","sieci":2},{"n":"Lewin Brzeski","lat":50.75,"lng":17.61,"typ":"gmina","sieci":2},{"n":"Tułowice","lat":50.59,"lng":17.65,"typ":"gmina","sieci":2},{"n":"Zawadzkie","lat":50.61,"lng":18.47,"typ":"gmina","sieci":3},{"n":"Ujazd","lat":50.39,"lng":18.35,"typ":"gmina","sieci":2},{"n":"Krapkowice","lat":50.47,"lng":17.96,"typ":"gmina","sieci":3},{"n":"Głuchołazy","lat":50.31,"lng":17.38,"typ":"gmina","sieci":3},{"n":"Biała","lat":50.38,"lng":17.66,"typ":"gmina","sieci":2},{"n":"Strzeleczki","lat":50.46,"lng":17.86,"typ":"gmina","sieci":1},{"n":"Walce","lat":50.37185,"lng":18.00832,"typ":"gmina","sieci":1},{"n":"Głogówek","lat":50.35,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Otmuchów","lat":50.46621,"lng":17.17540,"typ":"gmina","sieci":2},{"n":"Paczków","lat":50.46,"lng":17.00,"typ":"gmina","sieci":2},{"n":"Kamiennik","lat":50.57039,"lng":17.14932,"typ":"gmina","sieci":1},{"n":"Lubsza","lat":50.91617,"lng":17.52187,"typ":"gmina","sieci":1},{"n":"Skarbimierz","lat":50.84806,"lng":17.43556,"typ":"gmina","sieci":1},{"n":"Namysłów","lat":51.07,"lng":17.71,"typ":"gmina","sieci":4},{"n":"Wilków","lat":51.01,"lng":17.65,"typ":"gmina","sieci":1},{"n":"Domaszowice","lat":51.04247,"lng":17.88858,"typ":"gmina","sieci":1},{"n":"Kluczbork","lat":50.97,"lng":18.21,"typ":"gmina","sieci":4},{"n":"Wołczyn","lat":51.01,"lng":18.05,"typ":"gmina","sieci":2},{"n":"Byczyna","lat":51.11,"lng":18.21,"typ":"gmina","sieci":2},{"n":"Gorzów Śl.","lat":51.02816,"lng":18.42233,"typ":"gmina","sieci":2},{"n":"Praszka","lat":51.05377,"lng":18.45313,"typ":"gmina","sieci":2},{"n":"Olesno","lat":50.87,"lng":18.42,"typ":"gmina","sieci":3},{"n":"Dobrzeń Wlk.","lat":50.75,"lng":17.86,"typ":"gmina","sieci":2},{"n":"Kolonowskie","lat":50.65323,"lng":18.38424,"typ":"gmina","sieci":1},{"n":"Dobrodzień","lat":50.72,"lng":18.44,"typ":"gmina","sieci":2},{"n":"Lubrza","lat":50.33554,"lng":17.62604,"typ":"gmina","sieci":1},{"n":"Prudnik","lat":50.32,"lng":17.58,"typ":"gmina","sieci":4},{"n":"Nysa okolice","lat":50.47,"lng":17.33,"typ":"gmina","sieci":3},{"n":"Lasowice Wielkie","lat":50.87087,"lng":18.22079,"typ":"gmina","sieci":1},{"n":"Rudniki","lat":51.03894,"lng":18.59817,"typ":"gmina","sieci":1},{"n":"Świerczów","lat":50.96028,"lng":17.76100,"typ":"gmina","sieci":1},{"n":"Namysłów ok.","lat":51.05,"lng":17.75,"typ":"gmina","sieci":1},{"n":"Brzeg","lat":50.86,"lng":17.47,"typ":"gmina","sieci":3},{"n":"Lewin Brz.","lat":50.75,"lng":17.61,"typ":"gmina","sieci":1},{"n":"Skoroszyce","lat":50.59748,"lng":17.38247,"typ":"gmina","sieci":1},{"n":"Pakosławice","lat":50.54547,"lng":17.36185,"typ":"gmina","sieci":1},{"n":"Nysa","lat":50.47,"lng":17.33,"typ":"gmina","sieci":3},{"n":"Korfantów","lat":50.48623,"lng":17.59771,"typ":"gmina","sieci":1},{"n":"Łambinowice","lat":50.53846,"lng":17.55988,"typ":"gmina","sieci":1}],
+  "lubuskie": [{"n":"Sulechów","lat":52.08,"lng":15.62,"typ":"gmina","sieci":4},{"n":"Czerwieńsk","lat":52.01,"lng":15.42,"typ":"gmina","sieci":2},{"n":"Nowogród Bobrz.","lat":51.79,"lng":15.23,"typ":"gmina","sieci":2},{"n":"Kargowa","lat":52.07197,"lng":15.86517,"typ":"gmina","sieci":2},{"n":"Babimost","lat":52.16,"lng":15.82,"typ":"gmina","sieci":2},{"n":"Zbąszynek","lat":52.24,"lng":15.81,"typ":"gmina","sieci":2},{"n":"Rzepin","lat":52.34,"lng":14.83,"typ":"gmina","sieci":3},{"n":"Skwierzyna","lat":52.59,"lng":15.50,"typ":"gmina","sieci":3},{"n":"Ośno Lubuskie","lat":52.45,"lng":14.87,"typ":"gmina","sieci":2},{"n":"Cybinka","lat":52.19,"lng":14.79,"typ":"gmina","sieci":2},{"n":"Torzym","lat":52.31,"lng":15.08,"typ":"gmina","sieci":2},{"n":"Lubniewice","lat":52.51,"lng":15.24,"typ":"gmina","sieci":2},{"n":"Krzeszyce","lat":52.58308,"lng":15.00722,"typ":"gmina","sieci":2},{"n":"Bytnica","lat":52.14,"lng":15.16,"typ":"gmina","sieci":1},{"n":"Trzebiechów","lat":52.02,"lng":15.73,"typ":"gmina","sieci":2},{"n":"Bojadła","lat":51.95,"lng":15.81,"typ":"gmina","sieci":1},{"n":"Świdnica","lat":51.88,"lng":15.39,"typ":"gmina","sieci":2},{"n":"Zabór","lat":51.95,"lng":15.71,"typ":"gmina","sieci":1},{"n":"Sława","lat":51.87,"lng":16.08,"typ":"gmina","sieci":3},{"n":"Wschowa","lat":51.80,"lng":16.31,"typ":"gmina","sieci":4},{"n":"Szlichtyngowa","lat":51.71,"lng":16.24,"typ":"gmina","sieci":2},{"n":"Kolsko","lat":51.96147,"lng":15.96482,"typ":"gmina","sieci":1},{"n":"Trzciel","lat":52.37,"lng":15.88,"typ":"gmina","sieci":2},{"n":"Bledzew","lat":52.51,"lng":15.41,"typ":"gmina","sieci":1},{"n":"Deszczno","lat":52.67,"lng":15.32,"typ":"gmina","sieci":2},{"n":"Santok","lat":52.73,"lng":15.40,"typ":"gmina","sieci":2},{"n":"Bogdaniec","lat":52.68888,"lng":15.07066,"typ":"gmina","sieci":2},{"n":"Lubiszyn","lat":52.77981,"lng":14.94786,"typ":"gmina","sieci":1},{"n":"Witnica","lat":52.67,"lng":14.90,"typ":"gmina","sieci":2},{"n":"Kostrzyn n. Odrą","lat":52.58,"lng":14.66,"typ":"gmina","sieci":4},{"n":"Górzyca","lat":52.49439,"lng":14.65485,"typ":"gmina","sieci":2},{"n":"Słońsk","lat":52.56353,"lng":14.80564,"typ":"gmina","sieci":2},{"n":"Nowa Sól","lat":51.80,"lng":15.71,"typ":"gmina","sieci":5},{"n":"Otyń","lat":51.84,"lng":15.71,"typ":"gmina","sieci":2},{"n":"Kozuchów","lat":51.76,"lng":15.53,"typ":"gmina","sieci":3},{"n":"Brodce","lat":51.64,"lng":15.33,"typ":"gmina","sieci":2},{"n":"Lubsko","lat":51.79,"lng":14.97,"typ":"gmina","sieci":3},{"n":"Tuplice","lat":51.67438,"lng":14.83215,"typ":"gmina","sieci":1},{"n":"Żary","lat":51.64,"lng":15.13,"typ":"gmina","sieci":5},{"n":"Jasień","lat":51.75,"lng":15.01,"typ":"gmina","sieci":2},{"n":"Międzyrzecz","lat":52.44,"lng":15.58,"typ":"gmina","sieci":3},{"n":"Przytoczna","lat":52.57739,"lng":15.67963,"typ":"gmina","sieci":1},{"n":"Kłodawa","lat":52.78935,"lng":15.21317,"typ":"gmina","sieci":1},{"n":"Sulęcin","lat":52.44,"lng":15.12,"typ":"gmina","sieci":2},{"n":"Zielona Góra ok.","lat":51.94,"lng":15.51,"typ":"gmina","sieci":3},{"n":"Nowogród Bob.","lat":51.79,"lng":15.24,"typ":"gmina","sieci":1},{"n":"Żagań","lat":51.62,"lng":15.32,"typ":"gmina","sieci":3},{"n":"Iłowa","lat":51.5,"lng":15.21,"typ":"gmina","sieci":1},{"n":"Gozdnica","lat":51.44,"lng":15.1,"typ":"gmina","sieci":1},{"n":"Wymiarki","lat":51.51000,"lng":15.08201,"typ":"gmina","sieci":1},{"n":"Szprotawa","lat":51.56,"lng":15.54,"typ":"gmina","sieci":2},{"n":"Małomice","lat":51.57,"lng":15.44,"typ":"gmina","sieci":1},{"n":"Niegosławice","lat":51.58858,"lng":15.71749,"typ":"gmina","sieci":1},{"n":"Kożuchów","lat":51.75,"lng":15.59,"typ":"gmina","sieci":2},{"n":"Bytom Odrz.","lat":51.73,"lng":15.83,"typ":"gmina","sieci":1},{"n":"Nowe Miasteczko","lat":51.68,"lng":15.72,"typ":"gmina","sieci":1},{"n":"Krosno Odrz.","lat":52.05,"lng":15.09,"typ":"gmina","sieci":2},{"n":"Gubin","lat":51.95,"lng":14.72,"typ":"gmina","sieci":2},{"n":"Brody","lat":51.79,"lng":14.77,"typ":"gmina","sieci":1},{"n":"Łęknica","lat":51.55,"lng":14.74,"typ":"gmina","sieci":1},{"n":"Trzebiel","lat":51.63,"lng":14.82,"typ":"gmina","sieci":1},{"n":"Przewóz","lat":51.48,"lng":14.94,"typ":"gmina","sieci":1}]
 }
 
 @dataclass
@@ -5161,6 +5338,11 @@ class RawEtap:
     # odległość w linii prostej — zapamiętana, zanim d_line stanie się
     # odległością DROGOWĄ; to ona jest fizyczną granicą dolną odcinka
     linia_prosta: float = 0.0
+    # skąd wzięły się kilometry TEGO odcinka: ZRODLO_DROGI / ZRODLO_PAMIEC /
+    # ZRODLO_SZACUNEK („" = jeszcze nie liczono). Licznik stan_zrodla_odleglosci
+    # mówi o całym rozliczeniu; to pole o jednym odcinku — druga strona
+    # kartki delegacji pokazuje je przy każdym odcinku dnia.
+    zrodlo: str = ""
 
 @dataclass
 class Etap:
@@ -5213,11 +5395,13 @@ def oblicz_dystans(lat1, lon1, lat2, lon2) -> float:
 ZRODLO_DROGI = "drogi"          # policzone teraz po drogach (Google albo OSRM)
 ZRODLO_PAMIEC = "pamiec"        # z pamięci podręcznej (kiedyś policzone po drogach)
 ZRODLO_SZACUNEK = "szacunek"    # linia prosta × krętość — brak sieci albo błąd
+ZRODLO_BRAK = "brak"            # ani jednego policzonego odcinka — nic nie zapewniamy
 
 ETYKIETY_ZRODLA = {
     ZRODLO_DROGI: "realne drogi",
     ZRODLO_PAMIEC: "drogi z pamięci",
     ZRODLO_SZACUNEK: "szacunek",
+    ZRODLO_BRAK: "",            # pusta etykieta = dokument i interfejs milczą
 }
 
 ROAD_CACHE_FILE = os.path.join(os.path.expanduser("~"), ".pmt_road_cache.json")
@@ -5225,6 +5409,7 @@ _road_cache = {}
 _osrm_dostepny = None    # None=niesprawdzone, True/False po pierwszej próbie
 _google_dostepny = None  # jak wyżej, dla Google (gdy klucz w ogóle jest)
 _zrodlo_licznik = {ZRODLO_DROGI: 0, ZRODLO_PAMIEC: 0, ZRODLO_SZACUNEK: 0}
+_ostatnie_zrodlo = ZRODLO_BRAK      # źródło OSTATNIO policzonego odcinka
 
 
 def _klucz_drogi(lat1, lon1, lat2, lon2) -> str:
@@ -5317,13 +5502,44 @@ def zeruj_zrodlo_odleglosci():
 
 
 def _odnotuj_zrodlo(rodzaj):
+    global _ostatnie_zrodlo
     _zrodlo_licznik[rodzaj] = _zrodlo_licznik.get(rodzaj, 0) + 1
+    _ostatnie_zrodlo = rodzaj
+
+
+def zrodlo_ostatniego_odcinka() -> str:
+    """Skąd wzięła się liczba z OSTATNIEGO wywołania dystans_drogowy —
+    do zapisania w RawEtap.zrodlo zaraz po policzeniu odcinka."""
+    return _ostatnie_zrodlo
+
+
+def uzupelnij_zrodla_etapow(etapy) -> int:
+    """Odcinki bez zapisanego źródła (dobudowane po przycinaniu, pętla
+    odwrócona) dostają je z pamięci dróg: odcinek, którego droga leży w
+    pamięci podręcznej, liczył się z niej (ZRODLO_PAMIEC); reszta to linia
+    prosta × krętość (ZRODLO_SZACUNEK). Zwraca liczbę uzupełnionych."""
+    ile = 0
+    for e in etapy:
+        if getattr(e, "zrodlo", ""):
+            continue
+        try:
+            w_pamieci = bool(_road_cache.get(
+                _klucz_drogi(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)))
+        except Exception:
+            w_pamieci = False
+        e.zrodlo = ZRODLO_PAMIEC if w_pamieci else ZRODLO_SZACUNEK
+        ile += 1
+    return ile
 
 
 def stan_zrodla_odleglosci() -> dict:
     """Stan źródła odległości dla CAŁEGO rozliczenia. Wystarczy jeden odcinek
     policzony szacunkiem, żeby stanem całości był szacunek — bo to on
-    rozstrzyga o wiarygodności sumy kilometrów."""
+    rozstrzyga o wiarygodności sumy kilometrów.
+
+    Zero policzonych odcinków to osobny stan ZRODLO_BRAK z pustą etykietą:
+    dotąd wychodziło stąd „realne drogi" i realne=True — zapewnienie bez ani
+    jednego pomiaru, drukowane potem na dokumencie."""
     ile = dict(_zrodlo_licznik)
     if ile.get(ZRODLO_SZACUNEK):
         stan = ZRODLO_SZACUNEK
@@ -5332,7 +5548,7 @@ def stan_zrodla_odleglosci() -> dict:
     elif ile.get(ZRODLO_PAMIEC):
         stan = ZRODLO_PAMIEC
     else:
-        stan = ZRODLO_DROGI
+        stan = ZRODLO_BRAK
     return {
         ZRODLO_DROGI: ile.get(ZRODLO_DROGI, 0),
         ZRODLO_PAMIEC: ile.get(ZRODLO_PAMIEC, 0),
@@ -5340,7 +5556,7 @@ def stan_zrodla_odleglosci() -> dict:
         "stan": stan,
         "etykieta": ETYKIETY_ZRODLA[stan],
         "odcinki": sum(ile.values()),
-        "realne": stan != ZRODLO_SZACUNEK,
+        "realne": stan in (ZRODLO_DROGI, ZRODLO_PAMIEC),
     }
 
 
@@ -5757,11 +5973,11 @@ def _dyst_prosty(a: PunktWizyty, b: PunktWizyty) -> float:
 # planowania tras wystarcza, bo realne odleglosci liczy OSRM po drogach).
 # Wpisy o nazwach juz obecnych w MIASTA_RAW zostaly pominiete przy tworzeniu.
 MIASTA_ROZSZERZENIE = {
-  "mazowieckie": [{"n":"Ciechanów","lat":52.88,"lng":20.62,"typ":"gmina","sieci":3},{"n":"Sochaczew","lat":52.23,"lng":20.24,"typ":"gmina","sieci":3},{"n":"Żyrardów","lat":52.05,"lng":20.45,"typ":"gmina","sieci":3},{"n":"Grodzisk Mazowiecki","lat":52.11,"lng":20.63,"typ":"gmina","sieci":4},{"n":"Pruszków","lat":52.17,"lng":20.81,"typ":"gmina","sieci":4},{"n":"Mińsk Mazowiecki","lat":52.18,"lng":21.57,"typ":"gmina","sieci":3},{"n":"Legionowo","lat":52.40,"lng":20.93,"typ":"gmina","sieci":4},{"n":"Nowy Dwór Mazowiecki","lat":52.43,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Ostrów Mazowiecka","lat":52.80,"lng":21.90,"typ":"gmina","sieci":3},{"n":"Ostrołęka","lat":53.09,"lng":21.57,"typ":"gmina","sieci":3},{"n":"Maków Mazowiecki","lat":52.86,"lng":21.10,"typ":"gmina","sieci":2},{"n":"Płock","lat":52.55,"lng":19.71,"typ":"gmina","sieci":4},{"n":"Radom","lat":51.40,"lng":21.15,"typ":"gmina","sieci":4},{"n":"Konstancin-Jeziorna","lat":52.09,"lng":21.11,"typ":"gmina","sieci":3},{"n":"Garwolin","lat":51.90,"lng":21.61,"typ":"gmina","sieci":2},{"n":"Łaskarzew","lat":51.79,"lng":21.60,"typ":"gmina","sieci":2},{"n":"Pilawa","lat":51.87,"lng":21.55,"typ":"gmina","sieci":2},{"n":"Siedlce","lat":52.17,"lng":22.29,"typ":"gmina","sieci":4},{"n":"Sokołów Podlaski","lat":52.41,"lng":22.25,"typ":"gmina","sieci":3},{"n":"Węgrów","lat":52.40,"lng":22.02,"typ":"gmina","sieci":2},{"n":"Łochów","lat":52.53,"lng":21.68,"typ":"gmina","sieci":2},{"n":"Kosów Lacki","lat":52.60,"lng":22.15,"typ":"gmina","sieci":2},{"n":"Mordy","lat":52.21,"lng":22.52,"typ":"gmina","sieci":2},{"n":"Łosice","lat":52.21,"lng":22.72,"typ":"gmina","sieci":2},{"n":"Żelechów","lat":51.81,"lng":21.90,"typ":"gmina","sieci":2},{"n":"Raszyn","lat":52.15833,"lng":20.92417,"typ":"gmina","sieci":3},{"n":"Brwinów","lat":52.14,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Milanówek","lat":52.12,"lng":20.67,"typ":"gmina","sieci":3},{"n":"Podkowa Leśna","lat":52.12300,"lng":20.72502,"typ":"gmina","sieci":2},{"n":"Ożarów Mazowiecki","lat":52.21,"lng":20.81,"typ":"gmina","sieci":3},{"n":"Łomianki","lat":52.34,"lng":20.88,"typ":"gmina","sieci":3},{"n":"Józefów (otwocki)","lat":52.14,"lng":21.23,"typ":"gmina","sieci":3},{"n":"Stoczek Łukowski","lat":51.96,"lng":21.97,"typ":"gmina","sieci":2},{"n":"Wierzbica (radomska)","lat":51.22,"lng":21.09,"typ":"gmina","sieci":2},{"n":"Jedlnia-Letnisko","lat":51.43119,"lng":21.33139,"typ":"gmina","sieci":2},{"n":"Zakrzew (radomski)","lat":51.42,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Kozłów","lat":51.58,"lng":21.28,"typ":"gmina","sieci":2},{"n":"Sienno","lat":51.24,"lng":21.70,"typ":"gmina","sieci":2},{"n":"Solec nad Wisłą","lat":51.14,"lng":21.77,"typ":"gmina","sieci":2},{"n":"Chotcza","lat":51.28,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Sarnaki","lat":52.32,"lng":22.90,"typ":"gmina","sieci":2},{"n":"Platerów","lat":52.30417,"lng":22.81709,"typ":"gmina","sieci":2},{"n":"Huszlew","lat":52.13743,"lng":22.83987,"typ":"gmina","sieci":2},{"n":"Bielany","lat":52.10,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Olszanka","lat":52.19,"lng":22.70,"typ":"gmina","sieci":2},{"n":"Suchożebry","lat":52.25906,"lng":22.25311,"typ":"gmina","sieci":2},{"n":"Zbuczyn","lat":52.08934,"lng":22.43846,"typ":"gmina","sieci":2},{"n":"Domanice","lat":52.03744,"lng":22.17605,"typ":"gmina","sieci":2}],
-  "łódzkie": [{"n":"Piotrków Trybunalski","lat":51.40,"lng":19.70,"typ":"gmina","sieci":4},{"n":"Radomsko","lat":51.07,"lng":19.44,"typ":"gmina","sieci":3},{"n":"Bełchatów","lat":51.37,"lng":19.36,"typ":"gmina","sieci":3},{"n":"Tomaszów Mazowiecki","lat":51.53,"lng":20.01,"typ":"gmina","sieci":3},{"n":"Opoczno","lat":51.38,"lng":20.28,"typ":"gmina","sieci":2},{"n":"Rawa Mazowiecka","lat":51.77,"lng":20.25,"typ":"gmina","sieci":2},{"n":"Skierniewice","lat":51.96,"lng":20.15,"typ":"gmina","sieci":3},{"n":"Łowicz","lat":52.11,"lng":19.95,"typ":"gmina","sieci":3},{"n":"Kutno","lat":52.23,"lng":19.36,"typ":"gmina","sieci":3},{"n":"Aleksandrów Łódzki","lat":51.82,"lng":19.30,"typ":"gmina","sieci":3},{"n":"Konstantynów Łódzki","lat":51.75,"lng":19.32,"typ":"gmina","sieci":3},{"n":"Sieradz","lat":51.60,"lng":18.73,"typ":"gmina","sieci":3},{"n":"Sulejów","lat":51.36,"lng":19.88,"typ":"gmina","sieci":2},{"n":"Wolbórz","lat":51.51,"lng":19.83,"typ":"gmina","sieci":2},{"n":"Moszczenica","lat":51.44,"lng":19.71,"typ":"gmina","sieci":2},{"n":"Gorzkowice","lat":51.21509,"lng":19.59654,"typ":"gmina","sieci":2},{"n":"Kamieńsk","lat":51.20444,"lng":19.49694,"typ":"gmina","sieci":2},{"n":"Przedbórz","lat":51.09,"lng":19.87,"typ":"gmina","sieci":2},{"n":"Żarnów","lat":51.25,"lng":20.17,"typ":"gmina","sieci":2},{"n":"Drzewica","lat":51.45,"lng":20.45,"typ":"gmina","sieci":2},{"n":"Białaczów","lat":51.30,"lng":20.27,"typ":"gmina","sieci":2},{"n":"Sławno","lat":51.39089,"lng":20.14109,"typ":"gmina","sieci":2},{"n":"Inowłódz","lat":51.53,"lng":20.24,"typ":"gmina","sieci":2},{"n":"Lubochnia","lat":51.61082,"lng":20.03932,"typ":"gmina","sieci":2},{"n":"Czerniewice","lat":51.65518,"lng":20.15650,"typ":"gmina","sieci":2},{"n":"Żelechlinek","lat":51.71093,"lng":20.03363,"typ":"gmina","sieci":2},{"n":"Mszczonów-Puszcza","lat":51.86,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Nowy Kawęczyn","lat":51.88677,"lng":20.24298,"typ":"gmina","sieci":2},{"n":"Bolimów","lat":52.07644,"lng":20.16362,"typ":"gmina","sieci":2},{"n":"Kiernozia","lat":52.26853,"lng":19.87130,"typ":"gmina","sieci":2},{"n":"Bielawy","lat":52.05,"lng":19.75,"typ":"gmina","sieci":2},{"n":"Domaniewice","lat":52.00619,"lng":19.80294,"typ":"gmina","sieci":2},{"n":"Zduny","lat":52.10,"lng":19.92,"typ":"gmina","sieci":2},{"n":"Chąśno","lat":52.18566,"lng":19.93272,"typ":"gmina","sieci":2},{"n":"Krośniewice","lat":52.25,"lng":19.17,"typ":"gmina","sieci":2},{"n":"Żychlin","lat":52.24,"lng":19.62,"typ":"gmina","sieci":2},{"n":"Bedlno","lat":52.20,"lng":19.55,"typ":"gmina","sieci":2},{"n":"Krzyżanów","lat":52.20,"lng":19.35,"typ":"gmina","sieci":2},{"n":"Strzelce","lat":52.16,"lng":19.42,"typ":"gmina","sieci":2},{"n":"Oporów","lat":52.26173,"lng":19.55654,"typ":"gmina","sieci":2},{"n":"Świnice Warckie","lat":52.04107,"lng":18.92028,"typ":"gmina","sieci":2},{"n":"Uniejów","lat":51.97,"lng":18.79,"typ":"gmina","sieci":2},{"n":"Dąbie","lat":52.10,"lng":18.83,"typ":"gmina","sieci":2},{"n":"Wartkowice","lat":51.97551,"lng":19.00184,"typ":"gmina","sieci":2},{"n":"Zadzim","lat":51.77590,"lng":18.84993,"typ":"gmina","sieci":2}],
+  "mazowieckie": [{"n":"Ciechanów","lat":52.88,"lng":20.62,"typ":"gmina","sieci":3},{"n":"Sochaczew","lat":52.23,"lng":20.24,"typ":"gmina","sieci":3},{"n":"Żyrardów","lat":52.05,"lng":20.45,"typ":"gmina","sieci":3},{"n":"Grodzisk Mazowiecki","lat":52.11,"lng":20.63,"typ":"gmina","sieci":4},{"n":"Pruszków","lat":52.17,"lng":20.81,"typ":"gmina","sieci":4},{"n":"Mińsk Mazowiecki","lat":52.18,"lng":21.57,"typ":"gmina","sieci":3},{"n":"Legionowo","lat":52.40,"lng":20.93,"typ":"gmina","sieci":4},{"n":"Nowy Dwór Mazowiecki","lat":52.43,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Ostrów Mazowiecka","lat":52.80,"lng":21.90,"typ":"gmina","sieci":3},{"n":"Ostrołęka","lat":53.09,"lng":21.57,"typ":"gmina","sieci":3},{"n":"Maków Mazowiecki","lat":52.86,"lng":21.10,"typ":"gmina","sieci":2},{"n":"Płock","lat":52.55,"lng":19.71,"typ":"gmina","sieci":4},{"n":"Radom","lat":51.40,"lng":21.15,"typ":"gmina","sieci":4},{"n":"Konstancin-Jeziorna","lat":52.09,"lng":21.11,"typ":"gmina","sieci":3},{"n":"Garwolin","lat":51.90,"lng":21.61,"typ":"gmina","sieci":2},{"n":"Łaskarzew","lat":51.79,"lng":21.60,"typ":"gmina","sieci":2},{"n":"Pilawa","lat":51.87,"lng":21.55,"typ":"gmina","sieci":2},{"n":"Siedlce","lat":52.17,"lng":22.29,"typ":"gmina","sieci":4},{"n":"Sokołów Podlaski","lat":52.41,"lng":22.25,"typ":"gmina","sieci":3},{"n":"Węgrów","lat":52.40,"lng":22.02,"typ":"gmina","sieci":2},{"n":"Łochów","lat":52.53,"lng":21.68,"typ":"gmina","sieci":2},{"n":"Kosów Lacki","lat":52.60,"lng":22.15,"typ":"gmina","sieci":2},{"n":"Mordy","lat":52.21,"lng":22.52,"typ":"gmina","sieci":2},{"n":"Łosice","lat":52.21,"lng":22.72,"typ":"gmina","sieci":2},{"n":"Żelechów","lat":51.81,"lng":21.90,"typ":"gmina","sieci":2},{"n":"Raszyn","lat":52.15833,"lng":20.92417,"typ":"gmina","sieci":3},{"n":"Brwinów","lat":52.14,"lng":20.72,"typ":"gmina","sieci":3},{"n":"Milanówek","lat":52.12,"lng":20.67,"typ":"gmina","sieci":3},{"n":"Podkowa Leśna","lat":52.12300,"lng":20.72502,"typ":"gmina","sieci":2},{"n":"Ożarów Mazowiecki","lat":52.21,"lng":20.81,"typ":"gmina","sieci":3},{"n":"Łomianki","lat":52.34,"lng":20.88,"typ":"gmina","sieci":3},{"n":"Józefów (otwocki)","lat":52.14,"lng":21.23,"typ":"gmina","sieci":3},{"n":"Wierzbica (radomska)","lat":51.22,"lng":21.09,"typ":"gmina","sieci":2},{"n":"Jedlnia-Letnisko","lat":51.43119,"lng":21.33139,"typ":"gmina","sieci":2},{"n":"Zakrzew (radomski)","lat":51.42,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Kozłów","lat":51.58,"lng":21.28,"typ":"gmina","sieci":2},{"n":"Sienno","lat":51.08497,"lng":21.47345,"typ":"gmina","sieci":2},{"n":"Solec nad Wisłą","lat":51.14,"lng":21.77,"typ":"gmina","sieci":2},{"n":"Chotcza","lat":51.28,"lng":21.75,"typ":"gmina","sieci":2},{"n":"Sarnaki","lat":52.32,"lng":22.90,"typ":"gmina","sieci":2},{"n":"Platerów","lat":52.30417,"lng":22.81709,"typ":"gmina","sieci":2},{"n":"Huszlew","lat":52.13743,"lng":22.83987,"typ":"gmina","sieci":2},{"n":"Bielany","lat":52.33430,"lng":22.25777,"typ":"gmina","sieci":2},{"n":"Olszanka","lat":52.19,"lng":22.70,"typ":"gmina","sieci":2},{"n":"Suchożebry","lat":52.25906,"lng":22.25311,"typ":"gmina","sieci":2},{"n":"Zbuczyn","lat":52.08934,"lng":22.43846,"typ":"gmina","sieci":2},{"n":"Domanice","lat":52.03744,"lng":22.17605,"typ":"gmina","sieci":2}],
+  "łódzkie": [{"n":"Piotrków Trybunalski","lat":51.40,"lng":19.70,"typ":"gmina","sieci":4},{"n":"Radomsko","lat":51.07,"lng":19.44,"typ":"gmina","sieci":3},{"n":"Bełchatów","lat":51.37,"lng":19.36,"typ":"gmina","sieci":3},{"n":"Tomaszów Mazowiecki","lat":51.53,"lng":20.01,"typ":"gmina","sieci":3},{"n":"Opoczno","lat":51.38,"lng":20.28,"typ":"gmina","sieci":2},{"n":"Rawa Mazowiecka","lat":51.77,"lng":20.25,"typ":"gmina","sieci":2},{"n":"Skierniewice","lat":51.96,"lng":20.15,"typ":"gmina","sieci":3},{"n":"Łowicz","lat":52.11,"lng":19.95,"typ":"gmina","sieci":3},{"n":"Kutno","lat":52.23,"lng":19.36,"typ":"gmina","sieci":3},{"n":"Aleksandrów Łódzki","lat":51.82,"lng":19.30,"typ":"gmina","sieci":3},{"n":"Konstantynów Łódzki","lat":51.75,"lng":19.32,"typ":"gmina","sieci":3},{"n":"Sieradz","lat":51.60,"lng":18.73,"typ":"gmina","sieci":3},{"n":"Sulejów","lat":51.36,"lng":19.88,"typ":"gmina","sieci":2},{"n":"Wolbórz","lat":51.51,"lng":19.83,"typ":"gmina","sieci":2},{"n":"Moszczenica","lat":51.44,"lng":19.71,"typ":"gmina","sieci":2},{"n":"Gorzkowice","lat":51.21509,"lng":19.59654,"typ":"gmina","sieci":2},{"n":"Kamieńsk","lat":51.20444,"lng":19.49694,"typ":"gmina","sieci":2},{"n":"Przedbórz","lat":51.09,"lng":19.87,"typ":"gmina","sieci":2},{"n":"Żarnów","lat":51.25,"lng":20.17,"typ":"gmina","sieci":2},{"n":"Drzewica","lat":51.45,"lng":20.45,"typ":"gmina","sieci":2},{"n":"Białaczów","lat":51.30,"lng":20.27,"typ":"gmina","sieci":2},{"n":"Sławno","lat":51.39089,"lng":20.14109,"typ":"gmina","sieci":2},{"n":"Inowłódz","lat":51.53,"lng":20.24,"typ":"gmina","sieci":2},{"n":"Lubochnia","lat":51.61082,"lng":20.03932,"typ":"gmina","sieci":2},{"n":"Czerniewice","lat":51.65518,"lng":20.15650,"typ":"gmina","sieci":2},{"n":"Żelechlinek","lat":51.71093,"lng":20.03363,"typ":"gmina","sieci":2},{"n":"Mszczonów-Puszcza","lat":51.86,"lng":20.20,"typ":"gmina","sieci":2},{"n":"Nowy Kawęczyn","lat":51.88677,"lng":20.24298,"typ":"gmina","sieci":2},{"n":"Bolimów","lat":52.07644,"lng":20.16362,"typ":"gmina","sieci":2},{"n":"Kiernozia","lat":52.26853,"lng":19.87130,"typ":"gmina","sieci":2},{"n":"Bielawy","lat":52.05,"lng":19.75,"typ":"gmina","sieci":2},{"n":"Domaniewice","lat":52.00619,"lng":19.80294,"typ":"gmina","sieci":2},{"n":"Zduny","lat":52.10,"lng":19.92,"typ":"gmina","sieci":2},{"n":"Chąśno","lat":52.18566,"lng":19.93272,"typ":"gmina","sieci":2},{"n":"Krośniewice","lat":52.25,"lng":19.17,"typ":"gmina","sieci":2},{"n":"Żychlin","lat":52.24,"lng":19.62,"typ":"gmina","sieci":2},{"n":"Bedlno","lat":52.20,"lng":19.55,"typ":"gmina","sieci":2},{"n":"Krzyżanów","lat":52.20,"lng":19.35,"typ":"gmina","sieci":2},{"n":"Strzelce","lat":52.31539,"lng":19.40777,"typ":"gmina","sieci":2},{"n":"Oporów","lat":52.26173,"lng":19.55654,"typ":"gmina","sieci":2},{"n":"Świnice Warckie","lat":52.04107,"lng":18.92028,"typ":"gmina","sieci":2},{"n":"Uniejów","lat":51.97,"lng":18.79,"typ":"gmina","sieci":2},{"n":"Wartkowice","lat":51.97551,"lng":19.00184,"typ":"gmina","sieci":2},{"n":"Zadzim","lat":51.77590,"lng":18.84993,"typ":"gmina","sieci":2}],
   "kujawsko-pomorskie": [{"n":"Bydgoszcz","lat":53.12,"lng":18.01,"typ":"gmina","sieci":4},{"n":"Toruń","lat":53.01,"lng":18.60,"typ":"gmina","sieci":4},{"n":"Włocławek","lat":52.65,"lng":19.07,"typ":"gmina","sieci":4},{"n":"Inowrocław","lat":52.79,"lng":18.26,"typ":"gmina","sieci":3},{"n":"Brodnica","lat":53.25,"lng":19.40,"typ":"gmina","sieci":3},{"n":"Chełmno","lat":53.35,"lng":18.42,"typ":"gmina","sieci":2},{"n":"Nakło nad Notecią","lat":53.14,"lng":17.60,"typ":"gmina","sieci":2},{"n":"Sępólno Krajeńskie","lat":53.45,"lng":17.53,"typ":"gmina","sieci":2},{"n":"Janowiec Wielkopolski","lat":52.75,"lng":17.49,"typ":"gmina","sieci":2},{"n":"Piotrków Kujawski","lat":52.55032,"lng":18.49576,"typ":"gmina","sieci":2},{"n":"Aleksandrów Kujawski","lat":52.87,"lng":18.70,"typ":"gmina","sieci":2},{"n":"Nieszawa","lat":52.83409,"lng":18.90236,"typ":"gmina","sieci":2},{"n":"Kowalewo Pomorskie","lat":53.15469,"lng":18.89776,"typ":"gmina","sieci":2},{"n":"Golub-Dobrzyń","lat":53.11,"lng":19.05,"typ":"gmina","sieci":2},{"n":"Wąbrzeźno","lat":53.28,"lng":18.94,"typ":"gmina","sieci":2},{"n":"Rypin","lat":53.07,"lng":19.41,"typ":"gmina","sieci":2},{"n":"Lipno","lat":52.85,"lng":19.18,"typ":"gmina","sieci":2},{"n":"Dobrzyń nad Wisłą","lat":52.64,"lng":19.34,"typ":"gmina","sieci":2},{"n":"Kikoł","lat":52.79,"lng":19.20,"typ":"gmina","sieci":2},{"n":"Chrostkowo","lat":52.94346,"lng":19.25344,"typ":"gmina","sieci":2},{"n":"Brześć Kujawski","lat":52.61,"lng":18.90,"typ":"gmina","sieci":2},{"n":"Kowal","lat":52.53,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Lubraniec","lat":52.53,"lng":18.85,"typ":"gmina","sieci":2},{"n":"Izbica Kujawska","lat":52.42,"lng":18.76,"typ":"gmina","sieci":2},{"n":"Chodecz","lat":52.40,"lng":19.03,"typ":"gmina","sieci":2},{"n":"Lubień Kujawski","lat":52.39,"lng":19.16,"typ":"gmina","sieci":2},{"n":"Baruchowo","lat":52.49126,"lng":19.23788,"typ":"gmina","sieci":2},{"n":"Fabianki","lat":52.72,"lng":19.10,"typ":"gmina","sieci":2},{"n":"Bobrowniki","lat":52.77849,"lng":18.95475,"typ":"gmina","sieci":2},{"n":"Jabłonowo Pomorskie","lat":53.39,"lng":19.15,"typ":"gmina","sieci":2},{"n":"Bartniczka","lat":53.24905,"lng":19.60763,"typ":"gmina","sieci":2},{"n":"Zbiczno","lat":53.33335,"lng":19.37526,"typ":"gmina","sieci":2},{"n":"Bobrowo","lat":53.28669,"lng":19.27034,"typ":"gmina","sieci":2},{"n":"Dragacz","lat":53.50244,"lng":18.73129,"typ":"gmina","sieci":2},{"n":"Radzyń Chełmiński","lat":53.38,"lng":18.93,"typ":"gmina","sieci":2},{"n":"Lisewo","lat":53.28,"lng":18.52,"typ":"gmina","sieci":2},{"n":"Papowo Biskupie","lat":53.24874,"lng":18.56487,"typ":"gmina","sieci":2},{"n":"Dąbrowa Chełmińska","lat":53.17528,"lng":18.30476,"typ":"gmina","sieci":2},{"n":"Zławieś Wielka","lat":53.10,"lng":18.35,"typ":"gmina","sieci":2}],
-  "lubelskie": [{"n":"Lublin","lat":51.25,"lng":22.57,"typ":"gmina","sieci":4},{"n":"Zamość","lat":50.72,"lng":23.25,"typ":"gmina","sieci":3},{"n":"Chełm","lat":51.14,"lng":23.47,"typ":"gmina","sieci":3},{"n":"Biała Podlaska","lat":52.03,"lng":23.12,"typ":"gmina","sieci":3},{"n":"Łuków","lat":51.93,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Radzyń Podlaski","lat":51.78,"lng":22.62,"typ":"gmina","sieci":2},{"n":"Parczew","lat":51.64,"lng":22.90,"typ":"gmina","sieci":2},{"n":"Włodawa","lat":51.55,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Hrubieszów","lat":50.81,"lng":23.89,"typ":"gmina","sieci":2},{"n":"Tomaszów Lubelski","lat":50.45,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Biłgoraj","lat":50.54,"lng":22.72,"typ":"gmina","sieci":2},{"n":"Janów Lubelski","lat":50.71,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Opole Lubelskie","lat":51.15,"lng":21.97,"typ":"gmina","sieci":2},{"n":"Trawniki","lat":51.13,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Ostrów Lubelski","lat":51.49,"lng":22.85,"typ":"gmina","sieci":2},{"n":"Kazimierz Dolny","lat":51.32,"lng":21.95,"typ":"gmina","sieci":2},{"n":"Żyrzyn","lat":51.49,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Zakrzew (lubelski)","lat":51.04,"lng":22.35,"typ":"gmina","sieci":2},{"n":"Nowodwór","lat":51.72,"lng":22.03,"typ":"gmina","sieci":2},{"n":"Ułęż","lat":51.59208,"lng":22.11238,"typ":"gmina","sieci":2},{"n":"Kłoczew","lat":51.72218,"lng":21.95624,"typ":"gmina","sieci":2},{"n":"Adamów","lat":51.75,"lng":22.25,"typ":"gmina","sieci":2},{"n":"Serokomla","lat":51.70030,"lng":22.33289,"typ":"gmina","sieci":2},{"n":"Wojcieszków","lat":51.76824,"lng":22.31578,"typ":"gmina","sieci":2},{"n":"Stanin","lat":51.87029,"lng":22.20266,"typ":"gmina","sieci":2},{"n":"Trzebieszów","lat":51.98687,"lng":22.58269,"typ":"gmina","sieci":2},{"n":"Ulan-Majorat","lat":51.81145,"lng":22.48082,"typ":"gmina","sieci":2},{"n":"Kąkolewnica","lat":51.89924,"lng":22.70103,"typ":"gmina","sieci":2},{"n":"Międzyrzec Podlaski","lat":51.98,"lng":22.79,"typ":"gmina","sieci":2},{"n":"Wisznice","lat":51.79,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Rossosz","lat":51.86,"lng":23.08,"typ":"gmina","sieci":2},{"n":"Łomazy","lat":51.90,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Piszczac","lat":51.98100,"lng":23.37601,"typ":"gmina","sieci":2},{"n":"Kodeń","lat":51.91,"lng":23.61,"typ":"gmina","sieci":2},{"n":"Janów Podlaski","lat":52.19,"lng":23.21,"typ":"gmina","sieci":2},{"n":"Leśna Podlaska","lat":52.13,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Rokitno","lat":52.10,"lng":23.24,"typ":"gmina","sieci":2},{"n":"Zalesie","lat":52.10,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Sławatycze","lat":51.76290,"lng":23.55446,"typ":"gmina","sieci":2},{"n":"Hanna","lat":51.72,"lng":23.53,"typ":"gmina","sieci":2},{"n":"Dubienka","lat":51.05,"lng":23.87,"typ":"gmina","sieci":2},{"n":"Dorohusk","lat":51.15,"lng":23.79,"typ":"gmina","sieci":2},{"n":"Rejowiec","lat":51.09460,"lng":23.28352,"typ":"gmina","sieci":2},{"n":"Siedliszcze","lat":51.16,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Sawin","lat":51.28,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Ruda-Huta","lat":51.23601,"lng":23.59486,"typ":"gmina","sieci":2},{"n":"Wierzbica (chełmska)","lat":51.05,"lng":23.32,"typ":"gmina","sieci":2},{"n":"Żółkiewka","lat":50.86,"lng":22.86,"typ":"gmina","sieci":2},{"n":"Gorzków","lat":50.90,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Grabowiec","lat":50.83,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Miączyn","lat":50.75,"lng":23.50,"typ":"gmina","sieci":2},{"n":"Józefów (biłgorajski)","lat":50.48,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Susiec","lat":50.42,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Komarów-Osada","lat":50.62831,"lng":23.47584,"typ":"gmina","sieci":2},{"n":"Tarnogród","lat":50.36,"lng":22.74,"typ":"gmina","sieci":2},{"n":"Józefów Roztoczański","lat":50.48,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Terespol","lat":52.07,"lng":23.61,"typ":"gmina","sieci":2}],
-  "podlaskie": [{"n":"Białystok","lat":53.13,"lng":23.16,"typ":"gmina","sieci":4},{"n":"Suwałki","lat":54.10,"lng":22.93,"typ":"gmina","sieci":3},{"n":"Łomża","lat":53.18,"lng":22.06,"typ":"gmina","sieci":3},{"n":"Bielsk Podlaski","lat":52.77,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Zambrów","lat":52.98,"lng":22.24,"typ":"gmina","sieci":2},{"n":"Wysokie Mazowieckie","lat":52.92,"lng":22.51,"typ":"gmina","sieci":2},{"n":"Sejny","lat":54.11,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Dąbrowa Białostocka","lat":53.65,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Jasionówka","lat":53.39519,"lng":23.03789,"typ":"gmina","sieci":2},{"n":"Stawiski","lat":53.38,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Jedwabne","lat":53.29,"lng":22.30,"typ":"gmina","sieci":2},{"n":"Nowogród","lat":53.22,"lng":21.88,"typ":"gmina","sieci":2},{"n":"Piątnica","lat":53.19,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Wizna","lat":53.19,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Śniadowo","lat":53.03817,"lng":21.99077,"typ":"gmina","sieci":2},{"n":"Miastkowo","lat":53.15178,"lng":21.82354,"typ":"gmina","sieci":2},{"n":"Czerwone","lat":53.42374,"lng":21.88950,"typ":"gmina","sieci":2},{"n":"Turośl","lat":53.38780,"lng":21.72755,"typ":"gmina","sieci":2},{"n":"Zbójna","lat":53.24247,"lng":21.79243,"typ":"gmina","sieci":2},{"n":"Łomża-Wschód","lat":53.16,"lng":22.15,"typ":"gmina","sieci":2},{"n":"Rutki","lat":53.10,"lng":22.51,"typ":"gmina","sieci":2},{"n":"Kołaki","lat":53.02,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Szumowo","lat":52.90,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Andrzejewo","lat":52.85,"lng":22.22,"typ":"gmina","sieci":2},{"n":"Klukowo","lat":52.75,"lng":22.42,"typ":"gmina","sieci":2},{"n":"Nowe Piekuty","lat":52.85657,"lng":22.70946,"typ":"gmina","sieci":2},{"n":"Kulesze Kościelne","lat":53.01573,"lng":22.50562,"typ":"gmina","sieci":2},{"n":"Rudka","lat":52.63,"lng":22.75,"typ":"gmina","sieci":2},{"n":"Czeremcha","lat":52.51,"lng":23.34,"typ":"gmina","sieci":2},{"n":"Białowieża","lat":52.70,"lng":23.86,"typ":"gmina","sieci":2},{"n":"Dubicze Cerkiewne","lat":52.65214,"lng":23.43798,"typ":"gmina","sieci":2},{"n":"Nurzec-Stacja","lat":52.51,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Perlejewo","lat":52.56915,"lng":22.56283,"typ":"gmina","sieci":2},{"n":"Filipów","lat":54.18,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Bakałarzewo","lat":54.09358,"lng":22.65164,"typ":"gmina","sieci":2},{"n":"Raczki","lat":53.98,"lng":22.78,"typ":"gmina","sieci":2},{"n":"Nowinka","lat":53.92,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Płaska","lat":53.90517,"lng":23.26708,"typ":"gmina","sieci":2},{"n":"Giby","lat":54.04130,"lng":23.35375,"typ":"gmina","sieci":2},{"n":"Krasnopol","lat":54.11585,"lng":23.20670,"typ":"gmina","sieci":2},{"n":"Puńsk","lat":54.24,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Szypliszki","lat":54.25386,"lng":23.07225,"typ":"gmina","sieci":2},{"n":"Jeleniewo","lat":54.20578,"lng":22.91255,"typ":"gmina","sieci":2},{"n":"Suwałki-Wschód","lat":54.09,"lng":23.00,"typ":"gmina","sieci":2},{"n":"Wiżajny","lat":54.38,"lng":22.86,"typ":"gmina","sieci":2}],
+  "lubelskie": [{"n":"Lublin","lat":51.25,"lng":22.57,"typ":"gmina","sieci":4},{"n":"Zamość","lat":50.72,"lng":23.25,"typ":"gmina","sieci":3},{"n":"Chełm","lat":51.14,"lng":23.47,"typ":"gmina","sieci":3},{"n":"Biała Podlaska","lat":52.03,"lng":23.12,"typ":"gmina","sieci":3},{"n":"Łuków","lat":51.93,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Radzyń Podlaski","lat":51.78,"lng":22.62,"typ":"gmina","sieci":2},{"n":"Parczew","lat":51.64,"lng":22.90,"typ":"gmina","sieci":2},{"n":"Włodawa","lat":51.55,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Hrubieszów","lat":50.81,"lng":23.89,"typ":"gmina","sieci":2},{"n":"Tomaszów Lubelski","lat":50.45,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Biłgoraj","lat":50.54,"lng":22.72,"typ":"gmina","sieci":2},{"n":"Janów Lubelski","lat":50.71,"lng":22.41,"typ":"gmina","sieci":2},{"n":"Opole Lubelskie","lat":51.15,"lng":21.97,"typ":"gmina","sieci":2},{"n":"Trawniki","lat":51.13,"lng":22.98,"typ":"gmina","sieci":2},{"n":"Ostrów Lubelski","lat":51.49,"lng":22.85,"typ":"gmina","sieci":2},{"n":"Kazimierz Dolny","lat":51.32,"lng":21.95,"typ":"gmina","sieci":2},{"n":"Żyrzyn","lat":51.49,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Zakrzew (lubelski)","lat":51.04,"lng":22.35,"typ":"gmina","sieci":2},{"n":"Nowodwór","lat":51.72,"lng":22.03,"typ":"gmina","sieci":2},{"n":"Ułęż","lat":51.59208,"lng":22.11238,"typ":"gmina","sieci":2},{"n":"Kłoczew","lat":51.72218,"lng":21.95624,"typ":"gmina","sieci":2},{"n":"Adamów","lat":51.75,"lng":22.25,"typ":"gmina","sieci":2},{"n":"Serokomla","lat":51.70030,"lng":22.33289,"typ":"gmina","sieci":2},{"n":"Wojcieszków","lat":51.76824,"lng":22.31578,"typ":"gmina","sieci":2},{"n":"Stanin","lat":51.87029,"lng":22.20266,"typ":"gmina","sieci":2},{"n":"Trzebieszów","lat":51.98687,"lng":22.58269,"typ":"gmina","sieci":2},{"n":"Ulan-Majorat","lat":51.81145,"lng":22.48082,"typ":"gmina","sieci":2},{"n":"Kąkolewnica","lat":51.89924,"lng":22.70103,"typ":"gmina","sieci":2},{"n":"Międzyrzec Podlaski","lat":51.98,"lng":22.79,"typ":"gmina","sieci":2},{"n":"Wisznice","lat":51.79,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Rossosz","lat":51.86,"lng":23.08,"typ":"gmina","sieci":2},{"n":"Łomazy","lat":51.90,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Piszczac","lat":51.98100,"lng":23.37601,"typ":"gmina","sieci":2},{"n":"Kodeń","lat":51.91,"lng":23.61,"typ":"gmina","sieci":2},{"n":"Janów Podlaski","lat":52.19,"lng":23.21,"typ":"gmina","sieci":2},{"n":"Leśna Podlaska","lat":52.13,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Rokitno","lat":52.10,"lng":23.24,"typ":"gmina","sieci":2},{"n":"Zalesie","lat":52.10,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Sławatycze","lat":51.76290,"lng":23.55446,"typ":"gmina","sieci":2},{"n":"Hanna","lat":51.72,"lng":23.53,"typ":"gmina","sieci":2},{"n":"Dubienka","lat":51.05,"lng":23.87,"typ":"gmina","sieci":2},{"n":"Dorohusk","lat":51.15,"lng":23.79,"typ":"gmina","sieci":2},{"n":"Rejowiec","lat":51.09460,"lng":23.28352,"typ":"gmina","sieci":2},{"n":"Siedliszcze","lat":51.16,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Sawin","lat":51.28,"lng":23.42,"typ":"gmina","sieci":2},{"n":"Ruda-Huta","lat":51.23601,"lng":23.59486,"typ":"gmina","sieci":2},{"n":"Wierzbica (chełmska)","lat":51.05,"lng":23.32,"typ":"gmina","sieci":2},{"n":"Żółkiewka","lat":50.86,"lng":22.86,"typ":"gmina","sieci":2},{"n":"Gorzków","lat":50.94113,"lng":22.98776,"typ":"gmina","sieci":2},{"n":"Grabowiec","lat":50.83,"lng":23.55,"typ":"gmina","sieci":2},{"n":"Miączyn","lat":50.75,"lng":23.50,"typ":"gmina","sieci":2},{"n":"Józefów (biłgorajski)","lat":50.48,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Susiec","lat":50.42,"lng":23.20,"typ":"gmina","sieci":2},{"n":"Komarów-Osada","lat":50.62831,"lng":23.47584,"typ":"gmina","sieci":2},{"n":"Tarnogród","lat":50.36,"lng":22.74,"typ":"gmina","sieci":2},{"n":"Józefów Roztoczański","lat":50.48,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Terespol","lat":52.07,"lng":23.61,"typ":"gmina","sieci":2}],
+  "podlaskie": [{"n":"Białystok","lat":53.13,"lng":23.16,"typ":"gmina","sieci":4},{"n":"Suwałki","lat":54.10,"lng":22.93,"typ":"gmina","sieci":3},{"n":"Łomża","lat":53.18,"lng":22.06,"typ":"gmina","sieci":3},{"n":"Bielsk Podlaski","lat":52.77,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Zambrów","lat":52.98,"lng":22.24,"typ":"gmina","sieci":2},{"n":"Wysokie Mazowieckie","lat":52.92,"lng":22.51,"typ":"gmina","sieci":2},{"n":"Sejny","lat":54.11,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Dąbrowa Białostocka","lat":53.65,"lng":23.35,"typ":"gmina","sieci":2},{"n":"Jasionówka","lat":53.39519,"lng":23.03789,"typ":"gmina","sieci":2},{"n":"Stawiski","lat":53.38,"lng":22.14,"typ":"gmina","sieci":2},{"n":"Jedwabne","lat":53.29,"lng":22.30,"typ":"gmina","sieci":2},{"n":"Nowogród","lat":53.22,"lng":21.88,"typ":"gmina","sieci":2},{"n":"Piątnica","lat":53.19,"lng":22.11,"typ":"gmina","sieci":2},{"n":"Wizna","lat":53.19,"lng":22.38,"typ":"gmina","sieci":2},{"n":"Śniadowo","lat":53.03817,"lng":21.99077,"typ":"gmina","sieci":2},{"n":"Miastkowo","lat":53.15178,"lng":21.82354,"typ":"gmina","sieci":2},{"n":"Czerwone","lat":53.42374,"lng":21.88950,"typ":"gmina","sieci":2},{"n":"Turośl","lat":53.38780,"lng":21.72755,"typ":"gmina","sieci":2},{"n":"Zbójna","lat":53.24247,"lng":21.79243,"typ":"gmina","sieci":2},{"n":"Łomża-Wschód","lat":53.16,"lng":22.15,"typ":"gmina","sieci":2},{"n":"Rutki-Kossaki","lat":53.08923,"lng":22.44065,"typ":"gmina","sieci":2},{"n":"Kołaki Kościelne","lat":53.02234,"lng":22.37798,"typ":"gmina","sieci":2},{"n":"Szumowo","lat":52.90,"lng":22.09,"typ":"gmina","sieci":2},{"n":"Klukowo","lat":52.75,"lng":22.42,"typ":"gmina","sieci":2},{"n":"Nowe Piekuty","lat":52.85657,"lng":22.70946,"typ":"gmina","sieci":2},{"n":"Kulesze Kościelne","lat":53.01573,"lng":22.50562,"typ":"gmina","sieci":2},{"n":"Rudka","lat":52.63,"lng":22.75,"typ":"gmina","sieci":2},{"n":"Czeremcha","lat":52.51,"lng":23.34,"typ":"gmina","sieci":2},{"n":"Białowieża","lat":52.70,"lng":23.86,"typ":"gmina","sieci":2},{"n":"Dubicze Cerkiewne","lat":52.65214,"lng":23.43798,"typ":"gmina","sieci":2},{"n":"Nurzec-Stacja","lat":52.51,"lng":23.05,"typ":"gmina","sieci":2},{"n":"Perlejewo","lat":52.56915,"lng":22.56283,"typ":"gmina","sieci":2},{"n":"Filipów","lat":54.18,"lng":22.61,"typ":"gmina","sieci":2},{"n":"Bakałarzewo","lat":54.09358,"lng":22.65164,"typ":"gmina","sieci":2},{"n":"Raczki","lat":53.98,"lng":22.78,"typ":"gmina","sieci":2},{"n":"Nowinka","lat":53.92,"lng":23.02,"typ":"gmina","sieci":2},{"n":"Płaska","lat":53.90517,"lng":23.26708,"typ":"gmina","sieci":2},{"n":"Giby","lat":54.04130,"lng":23.35375,"typ":"gmina","sieci":2},{"n":"Krasnopol","lat":54.11585,"lng":23.20670,"typ":"gmina","sieci":2},{"n":"Puńsk","lat":54.24,"lng":23.19,"typ":"gmina","sieci":2},{"n":"Szypliszki","lat":54.25386,"lng":23.07225,"typ":"gmina","sieci":2},{"n":"Jeleniewo","lat":54.20578,"lng":22.91255,"typ":"gmina","sieci":2},{"n":"Suwałki-Wschód","lat":54.09,"lng":23.00,"typ":"gmina","sieci":2},{"n":"Wiżajny","lat":54.38,"lng":22.86,"typ":"gmina","sieci":2}],
   "warmińsko-mazurskie": [{"n":"Olsztyn","lat":53.78,"lng":20.49,"typ":"gmina","sieci":4},{"n":"Ełk","lat":53.83,"lng":22.36,"typ":"gmina","sieci":3},{"n":"Giżycko","lat":54.04,"lng":21.77,"typ":"gmina","sieci":2},{"n":"Szczytno","lat":53.56,"lng":21.00,"typ":"gmina","sieci":2},{"n":"Pisz","lat":53.63,"lng":21.81,"typ":"gmina","sieci":2},{"n":"Lidzbark Warmiński","lat":54.13,"lng":20.58,"typ":"gmina","sieci":2},{"n":"Olecko","lat":54.03,"lng":22.50,"typ":"gmina","sieci":2},{"n":"Gołdap","lat":54.31,"lng":22.31,"typ":"gmina","sieci":2},{"n":"Węgorzewo","lat":54.21,"lng":21.74,"typ":"gmina","sieci":2},{"n":"Nowe Miasto Lubawskie","lat":53.42,"lng":19.60,"typ":"gmina","sieci":2},{"n":"Dobrze Miasto-Wieś","lat":53.99,"lng":20.42,"typ":"gmina","sieci":2},{"n":"Wilczęta","lat":54.16866,"lng":19.88265,"typ":"gmina","sieci":2},{"n":"Górowo Iławeckie","lat":54.28,"lng":20.49,"typ":"gmina","sieci":2},{"n":"Srokowo","lat":54.22,"lng":21.52,"typ":"gmina","sieci":2},{"n":"Barciany","lat":54.21991,"lng":21.35346,"typ":"gmina","sieci":2},{"n":"Kruklanki","lat":54.09050,"lng":21.92429,"typ":"gmina","sieci":2},{"n":"Pozezdrze","lat":54.14,"lng":21.86,"typ":"gmina","sieci":2},{"n":"Budry","lat":54.25292,"lng":21.88089,"typ":"gmina","sieci":2},{"n":"Banie Mazurskie","lat":54.25,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Kowale Oleckie","lat":54.16686,"lng":22.41457,"typ":"gmina","sieci":2},{"n":"Świętajno","lat":54.05,"lng":22.35,"typ":"gmina","sieci":2},{"n":"Wieliczki","lat":53.98547,"lng":22.56717,"typ":"gmina","sieci":2},{"n":"Prostki","lat":53.70,"lng":22.44,"typ":"gmina","sieci":2},{"n":"Kalinowo","lat":53.87498,"lng":22.67300,"typ":"gmina","sieci":2},{"n":"Stare Juchy","lat":53.92207,"lng":22.17378,"typ":"gmina","sieci":2},{"n":"Ryn","lat":53.94,"lng":21.55,"typ":"gmina","sieci":2},{"n":"Miłki","lat":53.94204,"lng":21.87385,"typ":"gmina","sieci":2},{"n":"Wydminy","lat":53.98184,"lng":22.03221,"typ":"gmina","sieci":2},{"n":"Orzysz","lat":53.81,"lng":21.94,"typ":"gmina","sieci":2},{"n":"Biała Piska","lat":53.61,"lng":22.05,"typ":"gmina","sieci":2},{"n":"Ruciane-Nida","lat":53.64176,"lng":21.53714,"typ":"gmina","sieci":2},{"n":"Świętajno-Szczytno","lat":53.65,"lng":21.14,"typ":"gmina","sieci":2},{"n":"Rozogi","lat":53.44,"lng":21.35,"typ":"gmina","sieci":2},{"n":"Wielbark","lat":53.40,"lng":20.94,"typ":"gmina","sieci":2},{"n":"Janowiec Kościelny","lat":53.28988,"lng":20.52262,"typ":"gmina","sieci":2},{"n":"Biskupiec Pomorski","lat":53.45,"lng":19.44,"typ":"gmina","sieci":2}],
 }
 
@@ -6821,7 +7037,7 @@ class ListaTras(list):
     brak_dni = False
 
 
-def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None) -> List[DzienTrasy]:
+def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None) -> List[DzienTrasy]:
     if stawka is None: stawka = STAWKA_ZA_KM
     # jedno rozliczenie = jeden stan źródła odległości
     zeruj_zrodlo_odleglosci()
@@ -7079,6 +7295,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             else:
                 waga = 1000.0 / (abs(d - srodek_startu) + 8.0)
             waga *= 50.0 if m.typ == 'gmina' else 1.0
+            waga *= waga_sieci(m.sieci)          # więcej sieci = chętniej na start dnia
             if m.sektor == sektor_dnia: waga *= 1000.0
             elif m.sektor in aktywne_sektory: waga *= 12.0
             else: waga *= 0.05
@@ -7104,16 +7321,20 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             while len(wybrane) < ile_celow:
                 ostatni = wybrane[-1]
                 najlepszy = None
-                najlepszy_d = max_skok
+                najlepszy_d = max_skok        # skok WAŻONY (dojazd / waga sieci)
                 for m in kandydaci:
                     if m.n in uzyte_nazwy: continue
                     if (not _bez_ograniczen_typu) and m.typ != 'gmina' and len(wybrane) > 1: continue
                     d_skok = oblicz_dystans(ostatni.lat, ostatni.lng, m.lat, m.lng)
                     if d_skok < 4.0: continue                    # to praktycznie ten sam punkt
-                    if d_skok >= najlepszy_d: continue           # dalej niż obecny najlepszy
+                    if d_skok >= max_skok: continue              # realny skok ponad limit dnia
+                    # Sieci WAŻĄ wybór sąsiada: miejscowość z 4–5 sieciami wygrywa
+                    # z bliższą jedynką, o ile realny skok mieści się w limicie.
+                    d_wazony = d_skok / waga_sieci(m.sieci)
+                    if d_wazony >= najlepszy_d: continue         # dalej niż obecny najlepszy
                     if oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) > promien_petli: continue
                     if (not _bez_ograniczen_typu) and przecina_aglomeracje(ostatni.lat, ostatni.lng, m.lat, m.lng, baza_lat, baza_lng): continue
-                    najlepszy = m; najlepszy_d = d_skok
+                    najlepszy = m; najlepszy_d = d_wazony
                 if najlepszy is None: break
                 wybrane.append(najlepszy); uzyte_nazwy.add(najlepszy.n)
 
@@ -7210,7 +7431,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 for _proba_aw in range(AWARIA_PROB):
                     _pula = sorted(kandydaci,
                                    key=lambda _mm: oblicz_dystans(baza_lat, baza_lng, _mm.lat, _mm.lng)
-                                   * rng.uniform(AWARIA_ROZRZUT[0], AWARIA_ROZRZUT[1]))
+                                   * rng.uniform(AWARIA_ROZRZUT[0], AWARIA_ROZRZUT[1])
+                                   / waga_sieci(_mm.sieci))
                     _pomin = (_dni_awaryjne + _proba_aw) % AWARIA_POMIN_CO
                     _etapy = []
                     _ob_lat, _ob_lng, _ob_naz = baza_lat, baza_lng, baza_nazwa
@@ -7295,6 +7517,13 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         aktualny_dystans_linii += ostateczne_etapy_dnia[-1].d_line
         _pojemnosc_km += _pojemnosc_dnia(ostateczne_etapy_dnia)
         finalne_dni.append(DzienTrasy(data=data, etapy_surowe=ostateczne_etapy_dnia))
+        if dzien_cb:
+            # Przelot w oknie zapala trasę tego dnia. Silnik go nie czeka
+            # i nie obchodzi go, czy ktoś patrzy — błąd odbiorcy nie psuje dnia.
+            try:
+                dzien_cb(finalne_dni[-1])
+            except Exception:
+                pass
 
     # Dni mogły powstać w innej kolejności niż kalendarzowa (gdy sięgaliśmy po
     # zapasowe daty) — porządkujemy chronologicznie.
@@ -7337,12 +7566,14 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             e.linia_prosta = e.d_line
         try:
             km_droga = dystans_drogowy(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
+            e.zrodlo = zrodlo_ostatniego_odcinka()
             if km_droga and km_droga > 0:
                 e.d_line = km_droga
         except Exception:
             # zostaje linia prosta — ale NIE PO CICHU: to szacunek i tak
             # ma być pokazany w interfejsie oraz na dokumencie
             _odnotuj_zrodlo(ZRODLO_SZACUNEK)
+            e.zrodlo = ZRODLO_SZACUNEK
     _zapisz_road_cache()
 
     suma_linii = max(sum(e.d_line for e in wszystkie_surowe), 1.0)
@@ -7463,7 +7694,14 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         byłoby ściśnięcie drogi poniżej linii prostej — a droga krótsza od
         linii prostej to delegacja, której nikt nie przejechał. Zamiast tego
         szukamy najdłuższej pętli z dwoma postojami, która MIEŚCI SIĘ w
-        budżecie. Zwraca False, gdy nic krótszego nie ma."""
+        budżecie. Zwraca False, gdy nic krótszego nie ma.
+
+        Pętla liczona jest w LINII PROSTEJ, a na dokumencie odcinek nigdy nie
+        schodzi poniżej linia × MNOZNIK_MIN — więc to MNOZNIK_MIN, nie
+        MNOZNIK_DOL, mówi, czy pętla mieści się w budżecie. Z dolną granicą
+        1,0 silnik wybierał pętlę o włos pod budżetem, podłoga podnosiła ją
+        o 15 % i 80 zł z Radomia kończyło się meldunkiem „kwota za mała:
+        91,28 zł", choć dziesięć kilometrów dalej stały tańsze pętle."""
         if not dz.etapy_surowe or budzet_km <= 0:
             return False
         wzor = dz.etapy_surowe[0]
@@ -7483,7 +7721,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 linia = (oblicz_dystans(baza_lat, baza_lng, a.lat, a.lng)
                          + oblicz_dystans(a.lat, a.lng, b2.lat, b2.lng)
                          + oblicz_dystans(b2.lat, b2.lng, baza_lat, baza_lng))
-                if linia * MNOZNIK_DOL > budzet_km or linia >= teraz:
+                if linia * MNOZNIK_MIN > budzet_km or linia >= teraz:
                     continue
                 if najlepsza is None or linia > najlepsza[0]:
                     najlepsza = (linia, a, b2)
@@ -7493,10 +7731,20 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             # wygląda dzień — dwa postoje już się w niej nie mieszczą.
             for a in blisko:
                 linia = 2.0 * oblicz_dystans(baza_lat, baza_lng, a.lat, a.lng)
-                if linia * MNOZNIK_DOL > budzet_km or linia >= teraz:
+                if linia * MNOZNIK_MIN > budzet_km or linia >= teraz:
                     continue
                 if najlepsza is None or linia > najlepsza[0]:
                     najlepsza = (linia, a, None)
+        if najlepsza is None and blisko:
+            # Nic nie mieści się w kwocie — zostaje NAJKRÓTSZY prawdziwy
+            # wyjazd (najbliższa miejscowość i powrót), o ile jest krótszy
+            # od obecnego dnia. Meldunek „kwota za mała" podaje wtedy
+            # prawdziwe minimum, a nie koszt przypadkowej pętli (Ustrzyki
+            # Dolne: 194 zł przez Jasło, choć Dynów i powrót to 103 zł).
+            a = blisko[0]
+            linia = 2.0 * oblicz_dystans(baza_lat, baza_lng, a.lat, a.lng)
+            if linia < teraz:
+                najlepsza = (linia, a, None)
         if najlepsza is None:
             return False
         _, a, b2 = najlepsza
@@ -7699,27 +7947,11 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     _kwota_za_mala = False
     _kwota_min_realna = 0.0
     if suma_biezaca > kwota_calkowita + 0.01 and suma_biezaca > 0:
-        skala = kwota_calkowita / suma_biezaca
-        # Poniżej dolnej granicy mnożnika (MNOZNIK_MIN) odcinek przestaje
-        # być realną drogą. Kwota pozostaje nieprzekraczalna, ale gdy nawet
-        # najkrótszy możliwy dzień (2 postoje) się w niej nie mieści,
-        # użytkownik dostaje wprost informację: kwota ZA MAŁA + minimum.
-        try:
-            # Sygnał tylko przy ISTOTNEJ różnicy: przekroczenie o grosze
-            # (zaokrąglenia, zapas 0,5 km z przycinania) to nie „kwota za mała".
-            _minimum = round(sum(e.d_line * MNOZNIK_MIN * stawka
-                                 for e in wszystkie_surowe), 2)
-            if _minimum > kwota_calkowita + max(1.0, 0.01 * kwota_calkowita):
-                _kwota_za_mala = True
-                _kwota_min_realna = _minimum
-        except Exception:
-            pass
-        for e in wszystkie_surowe:
-            e.dystans_rzeczywisty *= skala
-            # PODŁOGA JEST NIEPRZEKRACZALNA: ściśnięcie do budżetu nie może
-            # zejść poniżej linii prostej między punktami. Dawniej schodziło
-            # nawet do 0,15 × linii (Ustrzyki Dolne przy 50 zł: 126 km w linii
-            # prostej, 19 km na dokumencie) — taki przejazd jest niemożliwy.
+        # PODŁOGA JEST NIEPRZEKRACZALNA: ściśnięcie do budżetu nie może
+        # zejść poniżej linii prostej między punktami. Dawniej schodziło
+        # nawet do 0,15 × linii (Ustrzyki Dolne przy 50 zł: 126 km w linii
+        # prostej, 19 km na dokumencie) — taki przejazd jest niemożliwy.
+        def _podloga_km(e):
             _pr = float(getattr(e, "linia_prosta", 0.0) or 0.0)
             if _pr <= 0:
                 try:
@@ -7727,10 +7959,46 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                     e.linia_prosta = _pr
                 except Exception:
                     _pr = 0.0
-            if _pr > 0:
-                e.dystans_rzeczywisty = max(e.dystans_rzeczywisty, _pr * MNOZNIK_MIN)
-            e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
-            e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
+            return _pr * MNOZNIK_MIN
+        # Poniżej dolnej granicy mnożnika (MNOZNIK_MIN) odcinek przestaje
+        # być realną drogą. Kwota pozostaje nieprzekraczalna, ale gdy nawet
+        # najkrótszy możliwy dzień (2 postoje) się w niej nie mieści,
+        # użytkownik dostaje wprost informację: kwota ZA MAŁA + minimum.
+        try:
+            # Sygnał tylko przy ISTOTNEJ różnicy: przekroczenie o grosze
+            # (zaokrąglenia, zapas 0,5 km z przycinania) to nie „kwota za mała".
+            # Minimum liczone TAK SAMO jak podłoga: z linii prostej, nie z drogi
+            # (droga × MNOZNIK_MIN meldowała „za mało" przy 250 zł z Radomia,
+            # choć dwa dni mieściły się w kwocie z zapasem).
+            _minimum = round(sum(_podloga_km(e) * stawka for e in wszystkie_surowe), 2)
+            if _minimum > kwota_calkowita + max(1.0, 0.01 * kwota_calkowita):
+                _kwota_za_mala = True
+                _kwota_min_realna = _minimum
+        except Exception:
+            pass
+        # Ściskamy W KILKU PRZEBIEGACH: odcinek, który stanął na podłodze,
+        # w następnym przebiegu już nie oddaje kilometrów — oddają je te,
+        # które mają jeszcze luz. Jedno wspólne skalowanie zostawiało resztę
+        # ponad kwotą (Radom, 250 zł: 251,44 zł), bo część odcinków odbijała
+        # się od podłogi, a reszta nie nadrabiała.
+        for _przebieg in range(8):
+            suma_biezaca = sum(e.kwota for e in wszystkie_surowe)
+            if suma_biezaca <= kwota_calkowita + 0.01:
+                break
+            _z_luzem = [e for e in wszystkie_surowe
+                        if e.dystans_rzeczywisty > _podloga_km(e) + 1e-6]
+            if not _z_luzem:
+                break
+            _id_luz = set(id(e) for e in _z_luzem)
+            _na_podlodze_zl = sum(e.kwota for e in wszystkie_surowe if id(e) not in _id_luz)
+            _ruchome_zl = sum(e.kwota for e in _z_luzem)
+            if _ruchome_zl <= 0:
+                break
+            skala = max(0.0, (kwota_calkowita - _na_podlodze_zl) / _ruchome_zl)
+            for e in _z_luzem:
+                e.dystans_rzeczywisty = max(e.dystans_rzeczywisty * skala, _podloga_km(e))
+                e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
+                e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
         _po_podlodze = round(sum(e.kwota for e in wszystkie_surowe), 2)
         # Delegacja NIE MOŻE przekroczyć zamówionej kwoty. Jeśli po dociśnięciu
         # podłogi suma i tak wychodzi wyżej, to znaczy, że kwota jest mniejsza
@@ -7783,6 +8051,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             e.kwota = round(e.kwota + krok, 2)
             reszta = round(reszta - krok, 2); idx += 1
 
+    # odcinki dobudowane po przycinaniu i pętle odwrócone nie przeszły przez
+    # pętlę dróg wyżej — źródło biorą z pamięci dróg, tak jak ich kilometry
+    uzupelnij_zrodla_etapow(e for dzien in finalne_dni for e in dzien.etapy_surowe)
+
     for dzien in finalne_dni:
         # Godzina wyjazdu zależy od TRYBU PRACY:
         #  tygodniowy — rano, między 7:00 a 8:00 (jak dotąd),
@@ -7830,6 +8102,8 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
     text_muted = "#94A3B8" if is_dark else "#475569"
     btn_bg = "linear-gradient(to right, #00F0FF, #0093E9)" if is_dark else "#10B981"
     btn_txt = "#000000" if is_dark else "#FFFFFF"
+    _etykieta_zrodla = etykieta_zrodla_odleglosci()
+    zrodlo_html = ("<p>Odległości: %s</p>" % _etykieta_zrodla) if _etykieta_zrodla else ""
     
     html_content = f"""
     <!DOCTYPE html>
@@ -7854,7 +8128,7 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
             <div class="header">
                 <h1>Wykaz Tras Geograficznych - {pracownik.imie}</h1>
                 <p>Miesiąc: {miesiac_slownie} {rok}</p>
-                <p>Odległości: {etykieta_zrodla_odleglosci()}</p>
+                {zrodlo_html}
             </div>
     """
     # Baza (dom pracownika) to START i KONIEC każdej trasy. Przekazujemy pełny
@@ -8038,16 +8312,165 @@ def _podziel_na_dokumenty(dni: List[DzienTrasy]) -> List[List[DzienTrasy]]:
             d.dokument = nr
     return docs
 
+# ── NAZWY PLIKÓW, RUBRYKA PRZEJAZDÓW I PORZĄDEK W FOLDERZE WYNIKU ─────────
+ZNAKI_ZABRONIONE_W_NAZWIE = '<>:"/\\|?*'
+PODFOLDER_POPRZEDNICH = "Poprzednie"
+
+
+def nazwa_do_pliku(imie: str) -> str:
+    """Imię i nazwisko w postaci bezpiecznej dla nazwy pliku i folderu.
+
+    Odstępy idą w „_" (jak dotąd), a znaki zabronione w nazwach Windows —
+    < > : " / \\ | ? * — i znaki sterujące znikają; na Windows zapis takiej
+    nazwy padał, a program mówił wtedy o pliku „otwartym w innym programie".
+    Polskie litery ZOSTAJĄ: pmt_dokumenty i pmt_podpis porównują nazwy po
+    zdjęciu ogonków, a Windows, macOS i Linux przyjmują je w nazwach."""
+    tekst = "".join(z for z in str(imie or "")
+                    if z not in ZNAKI_ZABRONIONE_W_NAZWIE and ord(z) >= 32)
+    tekst = "_".join(tekst.split()).strip("_")
+    return tekst or "pracownik"
+
+
+def tekst_stawki(stawka: float) -> str:
+    """Stawka za km tak, jak stoi na dokumencie: „1,15", „0,89", „0,60";
+    stawka z większą liczbą miejsc dostaje ich tyle, ile trzeba (do czterech)."""
+    calosc, ulamek = ("%.4f" % float(stawka)).split(".")
+    ulamek = ulamek.rstrip("0")
+    ulamek = (ulamek + "00")[:max(2, len(ulamek))]
+    return "%s,%s" % (calosc, ulamek)
+
+
+def kilometry_dokumentu(kwota: float, stawka: float) -> str:
+    """Kilometry, które stoją za kwotą dokumentu — do rubryki „(1) Przejazdy".
+
+    Liczone Z KWOTY (kwota / stawka), nie z odcinków trasy: kwoty etapów
+    niosą poprawkę groszową, która domyka miesiąc co do grosza, więc suma
+    odległości odcinków razy stawka różniłaby się od kwoty dokumentu o kilka
+    groszy. Tekst dostaje tyle miejsc po przecinku (1–3), ile trzeba, żeby
+    km × stawka po zaokrągleniu do grosza dały DOKŁADNIE kwotę z dokumentu —
+    arytmetyka na kartce musi się zgadzać z kalkulatorem. Trzy miejsca
+    wystarczają zawsze, gdy stawka nie przekracza 10 zł/km."""
+    stawka_dok = float(tekst_stawki(stawka).replace(",", "."))
+    kwota = round(float(kwota), 2)
+    if stawka_dok <= 0:
+        return ""
+    km = kwota / stawka_dok
+    tekst = "%.3f" % km
+    for miejsc in (1, 2, 3):
+        proba = "%.*f" % (miejsc, km)
+        if round(float(proba) * stawka_dok, 2) == kwota:
+            tekst = proba
+            break
+    return tekst.replace(".", ",")
+
+
+def opis_przejazdow(kwota: float, stawka: float) -> str:
+    """Treść rubryki „(1) Przejazdy": „Prywatny samochód: 312,4 km × 1,15 zł/km".
+    Dotąd stała tu formułka o wzorze, a kilometrów ani stawki nie było —
+    ten sam komplet przy każdej stawce dawał bajt w bajt ten sam plik."""
+    km = kilometry_dokumentu(kwota, stawka)
+    if not km:
+        return "Prywatny samochód"
+    return "Prywatny samochód: %s km × %s zł/km" % (km, tekst_stawki(stawka))
+
+
+def _slad_podpisu(folder: str) -> bool:
+    """Czy poprzedni przebieg w tym folderze ma już coś podpisanego: pliki
+    w Do_podpisu/Podpisane albo wpis „podpisany" w manifeście paczki
+    (nazwy podfolderów i statusów bierzemy z pmt_podpis, gdy jest)."""
+    modul = modul_pomocniczy("pmt_podpis")
+    paczka = getattr(modul, "NAZWA_PODFOLDERU", "Do_podpisu")
+    podpisane = getattr(modul, "NAZWA_PODPISANE", "Podpisane")
+    manifest = getattr(modul, "NAZWA_MANIFESTU", "manifest_podpisu.json")
+    status = str(getattr(modul, "STATUS_PODPISANY", "podpisany")).casefold()
+    for kat in (os.path.join(folder, paczka, podpisane), os.path.join(folder, podpisane)):
+        try:
+            if any(os.path.isfile(os.path.join(kat, n)) for n in os.listdir(kat)):
+                return True
+        except OSError:
+            continue
+    for sc in (os.path.join(folder, paczka, manifest), os.path.join(folder, manifest)):
+        try:
+            with open(sc, encoding="utf-8") as f:
+                dane = json.load(f)
+            for w in (dane.get("pliki") or []):
+                if isinstance(w, dict) and str(w.get("status") or "").casefold() == status:
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def uprzatnij_poprzedni_komplet(folder: str, imie_plik: str, ms: str, rok: int) -> dict:
+    """Zdejmuje z folderu wyniku dokumenty POPRZEDNIEGO przebiegu tego samego
+    pracownika i miesiąca, zanim powstaną nowe.
+
+    Ponowne generowanie z mniejszą kwotą daje mniej poleceń wyjazdu, a pliki
+    o wyższych numerach zostawały z poprzedniego przebiegu — i szły do kadr
+    razem z nowymi. Ruszamy WYŁĄCZNIE pliki o nazwach, jakie sami składamy
+    (delegacja_NN_imię_miesiąc_rokr.pdf i rozliczenie_wydatków_…), wyłącznie
+    w samym folderze (podfoldery Do_podpisu i Podpisane zostają nietknięte)
+    i wyłącznie tego pracownika i miesiąca; nazwy porównujemy w NFC i bez
+    rozróżniania wielkości liter (macOS zapisuje ogonki w NFD).
+
+    Bez śladu podpisu stare pliki po prostu znikają — to wynik programu, który
+    zaraz powstanie od nowa. Gdy poprzedni przebieg ma już ślad podpisu
+    (patrz _slad_podpisu), starych plików NIE kasujemy: idą do podfolderu
+    „Poprzednie_<data_czas>", żeby podpisane egzemplarze miały obok siebie
+    oryginały, do których należą.
+
+    Plik, którego nie da się ruszyć (otwarty w czytniku), zatrzymuje
+    generowanie PRZED zapisem czegokolwiek — jak dotąd zatrzymywał je zapis.
+    Zwraca słownik: usuniete, przeniesione (nazwy) i dokad (podfolder)."""
+    def _norm(nazwa):
+        return unicodedata.normalize("NFC", str(nazwa)).casefold()
+    sufiks = re.escape(_norm("_%s_%s_%sr.pdf" % (imie_plik, ms, rok)))
+    wzor = re.compile(r"^(delegacja_\d+|%s)%s$" % (re.escape(_norm("rozliczenie_wydatków")), sufiks))
+    wynik = {"usuniete": [], "przeniesione": [], "dokad": ""}
+    try:
+        nazwy = os.listdir(folder)
+    except OSError:
+        return wynik
+    stare = sorted(os.path.join(folder, n) for n in nazwy
+                   if wzor.match(_norm(n)) and os.path.isfile(os.path.join(folder, n)))
+    if not stare:
+        return wynik
+    dokad = ""
+    if _slad_podpisu(folder):
+        dokad = os.path.join(folder, "%s_%s" % (
+            PODFOLDER_POPRZEDNICH, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")))
+        os.makedirs(dokad, exist_ok=True)
+    for sc in stare:
+        nazwa = os.path.basename(sc)
+        try:
+            if dokad:
+                shutil.move(sc, os.path.join(dokad, nazwa))
+                wynik["przeniesione"].append(nazwa)
+            else:
+                os.remove(sc)
+                wynik["usuniete"].append(nazwa)
+        except OSError:
+            raise ValueError(f"Plik PDF jest otwarty w innym programie!\nZamknij: {nazwa}")
+    wynik["dokad"] = dokad
+    return wynik
+
+
 def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesiac: int, rok: int, folder: str, stawka: float = None, postep_callback=None, zrodlo: dict = None) -> List[dict]:
     if FPDF_BLAD:
         raise ValueError(_opis_bledu_pdf())
     if stawka is None: stawka = STAWKA_ZA_KM
     # Skąd wzięły się kilometry — to stoi na dokumencie, bo od tego zależy,
-    # czy podane odległości są realne.
+    # czy podane odległości są realne. Pusta etykieta (stan „brak": ani jeden
+    # odcinek nie był liczony) = dokument o źródle milczy, zamiast zapewniać.
     if zrodlo is None: zrodlo = stan_zrodla_odleglosci()
-    zrodlo_txt = "Odległości: %s" % zrodlo.get("etykieta", ETYKIETY_ZRODLA[ZRODLO_DROGI])
+    etykieta_zrodla = str(zrodlo.get("etykieta") or "")
+    zrodlo_txt = ("Odległości: %s" % etykieta_zrodla) if etykieta_zrodla else ""
     os.makedirs(folder, exist_ok=True)
     ms = MIESIACE_PL[miesiac - 1]
+    imie_plik = nazwa_do_pliku(pracownik.imie)
+    # Najpierw porządek: dokumenty poprzedniego przebiegu tego pracownika
+    # i miesiąca schodzą z folderu, żeby do kadr nie poszły sieroty.
+    uprzatnij_poprzedni_komplet(folder, imie_plik, ms, rok)
     # Gwarancja chronologii: dni zawsze rosnąco wg daty, ZANIM podzielimy je na
     # dokumenty. Dzięki temu daty w obrębie każdego PDF-a idą po kolei.
     finalne_dni = sorted(finalne_dni, key=lambda d: d.data)
@@ -8095,7 +8518,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf.ln(3); pdf.set_font("Arial",'B',8)
         pdf.cell(25,4.5,"Rodzaj",border=1,align='C'); pdf.cell(140,4.5,"Opis kosztu",border=1,align='C'); pdf.cell(25,4.5,"Koszty",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',8)
-        for r,o,k in [("(1) Przejazdy","Prywatny samochód: kilometrówka wyliczana wg wzoru: liczba km x stawka",f"{suma_doc:.2f}"),("(2) Noclegi","Koszt hotelu lub ryczałt 67,50 zł","-"),("(3) Diety","22,50 zł lub 45,00 zł","-"),("(4) Inne","Autostrada, parking, reprezentacja","-")]:
+        for r,o,k in [("(1) Przejazdy",opis_przejazdow(suma_doc, stawka),f"{suma_doc:.2f}"),("(2) Noclegi","Koszt hotelu lub ryczałt 67,50 zł","-"),("(3) Diety","22,50 zł lub 45,00 zł","-"),("(4) Inne","Autostrada, parking, reprezentacja","-")]:
             pdf.cell(25,4.5,r,border=1); pdf.cell(140,4.5,o,border=1); pdf.cell(25,4.5,k,border=1,new_x="LMARGIN",new_y="NEXT",align='R')
         pdf.set_font("Arial",'B',8); pdf.cell(165,4.5,"Suma wydatków",border=1,align='R'); pdf.cell(25,4.5,f"{suma_doc:.2f}",border=1,new_x="LMARGIN",new_y="NEXT",align='R')
         pdf.ln(3); ys = pdf.get_y(); pdf.rect(10,ys,190,24)
@@ -8107,7 +8530,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
             pdf.line(x+5,ly,x+sz-5,ly); pdf.set_xy(x,ly); pdf.cell(sz,3,txt,align='C')
         pdf.set_font("Arial",'B',8); pdf.set_xy(20,ys+19); pdf.cell(160,3,"Liczba załączników"); pdf.set_xy(180,ys+19); pdf.cell(20,3,"1",align='C')
         
-        pdf_path = os.path.join(folder, f"delegacja_{i:02d}_{pracownik.imie.replace(' ','_')}_{ms}_{rok}r.pdf")
+        pdf_path = os.path.join(folder, f"delegacja_{i:02d}_{imie_plik}_{ms}_{rok}r.pdf")
         try: pdf.output(pdf_path)
         except OSError: raise ValueError(f"Plik PDF jest otwarty w innym programie!\nZamknij: delegacja_{i:02d}...pdf")
         podsumowanie.append({'lp':i,'dokument':f"delegacja {i:02d} {pracownik.imie}",'opis':"Koszty dojazdów",'kwota':suma_doc})
@@ -8116,7 +8539,9 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf.set_font("Arial",'B',10); pdf.cell(0,5,firma_nazwa,new_x="LMARGIN",new_y="NEXT")
     pdf.set_font("Arial",'',10); pdf.cell(0,5,"ul. Ptasia 10, 60-319 Poznań",new_x="LMARGIN",new_y="NEXT"); pdf.cell(0,5,nip_krotki,new_x="LMARGIN",new_y="NEXT"); pdf.ln(5)
     pdf.set_font("Arial",'B',12); pdf.cell(0,8,f"Rozliczenie wydatków za miesiąc: {ms} {rok}r.",new_x="LMARGIN",new_y="NEXT"); pdf.ln(2)
-    for lbl,val in [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie))),("Odległości:",zrodlo.get("etykieta", ETYKIETY_ZRODLA[ZRODLO_DROGI]))]:
+    wiersze_naglowka = [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie)))]
+    if etykieta_zrodla: wiersze_naglowka.append(("Odległości:", etykieta_zrodla))
+    for lbl,val in wiersze_naglowka:
         pdf.set_font("Arial",'B',9); pdf.cell(50,6,lbl,border=0); pdf.set_font("Arial",'',9); pdf.cell(140,6,val,border=0,new_x="LMARGIN",new_y="NEXT")
     pdf.ln(5); pdf.set_font("Arial",'B',9)
     for sz,t in [(10,"Lp."),(80,"Dokument"),(70,"Opis"),(30,"Kwota brutto")]: pdf.cell(sz,8,t,border=1,align='C')
@@ -8128,7 +8553,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf.cell(160,6,"zaliczka:",border=0,align='R'); pdf.cell(30,6,"",border=1,new_x="LMARGIN",new_y="NEXT")
     pdf.set_font("Arial",'B',9); pdf.cell(160,6,"Suma wydatków global:",border=0,align='R'); pdf.cell(30,6,f"{suma_g:.2f}",border=1,new_x="LMARGIN",new_y="NEXT",align='R')
     
-    pdf_path_summary = os.path.join(folder,f"rozliczenie_wydatków_{pracownik.imie.replace(' ','_')}_{ms}_{rok}r.pdf")
+    pdf_path_summary = os.path.join(folder,f"rozliczenie_wydatków_{imie_plik}_{ms}_{rok}r.pdf")
     try: pdf.output(pdf_path_summary)
     except OSError: raise ValueError(f"Plik podsumowania jest otwarty w innym programie!\nZamknij: rozliczenie_wydatków...pdf")
     try:
@@ -8325,12 +8750,14 @@ def dni_delegacji_z_planu(plan: dict, pracownik: DanePracownika, stawka: float,
         for ci, (c_naz, c_lat, c_lng) in enumerate(cele):
             try:
                 km = dystans_drogowy(sk_lat, sk_lng, c_lat, c_lng)
+                zrodlo_odc = zrodlo_ostatniego_odcinka()
             except Exception:
                 _odnotuj_zrodlo(ZRODLO_SZACUNEK)
+                zrodlo_odc = ZRODLO_SZACUNEK
                 km = oblicz_dystans(sk_lat, sk_lng, c_lat, c_lng) * TEST_MNOZNIK_TRASY
             ostatni = (ci == len(cele) - 1)
             et.append(RawEtap(skad=sk_naz, dokad=c_naz, data_str=data_str,
-                              d_line=max(float(km or 0.0), 0.1),
+                              d_line=max(float(km or 0.0), 0.1), zrodlo=zrodlo_odc,
                               czas_w_sklepie=(0.0 if ostatni else czas_w),
                               dokad_woj=pracownik.wojewodztwo,
                               skad_lat=sk_lat, skad_lng=sk_lng,
@@ -8370,11 +8797,26 @@ class PrzerwanoGenerowanie(BaseException):
     się w połowiczny wynik."""
 
 
+def slad_dnia(dzien) -> tuple:
+    """Lekki ślad ułożonego dnia dla interfejsu: (data, ((miejscowość,
+    szerokość, długość), ...)) — od bazy przez przystanki z powrotem do bazy.
+    Krotka, więc okno dostaje kopię, której silnik już nie zmieni (odcinki
+    skalują się i przycinają dopiero po ułożeniu wszystkich dni)."""
+    etapy = list(getattr(dzien, "etapy_surowe", None) or [])
+    if not etapy:
+        return (getattr(dzien, "data", None), ())
+    punkty = [(etapy[0].skad, float(etapy[0].skad_lat), float(etapy[0].skad_lng))]
+    for e in etapy:
+        punkty.append((e.dokad, float(e.dokad_lat), float(e.dokad_lng)))
+    return (dzien.data, tuple(punkty))
+
+
 class GeneratorThread(QThread):
     postep = pyqtSignal(str, float)
     sukces = pyqtSignal(list, object, str)
     blad   = pyqtSignal(str)
     anulowano = pyqtSignal()
+    dzien_gotowy = pyqtSignal(object)      # slad_dnia każdego ułożonego dnia
     def __init__(self, params: dict):
         super().__init__(); self.params = params
         self._zrodlo = stan_zrodla_odleglosci()
@@ -8411,7 +8853,9 @@ class GeneratorThread(QThread):
             def p_cb(txt, val):
                 self._sprawdz_przerwanie()
                 self.postep.emit(txt, val)
-            finalne_dni = generuj_trasy(p['kwota_cel'], p['baza_miasto'], baza_lat, baza_lng, p['woj'], p['dni_robocze'], p['pesel'], p.get('stawka', STAWKA_ZA_KM), p_cb)
+            def d_cb(dzien):
+                self.dzien_gotowy.emit(slad_dnia(dzien))
+            finalne_dni = generuj_trasy(p['kwota_cel'], p['baza_miasto'], baza_lat, baza_lng, p['woj'], p['dni_robocze'], p['pesel'], p.get('stawka', STAWKA_ZA_KM), p_cb, dzien_cb=d_cb)
 
             # Skąd wzięły się kilometry — stan dla interfejsu i dokumentu
             self._zrodlo = stan_zrodla_odleglosci()
@@ -8435,7 +8879,7 @@ class GeneratorThread(QThread):
             self._sprawdz_przerwanie()
             self._punkt_bez_powrotu = True     # dalej już tylko pliki na dysku
             self.postep.emit("Rysowanie dokumentów PDF...", 0.85)
-            folder = os.path.join(sciezka_pulpitu(), f"Rozliczenie_{pracownik.imie.replace(' ','_')}_{p['miesiac_slownie']}_{p['rok']}r")
+            folder = os.path.join(sciezka_pulpitu(), f"Rozliczenie_{nazwa_do_pliku(pracownik.imie)}_{p['miesiac_slownie']}_{p['rok']}r")
             generuj_pdfy(finalne_dni, pracownik, p['miesiac'], p['rok'], folder, p.get('stawka', STAWKA_ZA_KM), p_cb, zrodlo=self._zrodlo)
             
             self.postep.emit("Generowanie podglądu tras HTML...", 0.95)
@@ -8490,7 +8934,7 @@ class DelegacjaZPlanuThread(QThread):
                 folder = os.path.join(
                     sciezka_pulpitu(),
                     "Rozliczenie_z_planu_%s_%s_%dr" % (
-                        pracownik.imie.replace(' ', '_'), ms, rok))
+                        nazwa_do_pliku(pracownik.imie), ms, rok))
                 self.postep.emit("Dokumenty PDF: %s %d (%d/%d)..." % (ms, rok, gi, n_g),
                                  0.72 + 0.20 * gi / n_g)
                 generuj_pdfy(dni, pracownik, mies, rok, folder,
@@ -8718,57 +9162,6 @@ class SvgIconLabel(QWidget):
         draw_svg_icon(painter, self.icon_name, QRectF(2, 2, self.width()-4, self.height()-4), self.color, self.is_dark)
         painter.end()
 
-class ImageBackgroundWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent); self.is_dark = True; self._orig_dark = None; self._orig_light = None; self._load_images()
-    def _load_images(self):
-        p_dark = zasob_sciezka("ciemny.png")
-        p_light = zasob_sciezka("jasny.png")
-        if os.path.exists(p_dark): self._orig_dark = QPixmap(p_dark)
-        if os.path.exists(p_light): self._orig_light = QPixmap(p_light)
-    def set_theme(self, is_dark): self.is_dark = is_dark; self.update()
-    def _tlo_zastepcze(self, painter):
-        """Gradient w barwach PMT — używany, gdy w wydaniu zabrakło plików
-        ciemny.png / jasny.png. Zamiast płaskiej czerni: granat -> turkus."""
-        from PyQt6.QtGui import QLinearGradient
-        g = QLinearGradient(0, 0, self.width(), self.height())
-        if self.is_dark:
-            g.setColorAt(0.0, QColor("#0F172A")); g.setColorAt(0.55, QColor("#0B1320"))
-            g.setColorAt(1.0, QColor("#04121A"))
-        else:
-            g.setColorAt(0.0, QColor("#F8FAFC")); g.setColorAt(1.0, QColor("#E2E8F0"))
-        painter.fillRect(self.rect(), g)
-        if self.is_dark:                      # subtelna poświata w rogu
-            from PyQt6.QtGui import QRadialGradient
-            r = QRadialGradient(self.width() * 0.82, self.height() * 0.18,
-                                max(self.width(), self.height()) * 0.55)
-            r.setColorAt(0.0, QColor(0, 240, 255, 34)); r.setColorAt(1.0, QColor(0, 240, 255, 0))
-            painter.fillRect(self.rect(), r)
-
-    def paintEvent(self, event):
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        orig = self._orig_dark if self.is_dark else self._orig_light
-        if not orig or orig.isNull():
-            self._tlo_zastepcze(painter)
-            painter.end()
-            return
-        painter.fillRect(self.rect(), QColor("#0B1320") if self.is_dark else QColor("#F1F5F9"))
-        # Skalujemy TYLKO przy zmianie motywu albo rozmiaru — wynik trzymamy
-        # w pamięci. Wcześniej pełne wygładzone skalowanie 1,4-megapikselowego
-        # tła leciało przy KAŻDYM przerysowaniu okna, przez co samo nałożenie
-        # motywu (dziesiątki zmian stylów = dziesiątki przerysowań) potrafiło
-        # trwać wiele sekund, a cała aplikacja była ociężała.
-        klucz = (self.is_dark, self.width(), self.height())
-        if getattr(self, "_tlo_klucz", None) != klucz:
-            self._tlo_klucz = klucz
-            self._tlo_gotowe = orig.scaled(
-                self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation)
-        scaled = self._tlo_gotowe
-        crop_x = (scaled.width() - self.width()) // 2
-        crop_y = (scaled.height() - self.height()) // 2
-        painter.drawPixmap(0, 0, scaled, crop_x, crop_y, self.width(), self.height())
-        painter.end()
 
 class GrubyKursorEdit(QLineEdit):
     """QLineEdit z własnoręcznie rysowanym, grubym i wyraźnie widocznym
@@ -8824,101 +9217,6 @@ class GrubyKursorEdit(QLineEdit):
         p.end()
 
 
-class StyledInput(QFrame):
-    def __init__(self, icon_name, widget, is_dark=True, parent=None):
-        super().__init__(parent); self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True); self.setObjectName("StyledInputField")
-        self.is_dark = is_dark; self.setFixedHeight(32)   # niżej: karty nie zachodzą na siebie
-        self._stan_walidacji = None    # None / "ok" / "err" — pamięć podświetlenia Asystenta
-        layout = QHBoxLayout(self); layout.setContentsMargins(12, 0, 12, 0); layout.setSpacing(10)
-        self.icon_w = SvgIconLabel(icon_name, self, size=20); layout.addWidget(self.icon_w)
-        self.widget = widget; self.widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.widget.installEventFilter(self); layout.addWidget(self.widget)
-        self.update_theme(is_dark)
-
-    def _caret_css(self):
-        return "#00F0FF" if self.is_dark else "#0D9488"
-
-    def _text_css(self):
-        return "#FFFFFF" if self.is_dark else "#000000"
-
-    def _ustaw_kolor_kursora(self):
-        """Kolor kursora (caret) w PyQt6 ustawia się przez paletę (QSS caret-color
-        jest ignorowane). Ustawiamy jasny kolor tekstu = jasny, widoczny kursor."""
-        from PyQt6.QtGui import QPalette
-        pal = self.widget.palette()
-        kolor = QColor("#FFFFFF") if self.is_dark else QColor("#0F172A")
-        pal.setColor(QPalette.ColorRole.Text, kolor)
-        self.widget.setPalette(pal)
-        # jeśli to nasze pole z ręcznie rysowanym kursorem — ustaw jego kolor
-        if hasattr(self.widget, "set_caret_kolor"):
-            self.widget.set_caret_kolor("#00F0FF" if self.is_dark else "#0D9488")
-
-    def _widget_css(self):
-        txt = self._text_css()
-        ph = "#64748B" if self.is_dark else "#5B6B80"
-        view_bg = "#0B1320" if self.is_dark else "#FFFFFF"
-        view_sel = "#00F0FF" if self.is_dark else "#0D9488"
-        view_seltxt = "#000000" if self.is_dark else "#FFFFFF"
-        return (f"QLineEdit, QComboBox {{ background: transparent; border: none; color: {txt}; "
-                f"font-size: 13px; font-family: 'Segoe UI', sans-serif; font-weight: 500; }} "
-                f"QLineEdit::placeholder {{ color: {ph}; }} "
-                f"QComboBox QAbstractItemView {{ background: {view_bg}; color: {txt}; "
-                f"selection-background-color: {view_sel}; selection-color: {view_seltxt}; }}")
-
-    def _ramka_koloru(self, kolor, bg):
-        self.setStyleSheet(f"#StyledInputField {{ background-color: {bg}; border: 1px solid {kolor}; border-radius: 8px; }}")
-        self.icon_w.set_color(kolor)
-        self.widget.setStyleSheet(self._widget_css())
-        self._ustaw_kolor_kursora()
-
-    def ustaw_walidacje(self, stan):
-        """Zapamiętuje status z Asystenta: 'ok'(zielony) / 'err'(czerwony) / None.
-        Podświetlenie utrzymuje się także po opuszczeniu pola myszką."""
-        self._stan_walidacji = stan
-        # nie nadpisuj gdy pole ma aktualnie fokus (wtedy rządzi ramka focusu)
-        if not self.widget.hasFocus():
-            self._przywroc_wyglad()
-
-    def _przywroc_wyglad(self):
-        if self._stan_walidacji == "ok":
-            self._ramka_koloru("#10B981", "rgba(16,185,129,0.10)")
-        elif self._stan_walidacji == "err":
-            self._ramka_koloru("#EF4444", "rgba(239,68,68,0.10)")
-        else:
-            self.update_theme(self.is_dark)
-
-    def update_theme(self, is_dark):
-        self.is_dark = is_dark; self.icon_w.set_theme(is_dark)
-        if self.is_dark:
-            self.setStyleSheet("#StyledInputField { background-color: rgba(5, 10, 20, 0.28); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 8px; }")
-        else:
-            self.setStyleSheet("#StyledInputField { background-color: rgba(255, 255, 255, 0.42); border: 1px solid rgba(148, 163, 184, 0.7); border-radius: 8px; }")
-        self.widget.setStyleSheet(self._widget_css())
-        self._ustaw_kolor_kursora()
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.FocusIn:
-            color = self._caret_css(); bg = "rgba(0, 0, 0, 0.75)" if self.is_dark else "rgba(255, 255, 255, 0.9)"
-            self._ramka_koloru(color, bg)
-        elif event.type() == QEvent.Type.FocusOut:
-            # NIE kasujemy koloru walidacji — przywracamy zapamiętany status
-            self._przywroc_wyglad()
-        return super().eventFilter(obj, event)
-
-def styl_zglos_blad(btn):
-    """Zgłoszenie błędu ma być rozpoznawalne kolorem alarmu — czerwony obrys,
-    a po najechaniu pełne wypełnienie. Celowo słabszy akcent niż Wyloguj,
-    żeby dwa kolorowe przyciski obok siebie nie krzyczały jednakowo."""
-    btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-    btn.setMinimumHeight(34)
-    btn.setStyleSheet(
-        "QPushButton { color:#F87171; background:rgba(239,68,68,0.10);"
-        " border:1.5px solid #EF4444; border-radius:17px; padding:7px 18px;"
-        " font-family:'Segoe UI'; font-size:12.5px; font-weight:800; }"
-        "QPushButton:hover { background:#EF4444; color:#FFFFFF; }"
-        "QPushButton:pressed { background:#B91C1C; color:#FFE4E6; }")
-
-
 def styl_wyloguj(btn, is_dark=True):
     """Wylogowanie ma być widoczne — bursztynowy pigułkowy przycisk, wyraźnie
     większy od sąsiadów w pasku. Kolor celowo inny niż akcent systemu (cyjan),
@@ -8935,13 +9233,6 @@ def styl_wyloguj(btn, is_dark=True):
         "   stop:0 #FCD34D, stop:1 #FB923C); }"
         "QPushButton:pressed { background:#EA580C; color:#FFF7ED; }")
 
-
-class OutlineButton(QPushButton):
-    def __init__(self, text, is_dark=True, parent=None):
-        super().__init__(text, parent); self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); self.update_theme(is_dark)
-    def update_theme(self, is_dark):
-        if is_dark: self.setStyleSheet("QPushButton { color: #E2E8F0; background-color: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 14px; padding: 6px 16px; font-family: 'Segoe UI', sans-serif; font-size: 12px; font-weight: 600; } QPushButton:hover { background-color: rgba(255, 255, 255, 0.15); }")
-        else: self.setStyleSheet("QPushButton { color: #475569; background-color: rgba(255, 255, 255, 0.8); border: 1px solid rgba(200, 210, 220, 1.0); border-radius: 14px; padding: 6px 16px; font-family: 'Segoe UI', sans-serif; font-size: 12px; font-weight: 600; } QPushButton:hover { background-color: #F8FAFC; border: 1px solid #94A3B8; }")
 
 class PmtOrbitWidget(QWidget):
     """Logo PMT z orbitującą kometą podczas ładowania i animowanym checkmarkiem po sukcesie.
@@ -9167,64 +9458,6 @@ class GeneratingOverlay(QWidget):
     def hide_overlay(self): self._fade_out()
 
 
-class SpinnerButton(QPushButton):
-    def __init__(self, text, icon_name="download", is_dark=True, parent=None):
-        super().__init__(parent); self.original_text = text; self.icon_name = icon_name; self.is_loading = False; self._angle = 0; self.is_dark = is_dark
-        self.icon_w = SvgIconLabel(self.icon_name, parent=self); self.timer = QTimer(self); self.timer.timeout.connect(self.rotate_spinner)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor)); self.update_theme(is_dark)
-
-    def update_theme(self, is_dark):
-        self.is_dark = is_dark; self.icon_w.set_theme(is_dark)
-        self.icon_w.set_color("#050B14" if is_dark else "#FFFFFF")
-        if is_dark:
-            self.setStyleSheet("QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00F0FF, stop:1 #00E4A1); color: #050B14; font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 800; border-radius: 8px; border: none; padding-left: 20px;} QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #33F5FF, stop:1 #33EAB7); } QPushButton:disabled { background: rgba(30, 41, 59, 0.6); color: #475569; }")
-        else:
-            self.setStyleSheet("QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10B981, stop:1 #059669); color: #FFFFFF; font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 800; border-radius: 8px; border: none; padding-left: 20px;} QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #34D399, stop:1 #047857); } QPushButton:disabled { background: #E2E8F0; color: #94A3B8; }")
-
-    def start_loading(self):
-        self.is_loading = True; self.icon_w.hide(); self.setEnabled(False); self.timer.start(15)
-
-    def stop_loading(self):
-        self.is_loading = False; self.icon_w.show(); self.setEnabled(True); self.timer.stop(); self.update()
-
-    def rotate_spinner(self):
-        self._angle = (self._angle + 6) % 360; self.update()
-
-    def resizeEvent(self, event): 
-        super().resizeEvent(event)
-        if not self.is_loading: self.icon_w.move(int(self.width()/2 - 70), int(self.height()/2 - 10))
-
-    def paintEvent(self, event):
-        super().paintEvent(event); painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self.is_loading:
-            size = min(self.width(), self.height()) - 20; rect = QRectF((self.width() - size) / 2, (self.height() - size) / 2, size, size)
-            pen = QPen(QColor(71, 85, 105)); pen.setWidthF(3.0); painter.setPen(pen); painter.drawEllipse(rect)
-            pen.setColor(QColor("#00F0FF") if self.is_dark else QColor("#10B981")); pen.setCapStyle(Qt.PenCapStyle.RoundCap); painter.setPen(pen); painter.drawArc(rect, -self._angle * 16, 120 * 16)
-        else:
-            painter.setPen(QPen(QColor("#050B14") if self.is_dark else QColor("#FFFFFF"))); font = QFont("Segoe UI", 12, QFont.Weight.Bold); painter.setFont(font)
-            painter.drawText(QRectF(self.icon_w.x() + 28, 0, self.width(), self.height()), Qt.AlignmentFlag.AlignVCenter, self.original_text)
-        painter.end()
-
-class GpsProgressBar(QWidget):
-    def __init__(self, is_dark=True, parent=None):
-        super().__init__(parent); self.setFixedHeight(30); self._progress = 0.0; self.is_dark = is_dark
-        self.anim = QVariantAnimation(self); self.anim.setDuration(400); self.anim.valueChanged.connect(self._update_prog)
-    def set_theme(self, is_dark): self.is_dark = is_dark; self.update()
-    def set_progress(self, val): self.anim.stop(); self.anim.setStartValue(self._progress); self.anim.setEndValue(val); self.anim.start()
-    def _update_prog(self, val): self._progress = val; self.update()
-    def paintEvent(self, event):
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height(); cy = h / 2
-        bg_color = QColor(255, 255, 255, 20) if self.is_dark else QColor(0, 0, 0, 20)
-        pen_bg = QPen(bg_color, 6); pen_bg.setCapStyle(Qt.PenCapStyle.RoundCap); painter.setPen(pen_bg); painter.drawLine(10, int(cy), w - 10, int(cy))
-        current_x = 10 + (w - 20) * self._progress
-        if current_x > 10:
-            grad = QLinearGradient(10, cy, current_x, cy)
-            if self.is_dark: grad.setColorAt(0.0, QColor("#0093E9")); grad.setColorAt(1.0, QColor("#00F0FF"))
-            else: grad.setColorAt(0.0, QColor("#059669")); grad.setColorAt(1.0, QColor("#10B981"))
-            pen_fg = QPen(QBrush(grad), 6); pen_fg.setCapStyle(Qt.PenCapStyle.RoundCap); painter.setPen(pen_fg); painter.drawLine(10, int(cy), int(current_x), int(cy))
-        painter.end()
-
 class ToastNotification(QFrame):
     def __init__(self, parent):
         super().__init__(parent); self.setFixedSize(450, 150)
@@ -9386,344 +9619,6 @@ class PanelPowiadomien(QFrame):
         for w in self.wnetrze.findChildren(QLabel, "PowPusty"):
             w.setStyleSheet(f"#PowPusty {{ color:{txt_mut}; font-family:'Segoe UI'; font-size:12px; background:transparent; border:none; padding:30px; }}")
 
-
-class DzwonekPowiadomien(QPushButton):
-    """Ikona dzwoneczka w topbarze z czerwonym licznikiem nieprzeczytanych.
-    Klik otwiera/zamyka PanelPowiadomien z historią ostatnich komunikatów."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        # 44px — mniejszy rozmiar ucinał plakietkę z licznikiem
-        self.setFixedSize(44, 44)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._licznik = 0
-        self.is_dark = True
-
-    def ustaw_licznik(self, n):
-        self._licznik = n; self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect()
-        txt = QColor("#F8FAFC") if self.is_dark else QColor("#0F172A")
-        # ikona lekko w lewo-dół, żeby plakietka miała miejsce w prawym górnym rogu
-        cx = rect.center().x() - 1
-        cy = rect.center().y() + 1
-
-        # --- korpus dzwonka (wypełniony kształt: kopuła + rozszerzona podstawa) ---
-        korpus = QPainterPath()
-        korpus.moveTo(cx - 8.5, cy + 5.0)                       # lewy skraj podstawy
-        korpus.quadTo(cx - 6.0, cy + 3.6, cx - 6.0, cy + 0.5)   # podjazd do boku
-        korpus.lineTo(cx - 6.0, cy - 1.5)                       # lewy bok
-        korpus.quadTo(cx - 6.0, cy - 8.0, cx, cy - 8.0)         # kopuła (lewa połowa)
-        korpus.quadTo(cx + 6.0, cy - 8.0, cx + 6.0, cy - 1.5)   # kopuła (prawa połowa)
-        korpus.lineTo(cx + 6.0, cy + 0.5)                       # prawy bok
-        korpus.quadTo(cx + 6.0, cy + 3.6, cx + 8.5, cy + 5.0)   # rozszerzenie podstawy
-        korpus.closeSubpath()                                   # domknięcie podstawy
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(txt)
-        p.drawPath(korpus)
-
-        # uchwyt na czubku
-        p.drawEllipse(QPointF(cx, cy - 9.2), 1.7, 1.7)
-        # serce dzwonka (klapa pod podstawą)
-        p.drawEllipse(QPointF(cx, cy + 7.6), 2.1, 2.1)
-
-        # --- plakietka z licznikiem (mieści się w obrysie) ---
-        if self._licznik > 0:
-            akcent = QColor("#EF4444")
-            r = 8.0
-            bx = rect.right() - r - 2
-            by = rect.top() + r + 2
-            # obwódka w kolorze tła, żeby plakietka odcinała się od ikony
-            p.setBrush(QColor("#0B1320") if self.is_dark else QColor("#FFFFFF"))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(bx, by), r + 1.6, r + 1.6)
-            p.setBrush(akcent)
-            p.drawEllipse(QPointF(bx, by), r, r)
-            p.setPen(QColor("#FFFFFF"))
-            p.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-            tekst = str(self._licznik) if self._licznik < 10 else "9+"
-            p.drawText(QRectF(bx - r, by - r, 2 * r, 2 * r),
-                       Qt.AlignmentFlag.AlignCenter, tekst)
-
-
-class StageTimeline(QWidget):
-    """Oś czasu generowania: ●───●───●───●───● z etapami zapalającymi się
-    po kolei. Linia płynnie 'nalewa się' między węzłami, a etapy wchodzą
-    w spokojnym tempie, żeby całość była przyjemna dla oka."""
-    ETAPY = ["Walidacja", "Trasy", "PDF", "Mapa", "Gotowe"]
-
-    def __init__(self, is_dark=True, parent=None):
-        super().__init__(parent)
-        self.is_dark = is_dark
-        self._aktywny = -1        # index ostatniego ukończonego etapu
-        self._fill = 0.0          # płynny postęp 0..(n-1) — pozycja czoła "nalewania"
-        self._glow = 0.0
-        self.setFixedHeight(52)
-        self.setMinimumWidth(360)
-        self._t = QTimer(self); self._t.setInterval(30); self._t.timeout.connect(self._tick)
-        self._faza = 0.0
-        # animacja płynnego nalewania linii do docelowego etapu
-        self._fill_anim = QPropertyAnimation(self, b"_fill_prop", self)
-        self._fill_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
-    def _get_fill(self): return self._fill
-    def _set_fill(self, v): self._fill = v; self.update()
-    _fill_prop = pyqtProperty(float, _get_fill, _set_fill)
-
-    def set_theme(self, is_dark):
-        self.is_dark = is_dark; self.update()
-
-    def reset(self):
-        self._aktywny = -1; self._fill = 0.0
-        self._fill_anim.stop(); self._t.stop(); self.update()
-
-    def ustaw_etap(self, idx, czas_ms=650):
-        """Zapala etap idx i płynnie nalewa linię do niego przez czas_ms."""
-        self._aktywny = idx
-        if not self._t.isActive():
-            self._t.start()          # pulsowanie poświaty aktywnego węzła
-        self._fill_anim.stop()
-        self._fill_anim.setDuration(czas_ms)
-        self._fill_anim.setStartValue(self._fill)
-        self._fill_anim.setEndValue(float(idx))
-        self._fill_anim.start()
-        if idx >= len(self.ETAPY) - 1:
-            # po dojechaniu do "Gotowe" zatrzymaj pulsowanie z lekkim opóźnieniem
-            QTimer.singleShot(czas_ms + 200, self._t.stop)
-        self.update()
-
-    def _tick(self):
-        self._faza = (self._faza + 0.06) % (2 * math.pi)
-        self._glow = (math.sin(self._faza) + 1) / 2
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        n = len(self.ETAPY)
-        akcent = QColor("#00E4A1") if self.is_dark else QColor("#0D9488")
-        nieakt = QColor(255, 255, 255, 40) if self.is_dark else QColor(15, 23, 42, 75)
-        txt_akt = QColor("#F8FAFC") if self.is_dark else QColor("#0F172A")
-        txt_nieakt = QColor(148, 163, 184, 160) if self.is_dark else QColor(51, 65, 85, 220)
-
-        w = self.width(); pad = 46
-        y = 16; r = 6
-        span = w - 2 * pad
-        xs = [pad + span * i / (n - 1) for i in range(n)]
-
-        fill = self._fill    # płynna pozycja czoła (0..n-1)
-
-        # linie łączące — każda wypełniana proporcjonalnie do przejścia czoła
-        for i in range(n - 1):
-            x0, x1 = xs[i] + r, xs[i+1] - r
-            # tło segmentu
-            pen = QPen(nieakt); pen.setWidthF(2.5)
-            p.setPen(pen); p.drawLine(QPointF(x0, y), QPointF(x1, y))
-            # wypełniona część: ile czoła "fill" wpadło w ten segment [i, i+1]
-            seg = max(0.0, min(1.0, fill - i))
-            if seg > 0:
-                xf = x0 + (x1 - x0) * seg
-                penf = QPen(akcent); penf.setWidthF(2.5); penf.setCapStyle(Qt.PenCapStyle.RoundCap)
-                p.setPen(penf); p.drawLine(QPointF(x0, y), QPointF(xf, y))
-
-        # węzły + etykiety
-        for i, x in enumerate(xs):
-            done = fill >= i + 0.55                      # węzeł "zaliczony" gdy czoło go wyraźnie minęło
-            active = (not done) and (abs(fill - i) < 0.75) and i <= self._aktywny
-            p.setPen(Qt.PenStyle.NoPen)
-            if active:
-                gr = QRadialGradient(QPointF(x, y), 15)
-                gr.setColorAt(0, QColor(akcent.red(), akcent.green(), akcent.blue(), int(150 * self._glow)))
-                gr.setColorAt(1, QColor(akcent.red(), akcent.green(), akcent.blue(), 0))
-                p.setBrush(QBrush(gr)); p.drawEllipse(QPointF(x, y), 15, 15)
-                p.setBrush(akcent); p.drawEllipse(QPointF(x, y), r + 2, r + 2)
-            elif done:
-                p.setBrush(akcent); p.drawEllipse(QPointF(x, y), r, r)
-                pen = QPen(QColor("#04160F") if self.is_dark else QColor("#FFFFFF")); pen.setWidthF(1.8)
-                pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin); p.setPen(pen)
-                p.drawLine(QPointF(x-2.5, y), QPointF(x-0.5, y+2)); p.drawLine(QPointF(x-0.5, y+2), QPointF(x+3, y-2.5))
-                p.setPen(Qt.PenStyle.NoPen)
-            else:
-                p.setBrush(nieakt); p.drawEllipse(QPointF(x, y), r, r)
-
-            podswietl = done or active
-            f = QFont("Segoe UI", 8, QFont.Weight.DemiBold if podswietl else QFont.Weight.Normal)
-            p.setFont(f)
-            p.setPen(txt_akt if podswietl else txt_nieakt)
-            p.drawText(QRectF(x - 40, y + 12, 80, 16), Qt.AlignmentFlag.AlignCenter, self.ETAPY[i])
-
-
-class AssistantPanel(QFrame):
-    """Panel po prawej — trzy sekcje: szacunki na żywo, checklista walidacji
-    (AI Asystent) i karta bieżącej sesji. Wszystko aktualizowane w locie
-    z pól formularza, jeszcze przed kliknięciem Generuj."""
-    def __init__(self, is_dark=True, parent=None):
-        super().__init__(parent)
-        self.is_dark = is_dark
-        self.setFixedWidth(250)
-        self.setObjectName("AssistantPanel")
-        lay = QVBoxLayout(self); lay.setContentsMargins(20, 22, 20, 20); lay.setSpacing(10)
-
-        # ---- ASYSTENT KONTROLI (checklista walidacji) ----
-        self.lbl_sec2 = QLabel("ASYSTENT KONTROLI")
-        self.lbl_sec2.setMinimumHeight(24)
-        lay.addWidget(self.lbl_sec2)
-        lay.addSpacing(4)
-
-        self.check_pesel = self._check_row("PESEL")
-        self.check_kod   = self._check_row("Kod pocztowy")
-        self.check_woj   = self._check_row("Województwo")
-        self.check_kwota = self._check_row("Kwota realna")
-        self.check_dni   = self._check_row("Dni robocze")
-        for r in [self.check_pesel, self.check_kod, self.check_woj, self.check_kwota, self.check_dni]:
-            lay.addWidget(r)
-
-        lay.addStretch()
-
-        self.lbl_gotowy = QLabel("Uzupełnij dane…")
-        self.lbl_gotowy.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_gotowy.setWordWrap(True)
-        self.lbl_gotowy.setMinimumHeight(44)
-        lay.addWidget(self.lbl_gotowy)
-
-        self.apply_theme(is_dark)
-
-    def _wys_wiersza(self):
-        """Wysokość wiersza wyliczona z realnej metryki fontu — rośnie razem
-        ze skalowaniem systemowym (DPI/powiększenie w Windows), więc tekst
-        nigdy się nie przycina niezależnie od ustawień komputera."""
-        fm = QFontMetrics(QFont("Segoe UI", 12))
-        return max(24, fm.height() + 10)
-
-    def _metric_row(self, etykieta, wartosc):
-        w = QWidget(); w.setStyleSheet("background: transparent;")
-        w.setMinimumHeight(self._wys_wiersza())
-        w.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0)
-        l = QLabel(etykieta); l.setObjectName("metricLabel")
-        v = QLabel(wartosc); v.setObjectName("metricValue"); v.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        h.addWidget(l); h.addWidget(v, 1)
-        w._val = v
-        return w
-
-    def _check_row(self, etykieta):
-        w = QWidget(); w.setStyleSheet("background: transparent;")
-        w.setMinimumHeight(self._wys_wiersza())
-        w.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(8)
-        icon = QLabel("○"); icon.setFixedWidth(16); icon.setObjectName("checkIcon")
-        l = QLabel(etykieta); l.setObjectName("checkLabel")
-        h.addWidget(icon); h.addWidget(l, 1)
-        w._icon = icon
-        return w
-
-    def _separator(self):
-        s = QFrame(); s.setFixedHeight(1); s.setObjectName("panelSep")
-        return s
-
-    def set_theme(self, is_dark):
-        self.apply_theme(is_dark)
-
-    def apply_theme(self, is_dark):
-        self.is_dark = is_dark
-        if is_dark:
-            self.setStyleSheet("""
-                QFrame#AssistantPanel { background-color: rgba(10, 18, 30, 0.35); border: 1px solid rgba(0,240,255,0.15); border-radius: 14px; }
-                QLabel { background: transparent; border: none; }
-                QLabel#metricLabel, QLabel#checkLabel { color: #94A3B8; font-family:'Segoe UI'; font-size: 12px; }
-                QLabel#metricValue { color: #00E4A1; font-family:'Segoe UI'; font-size: 13px; font-weight: 700; }
-                QLabel#checkIcon { color: #475569; font-size: 14px; }
-                QFrame#panelSep { background-color: rgba(255,255,255,0.08); border: none; }
-            """)
-            self._sec_color = "#00F0FF"
-        else:
-            self.setStyleSheet("""
-                QFrame#AssistantPanel { background-color: rgba(255,255,255,0.86); border: 1px solid rgba(15,23,42,0.16); border-radius: 14px; }
-                QLabel { background: transparent; border: none; }
-                QLabel#metricLabel, QLabel#checkLabel { color: #475569; font-family:'Segoe UI'; font-size: 12px; }
-                QLabel#metricValue { color: #0D9488; font-family:'Segoe UI'; font-size: 13px; font-weight: 700; }
-                QLabel#checkIcon { color: #64748B; font-size: 14px; }
-                QFrame#panelSep { background-color: rgba(15,23,42,0.14); border: none; }
-            """)
-            self._sec_color = "#0D9488"
-        sec_style = f"color: {self._sec_color}; font-family:'Segoe UI'; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; background: transparent; border: none;"
-        self.lbl_sec2.setStyleSheet(sec_style)
-        self._odswiez_gotowy_label()
-
-    def set_szacunki(self, km, dni, km_dzien, dokumenty):
-        # Sekcja SZACOWANA TRASA została usunięta — metoda zostaje jako
-        # bezpieczna zaślepka, żeby istniejące wywołania nie rzucały błędu.
-        pass
-
-    def set_check(self, ktory, stan):
-        """stan: True=OK(zielony ✓), False=błąd(czerwony ✕), None=pusty(○)."""
-        mapa = {"pesel": self.check_pesel, "kod": self.check_kod, "woj": self.check_woj,
-                "kwota": self.check_kwota, "dni": self.check_dni}
-        row = mapa.get(ktory)
-        if not row: return
-        ic = row._icon
-        if stan is True:
-            ic.setText("✓"); ic.setStyleSheet("color: #10B981; font-size: 14px; font-weight: bold; background: transparent; border: none;")
-        elif stan is False:
-            ic.setText("✕"); ic.setStyleSheet("color: #EF4444; font-size: 14px; font-weight: bold; background: transparent; border: none;")
-        else:
-            ic.setText("○"); ic.setStyleSheet(f"color: {'#475569' if self.is_dark else '#94A3B8'}; font-size: 14px; background: transparent; border: none;")
-
-    def _stany(self):
-        out = []
-        for row in [self.check_pesel, self.check_kod, self.check_woj, self.check_kwota, self.check_dni]:
-            out.append(row._icon.text())
-        return out
-
-    def _odswiez_gotowy_label(self):
-        pass
-
-    def set_gotowy(self, gotowy, komunikat=None):
-        if gotowy:
-            self.lbl_gotowy.setText("✓  Gotowy do generowania")
-            self.lbl_gotowy.setStyleSheet("color: #10B981; font-family:'Segoe UI'; font-size: 12px; font-weight: 700; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); border-radius: 8px; padding: 8px;")
-        else:
-            self.lbl_gotowy.setText(komunikat or "Uzupełnij dane…")
-            c = "#94A3B8" if self.is_dark else "#475569"
-            self.lbl_gotowy.setStyleSheet(f"color: {c}; font-family:'Segoe UI'; font-size: 11px; background: transparent; border: none; padding: 4px;")
-
-
-class FramelessTitleBar(QWidget):
-    def __init__(self, parent):
-        super().__init__(parent); self.parent = parent; self.setFixedHeight(40); self._drag_pos = None
-        l = QHBoxLayout(self); l.setContentsMargins(15, 0, 15, 0); l.setSpacing(10)
-        self.t = QLabel(tytul_okna()); self.t.setStyleSheet("color: #64748B; font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; background: transparent;"); l.addWidget(self.t); l.addStretch()
-        self.b_min = QPushButton("—", self); self.b_min.setFixedSize(24, 24); self.b_min.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.b_max = QPushButton("🗖", self); self.b_max.setFixedSize(24, 24); self.b_max.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.b_close = QPushButton("✕", self); self.b_close.setFixedSize(24, 24); self.b_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.b_min.clicked.connect(self.parent.showMinimized); self.b_max.clicked.connect(self.toggle_maximize); self.b_close.clicked.connect(self.parent.close)
-        l.addWidget(self.b_min); l.addWidget(self.b_max); l.addWidget(self.b_close)
-    def toggle_maximize(self):
-        # Okno jest BEZRAMKOWE — standardowe showMaximized() rozciąga je na cały
-        # ekran fizyczny i chowa dół za paskiem zadań. Dlatego maksymalizujemy
-        # ręcznie do DOSTĘPNEGO obszaru ekranu (availableGeometry = bez paska zadań).
-        if getattr(self.parent, "_recznie_zmaks", False):
-            self.parent.showNormal()
-            geo = getattr(self.parent, "_geo_przed_maks", None)
-            if geo is not None:
-                self.parent.setGeometry(geo)
-            self.parent._recznie_zmaks = False
-        else:
-            self.parent._geo_przed_maks = self.parent.geometry()
-            ekran = self.parent.screen() or QApplication.primaryScreen()
-            dostepny = ekran.availableGeometry()   # obszar bez paska zadań
-            self.parent.setGeometry(dostepny)
-            self.parent._recznie_zmaks = True
-    def mouseDoubleClickEvent(self, event): self.toggle_maximize()
-    def update_theme(self, is_dark):
-        color = "#94A3B8" if is_dark else "#475569"; self.t.setStyleSheet(f"color: {color}; font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; background: transparent;")
-        btn_style = f"QPushButton {{ background: transparent; color: {color}; border: none; font-size: 14px; border-radius: 12px; }} QPushButton:hover {{ background: rgba(100,100,100,0.2); }}"
-        self.b_min.setStyleSheet(btn_style); self.b_max.setStyleSheet(btn_style); self.b_close.setStyleSheet(f"QPushButton {{ background: transparent; color: {color}; border: none; font-size: 14px; border-radius: 12px; }} QPushButton:hover {{ background: #EF4444; color: white; }}")
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton: self._drag_pos = event.globalPosition().toPoint()
-    def mouseMoveEvent(self, event):
-        if self._drag_pos and not self.parent.isMaximized(): self.parent.move(self.parent.pos() + event.globalPosition().toPoint() - self._drag_pos); self._drag_pos = event.globalPosition().toPoint()
-    def mouseReleaseEvent(self, event): self._drag_pos = None
 
 class SiatkaMiesiaca(QWidget):
     """Autorska siatka miesiąca rysowana w całości QPainterem — pełna kontrola
@@ -11553,126 +11448,6 @@ class AureolaAktualizacji(QWidget):
             p.drawEllipse(QPointF(it["x"] * W, it["y"] * H), it["r"], it["r"])
 
 
-class KorytarzAktualizacji(QWidget):
-    """KORYTARZ (3.20.53): z malego logo PMT w topbarze rozrasta sie
-    swietlny tunel — ten sam jezyk wizualny co prolog intra — i dopiero
-    z jego glebi wychodzi okno nowej wersji. Nakladka na oknie glownym,
-    przezroczysta dla myszy, sama sie usuwa po zakonczeniu."""
-    CZAS_MS = 1400
-
-    def __init__(self, rodzic, srodek: QPoint, is_dark=True, po_zakonczeniu=None):
-        super().__init__(rodzic)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self.is_dark = bool(is_dark)
-        self._cx, self._cy = float(srodek.x()), float(srodek.y())
-        self._po = po_zakonczeniu
-        self._t0 = time.time()
-        self._wywolane = False
-        self.setGeometry(rodzic.rect())
-        self._tik = QTimer(self)
-        self._tik.timeout.connect(self._krok)
-        self._tik.start(16)
-        self.show()
-        self.raise_()
-
-    def _krok(self):
-        k = (time.time() - self._t0) * 1000.0 / self.CZAS_MS
-        # okno wychodzi z glebi korytarza, zanim tunel zgasnie
-        if (not self._wywolane) and k >= 0.66:
-            self._wywolane = True
-            if callable(self._po):
-                try:
-                    self._po()
-                except Exception:
-                    pass
-        if k >= 1.0:
-            self._tik.stop()
-            self.hide()
-            self.deleteLater()
-            return
-        self.update()
-
-    def paintEvent(self, e):
-        k = min(1.0, max(0.0, (time.time() - self._t0) * 1000.0 / self.CZAS_MS))
-        W, H = float(self.width()), float(self.height())
-        if W < 2 or H < 2:
-            return
-        mn = min(W, H)
-        akc1 = QColor(16, 220, 200) if self.is_dark else QColor(5, 150, 105)
-        akc2 = QColor(0, 240, 255) if self.is_dark else QColor(6, 120, 104)
-        rdzen = QColor(255, 255, 255) if self.is_dark else QColor(6, 95, 80)
-        # obwiednia: narasta szybko, gasnie pod koniec (nic nie zostaje na ekranie)
-        widz = self._plynnie(k / 0.30) * (1.0 - self._plynnie((k - 0.72) / 0.28))
-        if widz <= 0.01:
-            return
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        # Tryb swiecenia (Plus) dziala tylko na ciemnym tle — na jasnym
-        # motywie dodawanie kolorow do bieli GINIE. W jasnym rysujemy
-        # zwyczajnie (SourceOver) ciemnymi zieleniami loga, jak w prologu.
-        if self.is_dark:
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        cx, cy = self._cx, self._cy
-        zasieg = math.hypot(max(cx, W - cx), max(cy, H - cy)) * 1.05
-        czolo = zasieg * self._plynnie(k / 0.78)          # czolo korytarza
-        # 1) SMUGI — 84 promienie o wlasnych fazach zycia (jezyk prologu)
-        for j in range(84):
-            fj = ((j * 40503) % 977) / 977.0
-            kat = (j * 137.508 + k * 26.0 + fj * 40.0) * math.pi / 180.0
-            rj = 0.45 + fj * 0.55
-            pj = (fj + k * (1.15 + 0.85 * rj)) % 1.0
-            zycie = math.sin(pj * math.pi)
-            if zycie <= 0.02:
-                continue
-            r_od = czolo * (0.10 + 0.72 * pj)
-            r_do = min(zasieg, r_od + czolo * (0.16 + 0.22 * rj))
-            if r_do <= r_od:
-                continue
-            ca, sa = math.cos(kat), math.sin(kat)
-            kol = QColor(akc2 if (j % 3) else akc1)
-            baza_a = (0.10 + 0.42 * rj) if self.is_dark else (0.22 + 0.50 * rj)
-            kol.setAlphaF(min(1.0, baza_a * zycie * widz))
-            p.setPen(QPen(kol, max(1.4, mn * (0.0021 + 0.0056 * rj * zycie)),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawLine(QPointF(cx + ca * r_od, cy + sa * r_od),
-                       QPointF(cx + ca * r_do, cy + sa * r_do))
-        # 2) FALE — trzy pierscienie wybiegajace z logo
-        for fz in (0.0, 0.20, 0.42):
-            kf = (k - fz) / 0.66
-            if kf <= 0.0 or kf >= 1.0:
-                continue
-            r = zasieg * self._plynnie(kf) * 0.96
-            zan = (1.0 - kf) * widz
-            halo = QColor(akc1)
-            halo.setAlphaF(0.26 * zan)
-            p.setPen(QPen(halo, max(3.0, mn * 0.016 * (1.0 - kf * 0.6))))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QPointF(cx, cy), r, r)
-            rd = QColor(rdzen)
-            rd.setAlphaF(0.55 * zan)
-            p.setPen(QPen(rd, max(1.2, mn * 0.0028)))
-            p.drawEllipse(QPointF(cx, cy), r, r)
-        # 3) ZRODLO — rozblysk w samym logo, gasnacy gdy korytarz sie otwiera
-        bl = (1.0 - self._plynnie(k / 0.55)) * widz
-        if bl > 0.01:
-            r_bl = mn * (0.020 + 0.075 * self._plynnie(k / 0.55))
-            grad = QRadialGradient(QPointF(cx, cy), r_bl)
-            g0 = QColor(rdzen); g0.setAlphaF(0.85 * bl)
-            g1 = QColor(akc1);  g1.setAlphaF(0.0)
-            grad.setColorAt(0.0, g0)
-            grad.setColorAt(1.0, g1)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(grad)
-            p.drawEllipse(QPointF(cx, cy), r_bl, r_bl)
-        p.end()
-
-    @staticmethod
-    def _plynnie(x):
-        x = min(1.0, max(0.0, float(x)))
-        return x * x * (3.0 - 2.0 * x)
-
-
 def zainstaluj_aktualizacje_i_zamknij(pobrany_plik):
     """Uruchamia skrypt podmiany i TWARDO kończy proces.
 
@@ -12361,178 +12136,6 @@ class PierscienPostepu(QWidget):
                        Qt.AlignmentFlag.AlignCenter, f"z {self.wszystkie}")
 
 
-class KartaDzisiaj(QFrame):
-    """„Dziś w trasie" — kokpit dnia na ekranie powitalnym.
-    Po uruchomieniu programu od razu widzisz: ile masz dziś wizyt, ile już
-    zrobione i DOKĄD jedziesz następnie. Bez klikania po zakładkach."""
-    _DNI = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
-    _MIES = ["", "stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
-             "lipca", "sierpnia", "września", "października", "listopada", "grudnia"]
-
-    def __init__(self, parent=None, is_dark=True, on_trasa=None, on_planer=None):
-        super().__init__(parent)
-        self.is_dark = is_dark
-        self._on_trasa = on_trasa      # otwórz Plan Wizyt na dziś
-        self._on_planer = on_planer    # otwórz planer (gdy brak planu)
-        self.setObjectName("KartaDzis")
-        self.setFixedHeight(138)
-
-        h = QHBoxLayout(self); h.setContentsMargins(22, 16, 22, 16); h.setSpacing(20)
-        self.pierscien = PierscienPostepu(self, is_dark)
-        h.addWidget(self.pierscien)
-
-        srodek = QVBoxLayout(); srodek.setSpacing(3)
-        self.lbl_naglowek = QLabel("")
-        self.lbl_naglowek.setObjectName("KDNagl")
-        srodek.addWidget(self.lbl_naglowek)
-        self.lbl_meta = QLabel("")
-        self.lbl_meta.setObjectName("KDMeta")
-        srodek.addWidget(self.lbl_meta)
-        srodek.addSpacing(4)
-        self.lbl_nastepny = QLabel("")
-        self.lbl_nastepny.setObjectName("KDNast")
-        self.lbl_nastepny.setWordWrap(True)
-        srodek.addWidget(self.lbl_nastepny)
-        srodek.addStretch()
-        h.addLayout(srodek, 1)
-
-        self.btn_trasa = QPushButton("Wejdź w trasę  →")
-        self.btn_trasa.setFixedHeight(44)
-        self.btn_trasa.setMinimumWidth(190)
-        self.btn_trasa.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_trasa.clicked.connect(self._klik)
-        h.addWidget(self.btn_trasa)
-
-        self._tryb = "brak"        # brak | trasa | wolne | komplet | zalegle
-        self._dzien_dzis_obj = None
-        self._on_tryb_trasy = None  # callback(dzien, data) — startuje Tryb Trasy
-        self.update_theme(is_dark)
-
-    def _klik(self):
-        # "Dziś w trasie" z wizytami do zrobienia → prosto w Tryb Trasy
-        # (immersyjny widok jazdy). Pozostałe stany → zwykły ekran planu.
-        if self._tryb == "trasa" and self._on_tryb_trasy and self._dzien_dzis_obj:
-            self._on_tryb_trasy(self._dzien_dzis_obj, datetime.date.today())
-        elif self._tryb == "brak" and self._on_planer:
-            self._on_planer()
-        elif self._on_trasa:
-            self._on_trasa()
-
-    def odswiez(self):
-        """Czyta zapisany plan i pokazuje sytuację na DZIŚ."""
-        plan = wczytaj_plan()
-        dzis = datetime.date.today()
-        dzien_dzis = None
-        nastepny_dzien = None
-        if plan:
-            for d in plan.get("dni", []):
-                if d.data == dzis:
-                    dzien_dzis = d
-                elif d.data > dzis and nastepny_dzien is None:
-                    nastepny_dzien = d
-
-        etyk_data = f"{self._DNI[dzis.weekday()]}, {dzis.day} {self._MIES[dzis.month]}"
-
-        if dzien_dzis:
-            self._dzien_dzis_obj = dzien_dzis
-            zrobione = sum(1 for w in dzien_dzis.wizyty
-                           if czy_odwiedzona(dzis, w.adres or w.nazwa))
-            ile = len(dzien_dzis.wizyty)
-            self.pierscien.ustaw(zrobione, ile)
-            h = int(dzien_dzis.minuty // 60); m = int(dzien_dzis.minuty % 60)
-            if zrobione >= ile:
-                self._tryb = "komplet"
-                self.lbl_naglowek.setText("Dzień zamknięty  ✓")
-                self.lbl_meta.setText(f"{etyk_data}  •  {ile} wizyt  •  {dzien_dzis.km:.0f} km")
-                self.lbl_nastepny.setText("Wszystkie dzisiejsze wizyty odhaczone. Dobra robota.")
-                self.btn_trasa.setText("Zobacz dzień  →")
-            else:
-                self._tryb = "trasa"
-                self.lbl_naglowek.setText("Dziś w trasie")
-                self.lbl_meta.setText(
-                    f"{etyk_data}  •  {ile} wizyt  •  {dzien_dzis.km:.0f} km  •  ok. {h}h {m}min")
-                # następny nieodhaczony punkt
-                nast = None
-                for w in dzien_dzis.wizyty:
-                    if not czy_odwiedzona(dzis, w.adres or w.nazwa):
-                        nast = w; break
-                if nast:
-                    adres = nast.adres or ""
-                    self.lbl_nastepny.setText(f"▸  Następnie:  {nast.nazwa}"
-                                              + (f"   ·   {adres}" if adres else ""))
-                self.btn_trasa.setText(f"Wejdź w trasę  →")
-        elif nastepny_dzien:
-            self._tryb = "wolne"
-            self._dzien_dzis_obj = None
-            self.pierscien.ustaw(0, 0)
-            dni_do = (nastepny_dzien.data - dzis).days
-            kiedy = "jutro" if dni_do == 1 else f"za {dni_do} dni"
-            self.lbl_naglowek.setText("Dziś bez wizyt")
-            self.lbl_meta.setText(etyk_data)
-            self.lbl_nastepny.setText(
-                f"▸  Najbliższa trasa {kiedy} — {nastepny_dzien.data.strftime('%d.%m')}"
-                f"   ·   {len(nastepny_dzien.wizyty)} wizyt, {nastepny_dzien.km:.0f} km")
-            self.btn_trasa.setText("Zobacz plan  →")
-        else:
-            # Plan może istnieć, ale mieć wszystkie dni już za nami — to nie to
-            # samo co brak planu. Wtedy pokazujemy zaległości.
-            zal = zalegle_wizyty(plan) if plan else []
-            if plan and plan.get("dni"):
-                self._tryb = "zalegle" if zal else "komplet"
-                self._dzien_dzis_obj = None
-                self.pierscien.ustaw(0, 0)
-                self.lbl_meta.setText(etyk_data)
-                if zal:
-                    self.lbl_naglowek.setText("Plan wymaga odświeżenia")
-                    self.lbl_nastepny.setText(
-                        f"▸  {len(zal)} wizyt z minionych dni bez odhaczenia — "
-                        f"mogę przenieść je na kolejne dni robocze.")
-                    self.btn_trasa.setText("Otwórz plan  →")
-                else:
-                    self.lbl_naglowek.setText("Plan zakończony  ✓")
-                    self.lbl_nastepny.setText("▸  Wszystkie zaplanowane wizyty odhaczone. Czas ułożyć nowy plan.")
-                    self.btn_trasa.setText("Zobacz plan  →")
-            else:
-                self._tryb = "brak"
-                self._dzien_dzis_obj = None
-                self.pierscien.ustaw(0, 0)
-                self.lbl_naglowek.setText("Brak planu wizyt")
-                self.lbl_meta.setText(etyk_data)
-                self.lbl_nastepny.setText("▸  Wczytaj listę sklepów i ułóż trasy — zajmie chwilę.")
-                self.btn_trasa.setText("Ułóż plan  →")
-        self.update_theme(self.is_dark)
-
-    def update_theme(self, is_dark):
-        self.is_dark = is_dark
-        self.pierscien.is_dark = is_dark
-        self.pierscien.update()
-        if is_dark:
-            karta = "rgba(11,19,32,0.82)"; ramka = "rgba(0,240,255,0.30)"
-            akc = "#00F0FF"; zie = "#00E4A1"; txt = "#F8FAFC"; mut = "#94A3B8"
-        else:
-            karta = "rgba(255,255,255,0.92)"; ramka = "rgba(13,148,136,0.32)"
-            akc = "#0D9488"; zie = "#059669"; txt = "#0F172A"; mut = "#64748B"
-        kol_nagl = zie if self._tryb == "komplet" else akc
-        self.setStyleSheet(
-            f"#KartaDzis {{ background:{karta}; border:1px solid {ramka}; border-radius:18px; }}")
-        self.lbl_naglowek.setStyleSheet(
-            f"#KDNagl {{ color:{kol_nagl}; font-family:'Segoe UI'; font-size:20px; font-weight:900; background:transparent; border:none; }}")
-        self.lbl_meta.setStyleSheet(
-            f"#KDMeta {{ color:{mut}; font-family:'Segoe UI'; font-size:12px; background:transparent; border:none; }}")
-        self.lbl_nastepny.setStyleSheet(
-            f"#KDNast {{ color:{txt}; font-family:'Segoe UI'; font-size:13px; font-weight:600; background:transparent; border:none; }}")
-        if self._tryb == "brak":
-            self.btn_trasa.setStyleSheet(
-                f"QPushButton {{ color:{akc}; background:transparent; border:1.5px solid {akc}; "
-                f"border-radius:12px; font-family:'Segoe UI'; font-size:13px; font-weight:800; padding:0 18px; }} "
-                f"QPushButton:hover {{ background:rgba(0,240,255,0.12); }}")
-        else:
-            self.btn_trasa.setStyleSheet(
-                f"QPushButton {{ color:#04121A; background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {akc}, stop:1 {zie}); "
-                f"border:none; border-radius:12px; font-family:'Segoe UI'; font-size:13px; font-weight:800; padding:0 18px; }} "
-                f"QPushButton:hover {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {zie}, stop:1 {akc}); }}")
-
-
 class TrybTrasyOverlay(QFrame):
     """TRYB TRASY — pełnoekranowy widok „na czas jazdy”.
 
@@ -12804,435 +12407,6 @@ class TrybTrasyOverlay(QFrame):
             f"border:none; border-radius:14px; font-family:'Segoe UI'; font-size:15px; font-weight:800; padding:0 26px; }}")
 
 
-class EkranPowitalny(QFrame):
-    """Ekran powitalny 'Kokpit nawigatora' — pokazuje się po uruchomieniu
-    programu i zasłania generator. Autorska animacja QPainter: obracający się
-    pierścień kompasu, świecące trasy rysujące się ku centrum, logo z poświatą.
-    Znika po kliknięciu 'Bilans Miesiąca' w menu (odsłania generator)."""
-    def __init__(self, parent=None, on_dane_uzytkownika=None):
-        super().__init__(parent)
-        self.is_dark = True
-        # Przezroczyste tło — prześwituje tło aplikacji (góry, świecąca droga),
-        # dzięki czemu ekran powitalny współgra z resztą programu.
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent;")
-        self._on_dane = on_dane_uzytkownika
-        self._kat = 0.0                # obrót kompasu
-        self._t = 0.0                  # czas dla animacji tras
-        self._logo_pix = None
-        sciezka = znajdz_logo()
-        if sciezka:
-            pix = QPixmap(sciezka)
-            if not pix.isNull():
-                self._logo_pix = pix
-        # świecące trasy: kilka linii od krawędzi ku centrum (kąt, długość, faza)
-        import random as _r
-        rng = _r.Random(7)
-        self._trasy = []
-        for _ in range(9):
-            self._trasy.append({
-                "kat": rng.uniform(0, 2 * math.pi),
-                "faza": rng.uniform(0, 1),
-                "predkosc": rng.uniform(0.004, 0.010),
-                "dlugosc": rng.uniform(0.55, 0.92),
-            })
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._krok)
-        self._powitanie = "Witaj w PMT Planer"
-        self._material_t0 = None      # start ładowania logo piksel po pikselu
-        self._material_czeka = False  # True = centrum PUSTE aż doleci puls
-        self._material_kolej = None
-        self._material_cache = {}
-
-        # KOKPIT DNIA — od razu widać, co dziś w trasie
-        self.karta_dzis = KartaDzisiaj(self, self.is_dark)
-        self.karta_dzis.hide()
-        self._karta_anim = None
-
-    def podepnij_akcje(self, on_trasa, on_planer, on_tryb_trasy=None):
-        self.karta_dzis._on_trasa = on_trasa
-        self.karta_dzis._on_planer = on_planer
-        self.karta_dzis._on_tryb_trasy = on_tryb_trasy
-
-    def _ustaw_karte(self):
-        """Karta na dole, wyśrodkowana — szeroka, ale nie na całą szerokość."""
-        szer = max(560, min(880, int(self.width() * 0.62)))
-        x = (self.width() - szer) // 2
-        y = self.height() - self.karta_dzis.height() - 52
-        self.karta_dzis.setGeometry(x, max(10, y), szer, self.karta_dzis.height())
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._ustaw_karte()
-
-    def start_material(self):
-        """Po dolocie pulsu z intro: logo ładuje się PIKSEL PO PIKSELU,
-        a tarcza kompasu (N/W/S/E) równolegle wypełnia się na zielono."""
-        self._material_czeka = False
-        self._material_t0 = time.time()
-        kolej = list(range(676))          # 26×26 bloków mozaiki
-        random.shuffle(kolej)
-        self._material_kolej = kolej
-        self._material_cache = {}
-        try:
-            self.update()
-        except Exception:
-            pass
-
-    def _logo_kolo_pix(self, srednica, akc):
-        """Okrągła, gotowa 'moneta' logo: białe koło + grafika + obwódka.
-        Materializacja składa z niej DOKŁADNIE okrąg — a nie surową ikonę
-        pliku (która bywa zaokrąglonym kwadratem)."""
-        if not getattr(self, "_logo_diag", False):
-            self._logo_diag = True
-            try:
-                _dziennik_animacji("LOGO ZRODLO (ekran powitalny): %dx%d px  <-  %s"
-                                   % (self._logo_pix.width(), self._logo_pix.height(),
-                                      znajdz_logo() or "?"))
-            except Exception:
-                pass
-        klucz = (int(srednica), self.is_dark)
-        if getattr(self, "_kolo_pix_klucz", None) == klucz and \
-                getattr(self, "_kolo_pix", None) is not None:
-            return self._kolo_pix
-        dpr = 2
-        s = max(8, int(srednica)) * dpr
-        pm = QPixmap(s, s)
-        pm.fill(Qt.GlobalColor.transparent)
-        q = QPainter(pm)
-        q.setRenderHint(QPainter.RenderHint.Antialiasing)
-        q.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        q.setPen(Qt.PenStyle.NoPen)
-        q.setBrush(QColor(255, 255, 255))
-        q.drawEllipse(0, 0, s, s)
-        cel = int(s * 0.88)
-        sk = self._logo_pix.scaled(cel, cel,
-                                   Qt.AspectRatioMode.KeepAspectRatio,
-                                   Qt.TransformationMode.SmoothTransformation)
-        q.save()
-        _kl = QPainterPath()
-        _kl.addEllipse(0.0, 0.0, float(s), float(s))
-        q.setClipPath(_kl)
-        q.drawPixmap((s - sk.width()) // 2, (s - sk.height()) // 2, sk)
-        q.restore()
-        obw = QColor(akc); obw.setAlpha(160)
-        q.setBrush(Qt.BrushStyle.NoBrush)
-        q.setPen(QPen(obw, 2.5 * dpr))
-        kr = 2.5 * dpr
-        q.drawEllipse(QRectF(kr / 2, kr / 2, s - kr, s - kr))
-        q.end()
-        pm.setDevicePixelRatio(dpr)
-        self._kolo_pix_klucz = klucz
-        self._kolo_pix = pm
-        self._material_cache = {}      # poziomy schodków z NOWEJ monety
-        return pm
-
-    def _material_postep(self):
-        if self._material_t0 is None:
-            return 1.0
-        return (time.time() - self._material_t0) / 2.10
-
-    def _rysuj_mozaike(self, p, skala, dpr, cx, cy, szer, wys, M):
-        """Etap A: losowe bloki pikseli wskakują; etap B: obraz wyostrza
-        się schodkami rozdzielczości aż do pełnej grafiki."""
-        x0, y0 = cx - szer / 2.0, cy - wys / 2.0
-        if M < 0.45 and self._material_kolej:
-            prog = M / 0.45
-            n_b = 26
-            bw, bh = szer / n_b, wys / n_b
-            sw, sh = skala.width() / n_b, skala.height() / n_b
-            widoczne = int(prog * len(self._material_kolej))
-            for idx in self._material_kolej[:widoczne]:
-                bx, by = idx % n_b, idx // n_b
-                zrod = QRectF(bx * sw, by * sh, sw, sh)
-                cel = QRectF(x0 + bx * bw, y0 + by * bh, bw + 0.5, bh + 0.5)
-                p.drawPixmap(cel, skala, zrod)
-            return
-        k = (M - 0.45) / 0.55
-        poziomy = (20, 32, 48, 80, 128, 192, 0)
-        lvl = poziomy[min(len(poziomy) - 1, int(k * len(poziomy)))]
-        if lvl == 0:
-            p.drawPixmap(QRectF(x0, y0, szer, wys), skala,
-                         QRectF(0, 0, skala.width(), skala.height()))
-            return
-        if lvl not in self._material_cache:
-            maly = skala.scaled(lvl, lvl,
-                                Qt.AspectRatioMode.IgnoreAspectRatio,
-                                Qt.TransformationMode.FastTransformation)
-            self._material_cache[lvl] = maly
-        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
-        p.drawPixmap(QRectF(x0, y0, szer, wys), self._material_cache[lvl],
-                     QRectF(0, 0, lvl, lvl))
-        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-
-    def start(self):
-        # personalizacja powitania — jeśli jest zapisany profil, przywitaj imieniem
-        try:
-            imie = pesel = ""
-            if self._on_dane:
-                imie, pesel = self._on_dane()
-            if imie:
-                pierwsze = imie.strip().split()[0]
-                self._powitanie = f"Witaj ponownie, {pierwsze}"
-            else:
-                self._powitanie = "Witaj w PMT Planer"
-        except Exception:
-            self._powitanie = "Witaj w PMT Planer"
-        self._timer.start(16)
-        self.show()
-        self.raise_()
-        # kokpit dnia: odśwież dane i wjedź od dołu
-        try:
-            self.karta_dzis.odswiez()
-            self._ustaw_karte()
-            self.karta_dzis.show()
-            self.karta_dzis.raise_()
-            koniec = self.karta_dzis.geometry()
-            start = QRect(koniec.x(), koniec.y() + 60, koniec.width(), koniec.height())
-            self.karta_dzis.setGeometry(start)
-            efekt = QGraphicsOpacityEffect(self.karta_dzis)
-            self.karta_dzis.setGraphicsEffect(efekt)
-            efekt.setOpacity(0.0)
-            self._anim_poz = QPropertyAnimation(self.karta_dzis, b"geometry", self)
-            self._anim_poz.setDuration(620)
-            self._anim_poz.setStartValue(start)
-            self._anim_poz.setEndValue(koniec)
-            self._anim_poz.setEasingCurve(QEasingCurve.Type.OutCubic)
-            self._anim_op = QPropertyAnimation(efekt, b"opacity", self)
-            self._anim_op.setDuration(620)
-            self._anim_op.setStartValue(0.0)
-            self._anim_op.setEndValue(1.0)
-            self._karta_anim = QParallelAnimationGroup(self)
-            self._karta_anim.addAnimation(self._anim_poz)
-            self._karta_anim.addAnimation(self._anim_op)
-            QTimer.singleShot(380, self._karta_anim.start)
-        except Exception:
-            pass
-
-    def stop(self):
-        self._timer.stop()
-        self.hide()
-
-    def _krok(self):
-        self._kat = (self._kat + 0.25) % 360
-        self._t += 1
-        for tr in self._trasy:
-            tr["faza"] += tr["predkosc"]
-            if tr["faza"] > 1.0:
-                tr["faza"] -= 1.0
-        self.update()
-
-    def update_theme(self, is_dark):
-        self.is_dark = is_dark
-        if hasattr(self, "karta_dzis"):
-            self.karta_dzis.update_theme(is_dark)
-        self.update()
-
-    def paintEvent(self, e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        W, H = self.width(), self.height()
-        # karta "Dziś w trasie" zajmuje dół — kompas i powitanie idą wyżej,
-        # żeby nic na siebie nie nachodziło
-        przesun = 78 if (hasattr(self, "karta_dzis") and self.karta_dzis.isVisible()) else 20
-        cx, cy = W / 2, H / 2 - przesun
-        # dolna granica wolnego miejsca (góra karty "Dziś w trasie" albo dół okna)
-        try:
-            dol_wolny = (self.karta_dzis.geometry().top() - 8
-                         if (hasattr(self, "karta_dzis") and self.karta_dzis.isVisible())
-                         else H - 40)
-        except Exception:
-            dol_wolny = H - 40
-        if dol_wolny < 220:            # geometria karty jeszcze nieustalona
-            dol_wolny = H - 40
-
-        if self.is_dark:
-            akc = QColor(0, 240, 255)
-            txt = QColor(248, 250, 252); txt_mut = QColor(203, 213, 225)
-            ring = QColor(0, 240, 255, 90)
-            przyciem = QColor(4, 8, 16, 130)     # delikatne przyciemnienie pod treścią
-        else:
-            akc = QColor(13, 148, 136)
-            txt = QColor(15, 23, 42); txt_mut = QColor(30, 41, 59, 235)
-            ring = QColor(15, 23, 42, 110)
-            przyciem = QColor(255, 255, 255, 125)   # jasna poświata pod treścią zamiast przyciemnienia
-
-        # NIE malujemy pełnego tła — widget jest przezroczysty, więc prześwituje
-        # tło aplikacji (góry + świecąca droga). Dajemy tylko miękką, owalną
-        # poświatę pod kompasem, żeby tekst i kompas były czytelne na jasnych
-        # fragmentach tła (np. zachód słońca).
-        poswiata = QRadialGradient(cx, cy, min(W, H) * 0.55)
-        poswiata.setColorAt(0.0, przyciem)
-        k_kraw = QColor(przyciem); k_kraw.setAlpha(0)
-        poswiata.setColorAt(1.0, k_kraw)
-        p.setBrush(poswiata); p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(QPointF(cx, cy), W * 0.55, H * 0.55)
-
-        # --- świecące trasy: linie od krawędzi ku centrum, rysujące się i gasnące ---
-        maxr = math.hypot(W, H) / 2
-        # trasy nie wjeżdżają pod krawędź monety logo (zero zgrubień)
-        _og = getattr(self, "_ost_logo", None)
-        if _og is not None:
-            _wyc_t = QPainterPath()
-            _wyc_t.addRect(QRectF(self.rect()))
-            _kolo_t = QPainterPath()
-            _kolo_t.addEllipse(QPointF(_og[0], _og[1]), _og[2] + 2.0, _og[2] + 2.0)
-            p.setClipPath(_wyc_t.subtracted(_kolo_t))
-        for tr in self._trasy:
-            faza = tr["faza"]
-            r_od = maxr * tr["dlugosc"] * (1.0 - faza)
-            r_do = r_od - maxr * 0.18
-            if r_do < 40:
-                r_do = 40
-            x1 = cx + math.cos(tr["kat"]) * r_od
-            y1 = cy + math.sin(tr["kat"]) * r_od
-            x2 = cx + math.cos(tr["kat"]) * r_do
-            y2 = cy + math.sin(tr["kat"]) * r_do
-            # jasność zależna od fazy (najjaśniej w środku ruchu)
-            alpha = int(180 * math.sin(faza * math.pi))
-            kolor = QColor(akc); kolor.setAlpha(max(0, min(alpha, 180)))
-            gr = QLinearGradient(x1, y1, x2, y2)
-            k0 = QColor(kolor); k0.setAlpha(0)
-            gr.setColorAt(0, k0); gr.setColorAt(1, kolor)
-            pen = QPen(QBrush(gr), 2.2)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pen)
-            p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-            # świecący punkt na końcu (bliżej centrum)
-            p.setBrush(kolor); p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(x2, y2), 2.5, 2.5)
-
-        # --- pierścień kompasu (obracający się) ---
-        # PEŁNA adaptacja pionu: kompas + napis MUSZĄ zmieścić się nad
-        # kartą. Najpierw promień z dostępnej wysokości, potem środek
-        # kompasu dosuwany w górę, a napis z twardym sufitem nad kartą.
-        # Gdy mimo to brak miejsca na etykiety N/E/S/W — znikają.
-        gora_wolna = 56.0
-        R = max(44.0, min(min(W, H) * 0.16,
-                          (dol_wolny - gora_wolna - 168.0) / 2.0))
-        cy = max(gora_wolna + R + 52.0, min(cy, dol_wolny - R - 116.0))
-        y_pow = min(cy + R + 72.0, dol_wolny - 46.0)
-        etykiety_ok = (y_pow - (cy + R)) >= 62.0
-        p.setClipping(False)
-        p.save()
-        p.translate(cx, cy)
-        # zewnętrzny pierścień
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(ring, 1.5))
-        p.drawEllipse(QPointF(0, 0), R + 26, R + 26)
-        p.setPen(QPen(ring, 1))
-        p.drawEllipse(QPointF(0, 0), R + 40, R + 40)
-        # znaczniki kompasu, obracające się
-        p.rotate(self._kat)
-        for i in range(72):
-            duzy = (i % 9 == 0)
-            dl = 12 if duzy else 6
-            kol = QColor(akc if duzy else ring)
-            if not duzy:
-                kol.setAlpha(90)
-            p.setPen(QPen(kol, 2 if duzy else 1))
-            p.drawLine(QPointF(0, -(R + 40)), QPointF(0, -(R + 40 - dl)))
-            p.rotate(5)
-        p.restore()
-
-        # kierunki świata (nieruchome, N na górze)
-        p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        if etykiety_ok:
-            for etyk, dx, dy in [("N", 0, -(R + 40)), ("E", R + 40, 0),
-                                 ("S", 0, R + 40), ("W", -(R + 40), 0)]:
-                p.setPen(txt_mut)
-                p.drawText(QRectF(cx + dx - 12, cy + dy - 10, 24, 20),
-                           Qt.AlignmentFlag.AlignCenter, etyk)
-
-
-        # --- logo z poświatą w centrum ---
-        if self._logo_pix and not (self._material_czeka and self._material_t0 is None):
-            # tarcza znaczników żyje na promieniu R+40 (kreski do R+28) —
-            # logo domyka jej WEWNĘTRZNĄ stronę z małym prześwitem
-            r_kolo = (R + 40.0) - 17.0
-            rozmiar = int(r_kolo * 2)
-            M_mat = self._material_postep()
-            widz = max(0.0, min(1.0, M_mat))
-            # materializacja startuje W WIĘKSZEJ FORMULE (~1.55×) i pod
-            # koniec zjeżdża płynnie do rozmiaru logo w kompasie
-            sform = 1.0
-            if M_mat < 1.0:
-                kk = min(1.0, max(0.0, (M_mat - 0.78) / 0.22))
-                sform = 1.55 - 0.55 * (kk * kk * (3.0 - 2.0 * kk))
-            r_kolo_d = r_kolo * sform
-            rozmiar_d = rozmiar * sform
-            # poświata pod logo — narasta razem z materializacją
-            pos = QRadialGradient(cx, cy, rozmiar_d * 0.95)
-            g0 = QColor(akc); g0.setAlpha(int(70 * widz))
-            g1 = QColor(akc); g1.setAlpha(0)
-            pos.setColorAt(0, g0); pos.setColorAt(1, g1)
-            p.setBrush(pos); p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(cx, cy), rozmiar_d * 0.95, rozmiar_d * 0.95)
-
-            # moneta-okrąg: podkład, grafika i obwódka WBUDOWANE — mozaika
-            # od pierwszego bloku składa okrąg, potem zjeżdża do kompasu
-            pm_kolo = self._logo_kolo_pix(rozmiar, akc)
-            dpr = pm_kolo.devicePixelRatio()
-            self._ost_logo = (cx, cy, r_kolo_d)   # dla przycinania tras
-            if M_mat >= 1.0:
-                p.drawPixmap(QRectF(cx - r_kolo, cy - r_kolo,
-                                    float(rozmiar), float(rozmiar)),
-                             pm_kolo,
-                             QRectF(0, 0, pm_kolo.width(), pm_kolo.height()))
-            else:
-                self._rysuj_mozaike(p, pm_kolo, dpr, cx, cy,
-                                    rozmiar * sform, rozmiar * sform,
-                                    max(0.0, M_mat))
-
-        elif not (self._material_czeka and self._material_t0 is None):
-            # brak logo — narysuj tekst PMT
-            p.setPen(akc); p.setFont(QFont("Segoe UI", 34, QFont.Weight.Black))
-            p.drawText(QRectF(cx - R, cy - R, 2 * R, 2 * R),
-                       Qt.AlignmentFlag.AlignCenter, "PMT")
-
-        # ZIELONE ładowanie tarczy NWSE — rysowane NAD logo, więc widoczne
-        # także, gdy materializacja odbywa się w powiększonej formule
-        M_t = self._material_postep()
-        if self._material_t0 is not None and 0.0 < M_t < 1.18:
-            a_zl = 1.0 if M_t <= 1.0 else max(0.0, (1.18 - M_t) / 0.18)
-            kat_z = 360.0 * min(1.0, M_t)
-            ziel = QColor(0, 228, 161) if self.is_dark else QColor(13, 148, 136)
-            R_t = R + 34.0
-            pr_t = QRectF(cx - R_t, cy - R_t, 2 * R_t, 2 * R_t)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            zg = QColor(ziel); zg.setAlphaF(0.35 * a_zl)
-            pio = QPen(zg, 26.0)
-            pio.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pio)
-            p.drawArc(pr_t, 90 * 16, int(-kat_z * 16))
-            z2 = QColor(ziel); z2.setAlphaF(0.95 * a_zl)
-            pio = QPen(z2, 13.0)
-            pio.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pio)
-            p.drawArc(pr_t, 90 * 16, int(-kat_z * 16))
-            if etykiety_ok:
-                zt = QColor(ziel); zt.setAlphaF(a_zl)
-                p.setPen(zt)
-                for etyk, dx, dy, kat_l in [("N", 0, -(R + 40), 0.0),
-                                            ("E", R + 40, 0, 90.0),
-                                            ("S", 0, R + 40, 180.0),
-                                            ("W", -(R + 40), 0, 270.0)]:
-                    if kat_z >= kat_l:
-                        p.drawText(QRectF(cx + dx - 12, cy + dy - 10, 24, 20),
-                                   Qt.AlignmentFlag.AlignCenter, etyk)
-
-        # --- powitanie ---
-        p.setPen(txt); p.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
-        # napis NIGDY nie schodzi pod kartę "Dziś w trasie" (y_pow wyżej)
-        p.drawText(QRectF(0, y_pow, W, 40),
-                   Qt.AlignmentFlag.AlignHCenter, self._powitanie)
-
-        # --- pasek na dole: wersja + data ---
-        p.setPen(txt_mut); p.setFont(QFont("Segoe UI", 9))
-        stopka = f"PMT Planer  •  wersja {WERSJA_PROGRAMU}  •  {datetime.datetime.now().strftime('%d.%m.%Y')}"
-        p.drawText(QRectF(0, H - 34, W, 20), Qt.AlignmentFlag.AlignHCenter, stopka)
-
-
 class DialogWyboru(QFrame):
     """Autorski dialog wyboru w stylu programu (zamiast systemowego QMessageBox).
     Półprzezroczysta przesłona + karta z pytaniem i dwoma przyciskami. Zwraca
@@ -13330,7 +12504,7 @@ class DialogWyboru(QFrame):
 
 class LogoKompas(QWidget):
     """Małe okrągłe logo PMT z obracającym się wokół niego pierścieniem kompasu
-    — mini-wersja ekranu powitalnego, do topbara. Spójne wizualnie z powitalnym."""
+    — w nagłówku Planera Nowej Wyprawy."""
     def __init__(self, parent=None, srednica=76, is_dark=True):
         super().__init__(parent)
         self.is_dark = is_dark
@@ -16397,9 +15571,9 @@ class PlanWizytOverlay(QFrame):
             self._szukaj_w_planie(self.pole_szukaj_plan.text())
 
 
-
 def _dziennik_animacji(tekst, nowy=False):
-    """Dziennik animacji startowej: PMT_diagnostyka_animacji.txt
+    """Dziennik diagnostyczny programu: PMT_diagnostyka_animacji.txt
+    (nazwa została po animacji startowej, której od 3.23.0 nie ma)
     w KATALOGU UŻYTKOWNIKA (a gdy tam się nie da — obok programu).
 
     Kolejność jest odwrócona względem 3.20.57 celowo. Program dopisywał
@@ -16424,2791 +15598,6 @@ def _dziennik_animacji(tekst, nowy=False):
                 continue
     except Exception:
         pass
-
-
-class AnimacjaStartowa(QWidget):
-    """Ekran startowy po zalogowaniu — smuga światła z drogi w tle pisze
-    odręcznie "PMT" na niebie i zastyga w ładujące się logo.
-
-    Sekwencja (czasy bazowe × TEMPO; przy TEMPO=2.0 całość ~10,7 s):
-      START      tło programu (ciemny.png / jasny.png) wyłania się, kamera
-                 rusza powolnym najazdem (efekt filmowy),
-      DROGA      duża, jasna iskra rodzi się na drodze i jedzie po jej
-                 realnym śladzie, ciągnąc świetlny ogon,
-      PINEZKA    dociera do pinezki — ta pulsuje pomarańczowo ("dojechałeś"),
-      WYSTRZAŁ   światło odrywa się od ziemi i szybuje łukiem w niebo,
-      PODPIS     smuga pisze odręcznie wielkie "PMT" nad krajobrazem,
-      WĘZŁY      (ciemny motyw) sieć tras nad miastem zapala się po kolei,
-      ZWINIĘCIE  błysk i fala uderzeniowa — pismo zasysa się w logo,
-      PIERŚCIEŃ  gruby, świecący łuk domyka pełne 360° z licznikiem,
-      ZANIKANIE  całość płynnie przechodzi w program.
-
-    Bezpieczeństwo: rysowanie efektów jest opancerzone — gdyby na jakiejś
-    maszynie któraś operacja malowania zawiodła, program NIE pokaże czarnego
-    ekranu, tylko prosty pokaz awaryjny (tło + logo + pierścień + napisy),
-    a szczegóły błędu trafią do pliku ~/.pmt_splash_blad.txt.
-
-    Trasa smugi jest zapisana we współrzędnych ZNORMALIZOWANYCH względem
-    grafiki tła (0..1) i mapowana tym samym przekształceniem, którym rysujemy
-    tło (kadr "cover" + najazd kamery), więc zawsze pokrywa się z drogą.
-    """
-    zakonczony = pyqtSignal()
-
-    TEMPO = 1.25                       # pełny pokaz ~19,5 s (wolniej o 25%)                          # 1.0 = tempo bazowe; 2.0 = dwa razy wolniej
-    PROLOG = 3.00                      # powitanie + DŁUŻSZY, czytelny tunel
-    CZAS_MS = int((16900 + 3000) * TEMPO)
-
-    # ---- trasa smugi po drodze (współrzędne 0..1 względem grafiki tła) ----
-    _DROGA_CIEMNA = [(0.370, 0.996), (0.444, 0.932), (0.522, 0.880),
-                     (0.596, 0.832), (0.663, 0.792), (0.714, 0.760),
-                     (0.740, 0.734), (0.743, 0.716)]
-    _DROGA2_CIEMNA = [(0.520, 1.000), (0.611, 0.909), (0.690, 0.840),
-                      (0.752, 0.793), (0.812, 0.758)]
-    _PIN_CIEMNY = (0.743, 0.712)
-    _WEZLY_CIEMNE = [(0.503, 0.575), (0.590, 0.564), (0.654, 0.529),
-                     (0.694, 0.630), (0.723, 0.581), (0.791, 0.536)]
-    _DROGA_JASNA = [(0.510, 0.508), (0.574, 0.557), (0.622, 0.589),
-                    (0.565, 0.641), (0.481, 0.673), (0.432, 0.711),
-                    (0.481, 0.757), (0.581, 0.784), (0.669, 0.803),
-                    (0.728, 0.815)]
-    _PIN_JASNY = (0.727, 0.737)
-
-    # ---- odręczny podpis "PMT" w układzie 228×150: trzy pociągnięcia ----
-    # 1. P→M→pion T jednym śladem (z domknięciem brzuszka P na lasce),
-    # 2. zamaszysta poprzeczka T,
-    # 3. podkreślenie całego podpisu z uniesieniem na końcu.
-    _POC_GLOWNE = [(16, 140), (20, 96), (24, 52), (28, 18), (38, 8),
-                   (54, 10), (64, 22), (64, 38), (54, 50), (38, 55), (28, 52),
-                   (27, 76), (24, 108), (21, 136), (30, 145), (42, 142),
-                   (50, 104), (56, 44), (62, 14), (70, 10), (76, 22),
-                   (82, 84), (86, 106), (90, 88), (96, 24), (102, 11),
-                   (110, 16), (116, 80), (120, 126), (124, 140), (132, 120),
-                   (140, 66), (146, 26), (150, 12), (151, 48), (152, 96),
-                   (152, 128), (158, 142), (168, 146), (178, 138)]
-    _POC_KRESKA = [(112, 22), (136, 11), (164, 6), (192, 7), (216, 14),
-                   (224, 19)]
-    _POC_PODKRES = [(14, 172), (58, 181), (116, 183), (170, 177),
-                    (206, 164), (224, 149)]
-
-    def __init__(self, imie: str = "", is_dark: bool = True, parent=None):
-        self._w_oknie = parent is not None
-        if self._w_oknie:
-            # NAKŁADKA wewnątrz zwykłego okna programu — renderuje się tą samą
-            # drogą co całe UI, więc nie podlega żadnym sztuczkom Windows
-            # wokół osobnych okien pełnoekranowych.
-            super().__init__(parent)
-            try:
-                parent.installEventFilter(self)
-                self.setGeometry(parent.rect())
-            except Exception:
-                pass
-        else:
-            super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
-                             | Qt.WindowType.WindowStaysOnTopHint)
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.imie = (imie or "").strip()
-        self.is_dark = bool(is_dark)
-        self._t = 0.0
-        self._ost_t = 0.0
-        self._awaria = False             # gdy True — rysujemy prosty pokaz awaryjny
-        self._tyki = 0                   # ile razy zadziałał zegar animacji
-        self._klatki = 0                 # ile klatek naprawdę narysowano
-
-        # tło motywu (to samo, które program pokazuje pod spodem)
-        self._tlo = None
-        sciezka_tla = zasob_sciezka("ciemny.png" if self.is_dark else "jasny.png")
-        if sciezka_tla and os.path.exists(sciezka_tla):
-            px = QPixmap(sciezka_tla)
-            if not px.isNull():
-                self._tlo = px
-        self._tlo_cache = None           # (W, H, przeskalowany pixmap)
-        self._kadr = None                # (ox, oy, dw, dh) — aktualny kadr tła
-
-        # logo — TO SAMO źródło co moneta i topbar (znajdz_logo wybiera
-        # najlepszy plik, więc podmiana obok exe działa także w intrze)
-        self._logo = None
-        sciezka_logo = znajdz_logo()
-        if sciezka_logo and os.path.exists(sciezka_logo):
-            obraz = QPixmap(sciezka_logo)
-            if not obraz.isNull():
-                self._logo = obraz
-                try:
-                    _dziennik_animacji("LOGO ZRODLO (intro): %dx%d px  <-  %s"
-                                       % (obraz.width(), obraz.height(), sciezka_logo))
-                except Exception:
-                    pass
-
-        # PĘTLA DELEGACJI po całym ekranie (współrzędne 0..1 EKRANU):
-        # wyjazd z DOMU (pinezka), objazd sceny z nawrotem i powrót do DOMU —
-        # oba końce dociąga do pinezki magnes (start i finisz w tym samym miejscu)
-        self._trasa_ekranu = self._wygladz(
-            [(0.796, 0.760), (0.868, 0.664), (0.902, 0.520), (0.813, 0.400),
-             (0.706, 0.211), (0.594, 0.239), (0.519, 0.133), (0.482, 0.072),
-             (0.450, 0.333), (0.363, 0.322), (0.263, 0.244), (0.169, 0.456),
-             (0.082, 0.386), (0.113, 0.622), (0.225, 0.722), (0.356, 0.844),
-             (0.438, 0.905), (0.519, 0.656), (0.650, 0.778), (0.744, 0.716)],
-            seg=10)
-        self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=6)
-        self._trasa_ekranu = self._slalom(self._trasa_ekranu,
-                                          amp0=0.034, amp1=0.0, prop=1.78)
-        # kanapka: krzywa -> równe odcinki -> krzywa -> równe odcinki.
-        # Wygładzanie na RÓWNOMIERNEJ siatce węzłów daje zakręty po okręgu
-        # (Catmull zachowuje się jednorodnie), a finalny resampling — stałą,
-        # płynną jazdę i jednolitą gęstość wstęgi.
-        self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=6)
-        self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 900)
-        self._trasa_ekranu = self._wygladz(self._trasa_ekranu, seg=3)
-        self._trasa_ekranu = self._rownomiernie(self._trasa_ekranu, 3000)
-        # losowe zacięcia głowicy druku (poziomy postępu, przy których staje)
-        self._zaciecia = sorted((random.uniform(0.22, 0.42),
-                                 random.uniform(0.58, 0.82)))
-
-        # ŻYWA MAPA (3.20.45): świat delegacji budowany wzdłuż pętli
-        try:
-            self._zbuduj_swiat()
-        except Exception:
-            self._sieci_intro = []
-            self._sw_elem = []
-            self._sys_zdarzenia = ()
-
-        # geometria: wygładzona trasa i pismo
-        droga = self._DROGA_CIEMNA if self.is_dark else self._DROGA_JASNA
-        if self.is_dark:
-            # SLALOM po świetlnych pasach: dwie smugi, każda z własnym,
-            # losowym wężykiem — mijają się jak narciarze
-            self._droga = self._slalom(self._wygladz(droga),
-                                       amp0=0.085, amp1=0.011)
-            self._droga2 = self._slalom(self._wygladz(self._DROGA2_CIEMNA),
-                                        amp0=0.062, amp1=0.009)
-        else:
-            self._droga = self._slalom(self._wygladz(droga),
-                                       amp0=0.020, amp1=0.005)
-            self._droga2 = []
-        self._pin = self._PIN_CIEMNY if self.is_dark else self._PIN_JASNY
-        self._pociagniecia = [self._wygladz(self._POC_GLOWNE),
-                              self._wygladz(self._POC_KRESKA),
-                              self._wygladz(self._POC_PODKRES)]
-        self._pismo_n = sum(len(p) for p in self._pociagniecia)
-        self._pismo_tr = (1.0, 0.0, 0.0)   # (skala, ox, oy) — liczone co klatkę
-
-        # stan animacji
-        self._ogon = []                  # ślad głównej smugi
-        self._ogon2 = []                 # ślad drugiej smugi (ciemny motyw)
-        self._iskry = []                 # [x, y, vx, vy, graw, życie, ubytek, r, (r,g,b)]
-        self._fale = []                  # fale/kręgi: [x, y, promień, życie, (r,g,b)]
-        self._blysk = 0.0
-        self._raz = set()
-        # ---- finałowy ROZPAD: nieforemne kafelki (siatka z poszarpanymi
-        # narożnikami) budowane leniwie pod aktualny rozmiar okna ----
-        self._kafle = None            # [lista narożników QPointF] na kafel
-        self._kafle_kraw = None       # krawędzie pęknięć: (punkty, metryka)
-        self._start_kafli = {}        # indeks kafla -> czas oderwania (td)
-        self._odpadle = set()
-        self._zdjecie = None          # zdjęcie sceny — tekstura odłamków
-        # gniazdo ikony na topbarze ma być PUSTE aż do przylotu pulsu
-        try:
-            _lbl = getattr(self.parent(), "logo_lbl", None)
-            if _lbl is not None:
-                _lbl.setVisible(False)
-            _ep = getattr(self.parent(), "ekran_powitalny", None)
-            if _ep is not None:
-                _ep._material_czeka = True   # centrum kompasu puste do przylotu
-                _ep.update()
-        except Exception:
-            pass
-
-        # kolory motywu
-        if self.is_dark:
-            self._akc1 = QColor(0, 240, 255)      # cyjan smug z tła
-            self._akc2 = QColor(0, 228, 161)      # zieleń PMT
-            self._smuga = QColor(40, 245, 255)
-            self._pioro = QColor(0, 240, 255)
-        else:
-            self._akc1 = QColor(13, 148, 136)     # teal jasnego motywu
-            self._akc2 = QColor(16, 185, 129)
-            self._smuga = QColor(9, 106, 84)
-            self._pioro = QColor(7, 94, 78)
-
-        self._zegar = QTimer(self)
-        self._zegar.timeout.connect(self._krok)
-        self._zegar.start(16)            # ~60 klatek na sekundę
-        self._start = datetime.datetime.now()
-        _dziennik_animacji("widżet gotowy (motyw ciemny: %s, tło: %s, tryb: %s)"
-                           % (self.is_dark, self._tlo is not None,
-                              "nakładka w oknie" if self._w_oknie else "osobne okno"))
-
-    CZAS_SPADKU = 0.60
-
-    def _kafel_upadek_geo(self, idx, td):
-        """Geometria opadającego odłamka: (dx, dy, kąt, alfa, skończone)."""
-        start = self._start_kafli.get(idx, 1e9)
-        f = (td - start) / self.CZAS_SPADKU
-        if f <= 0:
-            return 0.0, 0.0, 0.0, 1.0, False
-        if f >= 1:
-            return 0.0, 0.0, 0.0, 0.0, True
-        drift, rot = self._kafle_upadek[idx]
-        W_ = float(self.width() or 1)
-        H_ = float(self.height() or 1)
-        dy = f * f * H_ * 1.20              # grawitacja: w odchłań
-        dx = drift * f * W_ * 0.035
-        ang = rot * f
-        alfa = 1.0 - self._plynnie((f - 0.55) / 0.45)
-        return dx, dy, ang, alfa, False
-
-    def _zbuduj_kafle(self, W, H):
-        """CAŁKOWICIE nieforemny rozpad: komórki Voronoi z nieregularnie
-        rozrzuconych ziaren (żadnej siatki, żadnej szachownicy). Krawędzie
-        sąsiadów są WSPÓLNE, łukowo poszarpane; główne szczeliny to
-        wędrujące ścieżki po grafie krawędzi — od brzegu do brzegu,
-        z losowym meandrem. Reszta krawędzi dochodzi jako wtórne pęknięcia
-        (a granice wczesnych odłamków — tuż przed ich oderwaniem)."""
-        M = 46.0
-        lewy, gorny = -M, -M
-        prawy, dolny = W + M, H + M
-        mn_e = min(W, H)
-
-        # 1) ziarna metodą rzutek: organiczny rozkład bez regularności
-        ziarna = []
-        min_d = mn_e * 0.170
-        proby = 0
-        while len(ziarna) < 26 and proby < 900:
-            proby += 1
-            kx = random.uniform(lewy, prawy)
-            ky = random.uniform(gorny, dolny)
-            if all((kx - a_) * (kx - a_) + (ky - b_) * (ky - b_) >= min_d * min_d
-                   for a_, b_ in ziarna):
-                ziarna.append((kx, ky))
-
-        # 2) komórki Voronoi: prostokąt cięty połówkami płaszczyzn
-        def _tnij(poly, s, o):
-            nx_, ny_ = s[0] - o[0], s[1] - o[1]
-            mx_, my_ = (s[0] + o[0]) * 0.5, (s[1] + o[1]) * 0.5
-            wyn = []
-            n = len(poly)
-            for i in range(n):
-                A = poly[i]
-                B = poly[(i + 1) % n]
-                da = (A[0] - mx_) * nx_ + (A[1] - my_) * ny_
-                db = (B[0] - mx_) * nx_ + (B[1] - my_) * ny_
-                if da >= 0:
-                    wyn.append(A)
-                if (da >= 0) != (db >= 0):
-                    f = da / (da - db)
-                    wyn.append((A[0] + (B[0] - A[0]) * f,
-                                A[1] + (B[1] - A[1]) * f))
-            return wyn
-
-        komorki = []
-        for i, s in enumerate(ziarna):
-            poly = [(lewy, gorny), (prawy, gorny), (prawy, dolny), (lewy, dolny)]
-            for j, o in enumerate(ziarna):
-                if i != j and len(poly) >= 3:
-                    poly = _tnij(poly, s, o)
-            komorki.append(poly)
-
-        # 3) kanoniczne wierzchołki i WSPÓLNE łukowe poszarpanie krawędzi
-        def _klucz(pt):
-            return (round(pt[0] * 8.0), round(pt[1] * 8.0))
-        _jag = {}
-        def _jag_miedzy(A, B):
-            ka, kb = _klucz(A), _klucz(B)
-            klucz = (ka, kb) if ka <= kb else (kb, ka)
-            if klucz not in _jag:
-                P, Q = (A, B) if (ka, kb) == klucz else (B, A)
-                dx, dy = Q[0] - P[0], Q[1] - P[1]
-                dl = math.hypot(dx, dy) or 1e-9
-                nx_, ny_ = -dy / dl, dx / dl
-                luk = random.uniform(-0.15, 0.15) * dl
-                pkt = [QPointF(P[0], P[1])]
-                for f_ in (0.17, 0.34, 0.50, 0.66, 0.83):
-                    j_ = luk * math.sin(math.pi * f_) \
-                        + random.uniform(-0.045, 0.045) * dl
-                    pkt.append(QPointF(P[0] + dx * f_ + nx_ * j_,
-                                       P[1] + dy * f_ + ny_ * j_))
-                pkt.append(QPointF(Q[0], Q[1]))
-                _jag[klucz] = pkt
-            pkt = _jag[klucz]
-            return pkt if _klucz((pkt[0].x(), pkt[0].y())) == _klucz(A) \
-                else list(reversed(pkt))
-
-        self._kafle = []
-        graf = {}
-        krawedzie = {}
-        kafel_kraw = []
-        for poly in komorki:
-            if len(poly) < 3:
-                self._kafle.append([QPointF(0, 0)] * 3)
-                kafel_kraw.append([])
-                continue
-            obrys = []
-            moje = []
-            n = len(poly)
-            for i in range(n):
-                A, B = poly[i], poly[(i + 1) % n]
-                if _klucz(A) == _klucz(B):
-                    continue
-                seg = _jag_miedzy(A, B)
-                obrys.extend(seg[:-1])
-                ka, kb = _klucz(A), _klucz(B)
-                ek = (ka, kb) if ka <= kb else (kb, ka)
-                moje.append(ek)
-                if ek not in krawedzie:
-                    krawedzie[ek] = (A, B)
-                    graf.setdefault(ka, []).append((kb, ek))
-                    graf.setdefault(kb, []).append((ka, ek))
-            self._kafle.append(obrys)
-            kafel_kraw.append(moje)
-
-        # 4) GŁÓWNE SZCZELINY: wędrujące ścieżki po grafie (brzeg -> brzeg)
-        def _na_brzegu(k):
-            x_, y_ = k[0] / 8.0, k[1] / 8.0
-            return (abs(x_ - lewy) < 1.0 or abs(x_ - prawy) < 1.0
-                    or abs(y_ - gorny) < 1.0 or abs(y_ - dolny) < 1.0)
-        brzegowe = [k for k in graf if _na_brzegu(k)]
-        zuzyte = set()
-        glowne = []
-        cele = [(1, 0), (0, 1), (-1, 0), (0, -1)]
-        for nr in range(8):
-            najlepsza = None
-            for _pr in range(26):
-                if not brzegowe:
-                    break
-                start = random.choice(brzegowe)
-                kier = cele[(nr + _pr) % 4]
-                biez, poprz = start, None
-                sciezka = []
-                for _kr in range(40):
-                    kandydaci = [(kb, ek) for kb, ek in graf.get(biez, ())
-                                 if ek not in zuzyte and kb != poprz]
-                    if not kandydaci:
-                        break
-                    def _ocena(para):
-                        kb, _e = para
-                        dx = kb[0] / 8.0 - biez[0] / 8.0
-                        dy = kb[1] / 8.0 - biez[1] / 8.0
-                        dl = math.hypot(dx, dy) or 1e-9
-                        return (dx * kier[0] + dy * kier[1]) / dl \
-                            + random.uniform(-0.45, 0.45)
-                    kb, ek = max(kandydaci, key=_ocena)
-                    sciezka.append(ek)
-                    poprz, biez = biez, kb
-                    if _na_brzegu(biez) and len(sciezka) >= 4:
-                        break
-                if len(sciezka) >= 4 and (najlepsza is None
-                                          or len(sciezka) > len(najlepsza)):
-                    najlepsza = sciezka
-                if najlepsza is not None and len(najlepsza) >= 6:
-                    break
-            if najlepsza:
-                zuzyte.update(najlepsza)
-                pkt = []
-                ost = None
-                for ek in najlepsza:
-                    A, B = krawedzie[ek]
-                    if ost is not None and _klucz(A) != ost:
-                        A, B = B, A
-                    seg = _jag_miedzy(A, B)
-                    pkt.extend(seg if not pkt else seg[1:])
-                    ost = _klucz(B)
-                glowne.append(pkt)
-        starty_g = [7.80, 8.02, 8.22, 8.55, 8.76, 8.96, 9.30, 9.52]
-        # (pkt, start, czas_wzrostu, skala_grubosci)
-        self._linie_rozlamu = [(pkt, starty_g[i % len(starty_g)], 0.30, 1.0)
-                               for i, pkt in enumerate(glowne)]
-
-        # 5) dramaturgia odłamków (bez zmian) + wtórne pęknięcia
-        kolej = list(range(len(self._kafle)))
-        random.shuffle(kolej)
-        starty = ([8.35] + [9.15, 9.24] + [9.85, 9.92, 9.99] +
-                  [10.35 + k * 0.040 for k in range(max(0, len(kolej) - 6))])
-        self._start_kafli = {idx: starty[poz] for poz, idx in enumerate(kolej)}
-        wtorne_start = {}
-        for ek in krawedzie:
-            if ek not in zuzyte:
-                wtorne_start[ek] = 10.18 + random.random() * 0.55
-        for poz, idx in enumerate(kolej[:6]):
-            for ek in kafel_kraw[idx]:
-                if ek in wtorne_start:
-                    wtorne_start[ek] = min(wtorne_start[ek],
-                                           starty[poz] - 0.22)
-        for ek, s_ in wtorne_start.items():
-            A, B = krawedzie[ek]
-            self._linie_rozlamu.append((_jag_miedzy(A, B), s_, 0.22, 0.72))
-
-        self._kafle_upadek = {idx: (random.uniform(-1.0, 1.0),
-                                    random.uniform(-16.0, 16.0))
-                              for idx in range(len(self._kafle))}
-        self._wstrzasy_czasy = (starty_g[:len(glowne)] +
-                                sorted(self._start_kafli.values())[:6] +
-                                [10.35, 10.35])
-
-    def _os_czasu(self, td):
-        """SPOWOLNIENIE JAZDY 2x (3.20.48): realny odcinek 0.25-8.25
-        mapuje sie na bazowy 0.25-4.25, na ktorym napisana jest CALA
-        choreografia (pin, druk, rozpad, final); dalsza os przesuwa sie
-        w calosci o +4 s. Zadna stala czasowa nie zmienia znaczenia —
-        zmienia sie tylko tempo plyniecia jazdy."""
-        if td <= 0.25:
-            return td
-        if td < 8.25:
-            return 0.25 + (td - 0.25) * 0.5
-        return td - 4.0
-
-    def _rysuj_prolog(self, p, tp, W, H, mn, t):
-        """PROLOG na ŻYWYM widoku programu: lekki, prześwitujący welon,
-        powitanie pisane maszynowo KOLOREM WIODĄCYM (z miękką poświatą),
-        a potem tunelowy wjazd — smugi z motion-blurem i fale prędkości."""
-        # choreografia prologu napisana dla osi 1.70 s — rozciągamy ją
-        # proporcjonalnie do faktycznego PROLOG (wolniejsze pisanie, dłuższe
-        # zaproszenie, spokojniejszy wjazd w tunel)
-        tp = tp * (2.00 / self.PROLOG)
-        P = 2.00
-        cx, cy = W * 0.5, H * 0.46
-        tp0 = P - 0.92
-        k_tun = self._plynnie((tp - tp0) / 0.92) if tp >= tp0 else 0.0
-        # prześwitujący welon: delikatnie przyciemnia, tunel go zdmuchuje
-        w_al = int(118 * self._plynnie(tp / 0.25) * (1.0 - k_tun))
-        if w_al > 0:
-            p.fillRect(0, 0, int(W), int(H),
-                       QColor(2, 8, 14, w_al) if self.is_dark
-                       else QColor(236, 244, 242, min(210, w_al + 80)))
-        imie = (self.imie.split()[0] if getattr(self, "imie", "") else "")
-        pow = ("Witaj, %s." % imie) if imie else "Witaj w PMT Planer."
-        k_t = max(0.0, min(1.0, (tp - 0.12) / 0.78))
-        n_lit = int(k_t * len(pow))
-        kursor = "_" if (int(t * 3.4) % 2 == 0 and tp < P - 0.96) else " "
-        tekst = pow[:n_lit] + kursor
-        sk_t = 1.0 + 0.85 * k_tun
-        al_t = 1.0 - k_tun
-        f = QFont("Segoe UI", 1, QFont.Weight.Bold)
-        f.setPixelSize(max(18, int(mn * 0.075)))
-        p.save()
-        p.translate(cx, cy)
-        p.scale(sk_t, sk_t)
-        p.setFont(f)
-        pole_t = QRectF(-W, -mn * 0.09, 2 * W, mn * 0.14)
-        # miękka poświata napisu w kolorze wiodącym
-        gl = QColor(self._akc2)
-        gl.setAlphaF((0.28 if self.is_dark else 0.40) * al_t)
-        p.setPen(gl)
-        for dx_, dy_ in ((-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, 2)):
-            p.drawText(pole_t.translated(dx_, dy_),
-                       Qt.AlignmentFlag.AlignCenter, tekst)
-        kol_g = QColor(self._akc1) if self.is_dark else QColor(5, 92, 74)
-        kol_g.setAlphaF(al_t)
-        p.setPen(kol_g)
-        p.drawText(pole_t, Qt.AlignmentFlag.AlignCenter, tekst)
-        if tp > 1.00:
-            al_p = min(1.0, (tp - 1.00) / 0.22) * al_t
-            f2 = QFont("Segoe UI", 1)
-            f2.setPixelSize(max(11, int(mn * 0.026)))
-            f2.setBold(True)
-            p.setFont(f2)
-            kol_p = QColor(self._akc2) if self.is_dark else QColor(6, 110, 88)
-            kol_p.setAlphaF(0.92 * al_p)
-            p.setPen(kol_p)
-            p.drawText(QRectF(-W, mn * 0.055, 2 * W, mn * 0.05),
-                       Qt.AlignmentFlag.AlignCenter,
-                       "Rozpoznano profil  \u2022  zapraszamy do \u015brodka")
-        p.restore()
-        if k_tun > 0:
-            if self.is_dark:
-                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-            p.save()
-            p.translate(cx, cy)
-            p.rotate(12.0 * k_tun)            # narastający WIR pola
-            blm = math.sin(min(1.0, k_tun * 1.12) * math.pi)
-            if blm > 0.02:
-                g_b = QRadialGradient(QPointF(0, 0), mn * 0.30)
-                kb = QColor(self._akc2)
-                if self.is_dark:
-                    g_b.setColorAt(0.0, QColor(255, 255, 255, int(150 * blm)))
-                    g_b.setColorAt(0.45, QColor(kb.red(), kb.green(), kb.blue(),
-                                                int(105 * blm)))
-                else:
-                    g_b.setColorAt(0.0, QColor(16, 185, 129, int(130 * blm)))
-                    g_b.setColorAt(0.45, QColor(13, 148, 136, int(80 * blm)))
-                g_b.setColorAt(1.0, QColor(kb.red(), kb.green(), kb.blue(), 0))
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(g_b)
-                p.drawEllipse(QPointF(0, 0), mn * 0.30, mn * 0.30)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            for fz, do_srodka in ((0.0, False), (0.22, False),
-                                  (0.44, False), (0.16, True)):
-                kf = (k_tun - fz) / 0.62
-                if 0.0 < kf < 1.0:
-                    rw = mn * ((1.45 * (1.0 - kf) ** 2 + 0.06) if do_srodka
-                               else (0.08 + 1.40 * kf * kf))
-                    jas = kf if do_srodka else (1.0 - kf)
-                    kw = QColor(self._akc2)
-                    kw.setAlphaF((0.30 if self.is_dark else 0.52) * jas)
-                    p.setPen(QPen(kw, 12.0 + 16.0 * jas))
-                    p.drawEllipse(QPointF(0, 0), rw, rw * 0.985)
-                    kw2 = QColor(255, 255, 255, int(150 * jas)) if self.is_dark \
-                        else QColor(6, 95, 80, int(200 * jas))
-                    p.setPen(QPen(kw2, 2.4))
-                    p.drawEllipse(QPointF(0, 0), rw, rw * 0.985)
-            for j in range(84):
-                rj = 0.30 + ((j * 2654435761) % 997) / 997.0 * 0.70
-                fj = ((j * 40503) % 977) / 977.0
-                ang = j / 84.0 * 6.28318 + rj * 0.9
-                ca, sa = math.cos(ang), math.sin(ang)
-                pj = (fj + k_tun * (1.15 + 0.85 * rj)) % 1.0
-                zycie = math.sin(pj * math.pi)
-                r1 = mn * (0.035 + 1.35 * (pj ** 1.7) * (0.55 + 0.45 * rj))
-                dl = mn * (0.06 + (0.12 + 0.85 * k_tun) * pj) * rj
-                baza = ((self._akc1, self._akc2, QColor(235, 255, 250))[j % 3]
-                        if self.is_dark else
-                        (QColor(6, 120, 104), QColor(5, 150, 105),
-                         QColor(4, 70, 56))[j % 3])
-                for f0, f1, mo, gr in ((0.00, 0.62, 0.32, 2.5),
-                                       (0.55, 1.00, 1.00, 1.3)):
-                    gk = QColor(baza)
-                    gk.setAlpha(min(255, int(((70 + 180 * k_tun) if self.is_dark
-                                              else (120 + 210 * k_tun))
-                                             * rj * mo * zycie)))
-                    p.setPen(QPen(gk, ((1.0 + 3.4 * k_tun * rj) if self.is_dark
-                                       else (1.7 + 4.8 * k_tun * rj)) * gr * 0.5))
-                    p.drawLine(QPointF(ca * (r1 + dl * f0), sa * (r1 + dl * f0)),
-                               QPointF(ca * (r1 + dl * f1), sa * (r1 + dl * f1)))
-            if k_tun > 0.78:
-                kz = ((k_tun - 0.78) / 0.22) ** 2
-                g_z = QRadialGradient(QPointF(0, 0), mn * 0.62 * kz + 1.0)
-                if self.is_dark:
-                    g_z.setColorAt(0.0, QColor(0, 0, 0, 255))
-                    g_z.setColorAt(0.72, QColor(0, 0, 0, 235))
-                    g_z.setColorAt(1.0, QColor(0, 0, 0, 0))
-                else:
-                    # jasny motyw: skok w SWIATLO, nie w czarna dziure
-                    g_z.setColorAt(0.0, QColor(255, 255, 255, 255))
-                    g_z.setColorAt(0.62, QColor(240, 253, 248, 235))
-                    g_z.setColorAt(1.0, QColor(16, 185, 129, 0))
-                p.setCompositionMode(
-                    QPainter.CompositionMode.CompositionMode_SourceOver)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(g_z)
-                p.drawEllipse(QPointF(0, 0), mn * 0.62 * kz + 1.0,
-                              mn * 0.62 * kz + 1.0)
-                if self.is_dark:
-                    p.setCompositionMode(
-                        QPainter.CompositionMode.CompositionMode_Plus)
-            p.restore()
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-            g_w = QRadialGradient(QPointF(cx, cy), max(W, H) * 0.72)
-            g_w.setColorAt(0.0, QColor(0, 0, 0, 0))
-            g_w.setColorAt(0.72, QColor(0, 0, 0, 0))
-            g_w.setColorAt(1.0, QColor(0, 0, 0, int(130 * k_tun)))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(g_w)
-            p.drawRect(QRectF(0, 0, W, H))
-        if tp >= P - 0.04 and "prolog_blysk" not in self._raz:
-            self._raz.add("prolog_blysk")
-            self._blysk = 0.26
-
-    def _maska_rozpadu(self):
-        """Wycina z nakładki kafle, które już "wypadły" — odsłaniając program."""
-        if not self._kafle:
-            return
-        from PyQt6.QtGui import QRegion, QPolygon
-        from PyQt6.QtCore import QPoint
-        from PyQt6.QtGui import QTransform
-        td = self._os_czasu(self._t / self.TEMPO - self.PROLOG)
-        region = QRegion(0, 0, self.width(), self.height())
-        for idx, start in self._start_kafli.items():
-            if td < start:
-                continue
-            naroz = self._kafle[idx]
-            region -= QRegion(QPolygon([QPoint(int(q.x()), int(q.y()))
-                                        for q in naroz]))
-            ddx, ddy, ang, _al, koniec = self._kafel_upadek_geo(idx, td)
-            if not koniec:
-                cx_ = sum(q.x() for q in naroz) / len(naroz)
-                cy_ = sum(q.y() for q in naroz) / len(naroz)
-                tr = QTransform().translate(cx_ + ddx, cy_ + ddy) \
-                                 .rotate(ang).translate(-cx_, -cy_)
-                region += QRegion(QPolygon(
-                    [QPoint(int(q.x()), int(q.y()))
-                     for q in (tr.map(w_) for w_ in naroz)]))
-        lx, ly, lr, lk = self._logo_lot(td, self.width(), self.height())
-        if td < self.LOGO_T_CENTRUM + 0.06:
-            rr_ = int(max(lr * 1.45, self.width() * 0.02, 30.0))
-            region += QRegion(int(lx - rr_), int(ly - rr_), rr_ * 2, rr_ * 2,
-                              QRegion.RegionType.Ellipse)
-        self.setMask(region)
-        if region.isEmpty():
-            self.hide()
-
-    def eventFilter(self, obj, zdarzenie):
-        try:
-            if self._w_oknie and obj is self.parent() and zdarzenie.type() in (
-                    QEvent.Type.Resize, QEvent.Type.Show,
-                    QEvent.Type.WindowStateChange):
-                self.setGeometry(self.parent().rect())
-                self.raise_()
-        except Exception:
-            pass
-        return False
-
-    # ---------- pętla czasu ----------
-    def _krok(self):
-        self._tyki += 1
-        if self._tyki == 60:
-            _dziennik_animacji("zegar działa (60 tyknięć), narysowanych klatek: %d" % self._klatki)
-        self._t = (datetime.datetime.now() - self._start).total_seconds()
-        # Finałowy rozpad: wypadłe kliny są WYCINANE z maski nakładki, więc
-        # w ich miejscu widać już prawdziwy program pod spodem.
-        try:
-            if self._w_oknie:
-                _tdx = self._os_czasu(self._t / self.TEMPO - self.PROLOG)
-                # kurz świetlny wypełnia scenę podczas rysowania trasy
-                if not hasattr(self, "_kurz"):
-                    self._kurz = []
-                if 0.15 < _tdx < 4.55 and len(self._kurz) < 46 \
-                        and random.random() < 0.85:
-                    self._kurz.append([random.uniform(0.04, 0.96),
-                                       random.uniform(0.10, 0.92),
-                                       random.uniform(-0.006, 0.006),
-                                       random.uniform(-0.011, -0.003),
-                                       0.0,
-                                       random.uniform(1.8, 3.0),
-                                       random.uniform(0.8, 2.4)])
-                for _cz in self._kurz:
-                    _cz[0] += _cz[2] * 0.016
-                    _cz[1] += _cz[3] * 0.016
-                    _cz[4] += 0.016
-                self._kurz = [c for c in self._kurz if c[4] < c[5]]
-                if _tdx >= 8.30 and self._zdjecie is None:
-                    self._zdjecie = self.grab()   # scena tuż przed rozpadem
-                if _tdx >= 8.34:
-                    self._maska_rozpadu()
-        except Exception:
-            pass
-        if self._t * 1000 >= self.CZAS_MS:
-            self._zegar.stop()
-            _dziennik_animacji("koniec pokazu: klatek %d, tyknięć %d, czas %.2f s, tryb awaryjny: %s"
-                               % (self._klatki, self._tyki, self._t, self._awaria))
-            self.zakonczony.emit()
-            self.close()
-            return
-        self.update()
-
-    # ---------- matematyka ruchu ----------
-    @staticmethod
-    def _plynnie(x):
-        x = max(0.0, min(1.0, x))
-        return x * x * (3 - 2 * x)
-
-    @staticmethod
-    def _wyplyw(x):                      # szybki start, łagodne dojście
-        x = max(0.0, min(1.0, x))
-        return 1 - (1 - x) ** 3
-
-    @staticmethod
-    def _odbicie(x):                     # sprężyste dojście do celu
-        x = max(0.0, min(1.0, x))
-        c1, c3 = 1.40, 2.40
-        return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2
-
-    @staticmethod
-    def _wygladz(pkt, seg=12):
-        """Wygładzenie łamanej krzywą Catmulla-Roma (gęsta lista punktów)."""
-        if len(pkt) < 2:
-            return [tuple(p) for p in pkt]
-        p = [pkt[0]] + list(pkt) + [pkt[-1]]
-        wyn = []
-        for i in range(len(p) - 3):
-            p0, p1, p2, p3 = p[i], p[i + 1], p[i + 2], p[i + 3]
-            for s in range(seg):
-                u = s / seg
-                u2, u3 = u * u, u * u * u
-                wyn.append((
-                    0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * u
-                           + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2
-                           + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * u3),
-                    0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * u
-                           + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2
-                           + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * u3)))
-        wyn.append((pkt[-1][0], pkt[-1][1]))
-        return wyn
-
-    @staticmethod
-    def _rownomiernie(pkt, n, prop=1.78):
-        """Przepróbkowanie trasy na RÓWNE odcinki długości łuku (z wagą
-        proporcji ekranu) — pojazd jedzie stałą prędkością, bez szarpnięć,
-        a ślad ma jednolitą gęstość (koniec mikropikselizacji wstęgi)."""
-        if len(pkt) < 3:
-            return list(pkt)
-        dl = [0.0]
-        for i in range(1, len(pkt)):
-            dx = (pkt[i][0] - pkt[i - 1][0]) * prop
-            dy = pkt[i][1] - pkt[i - 1][1]
-            dl.append(dl[-1] + math.hypot(dx, dy))
-        calk = dl[-1] or 1e-9
-        wyn = []
-        j = 1
-        for k in range(n):
-            cel = calk * k / (n - 1)
-            while j < len(dl) - 1 and dl[j] < cel:
-                j += 1
-            a, b = dl[j - 1], dl[j]
-            f = 0.0 if b <= a else (cel - a) / (b - a)
-            wyn.append((pkt[j - 1][0] + (pkt[j][0] - pkt[j - 1][0]) * f,
-                        pkt[j - 1][1] + (pkt[j][1] - pkt[j - 1][1]) * f))
-        return wyn
-
-    @staticmethod
-    def _slalom(pkt, amp0=0.045, amp1=0.006, prop=1.792):
-        """Naturalny wężyk zamiast równego zygzaka: trzy nałożone fale
-        o niewspółmiernych częstotliwościach i LOSOWYCH fazach, do tego
-        wolny "oddech" amplitudy — wychylenia różnią się kierunkiem,
-        wielkością i długością, inaczej przy każdym uruchomieniu.
-        Amplituda maleje z perspektywą (blisko widza szeroko, przy pinezce
-        wąsko), start łagodnie wchodzi w taniec, a końcówka wraca dokładnie
-        na trasę. prop = proporcje grafiki tła, żeby wychylenia były
-        geometrycznie równe w obu osiach mimo współrzędnych 0..1."""
-        n = len(pkt)
-        if n < 3:
-            return list(pkt)
-        fale = ((2.4 * random.uniform(0.85, 1.15), random.uniform(0.0, 6.2832), 0.58),
-                (4.9 * random.uniform(0.85, 1.15), random.uniform(0.0, 6.2832), 0.30),
-                (7.9 * random.uniform(0.85, 1.15), random.uniform(0.0, 6.2832), 0.18))
-        oddech_f = 1.35 * random.uniform(0.85, 1.15)
-        oddech_p = random.uniform(0.0, 6.2832)
-        gladko = AnimacjaStartowa._plynnie
-        wyn = []
-        for i, (x, y) in enumerate(pkt):
-            x0, y0 = pkt[max(0, i - 1)]
-            x1, y1 = pkt[min(n - 1, i + 1)]
-            dx, dy = (x1 - x0) * prop, (y1 - y0)
-            dl = math.hypot(dx, dy) or 1e-9
-            npx, npy = -dy / dl, dx / dl
-            u = i / (n - 1.0)
-            fala = sum(w * math.sin(f * u * 6.2832 + p) for f, p, w in fale)
-            oddech = 0.72 + 0.45 * math.sin(oddech_f * u * 6.2832 + oddech_p)
-            amp = (amp0 + (amp1 - amp0) * u) * oddech \
-                * gladko(u / 0.08) \
-                * (1.0 - gladko((u - 0.78) / 0.20))
-            odch = fala * amp
-            wyn.append((x + npx * odch / prop, y + npy * odch))
-        return wyn
-
-    # ---------- tło, najazd kamery i mapowanie współrzędnych ----------
-    def _tlo_rysuj(self, p, W, H, td):
-        if self._tlo is None:
-            grad = QLinearGradient(0, 0, 0, H)
-            if self.is_dark:
-                grad.setColorAt(0.0, QColor("#0F172A"))
-                grad.setColorAt(0.62, QColor("#241B3A"))
-                grad.setColorAt(0.71, QColor("#B4652E"))
-                grad.setColorAt(0.77, QColor("#101018"))
-                grad.setColorAt(1.0, QColor("#04121A"))
-            else:
-                grad.setColorAt(0.0, QColor("#BFE3F7"))
-                grad.setColorAt(0.44, QColor("#E3F2F6"))
-                grad.setColorAt(0.47, QColor("#9CCB6F"))
-                grad.setColorAt(1.0, QColor("#6FAF52"))
-            p.fillRect(self.rect(), grad)
-            self._kadr = (0.0, 0.0, float(W), float(H))
-            return
-        c = self._tlo_cache
-        if (not c) or c[0] != W or c[1] != H:
-            # zapas 8% na najazd kamery
-            sk = self._tlo.scaled(int(W * 1.08) + 2, int(H * 1.08) + 2,
-                                  Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                  Qt.TransformationMode.SmoothTransformation)
-            self._tlo_cache = (W, H, sk)
-            c = self._tlo_cache
-        sk = c[2]
-        # powolny filmowy najazd: 1.00 -> 1.06 przez cały pokaz
-        z = 1.0 + 0.06 * self._plynnie(td / 10.60)
-        # rozmiar rysowanego tła w trybie "cover" pomnożony przez zoom
-        sw, sh = float(sk.width()), float(sk.height())
-        baza = max(W / sw, H / sh)               # cover dla samego okna
-        dw, dh = sw * baza * z, sh * baza * z
-        ox, oy = (W - dw) / 2.0, (H - dh) / 2.0
-        self._kadr = (ox, oy, dw, dh)
-        p.drawPixmap(QRectF(ox, oy, dw, dh), sk, QRectF(0, 0, sw, sh))
-
-    def _mapa(self, nx, ny):
-        """Punkt 0..1 grafiki tła -> piksele ekranu (kadr cover + najazd)."""
-        k = self._kadr
-        if not k:
-            return nx * self.width(), ny * self.height()
-        return k[0] + nx * k[2], k[1] + ny * k[3]
-
-    # ---------- cząsteczki, fale, smugi ----------
-    def _sypnij(self, x, y, ile, moc, graw, ubytek, prom, kolory, unos=0.0):
-        for _ in range(ile):
-            a = random.random() * 6.2832
-            sp = moc * (0.3 + random.random())
-            self._iskry.append([x, y, math.cos(a) * sp, math.sin(a) * sp - unos,
-                                graw, 1.0, ubytek,
-                                prom * (0.4 + random.random()),
-                                random.choice(kolory)])
-
-    def _iskry_rysuj(self, p, dt):
-        f = max(0.2, min(3.0, dt * 60.0))
-        p.setPen(Qt.PenStyle.NoPen)
-        for isk in self._iskry[:]:
-            isk[0] += isk[2] * f
-            isk[1] += isk[3] * f
-            isk[3] += isk[4] * f
-            isk[5] -= isk[6] * f
-            if isk[5] <= 0:
-                self._iskry.remove(isk)
-                continue
-            kol = QColor(isk[8][0], isk[8][1], isk[8][2])
-            kol.setAlphaF(max(0.0, min(1.0, isk[5])))
-            p.setBrush(kol)
-            r = max(0.6, isk[7] * isk[5])
-            p.drawEllipse(QPointF(isk[0], isk[1]), r, r)
-
-    def _fale_rysuj(self, p, dt, mn):
-        f = max(0.2, min(3.0, dt * 60.0))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        for fala in self._fale[:]:
-            fala[2] += mn * 0.006 * f
-            fala[3] -= 0.030 * f
-            if fala[3] <= 0:
-                self._fale.remove(fala)
-                continue
-            kol = QColor(fala[4][0], fala[4][1], fala[4][2], int(210 * fala[3]))
-            p.setPen(QPen(kol, max(1.2, mn * 0.006 * fala[3])))
-            p.drawEllipse(QPointF(fala[0], fala[1]), fala[2], fala[2])
-
-    def _ogon_rysuj(self, p, ogon, moc, fade, prom):
-        if not ogon or fade <= 0:
-            return
-        n = len(ogon)
-        p.setPen(Qt.PenStyle.NoPen)
-        for i, (x, y) in enumerate(ogon):
-            a = (i + 1) / n * moc * fade
-            r = prom * (0.30 + 0.95 * (i + 1) / n)
-            g = QRadialGradient(QPointF(x, y), r)
-            k1 = QColor(self._smuga); k1.setAlphaF(min(1.0, a))
-            k2 = QColor(self._akc2); k2.setAlphaF(0.0)
-            g.setColorAt(0.0, k1)
-            g.setColorAt(1.0, k2)
-            p.setBrush(g)
-            p.drawEllipse(QPointF(x, y), r, r)
-
-    def _sciezka_rysuj(self, p, teraz):
-        """Rysuje ślad wielkiej trasy: świecąca droga, której przejechane
-        odcinki stopniowo gasną (każdy punkt pamięta chwilę narodzin)."""
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        zyc = (1.50 if self.is_dark else 2.00) * self.TEMPO
-        while self._ogon and (teraz - self._ogon[0][2]) > zyc:
-            self._ogon.pop(0)
-        og = self._ogon
-        if len(og) < 2:
-            return
-        if self.is_dark:
-            warstwy = ((0.071, self._akc2, 0.28),
-                       (0.036, self._akc1, 0.62),
-                       (0.011, QColor(205, 255, 244), 0.85))
-        else:
-            # jasny motyw: bialy podklad-papier pod wstega + soczyste
-            # zielenie loga — droga ma sie odcinac od fotorealnej trawy
-            warstwy = ((0.090, QColor(255, 255, 255), 0.50),
-                       (0.070, QColor(16, 185, 129), 0.55),
-                       (0.037, QColor(13, 148, 136), 0.90),
-                       (0.011, QColor(5, 58, 48), 1.00))
-        mn_w = min(self.width(), self.height())
-        for szer, kol, moc in warstwy:
-            for i in range(1, len(og)):
-                a_p = (1.0 - (teraz - og[i][2]) / zyc) ** 1.6
-                a_p = max(0.0, min(1.0, a_p)) * moc
-                if a_p <= 0.01:
-                    continue
-                k = QColor(kol)
-                k.setAlphaF(a_p if self.is_dark else min(1.0, a_p * 1.18))
-                pi = QPen(k, max(1.2, mn_w * szer * (0.45 + 0.55 * a_p / moc)))
-                pi.setCapStyle(Qt.PenCapStyle.RoundCap)
-                p.setPen(pi)
-                p.drawLine(QPointF(og[i - 1][0], og[i - 1][1]),
-                           QPointF(og[i][0], og[i][1]))
-
-    def _glowa_rysuj(self, p, x, y, r):
-        g = QRadialGradient(QPointF(x, y), r * 3.4)
-        k1 = QColor(255, 255, 255, 250)
-        k2 = QColor(self._akc1); k2.setAlpha(170)
-        k3 = QColor(self._akc1); k3.setAlpha(0)
-        g.setColorAt(0.0, k1); g.setColorAt(0.32, k2); g.setColorAt(1.0, k3)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(g)
-        p.drawEllipse(QPointF(x, y), r * 3.4, r * 3.4)
-        if not self.is_dark:
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(QColor(7, 94, 78, 220), max(1.4, r * 0.45)))
-            p.drawEllipse(QPointF(x, y), r * 1.5, r * 1.5)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(255, 255, 255, 250))
-            p.drawEllipse(QPointF(x, y), r * 0.9, r * 0.9)
-
-    # ================= ŻYWA MAPA DELEGACJI (3.20.45) =================
-    # Świat rodzi się z trasy: wyjazd z DOMU, węzły-SIECI zapalane
-    # przejazdem, a wzdłuż odwiedzonej drogi dorysowują się domki,
-    # drzewa, wieś z kościółkiem, pola, rzeka z mostem i wiatraki.
-    # Przyszła część mapy pozostaje pusta, aż głowa tam dotrze.
-
-    _SIECI_CELE = (("BIEDRONKA", 0.813, 0.367), ("\u017bABKA", 0.902, 0.520),
-                   ("DINO", 0.594, 0.239), ("DINO", 0.482, 0.072),
-                   ("EUROCASH", 0.363, 0.322), ("BIEDRONKA", 0.082, 0.386),
-                   ("STOKROTKA", 0.113, 0.622), ("\u017bABKA", 0.356, 0.844),
-                   ("STOKROTKA", 0.438, 0.905), ("SPO\u0141EM", 0.650, 0.778))
-
-    def _zbuduj_swiat(self):
-        """Jednorazowo: frakcje węzłów-sieci na pętli, harmonogram meldunków
-        systemowych i rozmieszczenie elementów krajobrazu."""
-        pts = self._trasa_ekranu
-        N = len(pts)
-
-        def naj_f(tx, ty):
-            ni, nd = 0, 1e9
-            for i in range(0, N, 2):
-                dx = pts[i][0] - tx
-                dy = pts[i][1] - ty
-                d = dx * dx + dy * dy
-                if d < nd:
-                    nd, ni = d, i
-            return ni / max(1, N - 1)
-
-        sieci = sorted(((nz, naj_f(cx, cy)) for nz, cx, cy in self._SIECI_CELE),
-                       key=lambda w: w[1])
-        self._sieci_intro = sieci
-
-        def t_od_u(cel):
-            lo, hi = 0.0, 1.0
-            for _ in range(26):
-                sr = (lo + hi) / 2
-                if self._plynnie(sr) < cel:
-                    lo = sr
-                else:
-                    hi = sr
-            return 0.25 + 4.0 * (lo + hi) / 2
-
-        km_tot = 236
-        zdarz = [(0.45, "Wyjazd: DOM 06:12")]
-        _meldowane = set()
-        for i, (nz, f) in enumerate(sieci):
-            tn = t_od_u(f)
-            if nz not in _meldowane:
-                _meldowane.add(nz)
-                zdarz.append((tn, "W\u0119ze\u0142 %s potwierdzony \u2713" % nz))
-            nast = sieci[i + 1] if i + 1 < len(sieci) else ("DOM", 1.0)
-            t_nast = t_od_u(nast[1]) if i + 1 < len(sieci) else 4.28
-            if t_nast - tn > 0.85:
-                km_odc = max(6, int(km_tot * (nast[1] - f)))
-                zdarz.append((tn + 0.55,
-                              "Kierunek: %s \u2014 %d km" % (nast[0], km_odc)))
-        zdarz.append((4.30, "P\u0119tla domkni\u0119ta \u2014 powr\u00f3t: DOM \u2713"))
-        self._sys_zdarzenia = tuple(sorted(zdarz))
-
-        # meldunki fazy DRUKU — zsynchronizowane z realnymi zacieciami glowicy
-        RUCH_D, STOJ_D = 2.16, 0.22
-        u1_, u2_ = getattr(self, "_zaciecia", (0.3, 0.7))
-        z1s = 4.90 + u1_ * RUCH_D
-        z2s = 4.90 + u2_ * RUCH_D + STOJ_D
-        self._sys_druk = tuple(sorted((
-            (4.95, "Druk znaku firmowego\u2026"),
-            (min(z1s - 0.06, 5.42), "Spiekam warstwy ziele\u0144 PMT\u2026"),
-            (z1s + 0.02, "Zaci\u0119cie dyszy \u2014 czyszcz\u0119\u2026"),
-            (z1s + STOJ_D + 0.02, "Dysza czysta \u2014 wznawiam \u2713"),
-            (z2s + 0.02, "Zaci\u0119cie #2 \u2014 chwila\u2026"),
-            (z2s + STOJ_D + 0.02, "Wznowiono \u2713"),
-            (7.12, "Polerowanie kraw\u0119dzi\u2026"),
-            (7.52, "Znak gotowy \u2713"))))
-        self._sw_km = km_tot
-
-        f_by = {}
-        for _nz, _f in sieci:
-            f_by.setdefault(_nz, _f)
-        f_bie = f_by.get("BIEDRONKA", 0.16)
-        f_din = f_by.get("DINO", 0.30)
-        f_eur = f_by.get("EUROCASH", 0.46)
-        f_sto = f_by.get("STOKROTKA", 0.60)
-        f_zab = f_by.get("\u017bABKA", 0.76)
-        f_spo = f_by.get("SPO\u0141EM", 0.90)
-        self._sw_wies_f = f_bie + 0.048
-        self._sw_rzeka_f = (f_eur + f_sto) / 2.0
-        self._sw_wiatraki_f = max(0.05, f_din - 0.048)
-        self._sw_pola = ((max(0.035, f_bie - 0.055),),
-                         ((f_sto + f_zab) / 2.0,),
-                         (min(0.955, f_zab + 0.045),))
-        self._sw_warianty = ((f_eur, 27), (f_sto, 14))
-
-        # luźne domki i drzewa wzdłuż trasy (stały rozkład na czas pokazu)
-        rnd = random.Random(11)
-        blokady = [f for _, f in sieci] + [self._sw_rzeka_f]
-        elem = []
-        f = 0.045
-        nr = 0
-        while f < 0.925:
-            f += rnd.uniform(0.016, 0.030)
-            if any(abs(f - b) < 0.022 for b in blokady):
-                continue
-            if self._sw_wies_f - 0.012 < f < self._sw_wies_f + 0.055:
-                continue
-            if rnd.random() > 0.78:
-                continue
-            nr += 1
-            elem.append((f,
-                         rnd.choice((-1.0, 1.0)),
-                         rnd.uniform(0.034, 0.066),
-                         nr % 4,                      # 0/2 świerk, 1 liściaste, 3 domek
-                         rnd.uniform(0.017, 0.027),
-                         rnd.random() < 0.35))        # dym z komina (domki)
-        self._sw_elem = elem
-
-    # ---------- geometria pętli ----------
-    def _trasa_pkt(self, f, W, H, pinx, piny):
-        """Punkt pętli w pikselach ekranu, z magnesem DOMU na obu końcach."""
-        f = max(0.0, min(1.0, f))
-        i = int(f * (len(self._trasa_ekranu) - 1))
-        rx, ry = self._trasa_ekranu[i]
-        x, y = rx * W, ry * H
-        mk = max(self._plynnie((f - 0.85) / 0.15),
-                 self._plynnie((0.07 - f) / 0.07))
-        if mk > 0:
-            x += (pinx - x) * mk
-            y += (piny - y) * mk
-        return x, y
-
-    def _trasa_wek(self, f, W, H, pinx, piny):
-        """Punkt + wektory: normalna i styczna trasy (na ekranie)."""
-        x, y = self._trasa_pkt(f, W, H, pinx, piny)
-        xa, ya = self._trasa_pkt(f - 0.004, W, H, pinx, piny)
-        xb, yb = self._trasa_pkt(f + 0.004, W, H, pinx, piny)
-        dx, dy = xb - xa, yb - ya
-        dl = math.hypot(dx, dy) or 1.0
-        return (x, y), (-dy / dl, dx / dl), (dx / dl, dy / dl)
-
-    def _sw_strona_zewn(self, x, y, nx, ny, W, H):
-        """+1/-1: która strona normalnej prowadzi NA ZEWNĄTRZ pętli."""
-        return 1.0 if (nx * (x - W * 0.5) + ny * (y - H * 0.5)) > 0 else -1.0
-
-    def _sw_czcionka(self, mn, gruba=False):
-        f = QFont("Consolas" if gruba else "Consolas")
-        try:
-            f.setStyleHint(QFont.StyleHint.Monospace)
-        except Exception:
-            pass
-        f.setPixelSize(max(10, int(mn * (0.0205 if gruba else 0.0185))))
-        f.setBold(gruba)
-        return f
-
-    # ---------- krajobraz (pod wstęgą) ----------
-    def _rysuj_swiat(self, p, W, H, mn, t, td, u, pinx, piny, zan):
-        if not getattr(self, "_sieci_intro", None):
-            return
-        alfa = zan * self._plynnie((td - 0.30) / 0.40)
-        if alfa <= 0.01:
-            return
-        if self.is_dark:
-            KRE = QColor(150, 242, 214)
-            DOMK = QColor(170, 247, 226)
-            WODA = QColor(122, 216, 236)
-            BIA = QColor(238, 255, 251)
-            OKNO = QColor(255, 214, 120)
-        else:
-            # jasny motyw: pelnokrwisty atrament w zieleniach loga —
-            # butelkowa kreska + teal, zadnych szarosci
-            KRE = QColor(4, 87, 64)
-            DOMK = QColor(6, 95, 84)
-            WODA = QColor(4, 98, 158)
-            BIA = QColor(3, 62, 54)
-            OKNO = QColor(200, 98, 0)
-        gr = max(1.1, mn * 0.0021) * (1.0 if self.is_dark else 1.42)
-
-        def pioro(kol, a, sz=1.0):
-            if not self.is_dark:
-                a = min(1.0, a * 1.45 + 0.10)
-            k = QColor(kol)
-            k.setAlphaF(max(0.0, min(1.0, a * alfa)))
-            p.setPen(QPen(k, gr * sz))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-
-        def kropka(kol, a, x, y, r):
-            if not self.is_dark:
-                a = min(1.0, a * 1.45 + 0.10)
-            k = QColor(kol)
-            k.setAlphaF(max(0.0, min(1.0, a * alfa)))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(k)
-            p.drawEllipse(QPointF(x, y), r, r)
-
-        def iskra(x, y):
-            kropka(self._akc1, 0.95, x, y, mn * 0.0035)
-            kropka(BIA, 0.85, x, y, mn * 0.0016)
-
-        # --- księżyc (ciemny) / słońce (jasny) + ptaki ---
-        nb = self._plynnie((td - 0.35) / 0.55)
-        if nb > 0:
-            kx, ky, kr = W * 0.155, H * 0.115, mn * 0.027
-            if self.is_dark:
-                sc = QPainterPath()
-                sc.addEllipse(QPointF(kx, ky), kr, kr)
-                sc2 = QPainterPath()
-                sc2.addEllipse(QPointF(kx - kr * 0.42, ky - kr * 0.22), kr * 0.92, kr * 0.92)
-                ks = QColor(226, 246, 252)
-                ks.setAlphaF(0.88 * nb * alfa)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(ks)
-                p.drawPath(sc.subtracted(sc2))
-            else:
-                kropka(QColor(252, 190, 46), 0.72 * nb, kx, ky, kr * 0.78)
-                pioro(QColor(190, 96, 2), 0.9 * nb, 1.5)
-                p.drawEllipse(QPointF(kx, ky), kr * 0.78, kr * 0.78)
-                for i in range(8):
-                    a_ = i * math.pi / 4 + 0.3
-                    p.drawLine(QPointF(kx + math.cos(a_) * kr * 0.98,
-                                       ky + math.sin(a_) * kr * 0.98),
-                               QPointF(kx + math.cos(a_) * kr * 1.34,
-                                       ky + math.sin(a_) * kr * 1.34))
-            pioro(KRE, 0.5 * nb)
-            for bx_, by_, bs in ((W * 0.245, H * 0.132, mn * 0.009),
-                                 (W * 0.272, H * 0.152, mn * 0.007),
-                                 (W * 0.296, H * 0.128, mn * 0.008)):
-                p.drawArc(QRectF(bx_ - bs, by_ - bs, bs, bs * 2), 40 * 16, 120 * 16)
-                p.drawArc(QRectF(bx_, by_ - bs, bs, bs * 2), 20 * 16, 120 * 16)
-
-        # --- pola uprawne (szrafowane łaty) + owce + silos ---
-        for pi_, (f_p,) in enumerate(self._sw_pola):
-            cz = self._plynnie((u - f_p) / 0.05)
-            if cz <= 0:
-                continue
-            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_p, W, H, pinx, piny)
-            s_ = self._sw_strona_zewn(x, y, nx, ny, W, H)
-            cxp = x + nx * s_ * mn * 0.070
-            cyp = y + ny * s_ * mn * 0.070
-            if not (mn * 0.06 < cxp < W - mn * 0.06 and mn * 0.10 < cyp < H - mn * 0.10):
-                continue
-            e1x, e1y = tx * mn * 0.075, ty * mn * 0.075
-            e2x, e2y = nx * s_ * mn * 0.050, ny * s_ * mn * 0.050
-            A = QPointF(cxp - e1x - e2x, cyp - e1y - e2y)
-            B = QPointF(cxp + e1x - e2x, cyp + e1y - e2y)
-            C = QPointF(cxp + e1x + e2x, cyp + e1y + e2y)
-            D = QPointF(cxp - e1x + e2x, cyp - e1y + e2y)
-            pioro(KRE, 0.34 * cz)
-            p.drawPolygon(A, B, C, D)
-            G = 7
-            pioro(KRE, 0.22 * cz)
-            for g in range(1, int(G * cz) + 1):
-                w_ = g / (G + 1.0)
-                p.drawLine(QPointF(A.x() + (D.x() - A.x()) * w_,
-                                   A.y() + (D.y() - A.y()) * w_),
-                           QPointF(B.x() + (C.x() - B.x()) * w_,
-                                   B.y() + (C.y() - B.y()) * w_))
-            if pi_ == 1 and cz > 0.8:
-                for ow in (-0.3, 0.05, 0.42):
-                    ox = cxp + e1x * ow
-                    oy = cyp + e1y * ow
-                    pioro(BIA, 0.7)
-                    p.drawEllipse(QPointF(ox, oy), mn * 0.0052, mn * 0.0034)
-            if pi_ == 2 and cz > 0.9:
-                sx_ = cxp + e1x * 0.8
-                sy_ = cyp + e1y * 0.8
-                pioro(DOMK, 0.6)
-                p.drawRect(QRectF(sx_ - mn * 0.006, sy_ - mn * 0.020,
-                                  mn * 0.012, mn * 0.020))
-                p.drawArc(QRectF(sx_ - mn * 0.006, sy_ - mn * 0.027,
-                                 mn * 0.012, mn * 0.014), 0, 180 * 16)
-
-        # --- rzeka + most + jeziorko ---
-        f_r = self._sw_rzeka_f
-        cz = self._plynnie((u - f_r) / 0.07)
-        if cz > 0:
-            (bx_, by_), (nx, ny), (tx, ty) = self._trasa_wek(f_r, W, H, pinx, piny)
-            s_j = -self._sw_strona_zewn(bx_, by_, nx, ny, W, H)   # jezioro do środka
-            gora = (0.0, -1.0)
-            n_g = 8
-            pioro(WODA, 0.52, 1.6)
-            for g in range(int(n_g * cz)):
-                a0 = g / float(n_g)
-                a1 = (g + 0.9) / float(n_g)
-                wob0 = math.sin(g * 1.7) * mn * 0.006
-                wob1 = math.sin((g + 1) * 1.7) * mn * 0.006
-                p.drawLine(QPointF(bx_ + gora[0] * a0 * mn * 0.26 + wob0,
-                                   by_ + gora[1] * a0 * mn * 0.26),
-                           QPointF(bx_ + gora[0] * a1 * mn * 0.26 + wob1,
-                                   by_ + gora[1] * a1 * mn * 0.26))
-            jx = bx_ + nx * s_j * mn * 0.125 + tx * mn * 0.02
-            jy = by_ + ny * s_j * mn * 0.125 + ty * mn * 0.02
-            n_d = 6
-            for g in range(int(n_d * cz)):
-                a0 = g / float(n_d)
-                a1 = (g + 0.9) / float(n_d)
-                p.drawLine(QPointF(bx_ + (jx - bx_) * a0 + math.sin(g * 2.1) * mn * 0.005,
-                                   by_ + (jy - by_) * a0),
-                           QPointF(bx_ + (jx - bx_) * a1,
-                                   by_ + (jy - by_) * a1))
-            if cz > 0.55:
-                cj = self._plynnie((cz - 0.55) / 0.45)
-                pioro(WODA, 0.55)
-                p.drawEllipse(QPointF(jx, jy), mn * 0.052 * cj, mn * 0.031 * cj)
-                if cj > 0.7:
-                    pioro(WODA, 0.3)
-                    p.drawLine(QPointF(jx - mn * 0.03, jy - mn * 0.004),
-                               QPointF(jx + mn * 0.028, jy - 0.006 * mn))
-                    p.drawLine(QPointF(jx - mn * 0.02, jy + mn * 0.007),
-                               QPointF(jx + mn * 0.018, jy + 0.006 * mn))
-            if cz > 0.15:
-                pioro(BIA, 0.85, 1.1)
-                dl_ = mn * 0.024
-                for sm in (-1, 1):
-                    ox = nx * sm * mn * 0.011
-                    oy = ny * sm * mn * 0.011
-                    p.drawLine(QPointF(bx_ - tx * dl_ + ox, by_ - ty * dl_ + oy),
-                               QPointF(bx_ + tx * dl_ + ox, by_ + ty * dl_ + oy))
-                    for kk in (-1.0, -0.5, 0.0, 0.5, 1.0):
-                        p.drawLine(QPointF(bx_ + tx * dl_ * kk + ox,
-                                           by_ + ty * dl_ * kk + oy),
-                                   QPointF(bx_ + tx * dl_ * kk + ox * 0.55,
-                                           by_ + ty * dl_ * kk + oy * 0.55))
-
-        # --- wieś: kościółek, domki, kapliczka, latarnia, sad ---
-        f_w = self._sw_wies_f
-        cz = self._plynnie((u - f_w) / 0.06)
-        if cz > 0:
-            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_w, W, H, pinx, piny)
-            s_ = -self._sw_strona_zewn(x, y, nx, ny, W, H)        # wieś do środka
-            ax = x + nx * s_ * mn * 0.088
-            ay = y + ny * s_ * mn * 0.088
-            sK = mn * 0.030
-            if cz > 0.15:
-                pioro(BIA, 0.85, 1.15)
-                p.drawRect(QRectF(ax - sK * 0.55, ay - sK * 0.6, sK * 0.9, sK * 0.6))
-                p.drawLine(QPointF(ax - sK * 0.65, ay - sK * 0.6),
-                           QPointF(ax - sK * 0.1, ay - sK * 0.95))
-                p.drawLine(QPointF(ax - sK * 0.1, ay - sK * 0.95),
-                           QPointF(ax + sK * 0.45, ay - sK * 0.6))
-            if cz > 0.4:
-                pioro(BIA, 0.85, 1.15)
-                p.drawRect(QRectF(ax + sK * 0.35, ay - sK * 1.05, sK * 0.37, sK * 1.05))
-                p.drawLine(QPointF(ax + sK * 0.30, ay - sK * 1.05),
-                           QPointF(ax + sK * 0.535, ay - sK * 1.45))
-                p.drawLine(QPointF(ax + sK * 0.535, ay - sK * 1.45),
-                           QPointF(ax + sK * 0.78, ay - sK * 1.05))
-                p.drawLine(QPointF(ax + sK * 0.535, ay - sK * 1.45),
-                           QPointF(ax + sK * 0.535, ay - sK * 1.68))
-                p.drawLine(QPointF(ax + sK * 0.44, ay - sK * 1.575),
-                           QPointF(ax + sK * 0.63, ay - sK * 1.575))
-                p.drawEllipse(QPointF(ax + sK * 0.535, ay - sK * 0.80),
-                              sK * 0.075, sK * 0.075)
-            for dnr, (dx_, dy_, ds_, prg) in enumerate(
-                    ((-1.9, 0.02, 0.62, 0.55), (1.55, 0.34, 0.52, 0.7))):
-                if cz > prg:
-                    hx = ax + tx * sK * dx_ + nx * s_ * sK * dy_ * 2
-                    hy = ay + ty * sK * dx_ + ny * s_ * sK * dy_ * 2
-                    hs = sK * ds_
-                    pioro(DOMK, 0.8)
-                    p.drawRect(QRectF(hx - hs * 0.5, hy - hs * 0.55, hs, hs * 0.55))
-                    p.drawLine(QPointF(hx - hs * 0.6, hy - hs * 0.55),
-                               QPointF(hx, hy - hs * 1.05))
-                    p.drawLine(QPointF(hx, hy - hs * 1.05),
-                               QPointF(hx + hs * 0.6, hy - hs * 0.55))
-                    kropka(OKNO, 0.85, hx + hs * 0.24, hy - hs * 0.3, hs * 0.09)
-                    if dnr == 0 and cz > 0.92:
-                        pioro(KRE, 0.4)
-                        for dj in range(3):
-                            fa = (t * 0.7 + dj * 0.33) % 1.0
-                            p.drawArc(QRectF(hx - hs * 0.36 + dj * hs * 0.10,
-                                             hy - hs * (1.25 + fa * 0.7) - hs * 0.14,
-                                             hs * 0.24, hs * 0.2),
-                                      30 * 16, 200 * 16)
-            if cz > 0.78:
-                kx_ = ax - tx * sK * 2.9
-                ky_ = ay - ty * sK * 2.9
-                pioro(KRE, 0.7)
-                p.drawLine(QPointF(kx_, ky_), QPointF(kx_, ky_ - sK * 0.42))
-                p.drawRect(QRectF(kx_ - sK * 0.15, ky_ - sK * 0.72, sK * 0.3, sK * 0.3))
-                p.drawLine(QPointF(kx_, ky_ - sK * 0.72), QPointF(kx_, ky_ - sK * 0.92))
-                p.drawLine(QPointF(kx_ - sK * 0.1, ky_ - sK * 0.84),
-                           QPointF(kx_ + sK * 0.1, ky_ - sK * 0.84))
-            if cz > 0.88:
-                lx = ax + tx * sK * 0.1 + nx * s_ * sK * 1.7
-                ly = ay + ty * sK * 0.1 + ny * s_ * sK * 1.7
-                pioro(KRE, 0.7)
-                p.drawLine(QPointF(lx, ly), QPointF(lx, ly - sK * 0.8))
-                p.drawLine(QPointF(lx, ly - sK * 0.8), QPointF(lx + sK * 0.22, ly - sK * 0.8))
-                kropka(OKNO, 0.9, lx + sK * 0.24, ly - sK * 0.78, sK * 0.085)
-            if cz > 0.95:
-                pioro(KRE, 0.45)
-                for oi in range(3):
-                    for oj in range(2):
-                        p.drawEllipse(QPointF(ax - tx * sK * (0.4 - oi * 0.55)
-                                              - nx * s_ * sK * (0.9 + oj * 0.5),
-                                              ay - ty * sK * (0.4 - oi * 0.55)
-                                              - ny * s_ * sK * (0.9 + oj * 0.5)),
-                                      sK * 0.14, sK * 0.14)
-
-        # --- wiatraki (obracające się turbiny) ---
-        f_t = self._sw_wiatraki_f
-        cz = self._plynnie((u - f_t) / 0.05)
-        if cz > 0:
-            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_t, W, H, pinx, piny)
-            s_ = self._sw_strona_zewn(x, y, nx, ny, W, H)
-            if y + ny * s_ * mn * 0.062 - mn * 0.052 * 1.75 < mn * 0.055:
-                s_ = -s_          # przy gornej krawedzi: turbiny do srodka sceny
-            for wi, (przes, wys) in enumerate(((0.0, 0.052), (0.055, 0.041))):
-                wx = x + nx * s_ * mn * (0.062 + przes) + tx * mn * przes * 1.4
-                wy = y + ny * s_ * mn * (0.062 + przes) + ty * mn * przes * 1.4
-                hh = mn * wys * cz
-                pioro(BIA, 0.8, 1.1)
-                p.drawLine(QPointF(wx, wy), QPointF(wx, wy - hh))
-                if cz > 0.6:
-                    kat0 = t * (170 if wi == 0 else -130) + wi * 60
-                    for la in range(3):
-                        a_ = math.radians(kat0 + la * 120)
-                        p.drawLine(QPointF(wx, wy - hh),
-                                   QPointF(wx + math.cos(a_) * hh * 0.62,
-                                           wy - hh + math.sin(a_) * hh * 0.62))
-                    kropka(BIA, 0.9, wx, wy - hh, mn * 0.0032)
-
-        # --- luźne domki i drzewa wzdłuż odwiedzonej drogi ---
-        for f, strona, od, typ, sk, dym in self._sw_elem:
-            cz = self._plynnie((u - f) / 0.045)
-            if cz <= 0:
-                continue
-            (x, y), (nx, ny), _tt = self._trasa_wek(f, W, H, pinx, piny)
-            ex = x + nx * strona * od * mn
-            ey = y + ny * strona * od * mn
-            if ex < mn * 0.05 or ex > W - mn * 0.05 or ey < mn * 0.10 or ey > H - mn * 0.14:
-                continue
-            if ex > W * 0.70 and ey < H * 0.24:      # strefa HUD-u
-                continue
-            s = sk * mn
-            if typ in (0, 2):
-                pioro(KRE, 0.42 + 0.4 * cz)
-                if cz > 0.25:
-                    p.drawLine(QPointF(ex, ey), QPointF(ex, ey - s * 0.35))
-                for jw, (wd, hy2) in enumerate(((0.9, 0.35), (0.7, 0.62), (0.45, 0.86))):
-                    if cz > 0.3 + jw * 0.23:
-                        p.drawPolygon(QPointF(ex - s * wd / 2, ey - s * hy2 + s * 0.28),
-                                      QPointF(ex + s * wd / 2, ey - s * hy2 + s * 0.28),
-                                      QPointF(ex, ey - s * hy2 - s * 0.18))
-            elif typ == 1:
-                pioro(KRE, 0.42 + 0.4 * cz)
-                if cz > 0.3:
-                    p.drawLine(QPointF(ex, ey), QPointF(ex, ey - s * 0.5))
-                if cz > 0.6:
-                    p.drawEllipse(QPointF(ex, ey - s * 0.68), s * 0.42, s * 0.38)
-            else:
-                pioro(DOMK, 0.5 + 0.35 * cz)
-                if cz > 0.25:
-                    p.drawRect(QRectF(ex - s * 0.5, ey - s * 0.55, s, s * 0.55))
-                if cz > 0.55:
-                    p.drawLine(QPointF(ex - s * 0.6, ey - s * 0.55),
-                               QPointF(ex, ey - s * 1.05))
-                    p.drawLine(QPointF(ex, ey - s * 1.05),
-                               QPointF(ex + s * 0.6, ey - s * 0.55))
-                if cz > 0.8:
-                    kropka(OKNO, 0.85, ex + s * 0.26, ey - s * 0.34, s * 0.085)
-                if dym and cz >= 1.0:
-                    pioro(KRE, 0.35)
-                    for dj in range(2):
-                        fa = (t * 0.8 + dj * 0.5) % 1.0
-                        p.drawArc(QRectF(ex - s * 0.34, ey - s * (1.2 + fa * 0.6),
-                                         s * 0.22, s * 0.18), 30 * 16, 200 * 16)
-            if 0.05 < cz < 1.0:
-                iskra(ex, ey - s * cz)
-
-        # --- warianty odrzucone + drogowskaz ---
-        for wnr, (f_v, kmv) in enumerate(self._sw_warianty):
-            kk = min(1.0, max(0.0, (u - f_v - 0.008) / 0.10))
-            if kk <= 0:
-                continue
-            (x, y), (nx, ny), (tx, ty) = self._trasa_wek(f_v, W, H, pinx, piny)
-            s_ = -self._sw_strona_zewn(x, y, nx, ny, W, H)
-            kdx = nx * s_ * 0.72 + tx * (0.5 if wnr == 0 else -0.5)
-            kdy = ny * s_ * 0.72 + ty * (0.5 if wnr == 0 else -0.5)
-            n_o = 10
-            for g in range(int(n_o * kk)):
-                a0 = g / float(n_o)
-                a1 = (g + 0.62) / float(n_o)
-                wob = math.sin(g * 1.3) * mn * 0.006
-                pioro(KRE, 0.55 * (1.0 - 0.75 * a0))
-                p.drawLine(QPointF(x + kdx * a0 * mn * 0.19 + wob,
-                                   y + kdy * a0 * mn * 0.19),
-                           QPointF(x + kdx * a1 * mn * 0.19 + wob,
-                                   y + kdy * a1 * mn * 0.19))
-            if kk > 0.55:
-                if not hasattr(self, "_f_sw_mala"):
-                    self._f_sw_mala = self._sw_czcionka(mn, False)
-                p.setFont(self._f_sw_mala)
-                nap_w = "wariant odrzucony (+%d km)" % kmv
-                al_w = alfa * min(1.0, (kk - 0.55) / 0.3)
-                wx_ = x + kdx * mn * 0.155 + mn * 0.012
-                wy_ = y + kdy * mn * 0.155 - mn * 0.006
-                fmw = QFontMetrics(self._f_sw_mala)
-                szw = fmw.horizontalAdvance(nap_w)
-                pod_w = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
-                pod_w.setAlphaF(0.55 * al_w)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(pod_w)
-                p.drawRoundedRect(QRectF(wx_ - mn * 0.007, wy_ - mn * 0.0195,
-                                         szw + mn * 0.014, mn * 0.027),
-                                  mn * 0.006, mn * 0.006)
-                kol = QColor(KRE)
-                kol.setAlphaF((0.6 if self.is_dark else 0.9) * al_w)
-                p.setPen(kol)
-                p.drawText(QPointF(wx_, wy_), nap_w)
-            if wnr == 0 and kk > 0.3:
-                gx = x + kdx * mn * 0.030
-                gy = y + kdy * mn * 0.030
-                pioro(DOMK, 0.7)
-                p.drawLine(QPointF(gx, gy), QPointF(gx, gy - mn * 0.026))
-                p.drawRect(QRectF(gx, gy - mn * 0.026, mn * 0.022, mn * 0.009))
-                p.drawRect(QRectF(gx - mn * 0.018, gy - mn * 0.014, mn * 0.018, mn * 0.008))
-
-        # --- słupki kilometrowe wzdłuż odwiedzonej drogi ---
-        pioro(KRE, 0.35)
-        f_s = 0.05
-        while f_s < min(u - 0.01, 0.94):
-            (x, y), (nx, ny), _tt = self._trasa_wek(f_s, W, H, pinx, piny)
-            p.drawLine(QPointF(x + nx * mn * 0.014, y + ny * mn * 0.014),
-                       QPointF(x + nx * mn * 0.021, y + ny * mn * 0.021))
-            f_s += 0.06
-
-    # ---------- węzły SIECI + DOM (nad wstęgą) ----------
-    def _rysuj_wezly_sieci(self, p, W, H, mn, t, td, u, pinx, piny, zan):
-        if not getattr(self, "_sieci_intro", None):
-            return
-        alfa = zan * self._plynnie((td - 0.30) / 0.40)
-        if alfa <= 0.01:
-            return
-        if not hasattr(self, "_f_sw_chip"):
-            self._f_sw_chip = self._sw_czcionka(mn, True)
-            self._f_sw_mala = self._sw_czcionka(mn, False)
-        fm = QFontMetrics(self._f_sw_chip)
-
-        # DOM: domek na miejscu pinezki (start i meta pętli)
-        sD = mn * 0.024
-        pos = QRadialGradient(QPointF(pinx, piny), sD * 2.4)
-        c0 = QColor(self._akc2)
-        c0.setAlphaF((0.35 if self.is_dark else 0.50) * alfa)
-        pos.setColorAt(0.0, c0)
-        c1 = QColor(self._akc2)
-        c1.setAlphaF(0.0)
-        pos.setColorAt(1.0, c1)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(pos)
-        p.drawEllipse(QPointF(pinx, piny), sD * 2.4, sD * 2.4)
-        bd = QColor(240, 255, 250) if self.is_dark else QColor(4, 56, 48)
-        bd.setAlphaF(min(1.0, 0.95 * alfa))
-        p.setPen(QPen(bd, max(1.4, mn * 0.0030)))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(QRectF(pinx - sD * 0.55, piny - sD * 0.55, sD * 1.1, sD * 0.7))
-        p.drawLine(QPointF(pinx - sD * 0.7, piny - sD * 0.55),
-                   QPointF(pinx, piny - sD * 1.15))
-        p.drawLine(QPointF(pinx, piny - sD * 1.15),
-                   QPointF(pinx + sD * 0.7, piny - sD * 0.55))
-        p.drawRect(QRectF(pinx - sD * 0.13, piny - sD * 0.16, sD * 0.26, sD * 0.31))
-        p.setFont(self._f_sw_chip)
-        zl = QColor(255, 224, 130) if self.is_dark else QColor(3, 56, 44)
-        zl.setAlphaF(min(1.0, 0.95 * alfa))
-        p.setPen(zl)
-        p.drawText(QPointF(pinx - fm.horizontalAdvance("DOM") / 2.0,
-                           piny + sD * 1.9), "DOM")
-
-        # węzły sieci
-        for nz, f in self._sieci_intro:
-            (x, y) = self._trasa_pkt(f, W, H, pinx, piny)
-            akt = u >= f
-            pp = (u - f) / 0.06
-            szer = fm.horizontalAdvance(nz + "  \u2713")
-            nad = y > mn * 0.19 and not (x > W - mn * 0.46 and y < mn * 0.30)
-            cy0 = y - mn * 0.052 if nad else y + mn * 0.028
-            cxs = x
-            if abs(x - pinx) < mn * 0.10 and abs(y - piny) < mn * 0.10:
-                cxs = x - mn * 0.062   # wezel tuz przy DOM: chip w bok, nie na domku
-            if akt:
-                # beacon — pionowy snop
-                for bl in range(3):
-                    kb = QColor(self._akc1)
-                    kb.setAlphaF((0.16 if self.is_dark else 0.30) * alfa * (3 - bl) / 3.0)
-                    p.setPen(QPen(kb, max(1.0, mn * 0.0030) * (1 + bl)))
-                    p.drawLine(QPointF(x, y - mn * 0.012),
-                               QPointF(x, y - mn * (0.012 + 0.085)))
-                for rr, aa in (((0.020, 0.42), (0.013, 0.68)) if self.is_dark
-                               else ((0.020, 0.62), (0.013, 0.88))):
-                    ko = QColor(self._akc2)
-                    ko.setAlphaF(aa * alfa)
-                    p.setPen(QPen(ko, max(1.4, mn * 0.0030)))
-                    p.setBrush(Qt.BrushStyle.NoBrush)
-                    p.drawEllipse(QPointF(x, y), mn * rr, mn * rr)
-                if 0.0 <= pp < 1.0:
-                    a1_, a2_ = (0.55, 0.30) if self.is_dark else (0.78, 0.46)
-                    # puls zaliczenia wezla: POLOWA dawnej srednicy (3.20.51)
-                    for rk, aa in ((0.015 + 0.015 * pp, a1_ * (1 - pp)),
-                                   (0.022 + 0.019 * pp, a2_ * (1 - pp))):
-                        ko = QColor(self._akc1)
-                        ko.setAlphaF(aa * alfa)
-                        p.setPen(QPen(ko, max(1.2, mn * 0.0028)))
-                        p.drawEllipse(QPointF(x, y), mn * rk, mn * rk)
-                rd = QColor(228, 255, 249) if self.is_dark else QColor(255, 255, 255)
-                rd.setAlphaF(min(1.0, alfa))
-                p.setPen(QPen(QColor(self._akc2), max(1.4, mn * 0.0032)))
-                p.setBrush(rd)
-                p.drawEllipse(QPointF(x, y), mn * 0.0062, mn * 0.0062)
-                # chip z nazwą sieci
-                tlo = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
-                tlo.setAlphaF((0.80 if self.is_dark else 0.94) * alfa)
-                ob = QColor(self._akc2)
-                ob.setAlphaF((0.55 if self.is_dark else 0.85) * alfa)
-                p.setPen(QPen(ob, max(1.0, mn * 0.0018)))
-                p.setBrush(tlo)
-                p.drawRoundedRect(QRectF(cxs - szer / 2 - mn * 0.010, cy0,
-                                         szer + mn * 0.020, mn * 0.032),
-                                  mn * 0.007, mn * 0.007)
-                p.setFont(self._f_sw_chip)
-                kt = QColor(self._akc1)
-                kt.setAlphaF(min(1.0, 0.98 * alfa))
-                p.setPen(kt)
-                p.drawText(QPointF(cxs - szer / 2, cy0 + mn * 0.0235), nz)
-                kv = QColor(self._akc2)
-                kv.setAlphaF(min(1.0, 0.98 * alfa))
-                p.setPen(kv)
-                p.drawText(QPointF(cxs - szer / 2 + fm.horizontalAdvance(nz + "  "),
-                                   cy0 + mn * 0.0235), "\u2713")
-            else:
-                sz = QColor(150, 214, 202) if self.is_dark else QColor(22, 78, 70)
-                sz.setAlphaF((0.40 if self.is_dark else 0.66) * alfa)
-                p.setPen(QPen(sz, max(1.2, mn * 0.0024)))
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawEllipse(QPointF(x, y), mn * 0.0056, mn * 0.0056)
-                p.setFont(self._f_sw_mala)
-                fm2 = QFontMetrics(self._f_sw_mala)
-                sz_t = fm2.horizontalAdvance(nz)
-                if not self.is_dark:
-                    pod_ = QColor(255, 255, 255)
-                    pod_.setAlphaF(0.55 * alfa)
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(pod_)
-                    p.drawRoundedRect(QRectF(cxs - sz_t / 2.0 - mn * 0.007,
-                                             cy0 + mn * 0.0015,
-                                             sz_t + mn * 0.014, mn * 0.027),
-                                      mn * 0.006, mn * 0.006)
-                sz2 = QColor(sz)
-                sz2.setAlphaF((0.34 if self.is_dark else 0.78) * alfa)
-                p.setPen(sz2)
-                p.drawText(QPointF(cxs - sz_t / 2.0,
-                                   cy0 + mn * 0.021), nz)
-
-    # ---------- HUD trasy ----------
-    def _rysuj_hud_trasy(self, p, W, H, mn, t, td, u, zan):
-        if not getattr(self, "_sieci_intro", None):
-            return
-        alfa = zan * self._plynnie((td - 0.42) / 0.45)
-        if alfa <= 0.01:
-            return
-        if not hasattr(self, "_f_sw_chip"):
-            self._f_sw_chip = self._sw_czcionka(mn, True)
-            self._f_sw_mala = self._sw_czcionka(mn, False)
-        bw = mn * 0.335
-        bh = mn * 0.132
-        bx = W - bw - mn * 0.040
-        by = mn * 0.038
-        tlo = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
-        tlo.setAlphaF((0.66 if self.is_dark else 0.92) * alfa)
-        ob = QColor(self._akc2)
-        ob.setAlphaF((0.45 if self.is_dark else 0.80) * alfa)
-        p.setPen(QPen(ob, max(1.0, mn * 0.0018)))
-        p.setBrush(tlo)
-        p.drawRoundedRect(QRectF(bx, by, bw, bh), mn * 0.010, mn * 0.010)
-        ety = QColor(150, 214, 202) if self.is_dark else QColor(20, 72, 64)
-        ety.setAlphaF((0.85 if self.is_dark else 0.96) * alfa)
-        war = QColor(self._akc1)
-        war.setAlphaF(min(1.0, 0.98 * alfa))
-        n_ok = sum(1 for _n, f in self._sieci_intro if u >= f)
-        wiersze = (("TRASA", "%d km" % int(self._sw_km * u)),
-                   ("SIECI", "%d/%d" % (n_ok, len(self._sieci_intro))),
-                   ("POWR\u00d3T", "DOM 17:40"))
-        fmB = QFontMetrics(self._f_sw_chip)
-        for j, (a, b) in enumerate(wiersze):
-            yy = by + mn * (0.030 + j * 0.034)
-            p.setFont(self._f_sw_mala)
-            p.setPen(ety)
-            p.drawText(QPointF(bx + mn * 0.020, yy), a)
-            p.setFont(self._f_sw_chip)
-            p.setPen(war)
-            p.drawText(QPointF(bx + bw - mn * 0.020 - fmB.horizontalAdvance(b), yy), b)
-        pas = QColor(self._akc2)
-        pas.setAlphaF(0.9 * alfa)
-        p.setPen(QPen(pas, max(2.0, mn * 0.0042)))
-        p.drawLine(QPointF(bx + mn * 0.020, by + bh - mn * 0.016),
-                   QPointF(bx + mn * 0.020 + (bw - mn * 0.040) * u, by + bh - mn * 0.016))
-        resz = QColor(ety)
-        resz.setAlphaF((0.35 if self.is_dark else 0.55) * alfa)
-        p.setPen(QPen(resz, max(1.2, mn * 0.0022)))
-        p.drawLine(QPointF(bx + mn * 0.020 + (bw - mn * 0.040) * u, by + bh - mn * 0.016),
-                   QPointF(bx + bw - mn * 0.020, by + bh - mn * 0.016))
-
-    def _rysuj_logo_poswiata(self, p, x, y, r, jasnosc):
-        g = QRadialGradient(QPointF(x, y), r * 2.1)
-        if self.is_dark:
-            g.setColorAt(0.0, QColor(0, 240, 255, int(80 * jasnosc)))
-            g.setColorAt(0.55, QColor(0, 228, 161, int(32 * jasnosc)))
-            g.setColorAt(1.0, QColor(0, 228, 161, 0))
-        else:
-            g.setColorAt(0.0, QColor(13, 148, 136, int(60 * jasnosc)))
-            g.setColorAt(0.55, QColor(16, 185, 129, int(26 * jasnosc)))
-            g.setColorAt(1.0, QColor(16, 185, 129, 0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(g)
-        p.drawEllipse(QPointF(x, y), r * 2.1, r * 2.1)
-
-    def _cel_logo(self, W, H):
-        """Środek i promień logo programu na topbarze (cel wchłonięcia)."""
-        if getattr(self, "_cel_logo_xy", None):
-            return self._cel_logo_xy
-        wynik = (W * 0.085, H * 0.075, min(W, H) * 0.045)
-        try:
-            rodzic = self.parent()
-            lbl = getattr(rodzic, "logo_lbl", None)
-            if lbl is not None:
-                srodek_l = lbl.mapTo(rodzic, lbl.rect().center())
-                wynik = (float(srodek_l.x()), float(srodek_l.y()),
-                         max(14.0, min(lbl.width(), lbl.height()) * 0.46))
-        except Exception:
-            pass
-        self._cel_logo_xy = wynik
-        return wynik
-
-    # fazy finału: implozja -> puls -> ikona topbara (powiększona, osiada)
-    # -> puls odbija się i transportuje logo na ŚRODEK ekranu (kompas)
-    LOGO_T_IMPLOZJA = 11.10
-    LOGO_T_LOT = 11.32
-    LOGO_T_DOLOT = 11.74
-    LOGO_T_IKONA_MAX = 11.92
-    LOGO_T_IKONA_OK = 12.10
-    LOGO_T_LOT2 = 12.16
-    LOGO_T_CENTRUM = 12.68
-
-    def _logo_lot(self, td, W, H):
-        """Pozycja i promień w finale (steruje też maską-kołem)."""
-        mn = min(W, H)
-        sx, sy, pr = W * 0.5, H * 0.44, mn * 0.13
-        if td <= self.LOGO_T_IMPLOZJA:
-            return sx, sy, pr, 0.0
-        cx, cy, cr = self._cel_logo(W, H)
-        if td <= self.LOGO_T_LOT:
-            k1 = (td - self.LOGO_T_IMPLOZJA) / (self.LOGO_T_LOT - self.LOGO_T_IMPLOZJA)
-            return sx, sy, pr * (1.0 - k1) + mn * 0.020 * k1, 0.001
-        if td <= self.LOGO_T_DOLOT:
-            k = self._plynnie((td - self.LOGO_T_LOT) /
-                              (self.LOGO_T_DOLOT - self.LOGO_T_LOT))
-            x = sx + (cx - sx) * k
-            y = sy + (cy - sy) * k - math.sin(math.pi * k) * H * 0.05
-            return x, y, mn * 0.020, max(0.001, min(0.999, k))
-        if td <= self.LOGO_T_IKONA_OK:
-            # ikona topbara: pojawia się POWIĘKSZONA i osiada do rozmiaru
-            if td <= self.LOGO_T_IKONA_MAX:
-                k2 = self._plynnie((td - self.LOGO_T_DOLOT) /
-                                   (self.LOGO_T_IKONA_MAX - self.LOGO_T_DOLOT))
-                return cx, cy, cr * (0.25 + 1.35 * k2), 1.0
-            k2 = self._plynnie((td - self.LOGO_T_IKONA_MAX) /
-                               (self.LOGO_T_IKONA_OK - self.LOGO_T_IKONA_MAX))
-            return cx, cy, cr * (1.60 - 0.60 * k2), 1.0
-        if td <= self.LOGO_T_CENTRUM:
-            # puls odbija się z topbara i niesie logo na środek ekranu
-            k = self._plynnie((td - self.LOGO_T_LOT2) /
-                              (self.LOGO_T_CENTRUM - self.LOGO_T_LOT2)) \
-                if td > self.LOGO_T_LOT2 else 0.0
-            x = cx + (sx - cx) * k
-            y = cy + (sy - cy) * k - math.sin(math.pi * k) * H * 0.05
-            return x, y, mn * 0.020, max(0.001, min(0.999, k))
-        return sx, sy, mn * 0.020, 1.0
-
-    # ---------- pismo ----------
-    def _pismo_rysuj(self, p, n, srodek, skala, alfa, W, H):
-        """Rysuje pierwsze n punktów podpisu (po kolei przez wszystkie
-        pociągnięcia); zwraca pozycję "pióra"."""
-        if n < 2 or alfa <= 0:
-            return None
-        s, lox, loy = self._pismo_tr
-
-        def ekran(pt):
-            return QPointF(lox + pt[0] * s, loy + pt[1] * s)
-
-        sciezki = []
-        koniec = None
-        zostalo = n
-        for pociag in self._pociagniecia:
-            if zostalo < 2:
-                break
-            ile = min(zostalo, len(pociag))
-            sc = QPainterPath()
-            sc.moveTo(ekran(pociag[0]))
-            for i in range(1, ile):
-                sc.lineTo(ekran(pociag[i]))
-            sciezki.append(sc)
-            koniec = ekran(pociag[ile - 1])
-            zostalo -= len(pociag)
-
-        p.save()
-        p.translate(srodek)
-        p.scale(skala, skala)
-        p.translate(-srodek.x(), -srodek.y())
-        wd = max(4.0, min(W, H) * 0.016)
-        if self.is_dark:
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        warstwy = ((wd * 3.2, self._akc2, 0.22 * alfa),
-                   (wd * 1.9, self._akc1, 0.45 * alfa),
-                   (wd * 1.0, self._pioro, 0.96 * alfa))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        for szer, kol, a in warstwy:
-            k = QColor(kol); k.setAlphaF(max(0.0, min(1.0, a)))
-            pi = QPen(k, szer)
-            pi.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pi.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            p.setPen(pi)
-            for sc in sciezki:
-                p.drawPath(sc)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        k = QColor(255, 255, 255); k.setAlphaF(max(0.0, min(1.0, alfa)))
-        pi = QPen(k, wd * 0.46)
-        pi.setCapStyle(Qt.PenCapStyle.RoundCap)
-        pi.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        p.setPen(pi)
-        for sc in sciezki:
-            p.drawPath(sc)
-        p.restore()
-        dx = srodek.x() + (koniec.x() - srodek.x()) * skala
-        dy = srodek.y() + (koniec.y() - srodek.y()) * skala
-        return QPointF(dx, dy)
-
-    # ---------- rysowanie klatki ----------
-    def paintEvent(self, _):
-        p = QPainter(self)
-        try:
-            self._klatki += 1
-            if self._klatki == 1:
-                _dziennik_animacji("pierwsza klatka narysowana (%dx%d)"
-                                   % (self.width(), self.height()))
-            p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            W, H = self.width(), self.height()
-            mn = min(W, H)
-            t = self._t
-            dt = max(0.0, t - self._ost_t)
-            self._ost_t = t
-            td = t / self.TEMPO - self.PROLOG     # czas bazowy (po prologu)
-            td = self._os_czasu(td)               # jazda 2x wolniej (3.20.48)
-            if td < 0.0:
-                Wp, Hp = float(self.width()), float(self.height())
-                self._rysuj_prolog(p, td + self.PROLOG, Wp, Hp,
-                                   min(Wp, Hp), t)
-                return
-
-            # TRZĘSIENIE finałowe: cała scena (tło + efekty) drga narastająco
-            # tuż po domknięciu pierścienia, aż do pierwszego pęknięcia.
-            wstrzas = self._plynnie((td - 7.70) / 0.50) * (1.0 - self._plynnie((td - 10.40) / 0.40))
-            dod = 0.0
-            for s_w in getattr(self, "_wstrzasy_czasy", ()):
-                d_ = td - s_w
-                if 0.0 <= d_ < 0.35:
-                    dod += (1.0 - d_ / 0.35)   # szarpnięcie przy pęknięciu/oderwaniu
-            sila = mn * 0.011 * wstrzas + mn * 0.015 * min(1.3, dod)
-            if sila > 0:
-                p.translate(math.sin(t * 63.0) * sila + random.uniform(-0.6, 0.6) * sila,
-                            math.cos(t * 71.0) * sila * 0.8 + random.uniform(-0.6, 0.6) * sila)
-
-            # 1) tło z filmowym najazdem — ZAWSZE, niezależnie od efektów
-            self._tlo_rysuj(p, W, H, td)
-
-            if not self._awaria:
-                try:
-                    self._efekty(p, W, H, mn, t, dt, td)
-                except Exception:
-                    self._awaria = True
-                    self._zapisz_blad()
-            if self._awaria:
-                self._prosty_pokaz(p, W, H, mn, td, t)
-
-            # zasłona wejściowa (krótka, nigdy w pełni kryjąca) i zanikanie
-            wej = self._plynnie(td / 0.18)
-            if wej < 1:
-                zas = QColor(4, 10, 18) if self.is_dark else QColor(255, 255, 255)
-                zas.setAlpha(int(205 * (1 - wej)))
-                p.fillRect(self.rect(), zas)
-            # Dawne zanikanie do jednolitego koloru zastąpił finałowy rozpad
-            # ekranu (trzęsienie -> pęknięcia -> wypadające odłamki).
-        except Exception:
-            # ostatnia linia obrony — czyste tło zamiast czarnego ekranu
-            try:
-                self._zapisz_blad()
-                p.fillRect(self.rect(), QColor("#0B1320") if self.is_dark else QColor("#F1F5F9"))
-            except Exception:
-                pass
-        finally:
-            p.end()
-
-    def _zapisz_diag(self):
-        """Podsumowanie pokazu dopisywane do dziennika animacji."""
-        try:
-            ekrany = []
-            try:
-                for e in QApplication.screens():
-                    g = e.geometry()
-                    ekrany.append("%dx%d @ %d,%d" % (g.width(), g.height(), g.x(), g.y()))
-            except Exception:
-                pass
-            g = self.geometry()
-            _dziennik_animacji(
-                "PODSUMOWANIE: okno %dx%d @ %d,%d | widoczne: %s | ekrany: %s | "
-                "tyknięcia: %d | klatki: %d | czas: %.2f s | tryb awaryjny: %s"
-                % (g.width(), g.height(), g.x(), g.y(), self.isVisible(),
-                   "; ".join(ekrany) or "?", self._tyki, self._klatki,
-                   self._t, self._awaria))
-        except Exception:
-            pass
-
-    def _zapisz_blad(self):
-        """Jednorazowy zapis szczegółów błędu rysowania do pliku w katalogu
-        użytkownika — do diagnozy, gdyby splash przełączył się w tryb awaryjny."""
-        if "blad" in self._raz:
-            return
-        self._raz.add("blad")
-        _dziennik_animacji("BŁĄD rysowania — przełączam na pokaz awaryjny (szczegóły: .pmt_splash_blad.txt)")
-        try:
-            import traceback
-            with open(os.path.join(os.path.expanduser("~"), ".pmt_splash_blad.txt"),
-                      "w", encoding="utf-8") as f:
-                f.write("PMT Planer %s — blad rysowania animacji startowej\n\n" % WERSJA_PROGRAMU)
-                f.write(traceback.format_exc())
-        except Exception:
-            pass
-
-    # ---------- pełny spektakl ----------
-    def _efekty(self, p, W, H, mn, t, dt, td):
-        sk_ekr = mn / 500.0                        # skala prędkości cząsteczek
-
-        # filmowe przyciemnienie/rozjaśnienie sceny pod efektami
-        kurtyna = self._plynnie((td - 0.10) / 0.45) * (1.0 - self._plynnie((td - 7.75) / 0.40))
-        if kurtyna > 0:
-            if self.is_dark:
-                p.fillRect(self.rect(), QColor(3, 7, 15, int(95 * kurtyna)))
-            else:
-                p.fillRect(self.rect(), QColor(255, 255, 255, int(112 * kurtyna)))
-
-        srodek = QPointF(W * 0.5, H * 0.44)        # środek logo i pierścienia
-        promien = mn * 0.13                        # promień logo
-        rr = promien * 1.60                        # promień pierścienia
-        # zapłon "głowicy druku" przy platformie logo (cel wystrzału)
-        pismo_start = QPointF(srodek.x() - promien * 0.95,
-                              srodek.y() + promien * 1.02)
-        pinx, piny = self._mapa(*self._pin)
-
-        # 2) WIELKA TRASA: pojazd objeżdża cały ekran, ślad za nim gaśnie
-        glowa = None
-        # --- KURZ ŚWIETLNY i LINIE SYSTEMOWE: scena żyje podczas jazdy ---
-        zan_k = 1.0
-        if td > 4.30:
-            zan_k = max(0.0, 1.0 - self._plynnie((td - 4.30) / 0.45))
-        if getattr(self, "_kurz", None) and zan_k > 0:
-            p.setPen(Qt.PenStyle.NoPen)
-            for cx_, cy_, _vx, _vy, wiek, zyc_, rr in self._kurz:
-                a_ = math.sin(min(1.0, wiek / zyc_) * math.pi) \
-                    * (0.55 if self.is_dark else 0.85) * zan_k
-                kol_k = (self._akc2 if rr < 1.6 else QColor(235, 255, 250)) \
-                    if self.is_dark else \
-                    (QColor(6, 128, 106) if rr < 1.6 else QColor(4, 80, 66))
-                g1 = QColor(kol_k)
-                g1.setAlphaF(a_ * 0.45)
-                p.setBrush(g1)
-                p.drawEllipse(QPointF(cx_ * W, cy_ * H), rr * 2.7, rr * 2.7)
-                g2 = QColor(kol_k)
-                g2.setAlphaF(a_)
-                p.setBrush(g2)
-                p.drawEllipse(QPointF(cx_ * W, cy_ * H), rr, rr)
-        if 0.45 < td < 4.60 and zan_k > 0:
-            # meldunki zdarzeniowe: wyjazd z DOMU, potwierdzenia sieci,
-            # kierunek na kolejny węzeł — zsynchronizowane z jazdą głowy
-            zdarz = getattr(self, "_sys_zdarzenia", None) or \
-                ((0.45, "Analizuj\u0119 sie\u0107 tras\u2026"),)
-            akt = zdarz[0]
-            for z_ in zdarz:
-                if z_[0] <= td:
-                    akt = z_
-                else:
-                    break
-            st_l = akt[0]
-            n_zn = max(0, int((td - st_l) * 26))
-            kur = "_" if int(t * 3.2) % 2 == 0 else " "
-            f_l = QFont("Segoe UI", 1)
-            f_l.setPixelSize(max(11, int(mn * 0.021)))
-            f_l.setBold(True)
-            p.setFont(f_l)
-            kol_l = QColor(self._akc2) if self.is_dark else QColor(4, 70, 56)
-            kol_l.setAlphaF((0.62 if self.is_dark else 0.92) * zan_k)
-            p.setPen(kol_l)
-            p.drawText(QRectF(W * 0.052, H * 0.86, W * 0.6, mn * 0.05),
-                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                       akt[1][:n_zn] + kur)
-        if 4.95 < td < 7.72 and getattr(self, "_sys_druk", None):
-            zan_d = 1.0 - self._plynnie((td - 7.55) / 0.17)
-            if zan_d > 0:
-                akt_d = self._sys_druk[0]
-                for z_ in self._sys_druk:
-                    if z_[0] <= td:
-                        akt_d = z_
-                    else:
-                        break
-                n_zn = max(0, int((td - akt_d[0]) * 26))
-                kur = "_" if int(t * 3.2) % 2 == 0 else " "
-                f_l = QFont("Segoe UI", 1)
-                f_l.setPixelSize(max(11, int(mn * 0.021)))
-                f_l.setBold(True)
-                p.setFont(f_l)
-                kol_l = QColor(self._akc2) if self.is_dark else QColor(4, 70, 56)
-                kol_l.setAlphaF((0.62 if self.is_dark else 0.92) * zan_d)
-                p.setPen(kol_l)
-                p.drawText(QRectF(W * 0.052, H * 0.86, W * 0.6, mn * 0.05),
-                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                           akt_d[1][:n_zn] + kur)
-        if 0.25 <= td < 4.25:
-            u = self._plynnie((td - 0.25) / 4.00)
-            i = int(u * (len(self._trasa_ekranu) - 1))
-            self._gl_idx = i
-            rx, ry = self._trasa_ekranu[i]
-            x, y = rx * W, ry * H
-            mag = self._plynnie((u - 0.85) / 0.15)   # magnes DOMU na finiszu…
-            mag = max(mag, self._plynnie((0.07 - u) / 0.07))   # …i na starcie
-            glowa = (x + (pinx - x) * mag, y + (piny - y) * mag)
-            # ślad po krzywej z magnesem per-punkt (zero cięciw i grzebieni)
-            pop = getattr(self, "_ogon_i", None)
-            if pop is None:
-                pop = max(0, i - 1)
-            if i > pop:
-                ot_ = self._ogon[-1][2] if self._ogon else t
-                N1 = max(1, len(self._trasa_ekranu) - 1)
-                for k in range(pop + 1, i + 1):
-                    rxk, ryk = self._trasa_ekranu[k]
-                    xk, yk = rxk * W, ryk * H
-                    mk = max(self._plynnie((k / N1 - 0.85) / 0.15),
-                             self._plynnie((0.07 - k / N1) / 0.07))
-                    if mk > 0:
-                        xk += (pinx - xk) * mk
-                        yk += (piny - yk) * mk
-                    f_ = (k - pop) / (i - pop)
-                    self._ogon.append((xk, yk, ot_ + (t - ot_) * f_))
-            self._ogon_i = i
-        elif 4.25 <= td < 4.55:
-            glowa = (pinx, piny)
-        elif 4.55 <= td < 4.90:
-            k = self._plynnie((td - 4.55) / 0.35)
-            cx, cy = W * 0.93, H * 0.10
-            u_ = 1 - k
-            glowa = (u_ * u_ * pinx + 2 * u_ * k * cx + k * k * pismo_start.x(),
-                     u_ * u_ * piny + 2 * u_ * k * cy + k * k * pismo_start.y())
-        if glowa is not None and td < 4.25:
-            # domknięcie do głowy — krótki, gęsty łącznik (punkty krzywej
-            # zostały już dołożone w gałęzi jazdy, z magnesem per-punkt)
-            if self._ogon:
-                ox_, oy_, ot_ = self._ogon[-1]
-                dyst = math.hypot(glowa[0] - ox_, glowa[1] - oy_)
-                kroki = int(dyst / max(2.0, mn * 0.0045))
-                for s_ in range(1, kroki):
-                    f_ = s_ / kroki
-                    self._ogon.append((ox_ + (glowa[0] - ox_) * f_,
-                                       oy_ + (glowa[1] - oy_) * f_,
-                                       ot_ + (t - ot_) * f_))
-            self._ogon.append((glowa[0], glowa[1], t))
-        if self.is_dark and 0.55 <= td < 4.10:
-            k2 = self._plynnie((td - 0.55) / 3.55)
-            i2 = int(k2 * (len(self._droga2) - 1))
-            self._ogon2.append(self._mapa(*self._droga2[i2]))
-            if len(self._ogon2) > int(52 * self.TEMPO):
-                self._ogon2.pop(0)
-
-        # 3) pinezka: fale i poświata na mecie trasy
-        if td >= 4.25 and "pin1" not in self._raz:
-            self._raz.add("pin1")
-            self._fale.append([pinx, piny, mn * 0.012, 1.0, (255, 179, 107)])
-            self._sypnij(pinx, piny, 18, 2.2 * sk_ekr, 0.03 * sk_ekr, 0.028,
-                         2.8 * sk_ekr, ((255, 179, 107), (255, 217, 174),
-                                        (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
-        if td >= 4.42 and "pin2" not in self._raz:
-            self._raz.add("pin2")
-            self._fale.append([pinx, piny, mn * 0.012, 1.0, (255, 179, 107)])
-        if 4.25 <= td < 4.95:
-            a = (0.45 + 0.35 * math.sin(t * 11.0)) * (1.0 - self._plynnie((td - 4.60) / 0.30))
-            if a > 0:
-                g = QRadialGradient(QPointF(pinx, piny), mn * 0.045)
-                g.setColorAt(0.0, QColor(255, 179, 107, int(235 * a)))
-                g.setColorAt(1.0, QColor(255, 179, 107, 0))
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(g)
-                p.drawEllipse(QPointF(pinx, piny), mn * 0.045, mn * 0.045)
-
-        # 3b) ŻYWA MAPA: świat dorysowuje się za przejazdem (pod wstęgą)
-        u_sw = 0.0
-        if td >= 0.25:
-            u_sw = self._plynnie(min(1.0, (td - 0.25) / 4.00))
-        if 0.10 < td < 5.40:
-            try:
-                self._rysuj_swiat(p, W, H, mn, t, td, u_sw, pinx, piny, zan_k)
-            except Exception:
-                pass
-
-        # 4) ślad trasy (gasnący) + druga smuga + głowa pojazdu
-        if self.is_dark:
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        self._sciezka_rysuj(p, t)
-        if self._ogon2:
-            self._ogon_rysuj(p, self._ogon2, 0.40,
-                             max(0.0, 1.0 - self._plynnie((td - 4.45) / 0.40)),
-                             mn * 0.014)
-        if glowa is not None and td < 4.90:
-            self._glowa_rysuj(p, glowa[0], glowa[1], mn * 0.012)
-            self._sypnij(glowa[0], glowa[1], 2, 1.3 * sk_ekr, 0.02 * sk_ekr,
-                         0.05, 2.0 * sk_ekr,
-                         ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                          (255, 255, 255) if self.is_dark else (4, 80, 66)))
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-
-        # 4b) węzły SIECI, DOM i HUD trasy (nad wstęgą)
-        if 0.10 < td < 5.40:
-            try:
-                self._rysuj_wezly_sieci(p, W, H, mn, t, td, u_sw, pinx, piny, zan_k)
-                self._rysuj_hud_trasy(p, W, H, mn, t, td, u_sw, zan_k)
-            except Exception:
-                pass
-
-        # 5) węzły sieci nad miastem (tylko ciemny motyw)
-        if self.is_dark:
-            czasy = (5.20, 5.50, 5.80, 6.10, 6.40, 6.70)
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-            for i, wez in enumerate(self._WEZLY_CIEMNE):
-                k = (td - czasy[i]) / 0.52
-                if 0 < k < 1:
-                    wx, wy = self._mapa(*wez)
-                    kol = QColor(self._akc2)
-                    kol.setAlphaF(0.9 * (1 - k))
-                    p.setPen(QPen(kol, max(1.2, mn * 0.004)))
-                    p.setBrush(Qt.BrushStyle.NoBrush)
-                    p.drawEllipse(QPointF(wx, wy), mn * 0.006 + mn * 0.034 * k,
-                                  mn * 0.006 + mn * 0.034 * k)
-                    kropka = QColor(223, 252, 244)
-                    kropka.setAlphaF(1 - 0.3 * k)
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(kropka)
-                    p.drawEllipse(QPointF(wx, wy), mn * 0.005, mn * 0.005)
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-
-        # 6) DRUK 3D logo z ZACIĘCIAMI głowicy (harmonogram: jedzie, staje
-        # w losowym punkcie, rusza, znów staje, kończy)
-        RUCH, STOJ = 2.16, 0.22
-        t_in = td - 4.90
-        u1, u2 = self._zaciecia
-        zaciety = False
-        if t_in <= 0:
-            kp = 0.0
-        elif t_in <= u1 * RUCH:
-            kp = t_in / RUCH
-        elif t_in <= u1 * RUCH + STOJ:
-            kp = u1; zaciety = True
-        elif t_in <= u2 * RUCH + STOJ:
-            kp = (t_in - STOJ) / RUCH
-        elif t_in <= u2 * RUCH + 2 * STOJ:
-            kp = u2; zaciety = True
-        else:
-            kp = min(1.0, (t_in - 2 * STOJ) / RUCH)
-        mig = 1.0 if not zaciety else (0.45 + 0.55 * abs(math.sin(t * 42.0)))
-        if 4.90 <= td < 7.75:
-            R = promien
-            gora = srodek.y() - R * 1.06
-            dol = srodek.y() + R * 1.06
-            wys = dol - gora
-            N_W = 18                       # liczba warstw wydruku
-            w_h = wys / N_W
-            gotowe = kp * N_W
-            pelne = min(N_W, int(gotowe))
-            frac = gotowe - pelne
-            y_pelne = dol - pelne * w_h    # góra UKOŃCZONYCH warstw
-            y_biez = y_pelne - w_h * 0.5   # środek bieżącej warstwy
-            lewo = srodek.x() - R * 1.30
-            szer_c = R * 2.60
-            # BLUEPRINT: techniczny obrys projektu, ktory znika w miare druku
-            al_bp = wej_d if False else 0.0
-            try:
-                al_bp = self._plynnie((td - 4.95) / 0.30) \
-                    * ((1.0 - kp) ** 1.15) \
-                    * (1.0 - self._plynnie((td - 7.40) / 0.30))
-            except Exception:
-                al_bp = 0.0
-            if al_bp > 0.02:
-                kol_bp = QColor(self._akc1) if self.is_dark else QColor(6, 95, 80)
-                p.save()
-                p.translate(srodek.x(), srodek.y())
-                p.rotate((t * 4.0) % 360.0)
-                kb_ = QColor(kol_bp)
-                kb_.setAlphaF(0.30 * al_bp)
-                pi_bp = QPen(kb_, max(1.0, mn * 0.0018))
-                pi_bp.setStyle(Qt.PenStyle.DashLine)
-                p.setPen(pi_bp)
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawEllipse(QPointF(0, 0), R * 1.0, R * 1.0)
-                p.drawEllipse(QPointF(0, 0), R * 0.72, R * 0.72)
-                kb2 = QColor(kol_bp)
-                kb2.setAlphaF(0.42 * al_bp)
-                p.setPen(QPen(kb2, max(1.0, mn * 0.0020)))
-                p.drawLine(QPointF(-R * 0.16, 0), QPointF(R * 0.16, 0))
-                p.drawLine(QPointF(0, -R * 0.16), QPointF(0, R * 0.16))
-                for kat_ in (0, 90, 180, 270):
-                    ar_ = math.radians(kat_)
-                    p.drawLine(QPointF(math.cos(ar_) * R * 1.0,
-                                       math.sin(ar_) * R * 1.0),
-                               QPointF(math.cos(ar_) * R * 1.10,
-                                       math.sin(ar_) * R * 1.10))
-                p.restore()
-                # linia wymiarowa nad projektem + sygnatura rewizji
-                kb3 = QColor(kol_bp)
-                kb3.setAlphaF(0.38 * al_bp)
-                p.setPen(QPen(kb3, max(1.0, mn * 0.0018)))
-                wy_w = gora - R * 0.64
-                p.drawLine(QPointF(lewo, wy_w), QPointF(lewo + szer_c, wy_w))
-                for kx_, s_ in ((lewo, 1), (lewo + szer_c, -1)):
-                    p.drawLine(QPointF(kx_, wy_w), QPointF(kx_ + s_ * R * 0.07, wy_w - R * 0.035))
-                    p.drawLine(QPointF(kx_, wy_w), QPointF(kx_ + s_ * R * 0.07, wy_w + R * 0.035))
-                    p.drawLine(QPointF(kx_, wy_w - R * 0.06), QPointF(kx_, wy_w + R * 0.06))
-                if not hasattr(self, "_f_sw_mala"):
-                    self._f_sw_mala = self._sw_czcionka(mn, False)
-                p.setFont(self._f_sw_mala)
-                p.drawText(QPointF(lewo + szer_c - mn * 0.085, wy_w - mn * 0.008),
-                           "PMT \u2022 rev 47")
-            # głowica zsynchronizowana z nakładaniem: ping-pong po warstwach
-            if pelne % 2 == 0:
-                gx = lewo + szer_c * frac
-            else:
-                gx = lewo + szer_c * (1.0 - frac)
-            if zaciety:
-                gx += math.sin(t * 90.0) * R * 0.04
-            wej_d = self._plynnie((td - 4.90) / 0.25)
-            plat = wej_d * (1.0 - self._plynnie((td - 7.60) / 0.25))
-            # PLATFORMA 3D: perspektywiczna tarcza z siatką pod wydrukiem
-            if plat > 0:
-                prx, pry = R * 1.55, R * 0.34
-                kol_pl = QColor(self._akc1); kol_pl.setAlphaF(0.55 * plat)
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.setPen(QPen(kol_pl, max(1.6, mn * 0.0035)))
-                p.drawEllipse(QPointF(srodek.x(), dol + R * 0.10), prx, pry)
-                kol_s = QColor(self._akc1); kol_s.setAlphaF(0.20 * plat)
-                p.setPen(QPen(kol_s, 1.0))
-                for f_ in (0.72, 0.45):
-                    p.drawEllipse(QPointF(srodek.x(), dol + R * 0.10),
-                                  prx * f_, pry * f_)
-                for kx_ in (-0.9, -0.45, 0.0, 0.45, 0.9):
-                    p.drawLine(QPointF(srodek.x() + prx * kx_ * 0.35, dol + R * 0.10 - pry * 0.32),
-                               QPointF(srodek.x() + prx * kx_, dol + R * 0.10 + pry * 0.30))
-            # cień wydruku na platformie — rośnie razem z nadrukiem
-            if plat > 0 and kp > 0.02:
-                p.save()
-                p.translate(srodek.x(), dol + R * 0.10)
-                p.scale(1.0, 0.22)
-                cien_g = QRadialGradient(QPointF(0, 0), R * 1.15)
-                cien_g.setColorAt(0.0, QColor(0, 0, 0, int(120 * plat * min(1.0, kp * 1.4))))
-                cien_g.setColorAt(1.0, QColor(0, 0, 0, 0))
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(cien_g)
-                p.drawEllipse(QPointF(0, 0), R * 1.15, R * 1.15)
-                p.restore()
-            # NADRUK: tylko ukończone warstwy + bieżąca DO miejsca głowicy —
-            # nic "gotowego" nie istnieje ponad tym, co realnie nałożono
-            if pelne > 0 or frac > 0.001:
-                p.save()
-                obszar = QPainterPath()
-                if pelne > 0:
-                    obszar.addRect(QRectF(lewo, y_pelne, szer_c,
-                                          dol - y_pelne + R * 0.45))
-                if pelne < N_W and frac > 0.001:
-                    if pelne % 2 == 0:
-                        obszar.addRect(QRectF(lewo, y_pelne - w_h,
-                                              max(0.0, gx - lewo), w_h + 0.6))
-                    else:
-                        obszar.addRect(QRectF(gx, y_pelne - w_h,
-                                              max(0.0, lewo + szer_c - gx), w_h + 0.6))
-                p.setClipPath(obszar)
-                # GRUBA bryła 3D: schodkowa wytłoczka pod licem nadruku
-                for op_, of_, gl_ in ((0.30, 0.150, 0.10), (0.40, 0.105, 0.14),
-                                      (0.55, 0.060, 0.20), (0.75, 0.024, 0.30)):
-                    p.setOpacity(op_)
-                    self._rysuj_logo(p, srodek.x(), srodek.y() + R * of_, R, 0, gl_)
-                p.setOpacity(1.0)
-                self._rysuj_logo(p, srodek.x(), srodek.y(), R, 0, 1.0)
-                p.setPen(QPen(QColor(255, 255, 255, 24), 1))
-                yl = y_pelne
-                while yl < dol:
-                    p.drawLine(QPointF(srodek.x() - R, yl),
-                               QPointF(srodek.x() + R, yl))
-                    yl += w_h
-                if kp < 1:
-                    # ŻAR WYPALANIA: świeże warstwy jarzą się i stygną w dół
-                    if self.is_dark:
-                        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-                    zar_g = QLinearGradient(0, y_pelne - w_h, 0, y_pelne + R * 0.30)
-                    zar_g.setColorAt(0.0, QColor(255, 244, 224, int(150 * mig)))
-                    zar_g.setColorAt(0.35, QColor(self._akc1.red(), self._akc1.green(),
-                                                  self._akc1.blue(), int(90 * mig)))
-                    zar_g.setColorAt(1.0, QColor(self._akc1.red(), self._akc1.green(),
-                                                 self._akc1.blue(), 0))
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(zar_g)
-                    p.drawRect(QRectF(srodek.x() - R, y_pelne - w_h, R * 2.0,
-                                      w_h + R * 0.30))
-                    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-                p.restore()
-            if kp < 1:
-                # DRUKARKA: pozioma szyna, wózek z radiatorem, dysza i dioda
-                kar_y = gora - R * 0.30
-                # KABEL ZASILANIA: od dolu sceny do lewego slupka szyny,
-                # z plynacymi impulsami energii
-                P0x, P0y = lewo - R * 0.95, float(H) + R * 0.10
-                Cx, Cy = lewo - R * 0.80, kar_y + R * 1.55
-                P1x, P1y = lewo - R * 0.06, kar_y + R * 0.06
-                kab = QPainterPath(QPointF(P0x, P0y))
-                kab.quadTo(QPointF(Cx, Cy), QPointF(P1x, P1y))
-                kol_kab = QColor(10, 24, 32) if self.is_dark else QColor(28, 58, 52)
-                kol_kab.setAlphaF(0.85 * wej_d)
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.setPen(QPen(kol_kab, max(2.4, mn * 0.0052),
-                              Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                p.drawPath(kab)
-                rdz_kab = QColor(self._akc2)
-                rdz_kab.setAlphaF(0.50 * wej_d)
-                p.setPen(QPen(rdz_kab, max(1.0, mn * 0.0018)))
-                p.drawPath(kab)
-                for j_ in range(3):
-                    tt = (t * 0.55 + j_ / 3.0) % 1.0
-                    u_ = 1.0 - tt
-                    ix = u_ * u_ * P0x + 2 * u_ * tt * Cx + tt * tt * P1x
-                    iy = u_ * u_ * P0y + 2 * u_ * tt * Cy + tt * tt * P1y
-                    imp = QColor(self._akc2)
-                    imp.setAlphaF(0.85 * wej_d * math.sin(tt * math.pi))
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(imp)
-                    p.drawEllipse(QPointF(ix, iy), mn * 0.0042, mn * 0.0042)
-                kol_szy = QColor(self._akc1); kol_szy.setAlphaF(0.75 * wej_d)
-                p.setPen(QPen(kol_szy, max(2.0, mn * 0.0042)))
-                p.drawLine(QPointF(lewo - R * 0.06, kar_y),
-                           QPointF(lewo + szer_c + R * 0.06, kar_y))
-                p.setBrush(kol_szy)
-                p.setPen(Qt.PenStyle.NoPen)
-                for kx_ in (lewo - R * 0.06, lewo + szer_c + R * 0.06):
-                    p.drawRoundedRect(QRectF(kx_ - R * 0.035, kar_y - R * 0.075,
-                                             R * 0.07, R * 0.15), R * 0.02, R * 0.02)
-                # wiązka wypalająca od dyszy do bieżącej warstwy
-                wiaz = QLinearGradient(0, kar_y + R * 0.20, 0, y_biez)
-                w1 = QColor(255, 255, 255, int(235 * mig)) if self.is_dark \
-                    else QColor(6, 110, 90, int(235 * mig))
-                w2 = QColor(self._akc1); w2.setAlpha(int(60 * mig))
-                wiaz.setColorAt(0.0, w1); wiaz.setColorAt(1.0, w2)
-                p.setPen(QPen(QBrush(wiaz), max(1.8, mn * 0.0036)))
-                p.drawLine(QPointF(gx, kar_y + R * 0.20), QPointF(gx, y_biez))
-                # wózek: korpus + żeberka radiatora + dysza-trapez
-                korp = QRectF(gx - R * 0.20, kar_y - R * 0.085, R * 0.40, R * 0.17)
-                p.setPen(QPen(QColor(self._akc1), max(1.4, mn * 0.003)))
-                p.setBrush(QColor(10, 22, 30, 235) if self.is_dark else QColor(255, 255, 255, 245))
-                p.drawRoundedRect(korp, R * 0.045, R * 0.045)
-                zeb = QColor(self._akc1); zeb.setAlpha(150)
-                p.setPen(QPen(zeb, max(1.0, mn * 0.0018)))
-                for kx_ in (-0.10, -0.03, 0.04, 0.11):
-                    p.drawLine(QPointF(gx + R * kx_, kar_y - R * 0.055),
-                               QPointF(gx + R * kx_, kar_y + R * 0.055))
-                dysza = QPainterPath(QPointF(gx - R * 0.085, kar_y + R * 0.085))
-                dysza.lineTo(QPointF(gx + R * 0.085, kar_y + R * 0.085))
-                dysza.lineTo(QPointF(gx + R * 0.030, kar_y + R * 0.20))
-                dysza.lineTo(QPointF(gx - R * 0.030, kar_y + R * 0.20))
-                dysza.closeSubpath()
-                p.setPen(QPen(QColor(self._akc1), max(1.2, mn * 0.0024)))
-                p.setBrush(QColor(7, 16, 24, 235) if self.is_dark else QColor(241, 245, 249, 245))
-                p.drawPath(dysza)
-                # dioda stanu: zieleń pracy / bursztyn zacięcia (mruga)
-                # PANEL TELEMETRII: warstwa / dysza / status — zyje z drukiem
-                try:
-                    if not hasattr(self, "_f_sw_chip"):
-                        self._f_sw_chip = self._sw_czcionka(mn, True)
-                        self._f_sw_mala = self._sw_czcionka(mn, False)
-                    al_tel = wej_d * (1.0 - self._plynnie((td - 7.50) / 0.22))
-                    if al_tel > 0.02:
-                        tw_ = mn * 0.205
-                        th_ = mn * 0.118
-                        tx_ = min(W - tw_ - mn * 0.028, srodek.x() + R * 1.92)
-                        ty_ = srodek.y() - R * 0.62
-                        tlo_t = QColor(8, 20, 26) if self.is_dark else QColor(255, 255, 255)
-                        tlo_t.setAlphaF((0.66 if self.is_dark else 0.92) * al_tel)
-                        ob_t = QColor(255, 170, 60) if zaciety else QColor(self._akc2)
-                        ob_t.setAlphaF((0.55 if self.is_dark else 0.85) * al_tel
-                                       * (mig if zaciety else 1.0))
-                        p.setPen(QPen(ob_t, max(1.0, mn * 0.0018)))
-                        p.setBrush(tlo_t)
-                        p.drawRoundedRect(QRectF(tx_, ty_, tw_, th_), mn * 0.009, mn * 0.009)
-                        ety_t = QColor(150, 214, 202) if self.is_dark else QColor(20, 72, 64)
-                        ety_t.setAlphaF((0.85 if self.is_dark else 0.96) * al_tel)
-                        war_t = QColor(self._akc1)
-                        war_t.setAlphaF(min(1.0, 0.98 * al_tel))
-                        temp_ = (166 + 5.0 * math.sin(t * 5.0)) if zaciety \
-                            else (212 + 8.0 * math.sin(t * 2.6))
-                        st_nap = "ZACI\u0118CIE" if zaciety else "DRUK"
-                        st_kol = QColor(255, 170, 60) if zaciety else QColor(self._akc2)
-                        st_kol.setAlphaF(min(1.0, 0.98 * al_tel) * (mig if zaciety else 1.0))
-                        fmT = QFontMetrics(self._f_sw_chip)
-                        wiersze_t = (("WARSTWA", "%02d/%d" % (min(N_W, pelne + (1 if frac > 0.001 else 0)), N_W), war_t),
-                                     ("DYSZA", "%d\u00b0C" % int(temp_), war_t),
-                                     ("STATUS", st_nap, st_kol))
-                        for j_, (a_n, b_n, kol_b) in enumerate(wiersze_t):
-                            yy_ = ty_ + mn * (0.027 + j_ * 0.031)
-                            p.setFont(self._f_sw_mala)
-                            p.setPen(ety_t)
-                            p.drawText(QPointF(tx_ + mn * 0.016, yy_), a_n)
-                            p.setFont(self._f_sw_chip)
-                            p.setPen(kol_b)
-                            p.drawText(QPointF(tx_ + tw_ - mn * 0.016
-                                               - fmT.horizontalAdvance(b_n), yy_), b_n)
-                        pas_t = QColor(self._akc2)
-                        pas_t.setAlphaF(0.9 * al_tel)
-                        p.setPen(QPen(pas_t, max(2.0, mn * 0.0040)))
-                        p.drawLine(QPointF(tx_ + mn * 0.016, ty_ + th_ - mn * 0.014),
-                                   QPointF(tx_ + mn * 0.016 + (tw_ - mn * 0.032) * kp,
-                                           ty_ + th_ - mn * 0.014))
-                except Exception:
-                    pass
-                led_k = QColor(255, 170, 60) if zaciety else QColor(self._akc2)
-                led_k.setAlphaF(0.35 + 0.65 * abs(math.sin(t * (14.0 if zaciety else 5.0))))
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(led_k)
-                p.drawEllipse(QPointF(gx + R * 0.145, kar_y - R * 0.038), R * 0.024, R * 0.024)
-                if zaciety:
-                    # smuzki dymu z dyszy podczas zaciecia
-                    dym_k = QColor(205, 215, 220) if self.is_dark else QColor(96, 106, 110)
-                    for j_ in range(3):
-                        fa = (t * 1.15 + j_ * 0.36) % 1.0
-                        dk = QColor(dym_k)
-                        dk.setAlphaF(0.45 * (1.0 - fa) * wej_d)
-                        p.setPen(QPen(dk, max(1.2, mn * 0.0026)))
-                        p.setBrush(Qt.BrushStyle.NoBrush)
-                        p.drawArc(QRectF(gx - R * 0.10 + j_ * R * 0.035
-                                         + math.sin(fa * 6.0 + j_) * R * 0.02,
-                                         kar_y + R * 0.16 - fa * R * 0.55,
-                                         R * 0.11, R * 0.09),
-                                  30 * 16, 200 * 16)
-                self._glowa_rysuj(p, gx, y_biez, mn * 0.009)
-                # WIĘKSZY spawalniczy pokaz iskier
-                self._sypnij(gx, y_biez, 16 if zaciety else 9, 2.6 * sk_ekr,
-                             0.16 * sk_ekr, 0.026, 3.2 * sk_ekr,
-                             ((255, 255, 255),
-                              (self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                              (255, 198, 130)))
-                self._sypnij(srodek.x() + random.uniform(-R, R), y_pelne, 2,
-                             1.3 * sk_ekr, 0.14 * sk_ekr, 0.032, 2.4 * sk_ekr,
-                             ((255, 226, 180),
-                              (self._akc2.red(), self._akc2.green(), self._akc2.blue())),
-                             unos=0.6 * sk_ekr)
-                if random.random() < 0.06:
-                    # co jakiś czas: większy rozbłysk żużlu
-                    self._sypnij(gx, y_biez, 14, 3.4 * sk_ekr, 0.15 * sk_ekr,
-                                 0.020, 3.6 * sk_ekr,
-                                 ((255, 255, 255), (255, 210, 150),
-                                  (self._akc1.red(), self._akc1.green(), self._akc1.blue())))
-        if "druk" not in self._raz and kp >= 1.0:
-            self._raz.add("druk")
-            self._blysk = 0.45
-            self._fale.append([srodek.x(), srodek.y(), promien * 0.5, 1.0,
-                               (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
-            self._sypnij(srodek.x(), srodek.y(), 22, 2.4 * sk_ekr, 0.03 * sk_ekr,
-                         0.028, 2.2 * sk_ekr,
-                         ((self._akc2.red(), self._akc2.green(), self._akc2.blue()),
-                          (255, 255, 255),
-                          (self._akc1.red(), self._akc1.green(), self._akc1.blue())))
-
-        # 6b) logo po druku (pełne) + lot do topbara w finale
-        if td >= 7.48:
-            lx, ly, lr, lk = self._logo_lot(td, W, H)
-            if td <= self.LOGO_T_IMPLOZJA:
-                # logo stoi w oku cyklonu — BEZ poświaty (czysto nad chaosem)
-                self._rysuj_logo(p, lx, ly, promien, obrot=0, jasnosc=1.0,
-                                 poswiata=False)
-            elif td <= self.LOGO_T_LOT:
-                # IMPLOZJA: logo zapada się w świetlny puls
-                k1 = (td - self.LOGO_T_IMPLOZJA) / (self.LOGO_T_LOT - self.LOGO_T_IMPLOZJA)
-                if "implozja" not in self._raz:
-                    self._raz.add("implozja")
-                    self._fale.append([lx, ly, promien * 0.9, 1.0,
-                                       (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
-                    self._blysk = 0.22
-                p.setOpacity(max(0.0, 1.0 - k1 * 1.25))
-                self._rysuj_logo(p, lx, ly, max(6.0, promien * (1.0 - k1)),
-                                 obrot=0, jasnosc=1.0, poswiata=False)
-                p.setOpacity(1.0)
-                self._glowa_rysuj(p, lx, ly, mn * (0.006 + 0.012 * k1))
-            elif td <= self.LOGO_T_DOLOT:
-                # PULS w drodze do celu — czysta świetlna kula ze smugą
-                self._sypnij(lx, ly, 2, 1.6 * sk_ekr, 0.02 * sk_ekr, 0.05,
-                             2.0 * sk_ekr,
-                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                              (255, 255, 255)))
-                puls_r = mn * (0.016 + 0.004 * math.sin(t * 18.0))
-                self._glowa_rysuj(p, lx, ly, puls_r)
-            elif td <= self.LOGO_T_IKONA_OK:
-                # IKONA TOPBARA: rozkwita POWIĘKSZONA, potem osiada
-                zn = self._plynnie((td - self.LOGO_T_DOLOT) / 0.10)
-                self._glowa_rysuj(p, lx, ly, mn * 0.016 * (1.0 - zn))
-                p.setOpacity(min(1.0, zn * 1.4 + 0.2))
-                self._rysuj_logo(p, lx, ly, max(6.0, lr),
-                                 obrot=0, jasnosc=1.0, poswiata=False)
-                p.setOpacity(1.0)
-                if td >= self.LOGO_T_IKONA_OK - 0.02 and "ikona_ok" not in self._raz:
-                    self._raz.add("ikona_ok")
-                    try:
-                        lbl = getattr(self.parent(), "logo_lbl", None)
-                        if lbl is not None:
-                            lbl.setVisible(True)   # prawdziwa ikona objęła służbę
-                    except Exception:
-                        pass
-            elif td <= self.LOGO_T_CENTRUM:
-                # PULS odbija się z topbara i transportuje logo do centrum
-                if "puls2" not in self._raz:
-                    self._raz.add("puls2")
-                    cx2, cy2, cr2 = self._cel_logo(W, H)
-                    self._fale.append([cx2, cy2, cr2 * 0.6, 1.0, (255, 255, 255)])
-                self._sypnij(lx, ly, 2, 1.6 * sk_ekr, 0.02 * sk_ekr, 0.05,
-                             2.0 * sk_ekr,
-                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                              (255, 255, 255)))
-                puls_r = mn * (0.016 + 0.004 * math.sin(t * 18.0))
-                self._glowa_rysuj(p, lx, ly, puls_r)
-
-        # 7) iskry i fale
-        if self.is_dark:
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        self._iskry_rysuj(p, dt)
-        self._fale_rysuj(p, dt, mn)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-
-        # 8) PIERŚCIEŃ = pasek postępu druku (jedyny wskaźnik)
-        gasn = 1.0 - self._plynnie((td - 8.05) / 0.25)
-        p.save()
-        p.setOpacity(gasn)
-        if td >= 5.00 and gasn > 0:
-            wej_r = self._plynnie((td - 5.00) / 0.30)
-            kat = 360.0 * kp
-            prost = QRectF(srodek.x() - rr, srodek.y() - rr, rr * 2, rr * 2)
-            tor = QColor(255, 255, 255, int(30 * wej_r)) if self.is_dark \
-                else QColor(15, 23, 42, int(50 * wej_r))
-            p.setPen(QPen(tor, max(2.5, mn * 0.005)))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(prost)
-            luk = QConicalGradient(srodek, 90)
-            luk.setColorAt(0.0, self._akc1)
-            luk.setColorAt(0.5, self._akc2)
-            luk.setColorAt(1.0, self._akc1)
-            posw = QColor(self._akc1); posw.setAlpha(int(70 * wej_r))
-            pen_posw = QPen(posw, max(8.0, mn * 0.020))
-            pen_posw.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pen_posw)
-            p.drawArc(prost, 90 * 16, int(-kat * 16))
-            pioro = QPen(QBrush(luk), max(5.0, mn * 0.010))
-            pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pioro)
-            p.drawArc(prost, 90 * 16, int(-kat * 16))
-            rad = math.radians(90 - kat)
-            cx = srodek.x() + rr * math.cos(rad)
-            cy = srodek.y() - rr * math.sin(rad)
-            g = QRadialGradient(QPointF(cx, cy), mn * 0.026)
-            g.setColorAt(0.0, QColor(255, 255, 255, int(245 * wej_r)))
-            koll = QColor(self._akc1); koll.setAlpha(int(180 * wej_r))
-            g.setColorAt(0.4, koll)
-            koll0 = QColor(self._akc1); koll0.setAlpha(0)
-            g.setColorAt(1.0, koll0)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(g)
-            p.drawEllipse(QPointF(cx, cy), mn * 0.026, mn * 0.026)
-            proc = int(round(kp * 100))
-            kol_tekst = QColor(230, 244, 244, 235) if self.is_dark else QColor(15, 23, 42, 245)
-            p.setFont(QFont("Segoe UI", max(11, int(mn * 0.020)), QFont.Weight.Bold))
-            self._tekst(p, QRectF(srodek.x() - rr, srodek.y() + promien * 1.08, rr * 2, mn * 0.06),
-                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                        f"{proc}%", kol_tekst, halo=True)
-            if proc >= 100:
-                nap = "Gotowe"
-                kol_nap = QColor(self._akc2)
-            else:
-                nap = ("Zacięcie głowicy" + "." * (1 + int(t * 3.5) % 3)) if zaciety \
-                    else ("Drukowanie PMT Planer" + "." * (1 + int(t * 2.8) % 3))
-                kol_nap = kol_tekst
-            p.setFont(QFont("Segoe UI", max(10, int(mn * 0.019)), QFont.Weight.DemiBold))
-            self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.030, W, mn * 0.05),
-                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                        nap, kol_nap, halo=True)
-        if td > 7.55 and self.imie:
-            a = int(220 * self._plynnie((td - 7.55) / 0.40))
-            kol_im = QColor(self._akc2.red(), self._akc2.green(), self._akc2.blue(), a) \
-                if self.is_dark else QColor(6, 78, 59, a)
-            p.setFont(QFont("Segoe UI", max(11, int(mn * 0.022)), QFont.Weight.Bold))
-            self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.072, W, mn * 0.06),
-                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                        "Witaj, " + self.imie.split()[0] + "!", kol_im, halo=True)
-        p.restore()
-
-        # 9) FINAŁ: rozmycie, pęknięcia i wypadające NIEFOREMNE kafelki
-        if td >= 7.70:
-            if self._kafle is None:
-                self._zbuduj_kafle(W, H)
-            roz = self._plynnie((td - 7.85) / 0.50) * (1.0 - self._plynnie((td - 10.50) / 0.30))
-            if roz > 0:
-                g = QRadialGradient(srodek, max(W, H) * 0.85)
-                kol_r = QColor(255, 255, 255) if self.is_dark else QColor(15, 23, 42)
-                kol_r.setAlpha(int(30 * roz))
-                kol_r2 = QColor(kol_r); kol_r2.setAlpha(0)
-                g.setColorAt(0.0, kol_r); g.setColorAt(1.0, kol_r2)
-                p.setPen(Qt.PenStyle.NoPen); p.setBrush(g)
-                p.drawEllipse(srodek, max(W, H) * 0.85, max(W, H) * 0.85)
-            # rozłam i odłamki nie wchodzą w koło logo
-            lx0, ly0, lr0, _lk0 = self._logo_lot(td, W, H)
-            _wyc = QPainterPath()
-            _wyc.addRect(0.0, 0.0, float(W), float(H))
-            _kolo = QPainterPath()
-            _kolo.addEllipse(QPointF(lx0, ly0), lr0 * 1.18, lr0 * 1.18)
-            p.save()
-            p.setClipPath(_wyc.subtracted(_kolo))
-            kol_rys = QColor(255, 255, 255) if self.is_dark else QColor(15, 23, 42)
-            # 9a) ENERGETYCZNE SZCZELINY — ekran cięty tym samym światłem,
-            # którym rysowała się trasa: trójwarstwowy blask, płonąca
-            # głowica z iskrami na czole propagacji, po ułożeniu oddech
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            rdzen = QColor(255, 255, 255) if self.is_dark else QColor(6, 66, 55)
-            for pkt, s_, gr_cz, skala_g in self._linie_rozlamu:
-                prog_s = (td - s_) / gr_cz
-                if prog_s <= 0:
-                    continue
-                prog = self._plynnie(min(1.0, prog_s))
-                n_p = max(2, int(prog * len(pkt)))
-                sc = QPainterPath(pkt[0])
-                for q in pkt[1:n_p]:
-                    sc.lineTo(q)
-                if prog_s < 1.0:
-                    puls = 0.85 + 0.15 * math.sin(t * 46.0 + s_ * 7.0)
-                else:
-                    puls = 0.52 + 0.10 * math.sin(t * 3.2 + s_ * 5.0)
-                for szer_l, kol_l, moc_l in ((0.016 * skala_g, self._akc2, 0.30),
-                                             (0.0075 * skala_g, self._akc1, 0.65),
-                                             (0.0030 * skala_g, rdzen, 0.95)):
-                    gk = QColor(kol_l)
-                    gk.setAlphaF(min(1.0, moc_l * puls))
-                    pio = QPen(gk, max(1.4, mn * szer_l))
-                    pio.setCapStyle(Qt.PenCapStyle.RoundCap)
-                    pio.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                    p.setPen(pio)
-                    p.drawPath(sc)
-                if prog_s < 1.0:
-                    # płonące czoło szczeliny
-                    gx_, gy_ = pkt[n_p - 1].x(), pkt[n_p - 1].y()
-                    self._glowa_rysuj(p, gx_, gy_, mn * 0.007 * skala_g)
-                    self._sypnij(gx_, gy_, 2, 1.5 * sk_ekr, 0.10 * sk_ekr,
-                                 0.045, 1.9 * sk_ekr,
-                                 ((255, 255, 255),
-                                  (self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                                  (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
-            # 9b) ODŁAMKI ODRYWAJĄ SIĘ I OPADAJĄ W ODCHŁAŃ
-            for idx, start in self._start_kafli.items():
-                if td < start:
-                    continue
-                naroz = self._kafle[idx]
-                if idx not in self._odpadle:
-                    self._odpadle.add(idx)
-                    cx_ = sum(q.x() for q in naroz) / len(naroz)
-                    cy_ = sum(q.y() for q in naroz) / len(naroz)
-                    for _ in range(9):
-                        u1_, u2_ = random.random(), random.random()
-                        q1, q2 = random.choice(naroz), random.choice(naroz)
-                        self._sypnij(cx_ + (q1.x() - cx_) * u1_ * 0.85,
-                                     cy_ + (q2.y() - cy_) * u2_ * 0.85,
-                                     1, 2.2 * sk_ekr, 0.12 * sk_ekr, 0.018,
-                                     2.6 * sk_ekr,
-                                     ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                                      (255, 255, 255),
-                                      (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
-                ddx, ddy, ang, alfa_k, koniec = self._kafel_upadek_geo(idx, td)
-                if not koniec and alfa_k > 0.02 and self._zdjecie is not None:
-                    cx_ = sum(q.x() for q in naroz) / len(naroz)
-                    cy_ = sum(q.y() for q in naroz) / len(naroz)
-                    scK = QPainterPath(naroz[0])
-                    for q in naroz[1:]:
-                        scK.lineTo(q)
-                    scK.closeSubpath()
-                    p.save()
-                    p.translate(cx_ + ddx, cy_ + ddy)
-                    p.rotate(ang)
-                    p.translate(-cx_, -cy_)
-                    p.setClipPath(scK, Qt.ClipOperation.IntersectClip)
-                    p.setOpacity(alfa_k)
-                    p.drawPixmap(0, 0, self._zdjecie)
-                    p.setOpacity(1.0)
-                    kraw = QColor(kol_rys); kraw.setAlphaF(0.55 * alfa_k)
-                    pio = QPen(kraw, max(1.2, mn * 0.0022))
-                    pio.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                    p.setPen(pio)
-                    p.setBrush(Qt.BrushStyle.NoBrush)
-                    p.drawPath(scK)
-                    p.restore()
-                if td - start < 0.12:
-                    sc2 = QPainterPath(naroz[0])
-                    for q in naroz[1:]:
-                        sc2.lineTo(q)
-                    sc2.closeSubpath()
-                    _a_bl = int(235 * (1.0 - (td - start) / 0.12))
-                    bl = QColor(255, 255, 255, _a_bl) if self.is_dark \
-                        else QColor(15, 23, 42, _a_bl)
-                    pio = QPen(bl, max(2.0, mn * 0.005))
-                    pio.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                    p.setPen(pio)
-                    p.setBrush(Qt.BrushStyle.NoBrush)
-                    p.drawPath(sc2)
-            p.restore()
-            if "dolot" not in self._raz and td >= 11.74:
-                self._raz.add("dolot")
-                cx2, cy2, cr2 = self._cel_logo(W, H)
-                self._fale.append([cx2, cy2, cr2 * 0.7, 1.0,
-                                   (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
-                self._fale.append([cx2, cy2, cr2 * 0.4, 1.0, (255, 255, 255)])
-                self._sypnij(cx2, cy2, 26, 2.4 * sk_ekr, 0.05 * sk_ekr, 0.030,
-                             2.2 * sk_ekr,
-                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                              (255, 255, 255),
-                              (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
-                self._blysk = 0.30
-            if "centrum" not in self._raz and td >= self.LOGO_T_CENTRUM:
-                self._raz.add("centrum")
-                self._fale.append([srodek.x(), srodek.y(), mn * 0.05, 1.0,
-                                   (self._akc2.red(), self._akc2.green(), self._akc2.blue())])
-                self._fale.append([srodek.x(), srodek.y(), mn * 0.03, 1.0,
-                                   (255, 255, 255)])
-                self._sypnij(srodek.x(), srodek.y(), 24, 2.6 * sk_ekr,
-                             0.04 * sk_ekr, 0.03, 2.4 * sk_ekr,
-                             ((self._akc1.red(), self._akc1.green(), self._akc1.blue()),
-                              (255, 255, 255),
-                              (self._akc2.red(), self._akc2.green(), self._akc2.blue())))
-                self._blysk = 0.32
-            if self._odpadle:
-                if self.is_dark:
-                    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-                self._iskry_rysuj(p, dt)
-                self._fale_rysuj(p, dt, mn)
-                p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-
-        # 10) błysk
-        if self._blysk > 0.02:
-            p.fillRect(self.rect(), QColor(255, 255, 255, int(160 * self._blysk)))
-        self._blysk *= 0.86 ** max(0.2, min(3.0, dt * 60.0))
-
-    # ---------- prosty pokaz awaryjny (gdy efekty zawiodą) ----------
-    def _prosty_pokaz(self, p, W, H, mn, td, t):
-        srodek = QPointF(W * 0.5, H * 0.44)
-        promien = mn * 0.13
-        rr = promien * 1.60
-        skala = 0.40 + 0.60 * self._odbicie(min(1.0, max(0.0, (td - 0.15) / 0.55)))
-        self._rysuj_logo(p, srodek.x(), srodek.y(), promien * skala, 0, 1.0)
-        kring = (td - 0.70) / 10.50
-        if kring > 0:
-            kat = 360.0 * self._wyplyw(min(1.0, kring))
-            prost = QRectF(srodek.x() - rr, srodek.y() - rr, rr * 2, rr * 2)
-            tor = QColor(255, 255, 255, 30) if self.is_dark else QColor(15, 23, 42, 50)
-            p.setPen(QPen(tor, max(2.5, mn * 0.005)))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(prost)
-            pioro = QPen(self._akc2, max(5.0, mn * 0.010))
-            pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pioro)
-            p.drawArc(prost, 90 * 16, int(-kat * 16))
-            proc = int(round(self._wyplyw(min(1.0, kring)) * 100))
-            kol_tekst = QColor(230, 244, 244, 235) if self.is_dark else QColor(15, 23, 42, 245)
-            p.setFont(QFont("Segoe UI", max(11, int(mn * 0.020)), QFont.Weight.Bold))
-            self._tekst(p, QRectF(srodek.x() - rr, srodek.y() + promien * 1.08, rr * 2, mn * 0.06),
-                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                        f"{proc}%", kol_tekst, halo=True)
-            nap = "Gotowe" if proc >= 100 else ("Wczytywanie PMT Planer" + "." * (1 + int(t * 2.8) % 3))
-            p.setFont(QFont("Segoe UI", max(10, int(mn * 0.019)), QFont.Weight.DemiBold))
-            self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.030, W, mn * 0.05),
-                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                        nap, QColor(self._akc2) if proc >= 100 else kol_tekst, halo=True)
-        if td > 5.30 and self.imie:
-            kol_im = QColor(self._akc2) if self.is_dark else QColor(6, 78, 59)
-            p.setFont(QFont("Segoe UI", max(11, int(mn * 0.022)), QFont.Weight.Bold))
-            self._tekst(p, QRectF(0, srodek.y() + rr + mn * 0.072, W, mn * 0.06),
-                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                        "Witaj, " + self.imie.split()[0] + "!", kol_im, halo=True)
-
-    def _tekst(self, p, prost, flagi, txt, kolor, halo=False):
-        """Tekst; na jasnym motywie z delikatnym białym halo dla czytelności."""
-        if halo and not self.is_dark:
-            p.setPen(QColor(255, 255, 255, 175))
-            for dx, dy in ((-1.4, 0), (1.4, 0), (0, -1.4), (0, 1.4)):
-                p.drawText(prost.translated(dx, dy), flagi, txt)
-        p.setPen(kolor)
-        p.drawText(prost, flagi, txt)
-
-    def _rysuj_logo(self, p, x, y, r, obrot=0.0, jasnosc=1.0, poswiata=True):
-        """Logo (opcjonalnie z poświatą); brak pliku — rysowany monogram."""
-        if not poswiata:
-            pass
-        else:
-            _pos = self._rysuj_logo_poswiata(p, x, y, r, jasnosc)
-        p.save()
-        p.translate(x, y)
-        if obrot:
-            p.rotate(obrot)
-        if self._logo is not None and not self._logo.isNull():
-            bok = int(r * 2.04)
-            # OSTROŚĆ: pixmapę skalujemy w rozdzielczości FIZYCZNEJ ekranu
-            # (devicePixelRatio) — ten sam trick co w kompasie i topbarze
-            # ("renderujemy w 2x dla ostrości"). Bez tego przy skalowaniu
-            # Windows 125/150% logo w intrze mięknie niezależnie od pliku.
-            try:
-                dpr = max(1.0, float(self.devicePixelRatioF()))
-            except Exception:
-                dpr = 1.0
-            skalowane = self._logo.scaled(int(bok * dpr), int(bok * dpr),
-                                          Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                          Qt.TransformationMode.SmoothTransformation)
-            try:
-                skalowane.setDevicePixelRatio(dpr)
-            except Exception:
-                pass
-            p.setBrush(QColor(255, 255, 255))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
-            sciezka = QPainterPath()
-            sciezka.addEllipse(QPointF(0, 0), r * 1.0, r * 1.0)
-            p.save()
-            # Przecinamy z AKTYWNYM przycinaniem (np. warstwami druku 3D) —
-            # domyślne ReplaceClip kasowało clip warstw i pixmapa logo
-            # rysowała się w całości, "drukując coś, co już jest".
-            p.setClipPath(sciezka, Qt.ClipOperation.IntersectClip)
-            _dpr = max(1.0, float(skalowane.devicePixelRatio() or 1.0))
-            p.drawPixmap(QPointF(-skalowane.width() / (2 * _dpr),
-                                 -skalowane.height() / (2 * _dpr)), skalowane)
-            p.restore()
-            obw = QColor(0, 240, 190, 235) if self.is_dark else QColor(11, 128, 118, 235)
-            p.setPen(QPen(obw, max(2.2, r * 0.055)))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QPointF(0, 0), r * 1.02, r * 1.02)
-        else:
-            if self.is_dark:
-                p.setBrush(QColor("#0B1320"))
-                p.setPen(QPen(QColor("#00E4A1"), max(2.0, r * 0.06)))
-                p.drawEllipse(QPointF(0, 0), r, r)
-                p.setPen(QColor("#00F0FF"))
-            else:
-                p.setBrush(QColor("#FFFFFF"))
-                p.setPen(QPen(QColor("#0D9488"), max(2.0, r * 0.06)))
-                p.drawEllipse(QPointF(0, 0), r, r)
-                p.setPen(QColor("#0F766E"))
-            p.setFont(QFont("Segoe UI", max(10, int(r * 0.55)), QFont.Weight.Black))
-            p.drawText(QRectF(-r, -r, r * 2, r * 2),
-                       Qt.AlignmentFlag.AlignCenter, "PMT")
-        p.restore()
 
 
 def _styl_okna_pmt():
@@ -19288,45 +15677,6 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
     if pole:
         return we.text() if wynik else None
     return bool(wynik)
-
-
-def pokaz_animacje_startowa(imie: str = ""):
-    """Wyświetla animację i czeka, aż się skończy. Awaria animacji nie może
-    zablokować programu — dlatego całość w zabezpieczeniu. Motyw splasha
-    podąża za ostatnio zapisanym motywem programu (domyślnie ciemny).
-
-    Uwaga techniczna: celowo NIE używamy trybu pełnoekranowego
-    (WindowFullScreen). Na części komputerów Windows traktuje bezramkowe
-    okna pełnoekranowe specjalnie ("fullscreen optimizations") i potrafi
-    nie wyświetlać ich treści — użytkownik widzi czerń albo pulpit, choć
-    program rysuje klatki. Zwykłe okno bez ramki, rozciągnięte na cały
-    ekran i trzymane na wierzchu, wygląda identycznie, a renderuje się
-    jak każde inne okno."""
-    ekran = None
-    try:
-        ciemny = bool(ustawienie("ciemny_motyw", True))
-        ekran = AnimacjaStartowa(imie, is_dark=ciemny)
-        e = QApplication.primaryScreen()
-        if e is not None:
-            ekran.setGeometry(e.geometry())
-        else:
-            ekran.resize(1280, 720)
-        petla = QEventLoop()
-        ekran.zakonczony.connect(petla.quit)
-        ekran.show()
-        ekran.raise_()
-        ekran.activateWindow()
-        ekran.repaint()             # wymuś natychmiast pierwszą klatkę
-        QTimer.singleShot(AnimacjaStartowa.CZAS_MS + 900, petla.quit)   # bezpiecznik
-        petla.exec()
-    except Exception:
-        pass
-    try:
-        if ekran is not None:
-            ekran._zapisz_diag()
-            ekran.deleteLater()
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -20047,6 +16397,10 @@ class DialogWysylka(QDialog):
     def _na_sukces_wysylki(self, komunikat):
         self.btn_wyslij.setEnabled(True)
         self.lbl_stan.setText("Wysłano  ·  %s" % datetime.datetime.now().strftime("%H:%M"))
+        try:
+            oznacz_wyslane_w_historii(self.folder)
+        except Exception as e:
+            log_error(e)
 
     def _na_blad_wysylki(self, rodzaj, komunikat):
         self.btn_wyslij.setEnabled(True)
@@ -20085,442 +16439,63 @@ class DialogWysylka(QDialog):
 
 
 class App(QMainWindow):
+    """POJEMNIK NA PANELE — nie okno, które ktoś ogląda.
+
+    Ekranem programu jest nowy_wyglad.OknoNowegoWygladu. Ta klasa buduje
+    wyłącznie to, co tamten ekran naprawdę bierze przez stare_okno():
+    cztery panele (Planer Nowej Wyprawy, Plan Wizyt, Twoja praca,
+    Ustawienia) z ich dymkami i historią powiadomień, wątek planowania
+    wizyt oraz sprawdzanie aktualizacji. Nowy ekran przejmuje panele do
+    własnej ramy (NakladkaDzialu), a to okno stoi ukryte przez cały czas.
+
+    Dawny formularz, kokpit, druga szyna nawigacji, pasek górny i własny
+    generator tego okna zniknęły w 3.23.0 — nowy ekran ma swoje. Dane
+    pracownika i miesiąc planu panele dostają z nowego ekranu przez
+    zaczepy _dane_pracownika i _miesiac_planu (bez zaczepu: profil
+    zalogowanej osoby z dysku i bieżący miesiąc)."""
+
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        # Ikona aplikacji (pasek zadań / Alt-Tab) z pliku pmt_logo, jeśli jest
         _ikona = znajdz_ikone()
         if _ikona:
             self.setWindowIcon(QIcon(_ikona))
-        # Okno jest bezramkowe, ale nazwa i tak trafia na pasek zadan i do
-        # Alt-Tab — etykieta wydania ma byc widoczna rowniez tam.
         self.setWindowTitle(tytul_okna())
-
-        _dziennik_animacji("budowa okna: start")
-        # --- ROZMIAR OKNA: responsywny do ekranu użytkownika ---
-        # Program służy do analizy dużych list (1000+ punktów), więc startuje
-        # zmaksymalizowany do DOSTĘPNEGO obszaru ekranu (bez paska zadań).
-        # Rozmiar "normalny" (po przywróceniu z maksymalizacji) to ~80% ekranu,
-        # ograniczone rozsądnymi widełkami — dzięki temu działa dobrze zarówno
-        # na małym laptopie, jak i na dużym monitorze.
+        # Rozmiar jak dawniej (~80 % ekranu): panele budują się w tej
+        # geometrii, zanim rama nowego ekranu nada im własną.
         ekran = QApplication.primaryScreen()
         dostepny = ekran.availableGeometry() if ekran else None
         if dostepny is not None:
-            szer_norm = max(1000, min(1600, int(dostepny.width() * 0.80)))
-            wys_norm = max(620, min(1000, int(dostepny.height() * 0.85)))
-            self.resize(szer_norm, wys_norm)
-            # geometria "normalna" — do niej wróci przycisk przywracania
-            self._geo_przed_maks = QRect(
-                dostepny.x() + (dostepny.width() - szer_norm) // 2,
-                dostepny.y() + (dostepny.height() - wys_norm) // 2,
-                szer_norm, wys_norm)
-            # start na pełnym dostępnym obszarze
-            self.setGeometry(dostepny)
-            self._recznie_zmaks = True
+            self.resize(max(1000, min(1600, int(dostepny.width() * 0.80))),
+                        max(620, min(1000, int(dostepny.height() * 0.85))))
         else:
             self.resize(1120, 700)
-        # minimum dopasowane do małych ekranów (nie blokuje laptopów 1366x768)
-        self.setMinimumSize(940, 600)
-        self.is_dark = bool(ustawienie("ciemny_motyw", True))   # motyw zapamiętany między uruchomieniami
-        
-        self.main_container = ImageBackgroundWidget(self)
-        self.main_container.setStyleSheet("border-radius: 16px;")
+        self.is_dark = bool(ustawienie("ciemny_motyw", True))
+
+        # Stan konta — ustawia sekwencja startowa i nowy ekran.
+        self._kod_uzytkownika = ""
+        self._imie_zalogowany = ""
+        self._demo_pozostalo = None
+        self._last_folder = None
+        # Zaczepy nowego ekranu (patrz nowy_wyglad._zepnij_ze_starym).
+        self._okno_dialogow = None      # nad nim stają okna dialogowe paneli
+        self._dane_pracownika = None    # () -> {imie, pesel, adres, stanowisko, silnik_idx}
+        self._miesiac_planu = None      # () -> (rok, miesiac) dla planu wizyt
+
+        # Panele są dziećmi tego kontenera, dopóki rama nowego ekranu nie
+        # weźmie ich do siebie (NakladkaDzialu.ustaw_panel → setParent).
+        self.main_container = QWidget(self)
         self.setCentralWidget(self.main_container)
-        
-        root = QVBoxLayout(self.main_container); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
-        self.title_bar = FramelessTitleBar(self); root.addWidget(self.title_bar)
-        
-        main_body_layout = QHBoxLayout()
-        main_body_layout.setContentsMargins(0, 0, 0, 0)
-        main_body_layout.setSpacing(0)
-        root.addLayout(main_body_layout, 1)
-        
-        self.sidebar_frame = QFrame()
-        self.sidebar_frame.setFixedWidth(68)
-        self.sidebar_frame.installEventFilter(self)     # hover → rozwinięcie
-        self.sidebar_layout = QVBoxLayout(self.sidebar_frame)
-        self.sidebar_layout.setContentsMargins(10, 24, 10, 24)
-        self.sidebar_layout.setSpacing(8)
-        main_body_layout.addWidget(self.sidebar_frame)
-        self._sidebar_przypiety = False    # ⚙️ przypina panel otwarty
 
-        def nav_btn(text):
-            b = QPushButton("")
-            b._pelna_nazwa = text
-            b.setFixedHeight(50); b.setMinimumWidth(230)
-            b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            return b
-
-        _dziennik_animacji("budowa okna: tło i kontener gotowe")
-        # --- Grupa główna (nawigacja) — kreatywne nazwy ---
-        self.btn_nav_kokpit    = nav_btn("Nowa Wyprawa")       # generator delegacji
-        self.btn_nav_plan      = nav_btn("Plan Wizyt")         # bezpośredni dostęp do planu (zawiera scalony kalendarz)
-        self.btn_nav_archiwum  = nav_btn("Bilans Miesiąca")    # podsumowanie/archiwum
-        self.btn_nav_staty     = nav_btn("Twoja praca")        # statystyki wizyt + delegacji (zawiera dawne "Moje Szlaki")
-        # --- Grupa systemowa (pod separatorem) ---
-        self.btn_nav_kopia     = nav_btn("Kopia zapasowa")
-        self.btn_nav_ustaw     = nav_btn("Ustawienia")
-        self.btn_nav_info      = nav_btn("O programie")
-
-        self._nav_defs = [
-            (self.btn_nav_kokpit,    "kompas"),
-            (self.btn_nav_plan,      "checklista"),
-            (self.btn_nav_archiwum,  "wykres"),
-            (self.btn_nav_staty,     "trend"),
-            (self.btn_nav_kopia,     "tarcza"),
-            (self.btn_nav_ustaw,     "zebatka"),
-            (self.btn_nav_info,      "info"),
-        ]
-        self._nav_aktywny = self.btn_nav_kokpit    # dla animowanej belki
-
-        for b in [self.btn_nav_kokpit, self.btn_nav_plan, self.btn_nav_archiwum, self.btn_nav_staty]:
-            self.sidebar_layout.addWidget(b)
-
-        self.sidebar_sep = QFrame(); self.sidebar_sep.setFixedHeight(1)
-        self.sidebar_layout.addWidget(self.sidebar_sep)
-
-        for b in [self.btn_nav_kopia, self.btn_nav_ustaw, self.btn_nav_info]:
-            self.sidebar_layout.addWidget(b)
-        self.sidebar_layout.addStretch()
-
-        self.btn_nav_kokpit.clicked.connect(lambda: self._nav_klik(self.btn_nav_kokpit, self._pokaz_planer))
-        self.btn_nav_plan.clicked.connect(lambda: self._nav_klik(self.btn_nav_plan, self._pokaz_ostatni_plan))
-        self.btn_nav_archiwum.clicked.connect(lambda: self._nav_klik(self.btn_nav_archiwum, self._fokus_kokpit))
-        self.btn_nav_staty.clicked.connect(lambda: self._nav_klik(self.btn_nav_staty, self._pokaz_statystyki))
-        self.btn_nav_kopia.clicked.connect(lambda: self._nav_klik(self.btn_nav_kopia, self._pokaz_kopia_zapasowa))
-        self.btn_nav_ustaw.clicked.connect(lambda: self._nav_klik(self.btn_nav_ustaw, self._pokaz_panel_admina))
-        self.btn_nav_info.clicked.connect(self._pokaz_o_programie)
-
-        right_content_container = QWidget()
-        self.right_content_container = right_content_container   # ekran powitalny zasłania TYLKO ten obszar (nie menu)
-        right_content_container.setStyleSheet("background: transparent;")
-        right_content_layout = QVBoxLayout(right_content_container)
-        right_content_layout.setContentsMargins(0, 0, 0, 0)
-        right_content_layout.setSpacing(0)
-        main_body_layout.addWidget(right_content_container, 1)
-
-        _dziennik_animacji("budowa okna: nawigacja gotowa")
-        # ---- Powiększony topbar z DUŻYM logo PMT (72px) ----
-        self.topbar = QFrame()
-        self.topbar.setFixedHeight(88)
-        tb = QHBoxLayout(self.topbar); tb.setContentsMargins(24, 0, 24, 0); tb.setSpacing(18)
-
-        # Okrągłe logo PMT z mini-kompasem (spójne z ekranem powitalnym)
-        self.logo_lbl = LogoKompas(self.topbar, srednica=78, is_dark=self.is_dark)
-        tb.addWidget(self.logo_lbl)
-
-        tb_titles = QVBoxLayout(); tb_titles.setSpacing(2); tb_titles.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        self.t1 = QLabel("Planer")
-        tb_titles.addWidget(self.t1); tb.addLayout(tb_titles); tb.addStretch()
-
-        self.btn_theme = OutlineButton("🌗 Motyw", self.is_dark, self.topbar)
-        self.btn_theme.clicked.connect(self.toggle_theme)
-        tb.addWidget(self.btn_theme)
-
-        self.btn_dzwonek = DzwonekPowiadomien(self.topbar)
-        self.btn_dzwonek.clicked.connect(self._toggle_panel_powiadomien)
-        tb.addWidget(self.btn_dzwonek)
-
-        self.btn_bug = QPushButton("⚠  Zgłoś błąd", self.topbar)
-        styl_zglos_blad(self.btn_bug)
-        self.btn_bug.clicked.connect(lambda: webbrowser.open("mailto:" + _adres_zgloszen()))
-        tb.addWidget(self.btn_bug)
-
-        # ANIMACJA STARTOWA — wlacznik/wylacznik. Do 3.22.0 ustawienie
-        # "bez_intra" bylo tylko ODCZYTYWANE: nic w calym projekcie go nie
-        # zapisywalo, wiec jedynym sposobem na wylaczenie animacji bylo
-        # reczne polozenie pliku BEZ_INTRA.txt. Tu jest to jednym klikiem.
-        self.btn_intro = OutlineButton("", self.is_dark, self.topbar)
-        self.btn_intro.setCheckable(True)
-        self.btn_intro.setToolTip("Animacja startowa")
-        self.btn_intro.clicked.connect(self._przelacz_intro)
-        self._odswiez_btn_intro()
-        tb.addWidget(self.btn_intro)
-
-        # KARTA TESTERA tuż obok zgłaszania błędu — kto chce pomóc, ma to
-        # pod ręką w tym samym miejscu, w którym zgłasza usterki.
-        self.btn_tester = OutlineButton("★", self.is_dark, self.topbar)
-        self.btn_tester.setToolTip("Zostań testerem — lista rzeczy do sprawdzenia, "
-                                   "punkty i certyfikat")
-        self.btn_tester.setFixedWidth(44)
-        self.btn_tester.clicked.connect(lambda: uruchom_karte_testera(self))
-        tb.addWidget(self.btn_tester)
-
-        # ZMIANA HASŁA — bez wylogowywania się z programu
-        self.btn_haslo = OutlineButton("🔑 Hasło", self.is_dark, self.topbar)
-        self.btn_haslo.setToolTip("Zmień hasło — obowiązuje od następnego logowania")
-        self.btn_haslo.clicked.connect(
-            lambda: zmien_haslo_w_programie(
-                self, getattr(self, "_kod_uzytkownika", "") or online_kod_uzytkownika(),
-                self.is_dark))
-        tb.addWidget(self.btn_haslo)
-
-        # Wylogowanie zawsze pod ręką — ten sam styl co pozostałe przyciski paska.
-        self.btn_wyloguj = QPushButton("⎋  Wyloguj", self.topbar)
-        styl_wyloguj(self.btn_wyloguj, self.is_dark)
-        self.btn_wyloguj.setToolTip("Wyloguj — program poprosi o login i hasło")
-        self.btn_wyloguj.clicked.connect(self._wyloguj_uzytkownika)
-        tb.addWidget(self.btn_wyloguj)
-        right_content_layout.addWidget(self.topbar)
-        
-        body = QWidget(); body.setStyleSheet("background-color: transparent;")
-        self.body = body    # generator tras — pokazywany TYLKO z "Bilans Miesiąca"
-        body_l = QVBoxLayout(body); body_l.setContentsMargins(24, 16, 24, 65); body_l.setSpacing(16)
-        
-        self.cards_wrap = QWidget()
-        cards_layout = QVBoxLayout(self.cards_wrap)
-        cards_layout.setContentsMargins(0,0,0,0)
-        cards_layout.setSpacing(16)
-        
-        def field(lbl_text, widget):
-            w = QWidget(); w.setStyleSheet("background: transparent;")
-            w.setMinimumHeight(56) 
-            v = QVBoxLayout(w); v.setContentsMargins(0,0,0,0); v.setSpacing(4)
-            l = QLabel(lbl_text)
-            l.setProperty("class", "fieldLabel")
-            v.addWidget(l); v.addWidget(widget)
-            return w, l
-
-        self.card_top_frame = QFrame()
-        self.card_top_frame.setMinimumHeight(178)   # zapas na pole adresu (dwa wiersze)
-        sh1 = QGraphicsDropShadowEffect(self.card_top_frame); sh1.setBlurRadius(30); sh1.setColor(QColor(0, 0, 0, 80)); sh1.setOffset(0, 8); self.card_top_frame.setGraphicsEffect(sh1)
-        cl = QVBoxLayout(self.card_top_frame); cl.setContentsMargins(20, 14, 20, 14); cl.setSpacing(12)
-        
-        self.ic_user_wrap = QWidget(); self.ic_user_wrap.setStyleSheet("background: transparent;"); l_u = QHBoxLayout(self.ic_user_wrap); l_u.setContentsMargins(0,0,0,0); l_u.setSpacing(12)
-        self.ic_user = SvgIconLabel("user", parent=self.ic_user_wrap, size=24)
-        self.lbl_u_title = QLabel("DANE PRACOWNIKA")
-        self.lbl_u_desc = QLabel("Wprowadź dane pracownika do wygenerowania.")
-        tx_u = QVBoxLayout(); tx_u.setSpacing(2); tx_u.addWidget(self.lbl_u_title); tx_u.addWidget(self.lbl_u_desc)
-        l_u.addWidget(self.ic_user); l_u.addLayout(tx_u); l_u.addStretch()
-        cl.addWidget(self.ic_user_wrap)
-
-        row1_t = QHBoxLayout(); row1_t.setSpacing(16)
-        self.e_imie = GrubyKursorEdit(); self.e_imie.setPlaceholderText("np. Jan Kowalski")
-        self.si_imie = StyledInput("user", self.e_imie, self.is_dark, self.card_top_frame)
-        w_imie, self.l_imie = field("Imię i nazwisko", self.si_imie)
-        # Dane osoby biorą się z konta, na które zalogowano program. Pole jest
-        # zablokowane — dokument można wystawić tylko na siebie, nie na kolegę.
-        _imie_konta = online_imie_uzytkownika()
-        if _imie_konta:
-            self.e_imie.setText(_imie_konta)
-            self.e_imie.setReadOnly(True)
-            # Pole jest zablokowane, więc editingFinished nigdy nie nadejdzie —
-            # a to ono uruchamiało podpowiedź PESEL/adresu z profilu. Bez tego
-            # wywołania użytkownik po aktualizacji widział puste rubryki.
-            QTimer.singleShot(0, self._podpowiedz_profil)
-            self.e_imie.setToolTip("Dane z Twojego konta (kod " +
-                                   str(online_kod_uzytkownika() or "?") +
-                                   ") — nie można ich zmienić.")
-            self.l_imie.setText("Imię i nazwisko (z konta)")
-        
-        self.e_pesel = GrubyKursorEdit(); self.e_pesel.setPlaceholderText("np. 85010112345")
-        self.si_pesel = StyledInput("card", self.e_pesel, self.is_dark, self.card_top_frame)
-        w_pesel, self.l_pesel = field("PESEL", self.si_pesel)
-        row1_t.addWidget(w_imie); row1_t.addWidget(w_pesel); cl.addLayout(row1_t)
-        
-        row2_t = QHBoxLayout(); row2_t.setSpacing(16)
-        self.e_adres = GrubyKursorEdit(); self.e_adres.setPlaceholderText("Ulica lub wieś, nr, 00-000 Miejscowość")
-        self.si_adres = StyledInput("home", self.e_adres, self.is_dark, self.card_top_frame)
-        w_adres, self.l_adres = field("Adres zamieszkania", self.si_adres)
-        
-        self.c_stan = QComboBox(); self.c_stan.addItems(["merchandiser", "KR"])
-        self.si_stan = StyledInput("briefcase", self.c_stan, self.is_dark, self.card_top_frame)
-        w_stan, self.l_stan = field("Stanowisko", self.si_stan)
-
-        # PRZEŁOŻONY nie ma pola w programie — na delegację trafia zawsze
-        # nazwisko z pliku menedzer.txt (sekret dołączany przy budowaniu).
-        # Proporcje: adres najszerszy (bywa długi), stanowisko węższe.
-        row2_t.addWidget(w_adres, 5); row2_t.addWidget(w_stan, 2)
-        cl.addLayout(row2_t)
-        
-        cards_layout.addWidget(self.card_top_frame)
-        
-        self.card_bot_frame = QFrame()
-        self.card_bot_frame.setMinimumHeight(118)   # jeden wiersz — wszystko widoczne bez przewijania
-
-        sh2 = QGraphicsDropShadowEffect(self.card_bot_frame); sh2.setBlurRadius(30); sh2.setColor(QColor(0, 0, 0, 80)); sh2.setOffset(0, 8); self.card_bot_frame.setGraphicsEffect(sh2)
-        cr = QVBoxLayout(self.card_bot_frame); cr.setContentsMargins(20, 12, 20, 12); cr.setSpacing(6)
-        
-        self.ic_map_wrap = QWidget(); self.ic_map_wrap.setStyleSheet("background: transparent;"); l_m = QHBoxLayout(self.ic_map_wrap); l_m.setContentsMargins(0,0,0,0); l_m.setSpacing(12)
-        self.ic_map = SvgIconLabel("map", parent=self.ic_map_wrap, size=24)
-        self.lbl_m_title = QLabel("PARAMETRY TRASY")
-        self.lbl_m_desc = QLabel("Określ parametry finansowe i ramy czasowe.")
-        tx_m = QVBoxLayout(); tx_m.setSpacing(2); tx_m.addWidget(self.lbl_m_title); tx_m.addWidget(self.lbl_m_desc)
-        l_m.addWidget(self.ic_map); l_m.addLayout(tx_m); l_m.addStretch()
-        cr.addWidget(self.ic_map_wrap)
-
-        row1_b = QHBoxLayout(); row1_b.setSpacing(16)
-        self.e_kwota = GrubyKursorEdit(); self.e_kwota.setPlaceholderText("np. 1200.00")
-        self.si_kwota = StyledInput("card", self.e_kwota, self.is_dark, self.card_bot_frame)
-        w_kwota, self.l_kwota = field("Kwota docelowa (PLN)", self.si_kwota)
-
-        self.e_mies = GrubyKursorEdit(); self.e_mies.setPlaceholderText("np. 06.2026")
-        # Rozliczamy miesiąc WSTECZ — delegacje wystawia się po jego zakończeniu.
-        # Użytkownik może wpisać inny, ale domyślnie nie musi nic zmieniać.
-        _teraz = datetime.datetime.now()
-        _pierwszy = _teraz.replace(day=1)
-        _poprzedni = _pierwszy - datetime.timedelta(days=1)
-        self.e_mies.setText(f"{_poprzedni.month:02d}.{_poprzedni.year}")
-        self.si_mies = StyledInput("calendar", self.e_mies, self.is_dark, self.card_bot_frame)
-        w_mies, self.l_mies = field("Miesiąc rozliczenia", self.si_mies)
-
-        self.c_silnik = QComboBox()
-        self.c_silnik.addItems(["poniżej 900 cm³", "powyżej 900 cm³"])
-        self.c_silnik.setCurrentIndex(1)   # domyślnie wyższa pojemność (typowe auto)
-        self.si_silnik = StyledInput("activity", self.c_silnik, self.is_dark, self.card_bot_frame)
-        w_silnik, self.l_silnik = field("Pojemność silnika", self.si_silnik)
-
-        row1_b.addWidget(w_kwota, 2); row1_b.addWidget(w_mies, 2); row1_b.addWidget(w_silnik, 2)
-        # Tryb pracy i wyłączanie dni w TYM SAMYM wierszu co kwota i miesiąc —
-        # nic nie schodzi poniżej krawędzi okna, więc żadna opcja nie umknie.
-        def _kolumna(etykieta_txt, zawartosc):
-            kol = QVBoxLayout(); kol.setSpacing(3); kol.setContentsMargins(0, 0, 0, 0)
-            lab = QLabel(etykieta_txt)
-            lab.setStyleSheet("QLabel { color:%s; font-family:'Segoe UI'; font-size:11px;"
-                              " font-weight:700; letter-spacing:0.4px; background:transparent;"
-                              " border:none; }" % ("#94A3B8" if self.is_dark else "#475569"))
-            kol.addWidget(lab)
-            if isinstance(zawartosc, QHBoxLayout):
-                kol.addLayout(zawartosc)
-            else:
-                kol.addWidget(zawartosc)
-            kont = QWidget(); kont.setLayout(kol)
-            return kont, lab
-
-        self.tryb_wybrany = 0
-        self.btn_tryb_tydzien  = QPushButton("Tygodniowy")
-        self.btn_tryb_wieczory = QPushButton("Wieczory i weekendy")
-        for _b in (self.btn_tryb_tydzien, self.btn_tryb_wieczory):
-            _b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            _b.setFixedHeight(32)
-            _b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        rzad_tryb = QHBoxLayout(); rzad_tryb.setSpacing(6); rzad_tryb.setContentsMargins(0, 0, 0, 0)
-        rzad_tryb.addWidget(self.btn_tryb_tydzien); rzad_tryb.addWidget(self.btn_tryb_wieczory)
-        w_tryb, self.l_tryb = _kolumna("TRYB PRACY", rzad_tryb)
-
-        self.dni_wylaczone = set()
-        self.btn_wylacz_dni = QPushButton("Wyłącz dni")
-        self.btn_wylacz_dni.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_wylacz_dni.setFixedHeight(32)
-        self.btn_wylacz_dni.clicked.connect(self._otworz_wylaczanie_dni)
-        self._odswiez_przycisk_dni()
-        w_dni, self.l_dni = _kolumna("DNI BEZ PRACY", self.btn_wylacz_dni)
-
-        # Podtytuł zostaje neutralny — użytkownik nie musi znać godzin ani zasad
-        # działania silnika. Szczegóły tylko jako podpowiedź po najechaniu.
-        def _tryb_zmieniony(idx):
-            self.btn_tryb_tydzien.setToolTip("Trasy w dni robocze, od poniedziałku do piątku")
-            self.btn_tryb_wieczory.setToolTip("Trasy po godzinach oraz w soboty")
-        def _wybierz_tryb(idx):
-            self.tryb_wybrany = idx
-            self._odswiez_przyciski_trybu()
-            _tryb_zmieniony(idx)
-        self.btn_tryb_tydzien.clicked.connect(lambda: _wybierz_tryb(0))
-        self.btn_tryb_wieczory.clicked.connect(lambda: _wybierz_tryb(1))
-        self._odswiez_przyciski_trybu()
-        _tryb_zmieniony(0)
-
-        row1_b.addWidget(w_tryb, 3); row1_b.addWidget(w_dni, 1)
-        cr.addLayout(row1_b)
-        # Przy wąskim obszarze (rozwinięte menu boczne, małe okno) tryb pracy
-        # i dni bez pracy schodzą do DRUGIEGO wiersza — wcześniej przyciski
-        # były obcinane („jodnio", „ry i we"). Decyduje _uloz_parametry().
-        self._row1_b, self._w_tryb, self._w_dni = row1_b, w_tryb, w_dni
-        self._row2_b = QHBoxLayout(); self._row2_b.setSpacing(row1_b.spacing())
-        self._row2_b.setContentsMargins(0, 4, 0, 0)
-        cr.addLayout(self._row2_b)
-        self._parametry_waskie = None
-        self.card_bot_frame.installEventFilter(self)     # Resize → _uloz_parametry
-        QTimer.singleShot(0, self._uloz_parametry)
-
-        # --- Tryb pracy: cykl tygodniowy albo wieczory i weekendy ------------
-
-        cards_layout.addWidget(self.card_bot_frame)
-
-        _dziennik_animacji("budowa okna: topbar gotowy")
-        # ---- Formularz (lewa) + Panel Asystenta (prawa) obok siebie ----
-        self.body_row = QHBoxLayout(); self.body_row.setContentsMargins(0, 0, 0, 0); self.body_row.setSpacing(16)
-        self.body_row.addWidget(self.cards_wrap, 1)
-        self.assistant = AssistantPanel(self.is_dark)
-        self.body_row.addWidget(self.assistant, 0)
-        body_l.addLayout(self.body_row)
-
-        self.bot_card = QFrame()
-        self.bot_card.setFixedHeight(78)
-        bot = QHBoxLayout(self.bot_card); bot.setContentsMargins(20, 8, 4, 8); bot.setSpacing(12)
-
-        # Oś czasu etapów (zamiast zwykłego paska postępu)
-        self.timeline = StageTimeline(self.is_dark, self.bot_card)
-        bot.addWidget(self.timeline, 1)
-
-        # Podpis i wysylka gotowych dokumentow — tuz przy przycisku generowania,
-        # bo to naturalny ciag dalszy tej samej pracy.
-        self.btn_podpis = OutlineButton("\u270d  Podpis", self.is_dark, self.bot_card)
-        self.btn_podpis.setFixedHeight(46)
-        self.btn_podpis.clicked.connect(self._klik_podpis)
-        bot.addWidget(self.btn_podpis)
-
-        self.btn_wysylka = OutlineButton("\u2709  Wy\u015blij", self.is_dark, self.bot_card)
-        self.btn_wysylka.setFixedHeight(46)
-        self.btn_wysylka.clicked.connect(self._klik_wysylka)
-        bot.addWidget(self.btn_wysylka)
-
-        self.btn = SpinnerButton("Generuj PDF", "download", self.is_dark, self.bot_card); self.btn.setFixedSize(210, 46)
-        self.btn.clicked.connect(self._klik_generuj); bot.addWidget(self.btn)
-
-        # status/pct — chowane pod overlayem, ale zostawiamy do metody status()
-        self.lbl_status = QLabel("Wprowadź dane aby rozpocząć...")
-        self.lbl_pct = QLabel("0%")
-        self.status_icon = SvgIconLabel("activity", parent=self.bot_card)
-        self.gps_prog = GpsProgressBar(self.is_dark, self.bot_card)
-        for hidden in [self.lbl_status, self.lbl_pct, self.status_icon, self.gps_prog]:
-            hidden.hide()
-
-        body_l.addWidget(self.bot_card)
-        right_content_layout.addWidget(body)
-
-        # Ekran powitalny — w tym samym miejscu layoutu co generator (pod
-        # topbarem). Generator i ekran powitalny ZAMIENIAJĄ się: jeden widoczny,
-        # drugi ukryty. Dzięki temu topbar (Motyw, dzwonek) jest zawsze wolny,
-        # a menu boczne klikalne. Na starcie widać powitalny, generator ukryty.
-        self.ekran_powitalny = EkranPowitalny(
-            self.right_content_container,
-            on_dane_uzytkownika=lambda: (self.e_imie.text().strip(), self.e_pesel.text().strip()))
-        right_content_layout.addWidget(self.ekran_powitalny, 1)
-        self.ekran_powitalny.hide()
-        # kokpit dnia — akcje z karty "Dziś w trasie"
-        self.ekran_powitalny.podepnij_akcje(
-            on_trasa=self._wejdz_w_trase,
-            on_planer=self._pokaz_planer,
-            on_tryb_trasy=self._otworz_tryb_trasy)
-
-        self.btn_settings = QPushButton("⚙️", self.main_container)
-        self.btn_settings.setFixedSize(76, 76)
-        self.btn_settings.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_settings.clicked.connect(self.toggle_sidebar)
-
-        self.grip = QSizeGrip(self.main_container)
+        # Dymki i centrum powiadomień — historię dzieli z nowym ekranem.
         self.toast = ToastNotification(self)
-
-        # Centrum powiadomień: panel rozwijany spod dzwoneczka, pokazujący
-        # historię komunikatów (nawet po zniknięciu toastu).
         self.panel_powiadomien = PanelPowiadomien(self.main_container)
         self.panel_powiadomien.podepnij_historie(self.toast.historia)
+        self.panel_powiadomien.update_theme(self.is_dark)
         self.toast.on_nowe_powiadomienie = self._na_nowe_powiadomienie
         self._powiadomien_nieprzeczytane = 0
 
-        self._last_folder = None
-        self._dialog_podpisu = None    # zegar podpisu gasimy przy zamykaniu okna
-        self._watek_wysylki = None     # wysylka nie moze przezyc okna
-        self._profil_zaproponowany = None    # by nie podpowiadać w kółko
-
-        # Kalendarz Wypraw ZOSTAŁ SCALONY z Planem Wizyt → Miesiąc (jeden
-        # kalendarz zamiast dwóch pokazujących te same wizyty). Delegacje,
-        # notatki i dni wolne teraz żyją w overlay_plan (patrz niżej).
-
-        # Planer Nowej Wyprawy (nakładka)
+        # Planer Nowej Wyprawy
         self.overlay_planer = PlanerOverlay(self.main_container,
                                             on_zamknij=self._planer_zamkniety,
                                             on_import=self._planer_import_excel)
@@ -20529,126 +16504,108 @@ class App(QMainWindow):
         self.overlay_planer._on_toast = lambda t, o, ok=True: self.toast.show_toast(t, o, success=ok)
         self.overlay_planer._on_odswiez_plik = self._odswiez_z_pliku
         self.overlay_planer.resize(self.main_container.size())
-        # wczytaj listę punktów z poprzedniej sesji (nie trzeba importować Excela od nowa)
+        # lista punktów z poprzedniej sesji i ostatni plan z dysku
         self._ile_punktow = self.overlay_planer.wczytaj_zapisane()
-        # wczytaj ostatni plan z dysku (przetrwał zamknięcie programu)
         self._gotowy_plan = wczytaj_plan()
         self.overlay_planer.btn_ostatni.setVisible(self._gotowy_plan is not None)
 
-        # Plan Wizyt — nakładka nowego silnika planera (dzień/tydzień/miesiąc)
+        # Plan Wizyt — nakładka silnika planera (dzień/tydzień/miesiąc)
         self.overlay_plan = PlanWizytOverlay(self.main_container, on_mapa=self._pokaz_mape_planu,
                                              on_delegacja=self._delegacja_z_planu)
         self.overlay_plan._on_przenies = self._przenies_zalegle
         self.overlay_plan._on_tryb_trasy = self._otworz_tryb_trasy
         self.overlay_plan._on_toast = lambda t, o, ok=True: self.toast.show_toast(t, o, success=ok)
         self.overlay_plan._on_punkty_zmienione = lambda: self.overlay_planer.wczytaj_zapisane()
-        self.overlay_plan._on_dane_uzytkownika = lambda: (self.e_imie.text().strip(), self.e_pesel.text().strip())
+        self.overlay_plan._on_dane_uzytkownika = self._imie_i_pesel
         self.overlay_plan.resize(self.main_container.size())
-        self.overlay_plan.btn_x.clicked.connect(self._powrot_do_powitalnego)
+        self.overlay_plan.btn_x.clicked.connect(self._schowaj_panele)
 
-        # TRYB TRASY — pełnoekranowy widok "na czas jazdy", wywoływany z
-        # ekranu powitalnego (karta "Dziś w trasie") albo z Planu Wizyt
-        self.overlay_tryb_trasy = TrybTrasyOverlay(self.main_container, on_zamknij=self._zamknij_tryb_trasy)
-        self.overlay_tryb_trasy.resize(self.main_container.size())
+        # Tryb Trasy (widok „na czas jazdy") powstaje dopiero na żądanie.
+        self.overlay_tryb_trasy = None
 
-        # Moje Szlaki ZOSTAŁO SCALONE z "Twoja praca" (StatystykiOverlay,
-        # zakładka "Delegacje") — jedna pozycja w menu zamiast dwóch.
-
-        # Panel administratora — wgląd we wszystkich użytkowników (tylko lokalnie)
+        # Ustawienia (panel administratora) i Twoja praca
         self.overlay_admin = PanelAdminaOverlay(self.main_container)
-        self.overlay_staty = StatystykiOverlay(
-            self.main_container,
-            on_dane_uzytkownika=lambda: (self.e_imie.text().strip(), self.e_pesel.text().strip()))
-        self.overlay_staty.btn_x.clicked.connect(self._powrot_do_powitalnego)
         self.overlay_admin.resize(self.main_container.size())
-        self.overlay_admin.btn_x.clicked.connect(self._powrot_do_powitalnego)
+        self.overlay_admin.btn_x.clicked.connect(self._schowaj_panele)
+        self.overlay_staty = StatystykiOverlay(
+            self.main_container, on_dane_uzytkownika=self._imie_i_pesel)
+        self.overlay_staty.btn_x.clicked.connect(self._schowaj_panele)
 
-        # Overlay WOW — musi być ostatni żeby był na wierzchu
+        # Nakładka postępu planowania wizyt (PlanerWizytThread) — na wierzchu.
         self.overlay = GeneratingOverlay(self.main_container)
         self.overlay.resize(self.main_container.size())
 
-        _dziennik_animacji("budowa okna: formularz i panele gotowe")
-        # ---- ŻYWA WALIDACJA: każde pole odświeża panel asystenta ----
-        self.e_imie.textChanged.connect(self._analizuj_formularz)
-        self.e_imie.editingFinished.connect(self._podpowiedz_profil)
-        self.e_pesel.textChanged.connect(self._analizuj_formularz)
-        self.e_adres.textChanged.connect(self._analizuj_formularz)
-        self.e_kwota.textChanged.connect(self._analizuj_formularz)
-        self.e_mies.textChanged.connect(self._analizuj_formularz)
-
-        # Enter w dowolnym polu tekstowym = "Generuj" (jeśli dane są kompletne)
-        for pole in [self.e_imie, self.e_pesel, self.e_adres, self.e_kwota, self.e_mies]:
-            pole.returnPressed.connect(self._enter_generuj)
-        self.c_silnik.currentIndexChanged.connect(self._analizuj_formularz)
-
-        _dziennik_animacji("budowa okna: walidacja podpięta")
-        self.apply_theme()
-        _dziennik_animacji("budowa okna: motyw nałożony")
-
-        # Ekran powitalny na starcie — zasłania generator do czasu, aż użytkownik
-        # wybierze "Bilans Miesiąca". Uruchamiamy PO apply_theme (zna motyw).
-        QTimer.singleShot(0, self._pokaz_ekran_powitalny)
-        QTimer.singleShot(50, self._analizuj_formularz)
-
-        # Sprawdź aktualizacje w tle (2s po starcie, żeby nie opóźniać okna)
+        # Sprawdzenie aktualizacji w tle (2 s po starcie, żeby nie opóźniać okna)
         self._nowa_wersja = ""
-        self._akt_rozstrzygniete = False   # watek sprawdzania juz odpowiedzial
+        self._akt_rozstrzygniete = False   # wątek sprawdzania już odpowiedział
         self._dialog_akt_byl = False       # okno aktualizacji pokazane raz
         self._nowa_opis = ""
         QTimer.singleShot(2000, self._start_sprawdzania_aktualizacji)
 
-    def _otworz_tryb_trasy(self, dzien, data):
-        """Uruchamia pełnoekranowy Tryb Trasy dla danego dnia. Wywoływane z
-        karty „Dziś w trasie” (ekran powitalny) albo z przycisku w Planie
-        Wizyt — w obu przypadkach zapamiętujemy, dokąd wrócić po zamknięciu."""
-        self._tryb_trasy_powrot = "plan" if self.overlay_plan.isVisible() else "powitalny"
-        self.overlay_tryb_trasy.update_theme(self.is_dark)
-        self.overlay_tryb_trasy.resize(self.main_container.size())
-        self.overlay_tryb_trasy.ustaw_dzien(dzien, data)
-        self.overlay_tryb_trasy.raise_()
-        self.overlay_tryb_trasy.show()
+    # =====================================================================
+    #  DANE DLA PANELI: pracownik, miesiąc planu, okno dialogów
+    # =====================================================================
+    def _rodzic_dialogow(self):
+        """Okno, nad którym stają okna dialogowe paneli — nowy ekran.
+        Nad tym (ukrytym) oknem dialog byłby niewidoczny."""
+        okno = self._okno_dialogow
+        return okno if okno is not None else self
 
-    def _zamknij_tryb_trasy(self):
-        """Zamyka Tryb Trasy i odświeża ekran, spod którego został wywołany —
-        żeby pierścień/lista od razu pokazały świeżo odhaczone wizyty."""
-        self.overlay_tryb_trasy.hide()
-        powrot = getattr(self, "_tryb_trasy_powrot", "powitalny")
-        if powrot == "plan" and self.overlay_plan.isVisible():
-            self.overlay_plan._przerysuj()
-        else:
-            self.ekran_powitalny.karta_dzis.odswiez()
+    def _profil_pracownika(self) -> dict:
+        """imie, pesel, adres, stanowisko, silnik_idx — z nowego ekranu
+        (zaczep _dane_pracownika), a bez zaczepu profil ZALOGOWANEJ osoby
+        z dysku: te same dane, które dawny formularz podpowiadał sam.
+        Nigdy profil kolegi — magazyn profili jest wspólny dla komputera."""
+        zaczep = self._dane_pracownika
+        if zaczep is not None:
+            try:
+                dane = dict(zaczep() or {})
+                if dane.get("imie"):
+                    return dane
+            except Exception:
+                pass
+        imie = " ".join((online_imie_uzytkownika() or "").split())
+        prof = {}
+        if imie:
+            try:
+                prof = szukaj_profilu_po_nazwisku(imie) or {}
+            except Exception:
+                prof = {}
+        return {"imie": imie or str(prof.get("imie") or ""),
+                "pesel": str(prof.get("pesel") or ""),
+                "adres": str(prof.get("adres") or ""),
+                "stanowisko": str(prof.get("stanowisko") or "merchandiser"),
+                "silnik_idx": prof.get("silnik_idx", 1)}
 
-    def _wejdz_w_trase(self):
-        """Z karty „Dziś w trasie" prosto do Planu Wizyt, otwartego na dziś."""
-        plan = getattr(self, "_gotowy_plan", None) or wczytaj_plan()
-        if not plan:
-            self._pokaz_planer()
-            return
-        self._gotowy_plan = plan
-        self.ekran_powitalny.stop()
-        self.overlay_plan.update_theme(self.is_dark)
-        self.overlay_plan.resize(self.main_container.size())
-        self.overlay_plan.ustaw_plan(plan)      # sam skacze na dziś
-        self.overlay_plan.raise_()
-        self.overlay_plan.show()
+    def _imie_i_pesel(self):
+        """(imię, PESEL) — klucz historii delegacji dla paneli."""
+        dane = self._profil_pracownika()
+        return (str(dane.get("imie") or "").strip(), str(dane.get("pesel") or "").strip())
 
-    def _pokaz_ekran_powitalny(self):
-        # Na starcie: chowamy generator, pokazujemy ekran powitalny.
-        # Layout sam ustawia pozycję (pod topbarem), bez ręcznej geometrii.
-        if hasattr(self, "body"):
-            self.body.hide()
-        self.ekran_powitalny.update_theme(self.is_dark)
-        self.ekran_powitalny.show()
-        self.ekran_powitalny.start()
+    def _rok_i_miesiac_planu(self):
+        """Miesiąc planu wizyt: z paska miesięcy nowego ekranu (zaczep
+        _miesiac_planu), a bez zaczepu — bieżący."""
+        zaczep = self._miesiac_planu
+        if zaczep is not None:
+            try:
+                rok, miesiac = zaczep()
+                if 1 <= int(miesiac) <= 12:
+                    return int(rok), int(miesiac)
+            except Exception:
+                pass
+        dzis = datetime.date.today()
+        return dzis.year, dzis.month
 
+    # =====================================================================
+    #  AKTUALIZACJE
+    # =====================================================================
     def _start_sprawdzania_aktualizacji(self):
         self._update_thread = UpdateThread()
         self._update_thread.wynik.connect(self._aktualizacja_wynik)
         self._update_thread.start()
 
     def _aktualizacja_wynik(self, jest_nowsza, wersja, opis):
-        """Jest nowa wersja → pokazujemy pełne okno powitania (nie ikonkę).
-        Chwila zwłoki, żeby nie nachodzić na ekran powitalny."""
+        """Jest nowa wersja → pełne okno powitania (nie ikonka), po chwili."""
         self._akt_rozstrzygniete = True
         if not jest_nowsza:
             return
@@ -20657,67 +16614,31 @@ class App(QMainWindow):
         QTimer.singleShot(900, self._pokaz_okno_aktualizacji)
 
     def _pokaz_okno_aktualizacji(self):
+        """Okno aktualizacji od razu — nic już nie czeka na koniec animacji
+        startowej (od 3.23.0 nie ma jej w programie)."""
         if getattr(self, "_dialog_akt_byl", False):
             return
-        # Intro trwa ~25 s i CHOWA male logo w topbarze (wraca dopiero
-        # w _intro_koniec). Dialog aktualizacji startowal ~0,9 s po
-        # starcie — W TRAKCIE intro: logo bylo niewidoczne, wiec korytarz
-        # szedl w fallback, a i tak ginalby pod nakladka intro. Dlatego
-        # CZEKAMY, az intro zejdzie ze sceny; dopiero wtedy korytarz
-        # rusza z widocznego logo przy bocznym menu.
-        intro = getattr(self, "_intro", None)
-        if INTRO_NA_STARCIE and (getattr(self, "_intro_gra", False)
-                                 or (intro is not None and intro.isVisible())):
-            # TWARDY LIMIT czekania. Gdy intro nie zgłosi końca (u jednego
-            # użytkownika 3.21.0 skończyło się ciemnym ekranem), flaga
-            # _intro_gra zostaje na zawsze — a ta pętla razem z nią: okno
-            # aktualizacji nie pojawiało się NIGDY, choć wersja na serwerze
-            # była nowsza. Po ~45 s pokazujemy okno niezależnie od intro.
-            self._akt_czekanie = getattr(self, "_akt_czekanie", 0) + 1
-            if self._akt_czekanie < 65:
-                QTimer.singleShot(700, self._pokaz_okno_aktualizacji)
-                return
-            try:
-                _dziennik_animacji("aktualizacja: intro nie zeszło po 45 s — pokazuję okno mimo to")
-            except Exception:
-                pass
-        # punkt startu = MALE LOGO PMT w topbarze (nad menu po lewej)
-        srodek_lok, start_rect = None, None
-        try:
-            lbl = getattr(self, "logo_lbl", None)
-            if lbl is not None and lbl.isVisible():
-                sr = lbl.rect().center()
-                srodek_lok = lbl.mapTo(self.main_container, sr)
-                g = lbl.mapToGlobal(sr)
-                start_rect = QRect(g.x() - 40, g.y() - 40, 80, 80)
-        except Exception:
-            srodek_lok, start_rect = None, None
-
-        def _pokaz_dialog():
-            dlg = OknoAktualizacji(
-                self, wersja_stara=WERSJA_PROGRAMU, wersja_nowa=self._nowa_wersja,
-                opis=self._nowa_opis, is_dark=self.is_dark,
-                on_instaluj=self._zainstaluj_aktualizacje, start_rect=start_rect)
-            dlg.exec()
-
         self._dialog_akt_byl = True
-        if srodek_lok is not None:
-            try:
-                # najpierw KORYTARZ z logo, okno wychodzi z jego glebi
-                self._korytarz_akt = KorytarzAktualizacji(
-                    self.main_container, srodek_lok, is_dark=self.is_dark,
-                    po_zakonczeniu=_pokaz_dialog)
-                return
-            except Exception:
-                pass
-        _pokaz_dialog()
+        dlg = OknoAktualizacji(
+            self._rodzic_dialogow(), wersja_stara=WERSJA_PROGRAMU, wersja_nowa=self._nowa_wersja,
+            opis=self._nowa_opis, is_dark=self.is_dark,
+            on_instaluj=self._zainstaluj_aktualizacje, start_rect=None)
+        dlg.exec()
 
     def _zainstaluj_aktualizacje(self, pobrany_plik):
-        """Instalacja aktualizacji z poziomu działającego okna programu.
+        """Instalacja aktualizacji z poziomu działającego programu.
         Cała robota jest w module (zainstaluj_aktualizacje_i_zamknij), żeby
         dokładnie ta sama ścieżka działała też przed zalogowaniem — przy
         oknie obowiązkowej aktualizacji, gdy okna programu jeszcze nie ma."""
-        for nazwa in ("_update_thread", "_plan_thread"):
+        self._zatrzymaj_watki()
+        blad = zainstaluj_aktualizacje_i_zamknij(pobrany_plik)
+        if blad:
+            self.toast.show_toast(
+                "Nie udało się zainstalować",
+                f"{blad}\nSpróbuj pobrać ręcznie ze strony wydania.", success=False)
+
+    def _zatrzymaj_watki(self):
+        for nazwa in ("_update_thread", "_plan_thread", "_del_plan_thread"):
             w = getattr(self, nazwa, None)
             try:
                 if w is not None and w.isRunning():
@@ -20725,315 +16646,26 @@ class App(QMainWindow):
                     w.wait(1500)
             except Exception:
                 pass
-        blad = zainstaluj_aktualizacje_i_zamknij(pobrany_plik)
-        if blad:
-            self.toast.show_toast(
-                "Nie udało się zainstalować",
-                f"{blad}\nSpróbuj pobrać ręcznie ze strony wydania.", success=False)
-
-    PARAMETRY_SZER_MIN = 1000     # poniżej tej szerokości karty — dwa wiersze
-
-    def _uloz_parametry(self):
-        """Wiersz PARAMETRY TRASY w jednym albo dwóch rzędach, zależnie od
-        szerokości karty. Wywoływane po zmianie rozmiaru okna i po animacji
-        menu bocznego."""
-        try:
-            szer = self.card_bot_frame.width()
-            if szer <= 0:
-                return
-            waski = szer < self.PARAMETRY_SZER_MIN
-            if self._parametry_waskie == waski:
-                return
-            self._parametry_waskie = waski
-            for w in (self._w_tryb, self._w_dni):
-                self._row1_b.removeWidget(w)
-                self._row2_b.removeWidget(w)
-            cel = self._row2_b if waski else self._row1_b
-            cel.addWidget(self._w_tryb, 3); cel.addWidget(self._w_dni, 1)
-            # Wysokość karty z RZECZYWISTEGO układu (czcionki na Windows są
-            # wyższe niż w podglądzie) — stała liczba zostawiała przyciski
-            # drugiego wiersza pod dolną krawędzią karty.
-            self._dopasuj_wysokosc_karty_parametrow()
-            QTimer.singleShot(0, self._dopasuj_wysokosc_karty_parametrow)
-        except Exception:
-            pass
-
-    def _dopasuj_wysokosc_karty_parametrow(self):
-        try:
-            uk = self.card_bot_frame.layout()
-            uk.activate()
-            potrzebne = max(uk.sizeHint().height(), uk.minimumSize().height())
-            self.card_bot_frame.setMinimumHeight(max(118, int(potrzebne) + 6))   # +6: zapas na cień/obramowanie
-            self.card_bot_frame.updateGeometry()
-            self.cards_wrap.updateGeometry()
-        except Exception:
-            pass
-
-    def toggle_sidebar(self):
-        # ⚙️ "przypina" panel otwarty (klik) — hover nadal działa, ale nie zwija przypiętego
-        self._sidebar_przypiety = not self._sidebar_przypiety
-        self._rozwin_sidebar(self._sidebar_przypiety)
-
-    def _rozwin_sidebar(self, rozwin):
-        docelowa = 250 if rozwin else 68
-        if self.sidebar_frame.width() == docelowa:
-            return
-        for b, _ in self._nav_defs:
-            b.setText("   " + b._pelna_nazwa if rozwin else "")
-        self.sidebar_anim = QVariantAnimation()
-        self.sidebar_anim.setDuration(260)
-        self.sidebar_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.sidebar_anim.setStartValue(self.sidebar_frame.width())
-        self.sidebar_anim.setEndValue(docelowa)
-        self.sidebar_anim.valueChanged.connect(self._animate_sidebar)
-        self.sidebar_anim.start()
-
-    def eventFilter(self, obj, event):
-        # Hover nad sidebarem → rozwinięcie; opuszczenie → zwinięcie (o ile nie przypięty)
-        if obj is self.sidebar_frame:
-            if event.type() == QEvent.Type.Enter:
-                self._rozwin_sidebar(True)
-            elif event.type() == QEvent.Type.Leave:
-                if not self._sidebar_przypiety:
-                    self._rozwin_sidebar(False)
-        elif obj is getattr(self, "card_bot_frame", None) and event.type() == QEvent.Type.Resize:
-            # szerokość karty zmienia się o jeden przebieg układu PO menu
-            # bocznym — dopiero tu wiadomo, czy wiersz parametrów się mieści
-            QTimer.singleShot(0, self._uloz_parametry)
-        return super().eventFilter(obj, event)
-
-    def _nav_klik(self, przycisk, akcja):
-        """Ustawia aktywny element (animowana belka) i wykonuje akcję."""
-        # Każde wejście w menu opuszcza ekran powitalny (odsłania właściwy widok).
-        if hasattr(self, "ekran_powitalny") and self.ekran_powitalny.isVisible():
-            self.ekran_powitalny.stop()
-        # Generator pokazuje TYLKO "Bilans Miesiąca". Dla pozostałych opcji
-        # chowamy go, żeby nie wyjrzał spod zamykanej nakładki.
-        if hasattr(self, "body") and przycisk is not self.btn_nav_archiwum:
-            self.body.hide()
-        self._nav_aktywny = przycisk
-        self._maluj_nav_belke()
-        akcja()
-
-    def _maluj_nav_belke(self):
-        """Podświetla aktywny przycisk nawigacji lewą belką akcentu."""
-        akcent = "#00F0FF" if self.is_dark else "#0D9488"
-        hover_bg = "rgba(0,240,255,0.07)" if self.is_dark else "rgba(13,148,136,0.08)"
-        txt = "#94A3B8" if self.is_dark else "#475569"
-        for b, _ in self._nav_defs:
-            aktywny = (b is self._nav_aktywny)
-            if aktywny:
-                b.setStyleSheet(
-                    f"QPushButton {{ text-align: left; padding-left: 12px; background: {hover_bg};"
-                    f" color: {akcent}; font-family:'Segoe UI'; font-size: 13px; font-weight: 700;"
-                    f" border: none; border-left: 3px solid {akcent}; border-radius: 8px; }}")
-            else:
-                b.setStyleSheet(
-                    f"QPushButton {{ text-align: left; padding-left: 15px; background: transparent;"
-                    f" color: {txt}; font-family:'Segoe UI'; font-size: 13px; font-weight: 600;"
-                    f" border: none; border-radius: 8px; }}"
-                    f" QPushButton:hover {{ color: {akcent}; background: {hover_bg}; }}")
 
     # =====================================================================
-    #  ŻYWA ANALIZA FORMULARZA  (AI Asystent + szacunki na bieżąco)
+    #  POWIADOMIENIA
     # =====================================================================
-    def _analizuj_formularz(self):
-        imie  = self.e_imie.text().strip()
-        pesel = self.e_pesel.text().strip()
-        adres = self.e_adres.text().strip()
-        kwota_s = self.e_kwota.text().strip().replace(' ', '').replace(',', '.')
-        mies_s  = self.e_mies.text().strip().replace('-', '.').replace('/', '.').replace(' ', '')
-
-        # PESEL
-        pesel_ok = waliduj_pesel(pesel) if pesel else None
-        self.assistant.set_check("pesel", pesel_ok)
-        self.si_pesel.ustaw_walidacje("ok" if pesel_ok is True else ("err" if pesel_ok is False else None))
-
-        # Adres → kod pocztowy → województwo
-        kod_ok, woj = None, None
-        adres_d = None
-        if adres:
-            try:
-                adres_d = waliduj_adres(adres)
-                kod_ok = True
-                woj = rozpoznaj_wojewodztwo(adres_d['kod_pocztowy'])
-            except Exception:
-                kod_ok = False
-        self.assistant.set_check("kod", kod_ok)
-        self.assistant.set_check("woj", True if woj else (False if adres else None))
-        self.si_adres.ustaw_walidacje("ok" if (kod_ok and woj) else ("err" if kod_ok is False else None))
-
-        # Kwota + dni robocze
-        kwota_val, mies_ok, dni_count = None, None, 0
-        try:
-            if kwota_s:
-                kwota_val = float(kwota_s)
-        except ValueError:
-            kwota_val = None
-        try:
-            if re.match(r"^\d{2}\.\d{4}$", mies_s):
-                mm, yy = map(int, mies_s.split('.'))
-                if 1 <= mm <= 12:
-                    dni_count = len(pobierz_dni_robocze(yy, mm))
-                    mies_ok = True
-                else:
-                    mies_ok = False
-            elif mies_s:
-                mies_ok = False
-        except Exception:
-            mies_ok = False
-
-        # Kwota realna? — ta sama granica co przy generowaniu:
-        # dni robocze × realny sufit dnia.
-        _stawka_pod = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
-        kwota_ok = None
-        if kwota_val is not None and kwota_val >= MIN_KWOTA:
-            if dni_count > 0:
-                kwota_ok = kwota_val <= maks_kwota_miesiaca(dni_count, _stawka_pod)
-            else:
-                kwota_ok = True
-        elif kwota_val is not None:
-            kwota_ok = False
-        self.assistant.set_check("kwota", kwota_ok)
-        self.assistant.set_check("dni", True if (mies_ok and dni_count > 0) else (False if mies_s else None))
-        self.si_kwota.ustaw_walidacje("ok" if kwota_ok is True else ("err" if kwota_ok is False else None))
-        self.si_mies.ustaw_walidacje("ok" if (mies_ok and dni_count > 0) else ("err" if mies_ok is False else None))
-
-        # Szacunki (gdy jest kwota)
-        if kwota_val and kwota_val >= MIN_KWOTA:
-            dni_baza = dni_count if dni_count > 0 else 21
-            sz = szacuj_delegacje(kwota_val, _stawka_pod, dni_baza)
-            self.assistant.set_szacunki(sz['km'], sz['dni_wyjazdowe'], sz['km_dzien'], sz['dokumenty'])
-        else:
-            self.assistant.set_szacunki(0, 0, 0, 0)
-
-        # Gotowość
-        wszystko = [pesel_ok, kod_ok, (woj is not None), kwota_ok, (mies_ok and dni_count > 0)]
-        if all(x is True for x in wszystko):
-            self.assistant.set_gotowy(True)
-        else:
-            brakuje = []
-            if not imie: brakuje.append("imię")
-            if pesel_ok is not True: brakuje.append("PESEL")
-            if kod_ok is not True: brakuje.append("adres")
-            if kwota_ok is not True: brakuje.append("kwota")
-            if not (mies_ok and dni_count > 0): brakuje.append("miesiąc")
-            self.assistant.set_gotowy(False, "Uzupełnij: " + ", ".join(brakuje) if brakuje else "Uzupełnij dane…")
-
-    def _podpowiedz_profil(self):
-        """Po wpisaniu imienia — jeśli znamy tę osobę, podpowiada resztę danych.
-
-        PODPOWIADAMY WYŁĄCZNIE DANE ZALOGOWANEJ OSOBY. Magazyn profili jest
-        wspólny dla komputera, więc dopasowanie po samym nazwisku pozwalało
-        wpisać nazwisko kolegi i dostać jego PESEL oraz adres domowy."""
-        imie = self.e_imie.text().strip()
-        if not imie or imie == self._profil_zaproponowany:
-            return
-        _konto = (online_imie_uzytkownika() or "").strip()
-        if _konto and imie.lower() != _konto.lower():
-            return
-        prof = szukaj_profilu_po_nazwisku(imie)
-        if prof and not self.e_pesel.text().strip():
-            self._profil_zaproponowany = imie
-            self.e_pesel.setText(prof.get("pesel", ""))
-            self.e_adres.setText(prof.get("adres", ""))
-            idx = self.c_stan.findText(prof.get("stanowisko", ""))
-            if idx >= 0: self.c_stan.setCurrentIndex(idx)
-            self.c_silnik.setCurrentIndex(prof.get("silnik_idx", 1))
-            _tresc = f"Uzupełniłem dane {imie.split()[0]} z ostatniej sesji. Sprawdź i popraw w razie potrzeby."
-            if getattr(self, "_intro_gra", False) or not getattr(self, "_intro_zakonczone", False):
-                # dymek wyskakiwał NA intro (i na czarną kurtynę) — pokażemy go,
-                # gdy intro zejdzie ze sceny
-                self._dymek_po_intrze = ("Rozpoznano pracownika", _tresc)
-            else:
-                self.toast.show_toast("Rozpoznano pracownika", _tresc, success=True)
-
-    def _odswiez_btn_intro(self):
-        """Etykieta przycisku = STAN ustawienia (bez zdan objasniajacych)."""
-        try:
-            wlaczone = not bool(ustawienie("bez_intra", False))
-            self.btn_intro.setChecked(wlaczone)
-            self.btn_intro.setText("🎬 Intro ✓" if wlaczone else "🎬 Intro ✕")
-        except Exception:
-            pass
-
-    def _przelacz_intro(self):
-        """Zapisuje ustawienie bez_intra — to samo, ktore pokaz_intro czyta
-        przy starcie. Dziala od NASTEPNEGO uruchomienia; biezacego intra
-        (jesli jeszcze leci) swiadomie nie przerywamy."""
-        try:
-            zapisz_ustawienie("bez_intra", bool(not self.btn_intro.isChecked()))
-        except Exception:
-            pass
-        self._odswiez_btn_intro()
-
-    def _pokaz_o_programie(self):
-        # Test silnika NA ŻYWO — wylicza, ile dni wychodzi dla kontrolnej kwoty.
-        # Aktualny silnik dla 2000 zł (Warszawa) daje ~10-13 dni. Jeśli pokaże
-        # 3-4 dni, to znaczy, że uruchomiony plik/exe jest STARĄ wersją.
-        diag = ""
-        try:
-            dni = pobierz_dni_robocze(2026, 9)
-            t = generuj_trasy(2000, "Warszawa", 52.23, 21.01, "mazowieckie", dni, "85010112345", 1.15)
-            osiag = getattr(t, "kwota_osiagnieta", sum(d.suma for d in t))
-            stan = "✓ silnik OK" if len(t) >= 7 else "✗ STARA WERSJA silnika!"
-            diag = f"\nTest silnika: 2000 zł → {len(t)} dni, {osiag:.0f} zł  ({stan})"
-        except Exception:
-            diag = ""
-        self.toast.show_toast(
-            f"PMT Planer — wersja {wersja_pelna()}",
-            "Generator delegacji z asystentem kontroli i historią rozliczeń.\n"
-            f"Silnik: {SYGNATURA_SILNIKA}{diag}",
-            success=True)
-
-    def _animate_sidebar(self, width):
-        self.sidebar_frame.setFixedWidth(width)
-        self.btn_settings.move(width - 38, self.height() - 110)
-        QTimer.singleShot(0, self._uloz_parametry)
-
-    # =====================================================================
-    #  AKCJE NAWIGACJI
-    # =====================================================================
-    def _fokus_kokpit(self):
-        # Bilans Miesiąca — POKAZUJE generator tras (serce programu). Generator
-        # jest domyślnie ukryty; pojawia się tylko tutaj. Zamyka nakładki i
-        # ekran powitalny.
-        if hasattr(self, "ekran_powitalny"):
-            self.ekran_powitalny.stop()
-        for nakladka in [getattr(self, "overlay_planer", None),
-                         getattr(self, "overlay_admin", None),
-                         getattr(self, "overlay_staty", None),
-                         getattr(self, "overlay_plan", None)]:
-            if nakladka is not None:
-                nakladka.hide()
-        if hasattr(self, "body"):
-            self.body.show()
-        self.e_imie.setFocus()
-
     def _na_nowe_powiadomienie(self, title, desc, success):
-        """Każdy nowy toast — zwiększ licznik nieprzeczytanych na dzwoneczku
-        i odśwież panel, jeśli akurat jest otwarty."""
+        """Każdy nowy dymek — licznik nieprzeczytanych i odświeżenie panelu.
+        Dzwonek pokazuje nowy ekran (nowy_wyglad._zepnij_ze_starym)."""
         self._powiadomien_nieprzeczytane += 1
-        self.btn_dzwonek.ustaw_licznik(self._powiadomien_nieprzeczytane)
         if self.panel_powiadomien.isVisible():
             self.panel_powiadomien.odswiez()
 
-    def _toggle_panel_powiadomien(self):
-        if self.panel_powiadomien.isVisible():
-            self.panel_powiadomien.hide()
-            return
-        # przy otwarciu zeruj licznik — powiadomienia zostały "przejrzane"
-        self._powiadomien_nieprzeczytane = 0
-        self.btn_dzwonek.ustaw_licznik(0)
-        self.panel_powiadomien.update_theme(self.is_dark)
-        self.panel_powiadomien.odswiez()
-        # pozycja: pod dzwoneczkiem, przy prawej krawędzi
-        pt = self.btn_dzwonek.mapTo(self.main_container, QPoint(self.btn_dzwonek.width(), self.btn_dzwonek.height()))
-        x = pt.x() - self.panel_powiadomien.width()
-        y = pt.y() + 6
-        self.panel_powiadomien.move(max(8, x), y)
-        self.panel_powiadomien.raise_()
-        self.panel_powiadomien.show()
+    # =====================================================================
+    #  PANELE
+    # =====================================================================
+    def _schowaj_panele(self):
+        """Krzyżyk panelu: panel schodzi ze sceny. Ramę nowego ekranu
+        zamyka jej własny filtr zdarzeń (nowy_wyglad._panel_sam_sie_zamknal)."""
+        for nakladka in (self.overlay_planer, self.overlay_admin,
+                         self.overlay_staty, self.overlay_plan):
+            nakladka.hide()
 
     def _pokaz_planer(self):
         # update_theme przebudowuje wszystkie wiersze bazy (sekundy przy
@@ -21050,24 +16682,15 @@ class App(QMainWindow):
         self.overlay_planer.pole.setFocus()
 
     def _planer_zamkniety(self, przystanki):
-        """Po zamknięciu planera (✕) wracamy do ekranu powitalnego."""
+        """Zamknięcie planera (✕) — panel schodzi ze sceny."""
         self.overlay_planer.hide()
-        self._powrot_do_powitalnego()
 
     def _zaplanuj_wizyty(self, pozycje):
-        """Geokoduje punkty i układa plan w tle (wątek), z paskiem postępu i
-        logo z okejką (jak generator delegacji). Po sukcesie otwiera Plan Wizyt."""
+        """Geokoduje punkty i układa plan w tle (wątek), z paskiem postępu.
+        Po sukcesie otwiera Plan Wizyt."""
         if not pozycje:
             return
-        import datetime as _dt
-        teraz = _dt.date.today()
-        rok, miesiac = teraz.year, teraz.month
-        mies_txt = self.e_mies.text().strip()
-        try:
-            if re.match(r"^\d{2}\.\d{4}$", mies_txt):
-                miesiac, rok = map(int, mies_txt.split("."))
-        except Exception:
-            pass
+        rok, miesiac = self._rok_i_miesiac_planu()
 
         # pokaż overlay z paskiem postępu (bez logo — pojawi się przy sukcesie)
         self.overlay.show_generating()
@@ -21083,10 +16706,10 @@ class App(QMainWindow):
         if not adres_bazy:
             adres_bazy = ustawienie_osobiste("adres_bazy", "")
         if not adres_bazy:
-            # ADRES Z FORMULARZA DELEGACJI — to on jest punktem odniesienia
-            # dla rozliczeń; nigdy wartość wspólna dla komputera.
+            # ADRES PRACOWNIKA — to on jest punktem odniesienia dla
+            # rozliczeń; nigdy wartość wspólna dla komputera.
             try:
-                adres_bazy = (self.e_adres.text() or "").strip()
+                adres_bazy = str(self._profil_pracownika().get("adres") or "").strip()
             except Exception:
                 pass
         if adres_bazy:
@@ -21131,14 +16754,6 @@ class App(QMainWindow):
         self.overlay.show_success()
         self.overlay.raise_()
 
-    def _pokaz_kopia_zapasowa(self):
-        dlg = DialogKopiaZapasowa(self, is_dark=self.is_dark)
-        dlg.exec()
-        # dialog jest modalny — _nav_klik już schował pulpit ZANIM się otworzył,
-        # więc po zamknięciu trzeba go jawnie przywrócić (ten sam mechanizm,
-        # co przy planerze/kalendarzu — inaczej zostaje „gołe tło").
-        self._powrot_do_powitalnego()
-
     def _pokaz_ostatni_plan(self):
         """Otwiera ostatnio zapisany plan (bez ponownego planowania)."""
         plan = getattr(self, "_gotowy_plan", None)
@@ -21149,13 +16764,6 @@ class App(QMainWindow):
             self.toast.show_toast("Brak planu",
                                   "Nie ma jeszcze zapisanego planu. Wczytaj punkty i kliknij „Zaplanuj wizyty”.",
                                   success=False)
-            # Ta metoda ma DWA wejścia: z menu bocznego (wtedy pulpit jest już
-            # schowany przez _nav_klik — bez planu zostałoby „gołe tło") i z
-            # przycisku „Ostatni plan” WEWNĄTRZ planera (wtedy planer jest
-            # widoczny i nie ma czego naprawiać). Przywracamy pulpit TYLKO
-            # w tym pierwszym przypadku.
-            if not self.overlay_planer.isVisible():
-                self._powrot_do_powitalnego()
             return
         self.overlay_planer.hide()
         self.overlay_plan.update_theme(self.is_dark)
@@ -21207,9 +16815,9 @@ class App(QMainWindow):
 
     def _delegacja_z_planu(self, plan=None):
         """JEDNO KLIKNIECIE: plan wizyt (z wgranego Excela) -> komplet
-        dokumentow delegacji na Pulpicie. Dane pracownika bierzemy z
-        formularza Nowej Wyprawy; kwoty NIE podajesz - wynika z realnych
-        kilometrow tras planu."""
+        dokumentow delegacji na Pulpicie. Dane pracownika bierzemy z karty
+        PRACOWNIK nowego ekranu (_profil_pracownika); kwoty NIE podajesz -
+        wynika z realnych kilometrow tras planu."""
         plan = plan or self._gotowy_plan or wczytaj_plan()
         if not plan or not plan.get("dni"):
             self.toast.show_toast("Brak planu",
@@ -21218,25 +16826,22 @@ class App(QMainWindow):
             return
         if getattr(self, "_del_plan_thread", None) and self._del_plan_thread.isRunning():
             return
-        imie = ' '.join(w.capitalize() for w in self.e_imie.text().split())
-        pesel = self.e_pesel.text().strip()
-        adres = self.e_adres.text().strip()
+        dane = self._profil_pracownika()
+        imie = ' '.join(w.capitalize() for w in str(dane.get("imie") or "").split())
+        pesel = str(dane.get("pesel") or "").strip()
+        adres = str(dane.get("adres") or "").strip()
         if not imie or not waliduj_pesel(pesel) or not adres:
             self.toast.show_toast("Uzupelnij dane pracownika",
                                   "Delegacja potrzebuje imienia, PESEL-u i adresu bazy.\n"
-                                  "Uzupelnij je w \u201eNowej Wyprawie\u201d i kliknij ponownie.",
+                                  "Uzupelnij je w karcie PRACOWNIK i kliknij ponownie.",
                                   success=False)
-            try:
-                self._fokus_kokpit()
-            except Exception:
-                pass
             return
         try:
             adres_d = waliduj_adres(adres)
             if adres_d.get('niejednoznaczne'):
                 nazwa_q = adres_d.get('nazwa_do_pytania', '')
-                dlg = DialogWyboru(self, "DOPRECYZUJ ADRES",
-                                   f"\u201e{nazwa_q}\u201d \u2014 to nazwa ulicy czy miejscowosci?",
+                dlg = DialogWyboru(self._rodzic_dialogow(), "DOPRECYZUJ ADRES",
+                                   f"„{nazwa_q}” — to nazwa ulicy czy miejscowosci?",
                                    "", "To ulica", "To miejscowosc", is_dark=self.is_dark)
                 wynik = dlg.exec_wybor()
                 adres_d = waliduj_adres(adres,
@@ -21245,17 +16850,17 @@ class App(QMainWindow):
         except Exception as e:
             self.toast.show_toast("Adres do poprawy", str(e), success=False)
             return
-        stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
+        stawka = 0.89 if int(dane.get("silnik_idx", 1) or 0) == 0 else 1.15
         params = {'imie': imie, 'pesel': pesel, 'adres_caly': adres_d['adres_caly'],
                   'adres_geo': adres_d.get('adres_geo', adres_d['adres_caly']),
                   'kod_pocztowy': adres_d['kod_pocztowy'],
                   'baza_miasto': adres_d['baza_miasto'],
-                  'stanowisko': self.c_stan.currentText(), 'woj': woj,
+                  'stanowisko': str(dane.get("stanowisko") or "merchandiser"), 'woj': woj,
                   'stawka': stawka, 'is_dark': self.is_dark}
         bd = getattr(self.overlay_plan, "btn_delegacja", None)
         if bd:
             bd.setEnabled(False)
-            bd.setText("Generuj\u0119\u2026")
+            bd.setText("Generuję…")
 
         def _przywroc():
             if bd:
@@ -21264,7 +16869,7 @@ class App(QMainWindow):
 
         def _post(txt, v):
             if bd:
-                bd.setText("Generuj\u0119\u2026 %d%%" % int(max(0.0, min(1.0, v)) * 100))
+                bd.setText("Generuję… %d%%" % int(max(0.0, min(1.0, v)) * 100))
 
         def _ok(foldery, suma, ile):
             _przywroc()
@@ -21300,30 +16905,6 @@ class App(QMainWindow):
             webbrowser.open("file://" + os.path.realpath(sciezka).replace("\\", "/"))
         except Exception as e:
             self.toast.show_toast("Błąd mapy", f"Nie udało się otworzyć mapy:\n{e}", success=False)
-
-    def _powrot_do_powitalnego(self):
-        """Wraca do ekranu powitalnego (gdy zamknięto nakładkę, a generator ma
-        pozostać ukryty). Zapobiega 'gołemu tłu' po zamknięciu planera/kalendarza."""
-        if hasattr(self, "body"):
-            self.body.hide()
-        for nakladka in [getattr(self, "overlay_planer", None),
-                         getattr(self, "overlay_admin", None),
-                         getattr(self, "overlay_staty", None),
-                         getattr(self, "overlay_plan", None)]:
-            if nakladka is not None:
-                nakladka.hide()
-        self._nav_aktywny = self.btn_nav_kokpit
-        self._maluj_nav_belke()
-        self.ekran_powitalny.update_theme(self.is_dark)
-        if not self.isVisible():
-            # To okno jest dzis MAGAZYNEM paneli: pokazuje je rama nowego
-            # ekranu (nowy_wyglad.NakladkaDzialu), a samo stoi ukryte. Nie
-            # ma wiec po co budzic w nim animacji ekranu powitalnego.
-            self.ekran_powitalny.stop()
-            return
-        self.ekran_powitalny.show()
-        self.ekran_powitalny.raise_()
-        self.ekran_powitalny.start()
 
     def _wczytaj_pozycje_z_pliku(self, sciezka):
         """Wspólna logika wczytywania Excel/CSV — używana zarówno przy
@@ -21393,7 +16974,7 @@ class App(QMainWindow):
         od ich nazw i kolejności. Buduje pełne adresy i dodaje jako przystanki.
         .csv działa bez zależności; .xlsx wymaga openpyxl."""
         sciezka, _ = QFileDialog.getOpenFileName(
-            self, "Wybierz plik z lokalizacjami", "",
+            self._rodzic_dialogow(), "Wybierz plik z lokalizacjami", "",
             "Pliki z danymi (*.xlsx *.csv);;Excel (*.xlsx);;CSV (*.csv)")
         if not sciezka:
             return
@@ -21417,7 +16998,7 @@ class App(QMainWindow):
         wczytanej listy (np. nowa wersja od centrali): pokazuje, co nowe
         i co zniknęło (zamknięte sklepy), zamiast po cichu dokładać do listy."""
         sciezka, _ = QFileDialog.getOpenFileName(
-            self, "Wybierz zaktualizowaną listę", "",
+            self._rodzic_dialogow(), "Wybierz zaktualizowaną listę", "",
             "Pliki z danymi (*.xlsx *.csv);;Excel (*.xlsx);;CSV (*.csv)")
         if not sciezka:
             return
@@ -21440,7 +17021,7 @@ class App(QMainWindow):
             self.toast.show_toast("Bez zmian", "Lista z pliku jest identyczna z obecną — nic do zaktualizowania.", success=True)
             return
 
-        dlg = DialogRoznicaImportu(self, dodane, zniknely, is_dark=self.is_dark)
+        dlg = DialogRoznicaImportu(self._rodzic_dialogow(), dodane, zniknely, is_dark=self.is_dark)
         wynik = dlg.pokaz()
         if wynik is None:
             return
@@ -21459,281 +17040,18 @@ class App(QMainWindow):
             f"Cykle pozostałych punktów zostały bez zmian.",
             success=True)
 
-    def _klik_generuj(self):
-        from PyQt6.QtWidgets import QMessageBox
-        from PyQt6.QtCore import QTimer
-        """Sprawdza komplet danych PRZED uruchomieniem generowania. Puste lub
-        błędne pola zapalają się na czerwono, a program mówi wprost, czego brakuje —
-        zamiast wyrzucać komunikat dopiero w połowie pracy."""
-        braki = []
-
-        do_podswietlenia = []
-
-        def _sprawdz(pole_si, wartosc, nazwa, warunek=None):
-            zle = (not str(wartosc).strip()) or (warunek is not None and not warunek)
-            stan = "err" if zle else "ok"
-            pole_si.ustaw_walidacje(stan)
-            do_podswietlenia.append((pole_si, stan))
-            if zle:
-                braki.append(nazwa)
-            return not zle
-
-        _sprawdz(self.si_imie, self.e_imie.text(), "imię i nazwisko")
-        _pesel = self.e_pesel.text().strip()
-        _sprawdz(self.si_pesel, _pesel, "PESEL", warunek=(len(_pesel) == 11 and _pesel.isdigit()))
-        _sprawdz(self.si_adres, self.e_adres.text(), "adres zamieszkania")
-        _kw = self.e_kwota.text().replace(",", ".").replace(" ", "")
-        try:
-            _kw_ok = float(_kw) > 0
-        except Exception:
-            _kw_ok = False
-        _sprawdz(self.si_kwota, self.e_kwota.text(), "kwota docelowa", warunek=_kw_ok)
-        _mies = self.e_mies.text().strip()
-        _mies_ok = bool(re.fullmatch(r"\d{2}\.\d{4}", _mies)) and 1 <= int(_mies[:2]) <= 12
-        _sprawdz(self.si_mies, _mies, "miesiąc rozliczenia (format MM.RRRR)", warunek=_mies_ok)
-
-        # Asystent podpowiedzi odświeża pola z opóźnieniem i potrafi zgasić nasze
-        # czerwone ramki — dlatego nakładamy je ponownie chwilę później.
-        def _przypomnij():
-            for _pole, _stan in do_podswietlenia:
-                _pole.ustaw_walidacje(_stan)
-        QTimer.singleShot(600, _przypomnij)
-        QTimer.singleShot(1400, _przypomnij)
-
-        if braki:
-            mb = QMessageBox(self)
-            mb.setWindowTitle("Uzupełnij dane")
-            mb.setText("Nie mogę wygenerować dokumentu.")
-            mb.setInformativeText("Popraw zaznaczone na czerwono pola:\n• " + "\n• ".join(braki))
-            mb.setIcon(QMessageBox.Icon.Warning)
-            mb.exec()
-            return
-        self.proces()
-
-    def _odswiez_przycisk_dni(self):
-        ile = len(getattr(self, "dni_wylaczone", ()))
-        self.btn_wylacz_dni.setText(f"\U0001F4C5  Wyłączone: {ile}" if ile else "\U0001F4C5  Wyłącz dni")
-        # Bez wyłączonych dni: wyraźny bursztynowy obrys (żeby przycisk nie ginął).
-        # Z wyłączonymi dniami: pełne bursztynowe wypełnienie — widać na pierwszy rzut oka.
-        if ile:
-            self.btn_wylacz_dni.setStyleSheet(
-                "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-                " stop:0 #FBBF24, stop:1 #F59E0B); color:#1A1206; border:none;"
-                " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
-                " font-weight:800; padding:7px 14px; }"
-                "QPushButton:hover { background:#FCD34D; }")
-        else:
-            if self.is_dark:
-                self.btn_wylacz_dni.setStyleSheet(
-                    "QPushButton { background: rgba(251,191,36,0.10); color:#FBBF24;"
-                    " border:1.5px solid rgba(251,191,36,0.65); border-radius:8px;"
-                    " font-family:'Segoe UI'; font-size:13px; font-weight:800;"
-                    " padding:7px 14px; }"
-                    "QPushButton:hover { background:#FBBF24; color:#1A1206; }")
-            else:
-                self.btn_wylacz_dni.setStyleSheet(
-                    "QPushButton { background: rgba(255,251,235,0.92); color:#92400E;"
-                    " border:1.5px solid rgba(180,83,9,0.70); border-radius:8px;"
-                    " font-family:'Segoe UI'; font-size:13px; font-weight:800;"
-                    " padding:7px 14px; }"
-                    "QPushButton:hover { background:#F59E0B; color:#1A1206; }")
-
-    def _otworz_wylaczanie_dni(self):
-        """Kalendarz miesiąca rozliczenia: zaznacz dni, w których nie pracujesz.
-        Wyłączone dni nie dostaną tras, a kwota rozłoży się na pozostałe."""
-        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                                     QPushButton, QGridLayout, QFrame)
-        from PyQt6.QtCore import Qt as _Qt
-        import calendar as _cal
-        tekst = self.e_mies.text().strip()
-        if not re.fullmatch(r"\d{2}\.\d{4}", tekst):
-            self.si_mies.ustaw_walidacje("err")
-            return
-        mies, rok = int(tekst[:2]), int(tekst[3:])
-        ustaw_tryb_pracy("wieczory" if self.tryb_wybrany == 1 else "tydzien")
-        dostepne = set(pobierz_dni_robocze(rok, mies))
-
-        d = QDialog(self); d.setWindowTitle("Wyłącz dni")
-        d.setModal(True); d.setObjectName("PmtKalendarz")
-        d.setStyleSheet("""
-            #PmtKalendarz { background:#0F172A; }
-            QLabel { color:#F8FAFC; font-family:'Segoe UI'; }
-            QLabel#naglowek { font-size:15px; font-weight:800; }
-            QLabel#pod { color:#94A3B8; font-size:11.5px; }
-            QLabel#dow { color:#94A3B8; font-size:10.5px; font-weight:700; }
-            QPushButton#dzien { border-radius:6px; font-family:'Segoe UI';
-                font-size:12.5px; font-weight:700; min-width:38px; min-height:32px; }
-            QPushButton#ok { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-                stop:0 #00F0FF, stop:1 #00E4A1); color:#050B14; border:none;
-                border-radius:8px; font-weight:800; padding:8px 20px; }
-            QPushButton#anuluj { background:transparent; color:#94A3B8;
-                border:1px solid rgba(255,255,255,0.22); border-radius:8px; padding:8px 16px; }
-        """)
-        ukl = QVBoxLayout(d); ukl.setContentsMargins(20, 16, 20, 14); ukl.setSpacing(6)
-        nag = QLabel(f"{_cal.month_name[mies].capitalize()} {rok}"); nag.setObjectName("naglowek")
-        ukl.addWidget(nag)
-        pod = QLabel("Stuknij dni, w których NIE pracujesz (urlop, choroba, szkolenie).\n"
-                     "Szare dni są niedostępne w tym trybie pracy.")
-        pod.setObjectName("pod"); ukl.addWidget(pod)
-        siatka = QGridLayout(); siatka.setSpacing(4)
-        for i, nazwa in enumerate(["Pn","Wt","Śr","Cz","Pt","So","Nd"]):
-            et = QLabel(nazwa); et.setObjectName("dow")
-            et.setAlignment(_Qt.AlignmentFlag.AlignCenter); siatka.addWidget(et, 0, i)
-        wybrane = set(self.dni_wylaczone)
-        def _styl(btn, data):
-            if data not in dostepne:
-                btn.setStyleSheet("QPushButton#dzien { background:transparent;"
-                                  " color:#334155; border:1px solid rgba(255,255,255,0.08); }")
-            elif data in wybrane:
-                btn.setStyleSheet("QPushButton#dzien { background:#DC2626; color:#fff;"
-                                  " border:1px solid #DC2626; }")
-            else:
-                btn.setStyleSheet("QPushButton#dzien { background:rgba(0,228,161,0.14);"
-                                  " color:#6EE7B7; border:1px solid rgba(0,228,161,0.45); }")
-        for tydzien_nr, tydzien in enumerate(_cal.Calendar().monthdatescalendar(rok, mies), start=1):
-            for kol, data in enumerate(tydzien):
-                if data.month != mies:
-                    continue
-                b = QPushButton(str(data.day)); b.setObjectName("dzien")
-                if data in dostepne:
-                    b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-                    def _klik(_=False, dd=data, bb=b):
-                        if dd in wybrane: wybrane.discard(dd)
-                        else: wybrane.add(dd)
-                        _styl(bb, dd)
-                    b.clicked.connect(_klik)
-                else:
-                    b.setEnabled(False)
-                _styl(b, data)
-                siatka.addWidget(b, tydzien_nr, kol)
-        ukl.addLayout(siatka)
-        info = QLabel(""); info.setObjectName("pod"); ukl.addWidget(info)
-        rzad = QHBoxLayout()
-        b_czysc = QPushButton("Wyczyść"); b_czysc.setObjectName("anuluj")
-        rzad.addWidget(b_czysc); rzad.addStretch(1)
-        b_anuluj = QPushButton("Anuluj"); b_anuluj.setObjectName("anuluj")
-        b_ok = QPushButton("Zapisz"); b_ok.setObjectName("ok")
-        rzad.addWidget(b_anuluj); rzad.addSpacing(8); rzad.addWidget(b_ok)
-        ukl.addLayout(rzad)
-        def _czysc():
-            wybrane.clear()
-            for i in range(siatka.count()):
-                w = siatka.itemAt(i).widget()
-                if isinstance(w, QPushButton):
-                    try: _styl(w, [dd for dd in dostepne if dd.day == int(w.text())][0])
-                    except Exception: pass
-        b_czysc.clicked.connect(_czysc)
-        b_anuluj.clicked.connect(d.reject)
-        b_ok.clicked.connect(d.accept)
-        if d.exec():
-            self.dni_wylaczone = set(wybrane)
-            self._odswiez_przycisk_dni()
-
-    def _odswiez_przyciski_trybu(self):
-        """Wybrany tryb świeci gradientem systemu, drugi jest wygaszony."""
-        if self.is_dark:
-            akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-                   " stop:0 #00F0FF, stop:1 #00E4A1); color:#050B14; border:none;"
-                   " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
-                   " font-weight:800; padding:8px 14px; }")
-            nieakt = ("QPushButton { background: rgba(255,255,255,0.05); color:#94A3B8;"
-                      " border:1px solid rgba(255,255,255,0.28); border-radius:8px;"
-                      " font-family:'Segoe UI'; font-size:13px; font-weight:600;"
-                      " padding:8px 14px; }"
-                      "QPushButton:hover { border-color:#00E4A1; color:#00E4A1; }")
-        else:
-            akt = ("QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-                   " stop:0 #0D9488, stop:1 #10B981); color:#FFFFFF; border:none;"
-                   " border-radius:8px; font-family:'Segoe UI'; font-size:13px;"
-                   " font-weight:800; padding:8px 14px; }")
-            nieakt = ("QPushButton { background: rgba(255,255,255,0.80); color:#334155;"
-                      " border:1px solid rgba(15,23,42,0.28); border-radius:8px;"
-                      " font-family:'Segoe UI'; font-size:13px; font-weight:600;"
-                      " padding:8px 14px; }"
-                      "QPushButton:hover { border-color:#0D9488; color:#0D9488; }")
-        self.btn_tryb_tydzien.setStyleSheet(akt if self.tryb_wybrany == 0 else nieakt)
-        self.btn_tryb_wieczory.setStyleSheet(akt if self.tryb_wybrany == 1 else nieakt)
-
-    def _wyloguj_uzytkownika(self):
-        """Wylogowanie: kasuje zapamiętany kod i skrót hasła, zamyka program.
-        Przy kolejnym uruchomieniu trzeba podać login i hasło."""
-        kod = online_kod_uzytkownika() or "—"
-        mb = QMessageBox(self)
-        mb.setWindowTitle("Wylogowanie")
-        mb.setText(f"Wylogować użytkownika {kod}?")
-        mb.setInformativeText("Pojawi się ekran logowania — możesz od razu zalogować się "
-                              "na inne konto. Plany i dokumenty zostają nienaruszone.")
-        mb.setIcon(QMessageBox.Icon.Question)
-        mb.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        mb.setDefaultButton(QMessageBox.StandardButton.No)
-        mb.button(QMessageBox.StandardButton.Yes).setText("Wyloguj")
-        mb.button(QMessageBox.StandardButton.No).setText("Anuluj")
-        if mb.exec() != QMessageBox.StandardButton.Yes:
-            return
-        try:
-            _min = (datetime.datetime.now() - _START_SESJI).total_seconds() / 60.0 \
-                   if "_START_SESJI" in globals() else 0.0
-            online_zdarzenie_sesji("wylogowanie", _min)
-            online_synchronizuj()      # oddaj liczniki poprzedniego użytkownika
-        except Exception:
-            pass
-        online_wyloguj()
-        self.hide()
-        kod, imie = dialog_logowania()          # od razu ekran logowania
-        if not kod:
-            QApplication.quit()
-            return
-        online_zapisz_kod(kod)
-        # BEZ TEGO nowa osoba pracowała na danych poprzedniej: plan wizyt,
-        # lista sklepów, dziennik i adres bazy zostawały przypisane do
-        # konta, które właśnie się wylogowało.
-        try:
-            ustaw_uzytkownika_planu(imie or "", kod or "")
-        except Exception:
-            pass
-        try:
-            self._po_zmianie_konta(imie or "")
-        except Exception:
-            pass
-        online_zdarzenie(uruchomienia=1)
-        online_synchronizuj_w_tle()
-        self.show()
-        self.raise_(); self.activateWindow()
-        _zdejmij_kurtyne_powitania()   # scena powitalna ustępuje oknu programu
-        try:
-            self.toast.show_toast("Zalogowano",
-                                  ("Witaj, " + imie.split()[0] + "!") if imie else ("Kod " + kod),
-                                  success=True)
-        except Exception:
-            pass
-
     def _po_zmianie_konta(self, imie: str):
-        """Po zalogowaniu innej osoby bez restartu programu: pokazujemy
-        JEJ dane, nie te, które zostały na ekranie po poprzedniku."""
+        """Po zalogowaniu innej osoby bez restartu programu: planer pokazuje
+        JEJ adres bazy i JEJ listę sklepów, nie te po poprzedniku. Dane
+        pracownika panele czytają na bieżąco (_profil_pracownika)."""
+        self._imie_zalogowany = imie or ""
         try:
-            self.e_imie.setReadOnly(False)
-            self.e_imie.setText(imie or "")
-            if imie:
-                self.e_imie.setReadOnly(True)
-        except Exception:
-            pass
-        for pole in ("e_pesel", "e_adres"):
-            try:
-                getattr(self, pole).clear()
-            except Exception:
-                pass
-        try:
-            self._profil_zaproponowany = ""
-            self._podpowiedz_profil()          # dane TEJ osoby z profilu na dysku
-        except Exception:
-            pass
-        try:
-            if hasattr(self, "overlay_planer") and hasattr(self.overlay_planer, "pole_baza"):
+            if hasattr(self.overlay_planer, "pole_baza"):
                 self.overlay_planer.pole_baza.setText(ustawienie_osobiste("adres_bazy", ""))
         except Exception:
             pass
         try:
-            if hasattr(self, "overlay_planer") and hasattr(self.overlay_planer, "_przystanki"):
+            if hasattr(self.overlay_planer, "_przystanki"):
                 # lista sklepów w planerze też jest osobista — poprzednia
                 # zostawała na ekranie (i szła do zapisu pod nowym kontem)
                 self.overlay_planer._przystanki = list(wczytaj_punkty() or [])
@@ -21763,45 +17081,36 @@ class App(QMainWindow):
         self.overlay_staty.raise_()
         self.overlay_staty.show()
 
-    def _otworz_zwiad(self):
-        if self._last_folder:
-            hp = os.path.join(self._last_folder, "Trasy_Mapa.html")
-            if os.path.exists(hp):
-                webbrowser.open("file://" + os.path.realpath(hp).replace('\\', '/'))
-                return
-        self.toast.show_toast("Eksploracja",
-                              "Mapa tras pojawi się po pierwszym wygenerowaniu rozliczenia.",
-                              success=True)
+    def _otworz_tryb_trasy(self, dzien, data):
+        """Pełnoekranowy Tryb Trasy dla danego dnia — z przycisku w Planie
+        Wizyt. Nakładka powstaje przy pierwszym użyciu."""
+        if self.overlay_tryb_trasy is None:
+            self.overlay_tryb_trasy = TrybTrasyOverlay(self.main_container,
+                                                       on_zamknij=self._zamknij_tryb_trasy)
+        self.overlay_tryb_trasy.update_theme(self.is_dark)
+        self.overlay_tryb_trasy.resize(self.main_container.size())
+        self.overlay_tryb_trasy.ustaw_dzien(dzien, data)
+        self.overlay_tryb_trasy.raise_()
+        self.overlay_tryb_trasy.show()
 
-    def _otworz_archiwum(self):
-        """Archiwum — pokazuje historię TEGO pracownika (per-użytkownik) i otwiera
-        ostatni folder. Historia jest prywatna: wymaga wpisanego imienia+PESEL-u."""
-        imie = self.e_imie.text().strip()
-        pesel = self.e_pesel.text().strip()
-        historia = wczytaj_historie(imie, pesel) if (imie and pesel) else []
-        if historia:
-            ostatni = historia[0]
-            self.toast.show_toast(
-                "Ostatnio wygenerowano",
-                f"{ostatni.get('imie','')}  •  {ostatni.get('data','')}\n"
-                f"{ostatni.get('kwota','')} zł  •  {ostatni.get('dokumenty','?')} dok.  •  {ostatni.get('woj','')}",
-                success=True,
-                klik_akcja=(lambda f=ostatni.get('folder'): self._otworz_folder(f))
-            )
-        else:
-            target = self._last_folder if (self._last_folder and os.path.isdir(self._last_folder)) \
-                     else sciezka_pulpitu()
-            self.toast.show_toast("Archiwum",
-                                  "Brak historii dla tych danych.\nWpisz swoje imię i PESEL, aby zobaczyć własne rozliczenia." if not (imie and pesel) else "Brak zapisanych rozliczeń — wygeneruj pierwsze.",
-                                  success=True,
-                                  klik_akcja=(lambda t=target: self._otworz_folder(t)))
+    def _zamknij_tryb_trasy(self):
+        """Zamyka Tryb Trasy i odświeża plan, żeby pierścień/lista od razu
+        pokazały świeżo odhaczone wizyty."""
+        if self.overlay_tryb_trasy is not None:
+            self.overlay_tryb_trasy.hide()
+        if self.overlay_plan.isVisible():
+            self.overlay_plan._przerysuj()
 
+    # =====================================================================
+    #  DOKUMENTY Z PLANU
+    # =====================================================================
     def _na_wierzch(self):
         """Podnosi okno programu — po otwarciu dokumentu w innym programie
         okno PMT zostaje pod spodem i wygląda, jakby program zniknął."""
         try:
-            self.raise_()
-            self.activateWindow()
+            okno = self._rodzic_dialogow()
+            okno.raise_()
+            okno.activateWindow()
         except Exception:
             pass
 
@@ -21826,772 +17135,26 @@ class App(QMainWindow):
         if folder and os.path.isdir(folder):
             self._pokaz_dokumenty(folder)
 
-    def _folder_dokumentow(self):
-        """Folder z ostatnio wygenerowanym kompletem; gdy go nie ma — pytamy."""
-        folder = getattr(self, "_last_folder", None)
-        if folder and os.path.isdir(folder):
-            return folder
-        wybrany = QFileDialog.getExistingDirectory(self, "Folder z dokumentami",
-                                                   sciezka_pulpitu())
-        if wybrany and os.path.isdir(wybrany):
-            self._last_folder = wybrany
-            return wybrany
-        return ""
-
-    def _dane_do_tematu(self, folder):
-        """(imię, miesiąc, rok) do tematu wiadomości — z ostatniego
-        generowania, a gdy go nie było, z nazwy folderu."""
-        p = getattr(self, "_params", None) or {}
-        imie = p.get("imie") or ""
-        miesiac = p.get("miesiac") or ""
-        rok = p.get("rok") or ""
-        if not (imie and miesiac and rok):
-            modul = modul_pomocniczy("pmt_podpis")
-            if modul is not None:
-                try:
-                    i2, m2, r2 = modul.rozpoznaj_folder(os.path.basename(folder or ""))
-                    imie = imie or (i2 or "")
-                    miesiac = miesiac or (m2 or "")
-                    rok = rok or (r2 or "")
-                except Exception:
-                    pass
-        return (imie, miesiac, rok)
-
-    def _klik_podpis(self):
-        folder = self._folder_dokumentow()
-        if not folder:
-            return
-        dlg = DialogPodpis(self, folder=folder, is_dark=self.is_dark)
-        self._dialog_podpisu = dlg
-        try:
-            dlg.exec()
-        finally:
-            dlg.zatrzymaj_zegar()
-            self._dialog_podpisu = None
-        self._na_wierzch()
-
-    def _klik_wysylka(self):
-        folder = self._folder_dokumentow()
-        if not folder:
-            return
-        imie, miesiac, rok = self._dane_do_tematu(folder)
-        dlg = DialogWysylka(self, folder=folder, imie=imie, miesiac=miesiac,
-                            rok=rok, is_dark=self.is_dark)
-        try:
-            dlg.exec()
-        finally:
-            dlg.zakoncz_watek()
-            self._watek_wysylki = getattr(dlg, "watek", None)
-        self._na_wierzch()
-
-
-    def set_form_enabled(self, enabled):
-        self.e_imie.setEnabled(enabled); self.e_pesel.setEnabled(enabled)
-        self.e_adres.setEnabled(enabled); self.c_stan.setEnabled(enabled)
-        self.e_kwota.setEnabled(enabled); self.e_mies.setEnabled(enabled)
-        self.c_silnik.setEnabled(enabled)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.grip.move(self.width() - self.grip.width(), self.height() - self.grip.height())
-        self.btn_settings.move(self.sidebar_frame.width() - 38, self.height() - 110)
-        self.overlay.resize(self.main_container.size())
-        self.overlay_planer.resize(self.main_container.size())
-        if hasattr(self, "overlay_admin"):
-            self.overlay_admin.resize(self.main_container.size())
-        if hasattr(self, "overlay_staty"):
-            self.overlay_staty.resize(self.main_container.size())
-        if hasattr(self, "overlay_plan"):
-            self.overlay_plan.resize(self.main_container.size())
-        if hasattr(self, "overlay_tryb_trasy"):
-            self.overlay_tryb_trasy.resize(self.main_container.size())
-        if hasattr(self, "panel_powiadomien") and self.panel_powiadomien.isVisible():
-            self.panel_powiadomien.hide()
-        if hasattr(self, "_row2_b"):
-            QTimer.singleShot(0, self._uloz_parametry)
-
-    def mousePressEvent(self, event):
-        super().mousePressEvent(event)
-        # Klik poza panelem powiadomień i poza dzwoneczkiem — zamknij panel.
-        if hasattr(self, "panel_powiadomien") and self.panel_powiadomien.isVisible():
-            pt_panel = self.panel_powiadomien.mapFromGlobal(event.globalPosition().toPoint())
-            pt_btn = self.btn_dzwonek.mapFromGlobal(event.globalPosition().toPoint())
-            if not self.panel_powiadomien.rect().contains(pt_panel) and \
-               not self.btn_dzwonek.rect().contains(pt_btn):
-                self.panel_powiadomien.hide()
-
-    def intro_po_sprawdzeniu(self, imie: str = "", limit_ms: int = 0):
-        """Intro rusza OD RAZU po pokazaniu okna. Do 3.22.0 scena pod paskiem
-        była na ~2,6 s przykrywana czarną „kurtyną" w oczekiwaniu na werdykt
-        sprawdzania wersji — u użytkowników wyglądało to jak ścięty, czarny
-        ekran przed intrem. Werdykt przychodzi w tle, a okno aktualizacji
-        samo czeka, aż intro zejdzie (_pokaz_okno_aktualizacji)."""
-        self._kurtyna_start = None
-        if not INTRO_NA_STARCIE:
-            # Intro startowe wyłączone w tej wersji — wraca przy generowaniu
-            # dokumentów. Nic nie ma prawa czekać na jego koniec, więc od razu
-            # przechodzimy tam, gdzie doprowadziłby sygnał końca animacji.
-            self._intro = None
-            self._intro_gra = False
-            self._intro_zakonczone = False
-            _dziennik_animacji("intro na starcie wyłączone — od razu program")
-            self._intro_koniec()
-            return
-        self.pokaz_intro(imie)
-
-    def pokaz_intro(self, imie: str = ""):
-        """Animacja startowa jako NAKŁADKA wewnątrz okna programu.
-        Okno programu wyświetla się u każdego (to zwykłe okno), więc
-        nakładka też — koniec problemów z osobnym oknem pełnoekranowym."""
-        try:
-            _dziennik_animacji("start intro w wersji %s" % WERSJA_PROGRAMU)
-            self._intro_zakonczone = False
-            self._intro = None
-            _kat_prog = _katalog_programu()
-            # Klasyczne intro trwa ~20 s, żywa mapa ~21 s. Po 50 s bez
-            # zgłoszenia końca strażnik sam pokazuje program.
-            QTimer.singleShot(50000, self._intro_straznik)
-            if bool(ustawienie("bez_intra", False)) or _intro_wylaczone_plikiem(_kat_prog):
-                _dziennik_animacji("intro wyłączone (menu Wygląd albo BEZ_INTRA.txt) — od razu program")
-                self._intro_gra = False
-                self._intro_koniec()
-                return
-            # ── INTRO „Z ORBITY DO TRASY" (intro_zywa_mapa.py) ────────
-            # Globus → Polska → miasto użytkownika → żywa mapa trasy
-            # z logotypami sieci. Gra jako NAKŁADKA w oknie programu (jak
-            # klasyczna animacja), więc strażnik i zdejmowanie nakładek
-            # działają na nie tak samo. Każdy brak = klasyczna animacja.
-            try:
-                from intro_zywa_mapa import sprobuj_intro as _intro_mapa
-                _dane = dane_intra_z_dysku(imie or "")
-                if imie:
-                    _dane["imie"] = str(imie).split()[0]
-                self._intro_gra = True
-                # Intro jest malowane na ciemne tło (globus, mapa, jasne
-                # napisy) — w jasnym motywie napisy ginęły. Zawsze ciemne.
-                if _intro_mapa(self, dane=_dane, po_zakonczeniu=self._intro_koniec,
-                               katalog_zasobow=_kat_prog, ciemny=True):
-                    _dziennik_animacji("intro ŻYWA MAPA uruchomione (miasto: %s, węzłów: %d)"
-                                       % (_dane.get("miasto", "?"), len(_dane.get("wezly") or [])))
-                    return
-                self._intro_gra = False
-                _dziennik_animacji("intro żywa mapa niedostępne — klasyczna animacja")
-            except Exception:
-                self._intro_gra = False
-                try:
-                    import traceback
-                    _dziennik_animacji("intro żywa mapa BŁĄD — klasyczna animacja:\n"
-                                       + traceback.format_exc())
-                except Exception:
-                    pass
-            self._intro = AnimacjaStartowa(imie, is_dark=self.is_dark, parent=self)
-            self._intro.zakonczony.connect(self._intro_koniec)
-            self._intro.setGeometry(self.rect())
-            self._intro.raise_()
-            self._intro.show()
-            _dziennik_animacji("nakładka pokazana w oknie programu")
-        except Exception:
-            try:
-                import traceback
-                _dziennik_animacji("BŁĄD uruchamiania intro:\n" + traceback.format_exc())
-            except Exception:
-                pass
-
-    def _intro_koniec(self):
-        self._intro_gra = False
-        self._intro_zakonczone = True
-        try:
-            if hasattr(self, "logo_lbl"):
-                self.logo_lbl.setVisible(True)
-        except Exception:
-            pass
-        try:
-            if hasattr(self, "ekran_powitalny"):
-                self.ekran_powitalny.start_material()
-        except Exception:
-            pass
-        try:
-            intro = getattr(self, "_intro", None)
-            if intro is not None:
-                try:
-                    intro._zapisz_diag()
-                except Exception:
-                    pass          # dziennik to dodatek — nakładka MUSI zejść
-                intro.hide()
-                intro.deleteLater()
-                self._intro = None
-        except Exception:
-            pass
-        _dziennik_animacji("intro zakończone — ekran powitalny")
-        try:
-            _dymek = getattr(self, "_dymek_po_intrze", None)
-            if _dymek:
-                self._dymek_po_intrze = None
-                QTimer.singleShot(1200, lambda: self.toast.show_toast(_dymek[0], _dymek[1], success=True))
-        except Exception:
-            pass
-        # Żywa mapa wymuszona przez strażnika: zatrzymujemy jej zegar, żeby
-        # nie zgłosiła końca drugi raz (bez emitowania sygnału).
-        try:
-            for _dz in self.findChildren(QWidget):
-                if type(_dz).__name__ == "IntroZywaMapa" and not getattr(_dz, "_koniec_wyslany", True):
-                    _dz._koniec_wyslany = True
-                    try:
-                        _dz._timer.stop()
-                    except Exception:
-                        pass
-                    _dz.hide(); _dz.deleteLater()
-        except Exception:
-            pass
-        # Cokolwiek jeszcze zasłania CAŁE okno, ma zejść — pod spodem czeka
-        # gotowy program.
-        self._zdejmij_nakladki_pelnoekranowe()
-        # GŁĘBIA 3D dopiero TERAZ: nakładanie setek cieni przed intrem
-        # spowalniało samą animację (każda klatka przemalowywała też
-        # ocienione elementy pod spodem — stąd 45-sekundowe intro w 3.21.0).
-        if not getattr(self, "_glebia_nalozona", False):
-            self._glebia_nalozona = True
-            QTimer.singleShot(80, lambda: zastosuj_glebie_interfejsu(self))
-        # Zaproszenie do testów: po intrze, rzadko, zawsze do pominięcia.
-        if not getattr(self, "_zaproszenie_bylo", False):
-            self._zaproszenie_bylo = True
-            QTimer.singleShot(900, lambda: zaproszenie_testera(
-                self, getattr(self, "_imie_zalogowany", "") or "", self.is_dark))
-
-    def _zdejmij_nakladki_pelnoekranowe(self):
-        """Chowa każdy widżet-dziecko, który przykrywa całe okno i nie jest
-        główną sceną. Tylko po takich zostaje „czarny ekran"."""
-        try:
-            for dziecko in self.findChildren(QWidget):
-                try:
-                    if dziecko.parent() is not self or not dziecko.isVisible():
-                        continue
-                    if dziecko is getattr(self, "main_container", None):
-                        continue
-                    if dziecko is getattr(self, "bg", None):
-                        continue
-                    g = dziecko.geometry()
-                    if g.width() >= self.width() - 2 and g.height() >= self.height() - 2 \
-                            and type(dziecko).__name__ not in ("ImageBackgroundWidget",):
-                        _dziennik_animacji("zdejmuję nakładkę pełnoekranową: %s"
-                                           % type(dziecko).__name__)
-                        dziecko.hide()
-                        dziecko.deleteLater()
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-    def _intro_straznik(self):
-        """BEZPIECZNIK: gdyby intro (klasyczne albo wideo) z jakiegokolwiek
-        powodu nie zgłosiło końca, po upływie czasu z zapasem wymuszamy
-        przejście do programu. Ciemny ekran po intro nie ma prawa zostać."""
-        try:
-            gra = getattr(self, "_intro_gra", False)
-            intro = getattr(self, "_intro", None)
-            if not gra and intro is None and getattr(self, "_intro_zakonczone", False):
-                return
-            _dziennik_animacji("STRAŻNIK: intro nie zgłosiło końca w terminie — wymuszam")
-            self._intro_koniec()
-        except Exception:
-            pass
-
     def closeEvent(self, event):
-        # Zegar podpisu i watek wysylki NIE MOGA przezyc okna.
-        try:
-            dlg = getattr(self, "_dialog_podpisu", None)
-            if dlg is not None:
-                dlg.zatrzymaj_zegar()
-        except Exception:
-            pass
-        try:
-            watek = getattr(self, "_watek_wysylki", None)
-            if watek is not None and watek.isRunning():
-                watek.przerwij()
-                watek.wait(5000)
-        except Exception:
-            pass
-        # pas bezpieczenstwa: stan motywu ZAWSZE trafia na dysk przy wyjsciu
-        try:
-            zapisz_ustawienie("ciemny_motyw", self.is_dark)
-        except Exception:
-            pass
+        # Wątki planowania i aktualizacji NIE MOGĄ przeżyć okna.
+        self._zatrzymaj_watki()
         try:
             super().closeEvent(event)
         except Exception:
             pass
 
-    def toggle_theme(self):
-        self.is_dark = not self.is_dark
-        zapisz_ustawienie("ciemny_motyw", self.is_dark)   # splash i kolejny start podążą za motywem
-        self.apply_theme()
-
-    def apply_theme(self):
-        # Zamrażamy odświeżanie na czas nakładania motywu — dziesiątki zmian
-        # stylów nie wywołują wtedy dziesiątek pełnych przerysowań okna.
-        _start_motywu = time.time()
-        self.setUpdatesEnabled(False)
-        try:
-            self._apply_theme_srodek()
-        finally:
-            self.setUpdatesEnabled(True)
-            self.update()
-        _dziennik_animacji("motyw nałożony w %.2f s" % (time.time() - _start_motywu))
-
-    def _apply_theme_srodek(self):
-        self.main_container.set_theme(self.is_dark)
-        self.title_bar.update_theme(self.is_dark)
-
-        self.btn_theme.update_theme(self.is_dark)
-        if hasattr(self, "btn_intro"):
-            self.btn_intro.update_theme(self.is_dark)
-        self.btn_tester.update_theme(self.is_dark)
-        self.btn_haslo.update_theme(self.is_dark)
-        self.btn_dzwonek.is_dark = self.is_dark; self.btn_dzwonek.update()
-        if hasattr(self, "panel_powiadomien"): self.panel_powiadomien.update_theme(self.is_dark)
-        self.si_imie.update_theme(self.is_dark)
-        self.si_pesel.update_theme(self.is_dark)
-        self.si_adres.update_theme(self.is_dark)
-        self.si_stan.update_theme(self.is_dark)
-        self.si_kwota.update_theme(self.is_dark)
-        self.si_mies.update_theme(self.is_dark)
-        self.si_silnik.update_theme(self.is_dark)
-        self.btn.update_theme(self.is_dark)
-        if hasattr(self, "btn_podpis"):
-            self.btn_podpis.update_theme(self.is_dark)
-        if hasattr(self, "btn_wysylka"):
-            self.btn_wysylka.update_theme(self.is_dark)
-        self.gps_prog.set_theme(self.is_dark)
-        # Nakładka planera przebudowuje przy motywie WSZYSTKIE wiersze bazy
-        # (kolory są wypalane w widżety) — przy pełnej bazie to sekundy.
-        # Ukrytą pomijamy: motyw nałoży _pokaz_planer przy otwarciu.
-        if self.overlay_planer.isVisible():
-            self.overlay_planer.update_theme(self.is_dark)
-        if hasattr(self, "ekran_powitalny"):
-            self.ekran_powitalny.update_theme(self.is_dark)
-
-        if self.is_dark:
-            c_text_hi = "#F8FAFC"
-            c_text_med = "#94A3B8"
-            c_accent = "#00F0FF"
-            # Gradient tytułów sekcji = gradient tła logo PMT
-            c_title_grad = "qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #00F0FF, stop:1 #00E4A1)"
-            self.topbar.setStyleSheet("border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: transparent;")
-            if hasattr(self, "logo_lbl") and hasattr(self.logo_lbl, "update_theme"):
-                self.logo_lbl.update_theme(True)
-
-            self.sidebar_frame.setStyleSheet("QFrame { background-color: rgba(10, 18, 30, 0.5); border-right: 2px solid rgba(0, 240, 255, 0.30); border-radius: 0px; }")
-            self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #E2E8F0; border: none; font-size: 56px; } QPushButton:hover { color: #00F0FF; }")
-            self.btn_bug.setStyleSheet("QPushButton { background-color: #EF4444; color: white; border: none; border-radius: 14px; padding: 6px 16px; font-family: 'Segoe UI', sans-serif; font-size: 12px; font-weight: bold; } QPushButton:hover { background-color: #DC2626; }")
-
-            card_style = "QFrame { background-color: rgba(10, 18, 30, 0.25); border: 1px solid rgba(0, 240, 255, 0.15); border-radius: 12px; }"
-            self.card_top_frame.setStyleSheet(card_style)
-            self.card_bot_frame.setStyleSheet(card_style)
-
-            self.bot_card.setStyleSheet("QFrame { background-color: rgba(10, 15, 30, 0.45); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 12px; }")
-            self.ic_user.set_color(c_accent)
-            self.ic_map.set_color(c_accent)
-            self.status_icon.set_color("#00E4A1")
-        else:
-            c_text_hi = "#0F172A"
-            c_text_med = "#475569"
-            c_accent = "#0D9488"
-            c_title_grad = "qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #0D9488, stop:1 #059669)"
-            self.topbar.setStyleSheet("border-bottom: 1px solid rgba(0, 0, 0, 0.10); background: transparent;")
-            if hasattr(self, "logo_lbl") and hasattr(self.logo_lbl, "update_theme"):
-                self.logo_lbl.update_theme(False)
-
-            self.sidebar_frame.setStyleSheet("QFrame { background-color: rgba(255, 255, 255, 0.85); border-right: 2px solid rgba(100, 116, 139, 0.70); border-radius: 0px; }")
-            self.btn_settings.setStyleSheet("QPushButton { background: transparent; color: #0F172A; border: none; font-size: 56px; } QPushButton:hover { color: #0D9488; }")
-            self.btn_bug.setStyleSheet("QPushButton { background-color: #DC2626; color: white; border: none; border-radius: 14px; padding: 6px 16px; font-family: 'Segoe UI', sans-serif; font-size: 12px; font-weight: bold; } QPushButton:hover { background-color: #B91C1C; }")
-
-            card_style_light = "QFrame { background-color: rgba(255, 255, 255, 0.86); border: 1px solid rgba(15, 23, 42, 0.16); border-radius: 12px; }"
-            self.card_top_frame.setStyleSheet(card_style_light)
-            self.card_bot_frame.setStyleSheet(card_style_light)
-
-            self.bot_card.setStyleSheet("QFrame { background-color: rgba(255, 255, 255, 0.88); border: 1px solid rgba(15, 23, 42, 0.18); border-radius: 12px; }")
-            self.ic_user.set_color(c_accent)
-            self.ic_map.set_color(c_accent)
-            self.status_icon.set_color("#10B981")
-
-        # Separator sidebara, panel asystenta, oś czasu
-        self.sidebar_sep.setStyleSheet(
-            f"background-color: {'rgba(0,240,255,0.15)' if self.is_dark else 'rgba(15,23,42,0.12)'}; border: none; margin: 6px 8px;")
-        self.assistant.set_theme(self.is_dark)
-        self.timeline.set_theme(self.is_dark)
-
-        # Ikony przycisków nawigacji + animowana belka aktywnego
-        for b, icon in self._nav_defs:
-            pix = QPixmap(30, 30); pix.fill(Qt.GlobalColor.transparent)
-            pnt = QPainter(pix)
-            draw_svg_icon(pnt, icon, QRectF(1, 1, 28, 28), QColor(c_accent), self.is_dark)
-            pnt.end()
-            b.setIcon(QIcon(pix)); b.setIconSize(pix.size())
-        self._maluj_nav_belke()
-
-        self.t1.setStyleSheet(f"font-family: 'Segoe UI', sans-serif; font-size: 20px; font-weight: 700; color: {c_text_hi}; border: none; background: transparent;")
-        # Tytuły sekcji w gradiencie logo PMT
-        title_grad_style = f"font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 800; color: {c_title_grad}; letter-spacing: 1.5px; background: transparent; border: none;"
-        self.lbl_u_title.setStyleSheet(title_grad_style)
-        self.lbl_m_title.setStyleSheet(title_grad_style)
-        self.lbl_u_desc.setStyleSheet(f"font-family: 'Segoe UI', sans-serif; font-size: 11px; color: {c_text_med}; background: transparent; border: none;")
-        self.lbl_m_desc.setStyleSheet(f"font-family: 'Segoe UI', sans-serif; font-size: 11px; color: {c_text_med}; background: transparent; border: none;")
-
-        lbl_style = f"font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; color: {c_text_hi}; background: transparent; border: none;"
-        self.l_imie.setStyleSheet(lbl_style); self.l_pesel.setStyleSheet(lbl_style); self.l_adres.setStyleSheet(lbl_style)
-        self.l_stan.setStyleSheet(lbl_style); self.l_kwota.setStyleSheet(lbl_style); self.l_mies.setStyleSheet(lbl_style)
-        self.l_silnik.setStyleSheet(lbl_style)
-
-        self.lbl_status.setStyleSheet(f"color:{c_text_hi}; font-family:'Segoe UI', sans-serif; font-size:12px; font-weight:500; background: transparent; border: none;")
-        self.lbl_pct.setStyleSheet(f"color:{c_text_med}; font-family:'Segoe UI', sans-serif; font-size:12px; font-weight:700; background: transparent; border: none;")
-        if hasattr(self, "btn_tryb_tydzien"):
-            self._odswiez_przyciski_trybu()
-        if hasattr(self, "btn_wylacz_dni"):
-            self._odswiez_przycisk_dni()
-
-    def reset_ui(self):
-        self.timeline.reset()
-        self.set_form_enabled(True)
-
-    def status(self, tekst, postep=None):
-        # Sam tekst statusu w overlayu; etapy osi czasu sterowane własnym
-        # scenariuszem (_scenariusz_timeline), nie surowym postępem wątku —
-        # dzięki temu animacja ma stałe, przyjemne tempo niezależnie od
-        # tego jak szybko policzył się wynik.
-        # Liczba 0..1 z sygnału wątku szła dotąd do kosza. Dopisujemy ją do
-        # NAPISU jako procent — i tylko tam: oś czasu i warunki finalizacji
-        # nadal nie widzą tej liczby na oczy.
-        try:
-            if postep is not None:
-                _p = int(round(max(0.0, min(1.0, float(postep))) * 100))
-                tekst = "%s  %d%%" % (str(tekst).rstrip(), _p)
-        except Exception:
-            pass
-        self.overlay.update_status(tekst)
-
-    def _scenariusz_timeline(self):
-        """Odtwarza oś czasu w spokojnym tempie: Walidacja→Trasy→PDF→Mapa.
-        Ostatni etap (Gotowe) zapala się dopiero po realnym zakończeniu wątku."""
-        self._tl_step = 0
-        # (docelowy_etap, ile_ms_nalewać, ile_ms_pauzy_po)
-        self._tl_plan = [
-            (0, 500, 250),   # Walidacja
-            (1, 850, 350),   # Trasy (najdłużej — to serce liczenia)
-            (2, 700, 300),   # PDF
-            (3, 650, 250),   # Mapa
-        ]
-        self._tl_gotowe = False          # ustawiane przez wątek gdy skończy
-        self._tl_wynik = None            # (finalne_dni, pracownik, folder)
-        self._graj_kolejny_etap()
-
-    def _graj_kolejny_etap(self):
-        if self._tl_step < len(self._tl_plan):
-            idx, czas, pauza = self._tl_plan[self._tl_step]
-            self.timeline.ustaw_etap(idx, czas)
-            self._tl_step += 1
-            QTimer.singleShot(czas + pauza, self._graj_kolejny_etap)
-        else:
-            # doszliśmy do Mapy — czekamy aż wątek zgłosi sukces
-            self._sprawdz_gotowosc()
-
-    def _sprawdz_gotowosc(self):
-        if self._tl_gotowe and self._tl_wynik is not None:
-            self._finalizuj_sukces(*self._tl_wynik)
-        else:
-            QTimer.singleShot(120, self._sprawdz_gotowosc)   # dopinguj co 120ms
-
-    def _enter_generuj(self):
-        """Enter zatwierdza formularz. Jeśli wszystko OK — generuje.
-        Jeśli czegoś brakuje — przenosi kursor do pierwszego niegotowego pola."""
-        if self.btn.is_loading if hasattr(self.btn, 'is_loading') else False:
-            return
-        braki = [
-            (self.e_imie,  not self.e_imie.text().strip()),
-            (self.e_pesel, not waliduj_pesel(self.e_pesel.text().strip())),
-            (self.e_adres, not self.e_adres.text().strip()),
-            (self.e_kwota, not self.e_kwota.text().strip()),
-            (self.e_mies,  not re.match(r"^\d{2}\.\d{4}$", self.e_mies.text().strip().replace('-', '.').replace('/', '.').replace(' ', ''))),
-        ]
-        for pole, brak in braki:
-            if brak:
-                pole.setFocus(); pole.selectAll()
-                return
-        self.proces()
-
-    def proces(self):
-        self.btn.start_loading()
-        self.set_form_enabled(False)
-        self.timeline.reset()
-
-        try:
-            imie  = ' '.join(w.capitalize() for w in self.e_imie.text().split())
-            pesel = self.e_pesel.text().strip()
-            adres = self.e_adres.text().strip()
-            mies_s  = self.e_mies.text().strip().replace('-', '.').replace('/', '.').replace(' ', '')
-            kwota_s = self.e_kwota.text().strip().replace(' ', '').replace(',', '.')
-
-            if not all([imie, pesel, adres, mies_s, kwota_s]): raise ValueError("Proszę uzupełnić wszystkie pola formularza.")
-            if not waliduj_pesel(pesel): raise ValueError("Wprowadzony numer PESEL jest nieprawidłowy.")
-
-            adres_d = waliduj_adres(adres)
-            # Adres niejednoznaczny (np. "Zielona Ścieżka" — ulica czy wieś?).
-            # Zamiast zgadywać, pytamy użytkownika i ponawiamy z jego decyzją.
-            if adres_d.get('niejednoznaczne'):
-                nazwa_q = adres_d.get('nazwa_do_pytania', '')
-                dlg = DialogWyboru(
-                    self,
-                    "DOPRECYZUJ ADRES",
-                    f"„{nazwa_q}” — to nazwa ulicy czy miejscowości?",
-                    "",
-                    "To ulica", "To miejscowość",
-                    is_dark=self.is_dark)
-                wynik = dlg.exec_wybor()
-                wybor = 'ulica' if wynik == 'a' else 'wies'
-                adres_d = waliduj_adres(adres, wymus_typ=wybor)
-            mies, rok = waliduj_miesiac(mies_s)
-            kwota = waliduj_kwote(kwota_s)
-            woj = rozpoznaj_wojewodztwo(adres_d['kod_pocztowy'])
-
-            # Tryb pracy MUSI być ustawiony przed pobraniem dni — od niego
-            # zależy, czy w planie znajdą się soboty i niedziele handlowe,
-            # oraz jak długi jest dzień pracy.
-            ustaw_tryb_pracy("wieczory" if self.tryb_wybrany == 1 else "tydzien")
-            dni = pobierz_dni_robocze(rok, mies)
-            # Dni oznaczone jako wolne wypadają z planu — kwota rozłoży się
-            # na pozostałe dni miesiąca.
-            _wyl = getattr(self, "dni_wylaczone", set())
-            if _wyl:
-                dni = [d for d in dni if d not in _wyl]
-                if not dni:
-                    raise ValueError("Wyłączyłeś wszystkie dni w tym miesiącu.\n"
-                                     "Odznacz przynajmniej jeden dzień.")
-            stawka = 0.89 if self.c_silnik.currentIndex() == 0 else 1.15
-            # Górna granica miesiąca: dni robocze × REALNY sufit dnia. Sufit
-            # dnia bierze się z fizyki doby (posiłek + jazda + postoje),
-            # przyciętej regulaminowym MAX_KWOTA_DNIA — nie z samego regulaminu.
-            _sufit_dnia = pojemnosc_dnia_zl(POSTOJE_TYPOWE, stawka)
-            _max_kwota = maks_kwota_miesiaca(len(dni), stawka)
-            if kwota > _max_kwota:
-                _zl = lambda _w: f"{_w:,.2f}".replace(",", " ").replace(".", ",")
-                raise ValueError(
-                    "Kwota za wysoka na ten miesiąc.\n\n"
-                    f"Dni robocze: {len(dni)}\n"
-                    f"Dzień: {_zl(_sufit_dnia)} zł "
-                    f"({LIMIT_CZASU_MINUTY // 60} h: posiłek, jazda, "
-                    f"{POSTOJE_TYPOWE} postojów)\n"
-                    f"Maksimum: {_zl(_max_kwota)} zł")
-
-            # PUSTY PRZEŁOŻONY = pusta rubryka na KAŻDYM dokumencie, i to
-            # widać dopiero po otwarciu PDF-a. Mówimy o tym PRZED generowaniem,
-            # bo to jedyny moment, w którym da się to poprawić bez powtarzania
-            # całej pracy. Nie blokujemy — czasem dokument ma wyjść bez nazwiska.
-            try:
-                _dziennik_animacji("MENEDZER na dokumencie: %r  (zrodlo: %s)"
-                                   % (_menedzer(), _menedzer_zrodlo()))
-            except Exception:
-                pass
-            if not _menedzer():
-                _dalej = _okno_pmt(
-                    self, "Rubryka PRZEŁOŻONY jest pusta",
-                    "Na wszystkich delegacjach i w rozliczeniu pole MENEDŻER "
-                    "wyjdzie puste.\n\n"
-                    "Ta paczka programu nie ma pliku menedzer.txt (nazwisko "
-                    "przełożonego dołącza się przy budowaniu). Zgłoś to "
-                    "administratorowi i kliknij Anuluj, żeby wrócić.\n\n"
-                    "OK = generuję mimo to, z pustą rubryką.")
-                if _dalej is not True:
-                    self.reset_ui()
-                    return
-
-            # Zapamiętaj profil pracownika (prywatny, kluczowany nazwisko+PESEL)
-            zapisz_profil(imie, pesel, adres_d['adres_caly'], self.c_stan.currentText(), self.c_silnik.currentIndex())
-
-            self._params = {
-                'imie': imie, 'pesel': pesel, 'adres_caly': adres_d['adres_caly'],
-                'adres_geo': adres_d.get('adres_geo', adres_d['adres_caly']),
-                'kod_pocztowy': adres_d['kod_pocztowy'], 'baza_miasto': adres_d['baza_miasto'],
-                'stanowisko': self.c_stan.currentText(), 'kwota_cel': kwota,
-                'miesiac': mies, 'rok': rok, 'miesiac_slownie': MIESIACE_PL[mies - 1],
-                'woj': woj, 'dni_robocze': dni, 'is_dark': self.is_dark, 'stawka': stawka,
-            }
-
-            self.overlay.show_generating()
-            self._scenariusz_timeline()          # start spokojnej animacji osi
-
-            self._thread = GeneratorThread(self._params)
-            self._thread.postep.connect(self._on_progress)
-            self._thread.sukces.connect(self._na_sukces)
-            self._thread.blad.connect(self._na_blad)
-            self._thread.start()
-
-        except Exception as e:
-            self.btn.stop_loading()
-            self.reset_ui()
-            self.overlay.hide_overlay()
-            self.toast.show_toast("Błąd Walidacji", str(e))
-
-    def _on_progress(self, tekst, postep):
-        self.status(tekst, postep)
-
-    def _na_blad(self, msg):
-        self.overlay.hide_overlay()
-        self.btn.stop_loading()
-        self.reset_ui()
-        self.toast.show_toast("Błąd Generowania", str(msg))
-
-    def _na_sukces(self, finalne_dni, pracownik, folder):
-        # Wątek skończył — ale finalizację odpala scenariusz osi czasu,
-        # gdy tylko animacja dojedzie do etapu "Mapa". Jeśli już tam jest,
-        # _sprawdz_gotowosc wychwyci to natychmiast.
-        self._tl_wynik = (finalne_dni, pracownik, folder)
-        self._tl_gotowe = True
-
-    def _finalizuj_sukces(self, finalne_dni, pracownik, folder):
-        self.timeline.ustaw_etap(4, 550)   # Gotowe — cała oś zapalona, płynnie
-        self.btn.stop_loading()
-        self._last_folder = folder
-
-        # Zapis do historii (prywatnej dla tego pracownika)
-        p = self._params
-        suma = round(sum(d.suma for d in finalne_dni), 2)
-        # łączne kilometry z tras (realny dystans po drogach)
-        km_total = 0.0
-        for d in finalne_dni:
-            for e in d.etapy_surowe:
-                km_total += getattr(e, 'dystans_rzeczywisty', e.d_line)
-        # Zbierz WSZYSTKIE odwiedzone województwa (nie tylko bazę!) — z etapów.
-        # Dzięki temu analityka pokaże realny udział regionów, także sąsiednich.
-        woj_wizyty = {}
-        for d in finalne_dni:
-            for e in d.etapy_surowe:
-                w = getattr(e, 'dokad_woj', '') or ''
-                w = w.strip()
-                if w:                                  # pomijamy powroty do bazy (puste)
-                    klucz = w.capitalize()
-                    woj_wizyty[klucz] = woj_wizyty.get(klucz, 0) + 1
-        # awaryjnie: gdyby etapy nie miały województw, użyj bazy
-        if not woj_wizyty:
-            woj_wizyty = {p['woj'].capitalize(): 1}
-
-        # Zbierz ODWIEDZANE MIEJSCOWOŚCI (z etapów), POMIJAJĄC bazę startową/
-        # końcową — to punkty pośrednie trasy. Do wykresu "top miejscowości".
-        baza_nazwa = (p.get('baza_miasto', '') or '').strip().lower()
-        miejsc_wizyty = {}
-        for d in finalne_dni:
-            for e in d.etapy_surowe:
-                cel = (getattr(e, 'dokad', '') or '').strip()
-                if cel and cel.lower() != baza_nazwa:
-                    miejsc_wizyty[cel] = miejsc_wizyty.get(cel, 0) + 1
-        # Konkretne DATY dni wyjazdowych (ISO) — do oznaczenia w kalendarzu.
-        # Delegacja obejmuje wiele dni jazdy; zapisujemy każdy z nich.
-        dni_daty = []
-        for d in finalne_dni:
-            try:
-                dni_daty.append(d.data.isoformat())     # "2026-07-01"
-            except Exception:
-                pass
-        try:
-            dodaj_do_historii(p['imie'], p['pesel'], {
-                "imie": p['imie'],
-                "data": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
-                "kwota": f"{suma:.2f}",
-                "woj": p['woj'].capitalize(),          # baza (dla zgodności wstecz)
-                "woj_wizyty": woj_wizyty,              # WSZYSTKIE odwiedzone regiony
-                "baza": p.get('baza_miasto', '') or '', # miejscowość bazowa
-                "miejsc_wizyty": miejsc_wizyty,        # odwiedzane miejscowości (bez bazy)
-                # liczymy PLIKI, które naprawdę powstały — podział na dokumenty
-                # zależy też od limitu 30 etapów, nie tylko od kwoty
-                "dokumenty": (len([_n for _n in os.listdir(folder)
-                                   if _n.lower().startswith("delegacja_") and _n.lower().endswith(".pdf")])
-                              if os.path.isdir(folder) else 0)
-                             or (ile_dokumentow(suma) if suma else 0),
-                "km": round(km_total),
-                "miesiac": p['miesiac'],
-                "rok": p['rok'],
-                "dni_wyjazdowe": len(finalne_dni),
-                "dni_daty": dni_daty,                  # daty dni wyjazdowych (ISO)
-                "folder": folder,
-            })
-        except Exception as e:
-            log_error(e)
-
-        # Najpierw pasek dojeżdża do "Gotowe" (~750ms), DOPIERO POTEM wjeżdża
-        # logo z rysującą się okejką — jako finałowa gratulacja.
-        QTimer.singleShot(750, self.overlay.show_success)
-        # 750ms pasek + ~5.2s efekt (orbita domyka pełny krąg + checkmark) przed otwarciem
-        QTimer.singleShot(6100, lambda: self._zakoncz_po_sukcesie(folder))
-
-    def _zakoncz_po_sukcesie(self, folder):
-        self.reset_ui()
-        # STAN ŹRÓDŁA ODLEGŁOŚCI. Gdy choć jeden odcinek policzył szacunek,
-        # mówimy to wprost — zamiast pokazywać nierealne kilometry jak realne.
-        _zr = getattr(getattr(self, "_thread", None), "_zrodlo", None) or {}
-        if _zr.get("stan") == ZRODLO_SZACUNEK:
-            self.toast.show_toast(
-                "Odległości: szacunek",
-                "%d z %d odcinków."
-                % (_zr.get(ZRODLO_SZACUNEK, 0), _zr.get("odcinki", 0)),
-                success=False,
-                klik_akcja=(lambda f=folder: self._otworz_folder(f))
-            )
-        # Jeśli realnymi trasami nie dało się pokryć pełnej kwoty (za wysoka na
-        # ten miesiąc/rejon) — informujemy uczciwie, zamiast pompować trasy.
-        if getattr(self, "_thread", None) and getattr(self._thread, "_kwota_niepelna", False):
-            osiag = getattr(self._thread, "_kwota_osiagnieta", 0.0)
-            cel = getattr(self._thread, "_kwota_docelowa", 0.0)
-            self.toast.show_toast(
-                "Kwota częściowo rozpisana",
-                f"Przy realnych trasach w tym miesiącu udało się rozpisać "
-                f"{osiag:,.0f} zł z {cel:,.0f} zł.\n".replace(","," ") +
-                "Wszystkie dostępne dni robocze zostały wykorzystane — pozostała "
-                "kwota nie mieści się w realnych trasach. Zmniejsz kwotę lub wybierz "
-                "miesiąc z większą liczbą dni.",
-                success=False,
-                klik_akcja=(lambda f=folder: self._otworz_folder(f))
-            )
-        elif getattr(self, "_thread", None) and getattr(self._thread, "_kwota_za_mala", False):
-            minimum = float(getattr(self._thread, "_kwota_min_realna", 0.0) or 0.0)
-            self.toast.show_toast(
-                "Kwota za mała na realną trasę",
-                ("Nawet najkrótszy dzień (2 postoje) kosztuje przy realnej drodze "
-                 "ok. %s zł. Odcinki zostały skrócone poniżej realnej drogi, żeby "
-                 "nie przekroczyć wpisanej kwoty — dokument jest gotowy, ale "
-                 "wiarygodniej będzie z wyższą kwotą.") % ("{:,.0f}".format(minimum).replace(",", " ")),
-                success=False,
-                klik_akcja=(lambda f=folder: self._otworz_folder(f))
-            )
-        else:
-            # Toast KLIKALNY — kliknięcie otwiera folder bez dodatkowych okien
-            self.toast.show_toast(
-                "PDF wygenerowany",
-                "Rozliczenie gotowe. Odległości: %s."
-                % _zr.get("etykieta", ETYKIETY_ZRODLA[ZRODLO_DROGI]),
-                success=True,
-                klik_akcja=(lambda f=folder: self._otworz_folder(f))
-            )
-        html_path = os.path.join(folder, "Trasy_Mapa.html")
-        if os.path.exists(html_path):
-            webbrowser.open("file://" + os.path.realpath(html_path).replace('\\', '/'))
-        # Na wierzchu ma stanac GOTOWY DOKUMENT, nie folder — a zaraz po nim
-        # okno programu, zeby nie zniknelo pod przegladarka i czytnikiem PDF.
-        self._pokaz_dokumenty(folder)
-
 
 def zbuduj_okno_glowne(argv=None):
     """Okno główne programu — powstaje na KOŃCU sekwencji startowej.
 
-    Domyślnie jest to nowy ekran (nowy_wyglad.OknoNowegoWygladu). Stary
-    interfejs (klasa App) powstaje zawsze, ale zostaje UKRYTY: trzyma
-    panele (Planer, Plan Wizyt, Twoja praca, Ustawienia), pilnuje
-    aktualizacji i centrum powiadomień, a pokazuje te panele rama nowego
-    ekranu (nowy_wyglad.NakladkaDzialu). Argument --stary jest wyjściem
-    awaryjnym: oddaje dawne okno jako główne."""
-    argv = list(sys.argv if argv is None else argv)
-    stare = App()
-    if "--stary" in argv:
-        return stare
+    Jest nim ZAWSZE nowy ekran (nowy_wyglad.OknoNowegoWygladu). Klasa App
+    to dziś tylko pojemnik na panele (Planer, Plan Wizyt, Twoja praca,
+    Ustawienia), aktualizacje i historię powiadomień — powstaje razem
+    z nowym ekranem i zostaje ukryta; panele pokazuje rama nowego ekranu
+    (nowy_wyglad.NakladkaDzialu). Dawne wyjście awaryjne --stary
+    zniknęło w 3.23.0: nie ma już okna, które mogłoby oddać."""
     import nowy_wyglad
-    return nowy_wyglad.OknoNowegoWygladu(stare_okno=stare)
+    return nowy_wyglad.OknoNowegoWygladu(stare_okno=App())
 
 
 if __name__ == "__main__":
@@ -22774,10 +17337,6 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    # Animacja startowa gra teraz WEWNĄTRZ okna programu (window.pokaz_intro
-    # poniżej) — osobne pełnoekranowe okno bywało niewidoczne na części
-    # komputerów, mimo że rysowało klatki.
-
     _dziennik_animacji("zalogowano — buduję okno programu")
     online_zdarzenie(uruchomienia=1)   # lokalna kolejka — błyskawiczne
     _START_PROGRAMU = datetime.datetime.now()
@@ -22788,7 +17347,7 @@ if __name__ == "__main__":
     # online_synchronizuj() to synchroniczne zapytanie do backendu (przy
     # zimnym starcie Apps Script potrafi trwać kilka sekund). Wcześniej
     # blokowało start MIĘDZY zalogowaniem a pokazaniem okna — użytkownik
-    # patrzył w pustkę. Teraz okno z intro otwiera się od razu, a werdykt
+    # patrzył w pustkę. Teraz okno otwiera się od razu, a werdykt
     # sesji przychodzi z wątku; nieważna sesja zamyka program tym samym
     # komunikatem co dotąd.
     _sesja_wynik = {}
@@ -22880,7 +17439,7 @@ if __name__ == "__main__":
         pass
     window.show()
     _zdejmij_kurtyne_powitania()    # scena powitalna ustępuje oknu programu
-    window.intro_po_sprawdzeniu(_imie_zal if "_imie_zal" in dir() else "")
+    window.po_starcie(_imie_zal if "_imie_zal" in dir() else "")
 
     def _werdykt_sesji():
         if "gotowe" not in _sesja_wynik:

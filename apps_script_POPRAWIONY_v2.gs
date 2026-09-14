@@ -27,6 +27,27 @@
  *  UWAGA PO ZMIANACH KODU: po każdej edycji tego skryptu trzeba zrobić
  *  Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż,
  *  inaczej pod adresem /exec dalej działa stara wersja.
+ *
+ *  ── ZMIANY PRZY WYDANIU 3.23.0 (co zmieniono, co trzeba wdrożyć) ──
+ *  1. zmienHaslo: numer telefonu ustawia hasło TYLKO na koncie, które
+ *     hasła jeszcze nie ma (pierwsze logowanie albo tuż po resecie) —
+ *     ten sam warunek, co w logowanie(). Dotąd kto znał cudzy numer,
+ *     podmieniał cudze hasło. Program: zmiana hasła = dotychczasowe
+ *     hasło; „Nie pamiętam hasła" = reset_hasla + zmien_haslo telefonem
+ *     (hash już skasowany, więc przechodzi) — działa bez zmian.
+ *  2. resetHasla: limit prób w CacheService — 5 na godzinę na kod
+ *     i 30 na godzinę łącznie (Apps Script nie zdradza adresu
+ *     wywołującego, więc licznik „na adres" zastępuje licznik łączny).
+ *     KAŻDA próba (także odrzucona) ląduje w zakładce Log.
+ *  3. puls: odpowiedź niesie tylko nieobecności pytającego kodu oraz
+ *     kodów, które on zastępuje — nie całego zespołu. Program tylko
+ *     zapisuje tę listę w pamięci podręcznej, nic z cudzych wpisów nie
+ *     czyta, więc nic mu nie ubywa.
+ *  WDROŻENIE: wklej CAŁY ten plik do Code.gs (jeśli masz już na górze
+ *  blok z BACKEND_APPS_SCRIPT.txt — SEKRETY_PMT, weryfikujPodpis — zostaw
+ *  go), zapisz, potem Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja:
+ *  Nowa → Wdróż. Adres /exec zostaje ten sam. Sprawdź: logowanie
+ *  z programu, „Nie pamiętam hasła" z programu, logowanie z telefonu.
  *********************************************************************/
 
 var ZAKLADKA_UZYTKOWNICY  = "Uzytkownicy";
@@ -135,15 +156,20 @@ function obsluzPuls(dane) {
     imie: String(w[1] || ""),
     rejon: String(w[2] || ""),
     wazne_do: wazne ? Utilities.formatDate(wazne, "Europe/Warsaw", "yyyy-MM-dd") : "",
-    nieobecnosci: _nieobecnosci(ss)
+    nieobecnosci: _nieobecnosci(ss, kod)
   };
 }
 
 /* ------------------------------------------------------------------ */
 /*  Nieobecności: urlopy / L4 / zastępstwa                            */
 /*  Zwracamy tylko bieżące i przyszłe — historia programu nie obchodzi */
+/*  I TYLKO WŁASNE (kod pytającego) oraz osób, które pytający zastępuje */
+/*  — puls nie sprawdza hasła, więc nie może oddawać L4 całego zespołu */
+/*  każdemu, kto zna czyjś kod. Bez kodu (wywołanie wewnętrzne) — nic.  */
 /* ------------------------------------------------------------------ */
-function _nieobecnosci(ss) {
+function _nieobecnosci(ss, kod) {
+  kod = String(kod || "").trim();
+  if (!kod) return [];
   var sh = ss.getSheetByName(ZAKLADKA_NIEOBECNOSCI);
   if (!sh || sh.getLastRow() < 2) return [];
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
@@ -153,8 +179,11 @@ function _nieobecnosci(ss) {
     var od = dane[i][1], doD = dane[i][2];
     if (!(od instanceof Date) || !(doD instanceof Date)) continue;
     if (doD < dzis) continue;                       // już minęła
+    var czyj = String(dane[i][0]).trim();
+    var zastepca = String(dane[i][4] || "").trim();
+    if (czyj !== kod && zastepca !== kod) continue; // cudza nieobecność
     wynik.push({
-      kod: String(dane[i][0]).trim(),
+      kod: czyj,
       od:  Utilities.formatDate(od,  "Europe/Warsaw", "yyyy-MM-dd"),
       do:  Utilities.formatDate(doD, "Europe/Warsaw", "yyyy-MM-dd"),
       typ: String(dane[i][3] || "").trim(),         // urlop / L4 / zastepstwo
@@ -492,17 +521,25 @@ function zmienHaslo(dane) {
     var hashBaza = String(w[i][13] || "").trim();
     var telBaza  = String(w[i][12] || "").replace(/\D/g, "");
     var stareTel = stare.replace(/\D/g, "");
-    // akceptujemy: poprawne dotychczasowe haslo ALBO telefon z kartoteki
-    // (telefon dziala takze, gdy hash JEST ustawiony — to ta sama furtka
-    //  odzysku, ktora daje reset_hasla)
-    var haslem   = hashBaza && _hash(kod, stare) === hashBaza;
-    var telefonem = telBaza && stareTel.length >= 9 &&
+    // akceptujemy: poprawne dotychczasowe haslo ALBO telefon z kartoteki —
+    // ale telefon TYLKO wtedy, gdy konto hasla jeszcze NIE MA (pierwsze
+    // logowanie albo tuz po reset_hasla). Ten sam warunek, co w logowanie():
+    // dotad telefon podmienial haslo takze na koncie z ustawionym hashem,
+    // wiec kto znal cudzy numer, przejmowal cudze konto.
+    var telPasuje = telBaza && stareTel.length >= 9 &&
                     telBaza.slice(-9) === stareTel.slice(-9);
+    var haslem   = hashBaza && _hash(kod, stare) === hashBaza;
+    var telefonem = !hashBaza && telPasuje;
     if (!haslem && !telefonem) {
+      var powod = hashBaza ? (telPasuje ? "telefon zamiast hasla" : "zle haslo")
+                           : "zly telefon";
       _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla",
-           "ODRZUCONA (" + (hashBaza ? "zle haslo" : "zly telefon") + ")");
+           "ODRZUCONA (" + powod + ")");
       return { status: "blad", opis: hashBaza
-               ? "Dotychczasowe haslo nie pasuje (mozesz podac numer telefonu z kartoteki)"
+               ? (telPasuje
+                  ? "To konto ma ustawione haslo — podaj dotychczasowe haslo " +
+                    "albo uzyj „Nie pamietam hasla” w oknie logowania"
+                  : "Dotychczasowe haslo nie pasuje")
                : "Numer telefonu nie zgadza sie z kartoteka" };
     }
     sh.getRange(i + 2, 14).setValue(_hash(kod, nowe));
@@ -832,22 +869,58 @@ function zapiszSesje(dane) {
 /*  Administrator: menu PMT -> "Resetuj haslo" albo recznie czysci kolumne  */
 /*  N w zakladce Uzytkownicy. Uzytkownik: ta sama akcja z aplikacji po      */
 /*  podaniu kodu i numeru telefonu z kartoteki.                             */
+/*  LIMIT PROB: numer telefonu to jedyny dowod tozsamosci, wiec bez limitu  */
+/*  dalo sie zgadywac. Liczymy w CacheService: na KOD (cel ataku) i LACZNIE */
+/*  (Apps Script nie zdradza adresu wywolujacego — licznik laczny zastepuje */
+/*  licznik „na adres"). Kazda proba, takze odrzucona, idzie do dziennika.  */
+var RESET_PROB_NA_KOD_NA_GODZINE     = 5;
+var RESET_PROB_LACZNIE_NA_GODZINE    = 30;
+var RESET_OKNO_SEKUND                = 3600;
+
+/* Zlicza probe pod kluczem i mowi, czy limit juz przekroczony. Licznik zyje
+   RESET_OKNO_SEKUND od OSTATNIEJ proby (kazda proba odnawia okno), wiec
+   ponawianie w kolko nie skraca blokady. doPost trzyma ScriptLock, wiec
+   odczyt-zapis licznika nie sciga sie z innym wywolaniem. */
+function _zaDuzoProb(klucz, limit) {
+  var pam = CacheService.getScriptCache();
+  var ile = (Number(pam.get(klucz)) || 0) + 1;
+  pam.put(klucz, String(ile), RESET_OKNO_SEKUND);
+  return ile > limit;
+}
+
 function resetHasla(dane) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var kod = String(dane.kod || "").trim();
   var tel = String(dane.telefon || "").replace(/\D/g, "");
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ZAKLADKA_UZYTKOWNICY);
-  if (!sh || sh.getLastRow() < 2) return { status: "blad", opis: "Brak bazy uzytkownikow" };
+  var kluczKodu = "reset:" + kod.replace(/[^0-9A-Za-z]/g, "").slice(0, 32);
+  if (_zaDuzoProb("reset:wszyscy", RESET_PROB_LACZNIE_NA_GODZINE) ||
+      _zaDuzoProb(kluczKodu, RESET_PROB_NA_KOD_NA_GODZINE)) {
+    _log(ss, kod, "reset_hasla", "ODRZUCONA (za duzo prob)");
+    return { status: "blad", opis: "Za duzo prob resetu — sprobuj za godzine" };
+  }
+  var sh = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
+  if (!sh || sh.getLastRow() < 2) {
+    _log(ss, kod, "reset_hasla", "ODRZUCONA (brak bazy)");
+    return { status: "blad", opis: "Brak bazy uzytkownikow" };
+  }
   var w = sh.getRange(2, 1, sh.getLastRow() - 1, 14).getValues();
   for (var i = 0; i < w.length; i++) {
     if (String(w[i][0]).trim() !== kod) continue;
     var telBaza = String(w[i][12] || "").replace(/\D/g, "");
-    if (!telBaza) return { status: "blad", opis: "Konto nie ma telefonu w kartotece — zglos sie do administratora" };
-    if (telBaza.slice(-9) !== tel.slice(-9)) return { status: "blad", opis: "Numer telefonu nie zgadza sie z kartoteka" };
+    if (!telBaza) {
+      _log(ss, kod, "reset_hasla", "ODRZUCONA (konto bez telefonu)");
+      return { status: "blad", opis: "Konto nie ma telefonu w kartotece — zglos sie do administratora" };
+    }
+    if (tel.length < 9 || telBaza.slice(-9) !== tel.slice(-9)) {
+      _log(ss, kod, "reset_hasla", "ODRZUCONA (zly telefon)");
+      return { status: "blad", opis: "Numer telefonu nie zgadza sie z kartoteka" };
+    }
     sh.getRange(i + 2, 14).setValue("");     // kasujemy hash hasla
-    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "reset_hasla", "OK");
+    _log(ss, kod, "reset_hasla", "OK");
     return { status: "ok",
              opis: "Haslo skasowane. Zaloguj sie numerem telefonu i ustaw nowe haslo." };
   }
+  _log(ss, kod, "reset_hasla", "ODRZUCONA (nieznany kod)");
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
 }
 

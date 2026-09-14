@@ -1,9 +1,21 @@
-# PMT — komplet systemu (program v3.21.0)
+# PMT — komplet systemu (program v3.23.0)
 
 > **Zaczynasz od zera? Czytaj `START_TUTAJ.txt`.**
 > Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
 > Blokowanie przez Windows: `BEZ_BLOKADY_WINDOWS.txt`
 > Testy przed wydaniem: `python testy_pmt.py`
+
+## Co zmieniła wersja 3.23.0
+
+| Obszar | Zmiana |
+|---|---|
+| Wygląd | nowy ekran programu (`nowy_wyglad.py` na widżetach z `prototyp/`), stare okno App zostaje pod spodem tylko jako pojemnik na panele (przełącznik `--stary` zniknął) |
+| Logowanie | nowe okno logowania (`okno_logowania.py`); dokumenty, podpis i wysyłka w `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py` |
+| Mapa | mapa w skali regionu, kadr trasy dnia, podziałka mierząca prawdę |
+| Silnik | sufit rozciągania odcinków, nieprzekraczalna podłoga linii prostej, ostrzeżenie liczbą przy zbyt niskiej kwocie |
+| Budowanie | `build.yml` uruchamia `python zbuduj.py --folder` — jedno źródło prawdy dla CI i komputera; zbuduj.py sprawdza po budowie zawartość paczki i uzgadnia `wersja_exe.txt` ze źródłem |
+| Backend | `apps_script_POPRAWIONY_v2.gs`: telefon ustawia hasło tylko na koncie bez hasła, limit prób resetu z dziennikiem, puls oddaje tylko własne nieobecności (wdrożyć na nowo) |
+| Testy | `testy_pmt.py` — pełny zestaw i `--szybko` (wcześniej wisiał na modalnym zaproszeniu testera) |
 
 ## Co zmieniła wersja 3.21.0
 
@@ -81,9 +93,15 @@ DOKĄD go wgrać.
   Windows zablokował niepodpisany `.pyd` z fontTools (3.21.3). Od 3.21.4 fontTools jest
   instalowany czysto pythonowo (`--no-binary fonttools` w requirements.txt), CI tego pilnuje,
   a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: START_TUTAJ.txt, 6b.
-- **Trzy moduły obok programu są obowiązkowe**: `intro_zywa_mapa.py` (intro z kulą
-  ziemską), `karta_testera.py`, `wyglad_3d.py`. Bez nich program działa, ale bez intra,
-  karty i głębi — dokładnie tak wyglądały paczki 3.21.0–3.21.4. Szczegóły: START_TUTAJ 6d.
+- **Moduły obok programu są obowiązkowe** — pełna lista to `WYMAGANE` w `zbuduj.py`:
+  `karta_testera.py`, `wyglad_3d.py`, `nowy_wyglad.py`,
+  `okno_logowania.py`, `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py`,
+  `logo_retro.py` i katalog `prototyp/` z widżetami `proto_*.py`. Bez nich program
+  nie wystartuje albo traci kartę testera i głębię —
+  tak wyglądała paczka 3.22.0 z GitHuba (bez nowego wyglądu). Animacja startowa
+  (`intro_zywa_mapa.py`) zniknęła z programu w 3.23.0 — start idzie prosto do okna.
+  Od 3.23.0 zbuduj.py zatrzymuje budowanie, gdy któregoś modułu nie ma w paczce.
+  Szczegóły: START_TUTAJ 6d i 6e.
 - **Buildy na Pythonie 3.13**, nie 3.14 (błąd `python314.dll` u użytkowników).
 - **Po każdej zmianie skryptu w arkuszu** trzeba wydać **nową wersję wdrożenia**,
   inaczej pod adresem `/exec` działa stary kod.

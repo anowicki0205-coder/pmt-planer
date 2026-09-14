@@ -1,5 +1,11 @@
 # PMT Planer — budowanie na Windows, macOS i Linux
 
+> **Od 3.23.0 obowiązuje jedno polecenie na każdym systemie:**
+> `python zbuduj.py --folder` — to samo uruchamia `ZBUDUJ_EXE_FOLDER.bat`
+> na komputerze i `.github/workflows/build.yml` na GitHubie. Listy modułów,
+> plików, ikona i ustawienia PyInstallera są tylko w `zbuduj.py`.
+> Polecenia `pyinstaller --onefile …` niżej to opis historyczny.
+
 ## Zasada ogólna
 
 PyInstaller **nie robi cross-kompilacji** — plik dla danego systemu trzeba

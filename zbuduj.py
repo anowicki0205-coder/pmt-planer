@@ -10,6 +10,13 @@ czy gotowy program naprawdę zawiera tę wersję.
 Uruchomienie:
     python zbuduj.py --folder     (zalecane: dist\\PMT_Planer\\)
     python zbuduj.py --jeden      (jeden plik: dist\\PMT_Planer.exe)
+
+JEDNO ŹRÓDŁO PRAWDY BUDOWANIA: to samo polecenie (--folder) uruchamia
+robot na GitHubie (.github/workflows/build.yml) na Windows, macOS
+i Linuksie. Listy modułów (WYMAGANE, UKRYTE, PROTOTYP), plików (DANE),
+ikona, --onedir, --noupx i metadane .exe są TYLKO tutaj. Do 3.22.0 CI
+miało własną, krótszą listę --hidden-import i paczka z GitHuba nie
+zawierała nowego wyglądu ani okna logowania.
 """
 
 import os
@@ -26,24 +33,29 @@ LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 # (patrz buduj()), a do paczki wchodzą jako zwykłe moduły.
 PROTOTYP = ["proto_styl", "proto_dane", "proto_mapa", "proto_tasma",
             "proto_kompas", "proto_taca", "proto_okno"]
-WYMAGANE = ["PMT_Delegacje.py", "intro_zywa_mapa.py", "karta_testera.py",
+WYMAGANE = ["PMT_Delegacje.py", "karta_testera.py",
             "wyglad_3d.py", "pmt_dokumenty.py", "pmt_podpis.py",
             "pmt_wysylka.py", "nowy_wyglad.py",
             "okno_logowania.py", "logo_retro.py"] + [
             os.path.join("prototyp", n + ".py") for n in PROTOTYP]
 # Pliki, ktore program NAPRAWDE otwiera w czasie dzialania. Wczesniej byla
-# tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ... ,
-# intro_muzyka.mp3), ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
+# tu jeszcze siodemka nazw (logo_zabka.png, logo_biedronka.png, ...),
+# ktorych nie ma ani w repozytorium, ani nigdzie w kodzie.
 #
 # menedzer.txt: nazwisko przełożonego to wartość WSPÓLNA dla całego zespołu
 # (drukowana na każdej delegacji), więc pakujemy ją do paczki — inaczej każda
 # z 65 osób musiałaby ręcznie dokładać plik obok programu. W 3.21.0-3.21.1
 # plik był wyrzucony z paczki i rubryka wychodziła pusta. Do repozytorium
 # plik NIE trafia (.gitignore) — i tylko to było realnym problemem.
+# pmt.jpg / PMT.jpg (zapasowe nazwy logo, patrz znajdz_logo) i czcionki
+# DejaVu do PDF-ów dokładało dotąd samo CI — lista jest teraz jedna.
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
-        "pmt_logo_retro.png", "pmt_logo_retro.ico", "menedzer.txt"]
-UKRYTE = ["intro_zywa_mapa", "karta_testera", "wyglad_3d", "pmt_dokumenty",
-          "winsound", "PyQt6.QtMultimedia", "pmt_podpis", "pmt_wysylka",
+        "pmt_logo_retro.png", "pmt_logo_retro.ico", "pmt.jpg", "PMT.jpg",
+        "DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "menedzer.txt"]
+# winsound i PyQt6.QtMultimedia wypadly z listy razem z intrem (3.23.0):
+# tylko ono gralo dzwiek.
+UKRYTE = ["karta_testera", "wyglad_3d", "pmt_dokumenty",
+          "pmt_podpis", "pmt_wysylka",
           "nowy_wyglad", "okno_logowania", "logo_retro"] + PROTOTYP
 # Lista bibliotek czytana z requirements.txt — tego samego pliku, z którego
 # korzysta budowanie na GitHubie. Dzięki temu obie drogi budowania nie mogą
@@ -99,7 +111,10 @@ def _fonttools_czysty(py):
 
 
 def pisz(txt):
-    print(txt, flush=True)
+    try:
+        print(txt, flush=True)
+    except UnicodeEncodeError:         # potok bez UTF-8 (np. robot na Windows)
+        print(txt.encode("ascii", "replace").decode("ascii"), flush=True)
     try:
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(txt + "\n")
@@ -111,6 +126,33 @@ def wersja_zrodla():
     with open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8") as f:
         m = re.search(r'WERSJA_PROGRAMU\s*=\s*"([^"]+)"', f.read())
     return m.group(1) if m else ""
+
+
+def uzgodnij_wersje_exe(wer, sciezka=None):
+    """Metadane pliku .exe (wersja_exe.txt) mają nieść TEN SAM numer, co
+    WERSJA_PROGRAMU w PMT_Delegacje.py — jedyne źródło numeru. Gdy plik
+    został w tyle, poprawiamy go tu, zanim PyInstaller go wczyta; inaczej
+    Windows pokazywałby we właściwościach .exe stary numer.
+    Zwraca True, gdy plik trzeba było poprawić."""
+    sciezka = sciezka or os.path.join(KATALOG, "wersja_exe.txt")
+    if not os.path.exists(sciezka):
+        return False
+    czesci = [int(x) for x in re.findall(r"\d+", wer)[:3]]
+    while len(czesci) < 3:
+        czesci.append(0)
+    krotka = "(%d, %d, %d, 0)" % tuple(czesci)
+    with open(sciezka, encoding="utf-8", newline="") as f:
+        tresc = f.read()
+    nowa = re.sub(r"filevers=\([^)]*\)", "filevers=" + krotka, tresc)
+    nowa = re.sub(r"prodvers=\([^)]*\)", "prodvers=" + krotka, nowa)
+    nowa = re.sub(r"('(?:File|Product)Version',\s*')[^']*(')",
+                  lambda m: m.group(1) + wer + m.group(2), nowa)
+    if nowa == tresc:
+        return False
+    with open(sciezka, "w", encoding="utf-8", newline="") as f:
+        f.write(nowa)
+    pisz("  wersja_exe.txt uzgodniono ze źródłem: %s" % wer)
+    return True
 
 
 def sprawdz_pliki():
@@ -168,19 +210,37 @@ def wyczysc():
                 pass
 
 
-def buduj(py, folderowo=True):
+def ikona_programu():
+    """Ikona wg systemu — tak, jak budowało CI: Windows .ico (logo retro,
+    stare tylko zapasowo), macOS .icns. Na Linuksie PyInstaller ikonę
+    pomija, więc jej nie podajemy."""
+    if os.name == "nt":
+        kandydaci = ["pmt_logo_retro.ico", "pmt_logo.ico"]
+    elif sys.platform == "darwin":
+        kandydaci = ["pmt_logo_retro.icns", "pmt_logo.icns",
+                     "pmt_logo_retro.ico", "pmt_logo.ico"]
+    else:
+        kandydaci = []
+    for n in kandydaci:
+        if os.path.exists(os.path.join(KATALOG, n)):
+            return os.path.join(KATALOG, n)
+    return ""
+
+
+def polecenie_pyinstallera(py, folderowo=True):
+    """Pełne polecenie PyInstallera i lista dołączonych plików.
+    Osobna funkcja, bo testy sprawdzają je bez budowania."""
     rozdz = ";" if os.name == "nt" else ":"
     args = [py, "-m", "PyInstaller", "--noconfirm", "--noupx", "--windowed",
             "--name", "PMT_Planer",
             "--onedir" if folderowo else "--onefile"]
-    # ikona EXE = logo retro (to samo, co w oknie po intrze); stare tylko zapasowo
-    ikona = os.path.join(KATALOG, "pmt_logo_retro.ico")
-    if not os.path.exists(ikona):
-        ikona = os.path.join(KATALOG, "pmt_logo.ico")
-    if os.path.exists(ikona):
+    ikona = ikona_programu()
+    if ikona:
         args += ["--icon", ikona]
+    # metadane .exe (producent, opis, numer) — tylko Windows je ma;
+    # na innych systemach PyInstaller by je pominął z ostrzeżeniem
     meta = os.path.join(KATALOG, "wersja_exe.txt")
-    if os.path.exists(meta):
+    if os.name == "nt" and os.path.exists(meta):
         args += ["--version-file", meta]
     for m in UKRYTE:
         args += ["--hidden-import", m]
@@ -194,11 +254,40 @@ def buduj(py, folderowo=True):
     if os.path.isdir(zasoby):
         args += ["--add-data", "zasoby" + rozdz + "zasoby"]
         dolaczone.append("zasoby\\")
+    widziane = set()
     for n in DANE:                      # każdy plik osobno i pewnie
-        if os.path.exists(os.path.join(KATALOG, n)):
+        if os.path.exists(os.path.join(KATALOG, n)) \
+                and os.path.normcase(n) not in widziane:
+            widziane.add(os.path.normcase(n))   # pmt.jpg/PMT.jpg na Windows = jeden plik
             args += ["--add-data", n + rozdz + "."]
             dolaczone.append(n)
     args.append("PMT_Delegacje.py")
+    return args, dolaczone
+
+
+def moduly_wlasne():
+    """Moduły z UKRYTE, które są NASZYMI plikami (bez systemowych
+    i bibliotecznych) — te muszą się znaleźć w archiwum PYZ paczki."""
+    return [m for m in UKRYTE if m != "winsound" and not m.startswith("PyQt6")]
+
+
+def sprawdz_zawartosc_paczki(katalog_budowy=None):
+    """Po budowie: czy każdy własny moduł (nowy wygląd, okno logowania,
+    dokumenty, podpis, wysyłka, widżety z prototyp\\) naprawdę trafił do
+    archiwum PYZ. PyInstaller wypisuje jego spis do build\\PMT_Planer\\
+    PYZ-00.toc. Zwraca listę brakujących (pusta = w porządku)."""
+    katalog_budowy = katalog_budowy or os.path.join(KATALOG, "build", "PMT_Planer")
+    toc = os.path.join(katalog_budowy, "PYZ-00.toc")
+    try:
+        with open(toc, encoding="utf-8", errors="ignore") as f:
+            tresc = f.read()
+    except Exception:
+        return ["(nie odczytałem %s)" % toc]
+    return [m for m in moduly_wlasne() if "('%s'," % m not in tresc]
+
+
+def buduj(py, folderowo=True):
+    args, dolaczone = polecenie_pyinstallera(py, folderowo)
     pisz("Dołączam do programu: " + (", ".join(dolaczone) or "(brak plików dodatkowych)"))
     pisz("Buduję… to potrwa kilka minut, nie zamykaj okna.")
     w = subprocess.run(args, cwd=KATALOG, capture_output=True, text=True)
@@ -270,6 +359,7 @@ def main():
         pisz("[BŁĄD] Nie odczytałem numeru wersji z PMT_Delegacje.py")
         return 1
     pisz("Wersja w źródle: %s" % wer)
+    uzgodnij_wersje_exe(wer)
     # Tła programu: ciemny.png i jasny.png. Mogą leżeć luzem obok programu
     # albo w podfolderze zasoby\ — sprawdzamy oba miejsca i mówimy wprost,
     # czego brakuje. Bez nich program działa, tylko rysuje tło zastępcze.
@@ -295,8 +385,8 @@ def main():
             pass
     else:
         pisz("[UWAGA] Brak menedzer.txt w tym folderze - rubryka PRZELOZONY na")
-        pisz("        delegacjach bedzie pusta, chyba ze kazdy wpisze nazwisko")
-        pisz("        w oknie programu. Utworz plik menedzer.txt (jedna linia)")
+        pisz("        delegacjach bedzie pusta (w programie nie ma pola do")
+        pisz("        wpisania). Utworz plik menedzer.txt (jedna linia)")
         pisz("        obok zbuduj.py i zbuduj ponownie.")
     py = sys.executable
     if not przygotuj_biblioteki(py):
@@ -316,6 +406,15 @@ def main():
     if not sc:
         pisz("[BŁĄD] Program nie powstał — zajrzyj do BUDOWANIE_log.txt")
         return 1
+    # Paczka bez nowego wyglądu uruchomi się i po cichu pokaże stare okno —
+    # dlatego brak KTÓREGOKOLWIEK własnego modułu przerywa budowanie.
+    brak = sprawdz_zawartosc_paczki()
+    if brak:
+        pisz("[BŁĄD] W paczce brakuje modułów: " + ", ".join(brak))
+        pisz("       (spis archiwum: build\\PMT_Planer\\PYZ-00.toc)")
+        return 1
+    pisz("W paczce są wszystkie własne moduły (%d): %s"
+         % (len(moduly_wlasne()), ", ".join(moduly_wlasne())))
     if folderowo:
         dolacz_do_paczki(sc, wer)
     pisz("")
@@ -330,7 +429,8 @@ def main():
     if folderowo:
         pisz("Rozdaj CAŁY folder dist\\PMT_Planer (albo spakuj go do ZIP).")
     try:
-        if os.name == "nt":
+        # Eksplorator z gotową paczką — ale nie na robocie GitHuba
+        if os.name == "nt" and not os.environ.get("GITHUB_ACTIONS"):
             os.startfile(os.path.join(KATALOG, "dist"))
     except Exception:
         pass

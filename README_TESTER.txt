@@ -1,12 +1,12 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.22.0 — WERSJA TESTOWA
+  PMT PLANER 3.23.0 — WERSJA TESTOWA
   krótka instrukcja dla testera
 ═══════════════════════════════════════════════════════════════════════
 
 CO TO ZA WYDANIE
   Robocza paczka przygotowana bezpośrednio dla Ciebie. NIE pochodzi
   z GitHuba, nie ma jej w Releases i nikt inny jej nie dostał.
-  Numer wersji: 3.22.0.
+  Numer wersji: 3.23.0.
 
 URUCHOMIENIE ZE ŹRÓDEŁ (Windows)
   1. Zainstaluj Pythona 3.13 (nie 3.14). W instalatorze zaznacz
@@ -35,10 +35,8 @@ KONTO TESTOWE
   rubrykę „Ważne do" (data). Puste pole program czyta jako konto wygasłe
   i zamyka się z komunikatem o wygasłym dostępie.
 
-POMINIĘCIE ANIMACJI STARTOWEJ
-  Raz: kliknij myszą albo naciśnij dowolny klawisz w trakcie animacji.
-  Na stałe: połóż pusty plik BEZ_INTRA.txt obok programu albo w swoim
-  katalogu użytkownika (C:\Users\TwojeKonto).
+ANIMACJA STARTOWA
+  Od 3.23.0 nie ma jej w programie — po zalogowaniu od razu ekran programu.
 
 GDZIE LĄDUJĄ DOKUMENTY
   Na Pulpicie, w folderze Rozliczenie_Imie_Nazwisko_miesiąc_rok
@@ -48,8 +46,8 @@ GDZIE LĄDUJĄ DOKUMENTY
 NOWY WYGLĄD — URUCHOMIENIE
   Ze źródeł:     py -3.13 PMT_Delegacje.py
   Z pliku .exe:  PMT_Planer.exe
-  Nowy wygląd jest jedynym ekranem programu — otwiera się sam, po
-  zalogowaniu i animacji startowej.
+  Nowy wygląd jest jedynym ekranem programu — otwiera się sam, zaraz po
+  zalogowaniu.
 
 NOWY WYGLĄD — CO W NIM DZIAŁA
   Dane pracownika   imię, PESEL, adres, stanowisko, pojemność silnika;
@@ -91,8 +89,7 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
 ═══════════════════════════════════════════════════════════════════════
   DO SPRAWDZENIA
 ═══════════════════════════════════════════════════════════════════════
-   1. Uruchom program. Oczekiwane: animacja startowa, a po niej okno
-      logowania z polami LOGIN i HASŁO.
+   1. Uruchom program. Oczekiwane: okno logowania z polami LOGIN i HASŁO.
    2. Wpisz login i hasło, kliknij „Zaloguj". Oczekiwane: okno główne,
       Twoje imię w górnym pasku, po lewej menu z pozycją „Nowa Wyprawa".
    3. Kliknij „Nowa Wyprawa" i wypełnij: imię i nazwisko, PESEL (11 cyfr),
@@ -133,15 +130,14 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
       z wpisanym adresem.
   18. Kliknij „Wyloguj", zaloguj się ponownie. Oczekiwane: wracają Twoje
       dane, plan i adres — nie cudze i nie puste.
-  19. Zamknij program, połóż pusty plik BEZ_INTRA.txt obok niego i uruchom
-      ponownie. Oczekiwane: okno logowania od razu, bez animacji.
-  20. Wejdź w „O programie". Oczekiwane: numer wersji 3.22.0.
+  19. Zamknij program i uruchom ponownie. Oczekiwane: okno logowania od
+      razu, a po zalogowaniu od razu ekran programu (bez animacji).
+  20. Wejdź w „O programie". Oczekiwane: numer wersji 3.23.0.
 
 
   ── NOWY WYGLĄD ───────────────────────────────────────────────────────
-  21. Uruchom program zwyczajnie. Oczekiwane: logowanie, animacja
-      startowa, a po niej nowy ekran; w pasku górnym Twoje inicjały
-      i data ważności konta.
+  21. Uruchom program zwyczajnie. Oczekiwane: logowanie, a zaraz po nim
+      nowy ekran; w pasku górnym Twoje inicjały i data ważności konta.
   22. Uzupełnij PESEL, adres i stanowisko, ustaw pojemność silnika
       (imię jest z konta). Zamknij program i uruchom go ponownie.
       Oczekiwane: wszystkie pola i pojemność na swoim miejscu.
@@ -168,7 +164,7 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
       zapasowa, Ustawienia, powrót na ekran główny, O programie.
   30. W pasku górnym kliknij dzwonek, „Zgłoś błąd" i swoje inicjały.
       Oczekiwane: lista komunikatów, nowa wiadomość do zgłoszeń oraz menu
-      z pozycjami: hasło, karta testera, animacja startowa, wylogowanie.
+      z pozycjami: hasło, karta testera, wylogowanie.
 
   Co zgłaszać: numer punktu, co kliknąłeś, co się stało, a czego
   oczekiwałeś. Jeśli program się zamknął, dołącz plik

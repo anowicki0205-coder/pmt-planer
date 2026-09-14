@@ -8,6 +8,7 @@ kolejne klatki i skleja je w zapętlony obrazek.
 Użycie:
     QT_QPA_PLATFORM=offscreen python film.py kompas   film_kompas.gif
     QT_QPA_PLATFORM=offscreen python film.py okno     film_okno.gif
+    QT_QPA_PLATFORM=offscreen python film.py przelot  film_przelot.gif
 """
 import sys, time
 from PyQt6.QtCore import QCoreApplication
@@ -131,7 +132,72 @@ def scena_okno():
     return okno, kroki
 
 
-SCENY = {"kompas": scena_kompas, "okno": scena_okno}
+def scena_przelot():
+    """Przelot nad rejonem w czasie generowania — na PRAWDZIWYM oknie programu
+    (nowy_wyglad), z własnym katalogiem domowym. Silnika nie uruchamiamy:
+    dni przychodzą z zegara sceny jako prawdziwe miejscowości rejonu, więc
+    film jest powtarzalny i nie zależy od sieci."""
+    import os, random, tempfile
+    os.environ["HOME"] = tempfile.mkdtemp(prefix="pmt_film_")
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import PMT_Delegacje as P
+    P.zaproszenie_testera = lambda *a, **k: False
+    import nowy_wyglad as NW
+    import proto_styl as S
+    app = QApplication.instance()
+    app.setFont(S.czcionka(13))
+    app.setStyleSheet(NW.arkusz())
+    okno = NW.OknoNowegoWygladu(
+        profil=NW.ProfilWidoku("Jan Testowy", "85010112345",
+                               "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=6)
+    okno.showNormal()
+    okno.resize(1440, 900)
+    okno.ustaw_animacje(True)
+    for _ in range(30):
+        QCoreApplication.processEvents()
+    geo, baza = okno.geo, okno.baza_miasto
+    nazwy = sorted(n for n in geo if n != baza)
+    los = random.Random(7)
+    kroki = [(0, None)]
+
+    def start():
+        okno._zacznij_intro_generowania()
+        okno.k_kompas.TYTUL = "Przerwij"
+        okno.k_kompas.kompas.ustaw_stan("praca")
+        okno._etap_silnika = "trasy"
+        okno.ustaw_postep_pokazu(0.05)
+    kroki.append((900, start))
+
+    def dzien(i, t):
+        przystanki = los.sample(nazwy, los.randint(3, 6))
+        punkty = ([(baza,) + tuple(geo[baza])] + [(n,) + tuple(geo[n]) for n in przystanki]
+                  + [(baza,) + tuple(geo[baza])])
+        film = okno._intro_generowania
+        if film is not None:
+            film.dodaj_trase(punkty, data=i)
+        okno._postep_generacji("Klastrowanie GPS (Dzień %d/8)..." % (i + 1), t)
+    t = 2200
+    for i in range(8):
+        kroki.append((t, (lambda i=i, u=0.30 + 0.05 * i: dzien(i, u))))
+        t += 650
+
+    def dokument(i, t):
+        okno._postep_generacji("Renderowanie pliku PDF (%d/3)..." % i, t)
+    for i in range(1, 4):
+        kroki.append((t, (lambda i=i, u=0.80 + 0.05 * i: dokument(i, u))))
+        t += 700
+
+    def koniec():
+        okno._etap_silnika = ""
+        okno._koniec_sekwencji()
+        okno.zakoncz_pokaz(animacja=True)
+    kroki.append((t + 400, koniec))
+    kroki.append((t + 4200, None))
+    return okno, kroki
+
+
+SCENY = {"kompas": scena_kompas, "okno": scena_okno, "przelot": scena_przelot}
 
 if __name__ == "__main__":
     nazwa = sys.argv[1] if len(sys.argv) > 1 else "kompas"

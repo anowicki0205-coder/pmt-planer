@@ -5,7 +5,6 @@ Okno główne programu: widżety prototypu (prototyp/proto_*.py) na danych
 i silniku z PMT_Delegacje.py.
 
     python PMT_Delegacje.py             (program: logowanie → to okno)
-    python PMT_Delegacje.py --stary     (awaryjnie dawne okno App)
     python nowy_wyglad.py               (samodzielnie, do pracy nad wyglądem)
     python nowy_wyglad.py --zrzut       (bez ekranu: zrzuty do plików PNG)
 
@@ -24,24 +23,48 @@ CO JEST PRAWDZIWE
     · mapa tras            Trasy_Mapa.html z folderu wyniku — przycisk na
                            tacy dokumentów i na ekranie startowym
     · pasek górny          dzwonek z historią komunikatów, zgłaszanie błędu,
-                           awatar (hasło, karta testera, intro, wylogowanie)
-    · animacja startowa    intro_zywa_mapa nad tym oknem (jak dotąd)
+                           awatar (hasło, karta testera, wylogowanie)
+    · po starcie           po_starcie: dymek „Rozpoznano pracownika"
+                           i zaproszenie testera (bez animacji startowej)
     · pracownik            profil z ~/.pmt_uzytkownicy.json (zapisz_profil)
     · dni robocze          pobierz_dni_robocze + ustaw_tryb_pracy
     · miasta i odległości  zaladuj_baze, coords_z_miasta, oblicz_dystans
     · rejon na mapie       prawdziwa szerokość i długość każdej miejscowości
                            (miasta_dla_mapy → MapaDnia.ustaw_miasta), ranga
                            z liczby sieci w bazie miast i ze STOLICE
-    · trasy, km i kwoty    generuj_trasy  (w osobnym wątku, GeneratorThread)
+    · trasy, km i kwoty    generuj_trasy  (w osobnym wątku, GeneratorThread;
+                           w tym czasie ekran to przelot nad rejonem —
+                           proto_mapa.PrzelotRejonu, zaczep INTRO_GENEROWANIA)
     · dokumenty PDF        generuj_pdfy + generuj_mape_html (ten sam wątek)
     · pliki na tacy        pmt_dokumenty.dokumenty_w_folderze(folder wyniku)
     · podpis elektroniczny PMT.DialogPodpis nad modułem pmt_podpis
     · wysyłka pocztą       PMT.DialogWysylka nad modułem pmt_wysylka
     · dane pracownika      pola karty PRACOWNIK ↔ zapisz_profil / _wczytaj_store
-    · wybór miesiąca       zakładki paska górnego (także PgUp / PgDn)
+    · wybór miesiąca       zakładki paska górnego (także PgUp / PgDn); zakładka
+                           miesiąca, który minął bez wpisu w historii i bez
+                           folderu z dokumentami, nosi kropkę (PasekMiesiecy.kropki)
+    · kratka roku          na ekranie startowym: 12 pól z kwotą, km i dniami
+                           z historii miesięcy (historia_okna = wpisy + foldery
+                           na dysku); pole przestawia program na ten miesiąc
+    · taca miesięcy        pasek nad kartkami: miesiące z gotowymi dokumentami;
+                           pigułka wczytuje kartki z TAMTEGO folderu (tabele
+                           przejazdów PDF-ów, pmt_dokumenty.dni_kompletu) bez
+                           generowania; folder, mapa, podpis i wysyłka działają
+                           na wybranym miesiącu
     · ustawienia widoku    kwota, tryb i dni bez pracy w ~/.pmt_ustawienia.json
                            (ustawienie / zapisz_ustawienie)
     · stan odległości      stan_zrodla_odleglosci przy kwocie i na tacy
+    · odwrót kartki        klik w kartkę nad mapą obraca ją: odwrót to dzień
+                           taki, jaki był naprawdę — godziny z dokumentu,
+                           postoje, kilometry każdego odcinka z jego źródłem
+                           (RawEtap.zrodlo: drogi / pamięć / szacunek) i linią
+                           prostą (etapy_widzetu → Dzien.etapy); uchwyt przy
+                           prawym brzegu zwija kartkę
+    · białe plamy rejonu   mapa pod delikatną mgłą; miejscowości ze śladem
+                           obecności (pole „miejsca" historii miesięcy —
+                           _miejsca_odkryte → MapaDnia.ustaw_odkryte) są
+                           odsłonięte i świecą, trasa dnia zawsze; w rogu
+                           mapy licznik odkryte / w zasięgu
 
 CO JEST SZACUNKIEM (do chwili wygenerowania)
     podglad_miesiaca() — miesiąc rozpisany REGUŁAMI silnika, ale na sucho:
@@ -121,18 +144,19 @@ PMT = modul_programu()
 KATALOG_PROTOTYPU = _wepnij_prototyp()
 
 from PyQt6.QtCore import (Qt, QEvent, QPoint, QPointF, QRectF,     # noqa: E402
-                          QTimer, pyqtSignal)
+                          QSize, QTimer, pyqtSignal)
 from PyQt6.QtGui import (QBrush, QColor, QCursor, QLinearGradient,  # noqa: E402
-                         QPainter, QPainterPath, QPen)
+                         QPainter, QPainterPath, QPen, QPixmap)
 from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,       # noqa: E402
                              QCheckBox, QComboBox, QFrame, QHBoxLayout,
                              QLabel, QLineEdit, QMenu, QMessageBox,
-                             QPushButton, QRadioButton, QVBoxLayout, QWidget)
+                             QPushButton, QRadioButton, QSizePolicy,
+                             QVBoxLayout, QWidget)
 
 import proto_styl as S                                             # noqa: E402
 import proto_dane as D                                             # noqa: E402
 import proto_okno as OK                                            # noqa: E402
-from proto_mapa import (MapaDnia, RANGA_BAZA, RANGA_MIASTO,       # noqa: E402
+from proto_mapa import (MapaDnia, PrzelotRejonu, RANGA_BAZA, RANGA_MIASTO,  # noqa: E402
                         RANGA_WIES)
 from proto_okno import OknoPrototypu, arkusz                       # noqa: E402
 from proto_taca import (KafelLiczby, Napis, Panel, PanelPodpisu,   # noqa: E402
@@ -456,6 +480,30 @@ def ustaw_swiat_mapy(geo, baza_nazwa, baza_lat, baza_lng, profil=None):
 
 
 PROMIEN_MAPY_KM = 115.0        # tyle terenu pokazuje mapa wokół bazy
+
+
+def przelot_generowania(okno):
+    """Wstawka INTRO_GENEROWANIA: przelot nad rejonem na czas pracy silnika.
+
+    Nakładka staje dokładnie na mapie, nad kartką i pigułką, pod tacą
+    i dymkami. Rejon to te same miejscowości, które dostała mapa, i ten sam
+    krajobraz; obraz sprzed przelotu (mapa z kartką, tak jak leży na
+    ekranie) odchodzi w tył w pierwszych klatkach. Zwraca widżet albo None."""
+    mapa = getattr(okno, "mapa", None)
+    if mapa is None or not mapa.isVisible():
+        return None
+    miasta = miasta_dla_mapy(getattr(okno, "geo", None),
+                             getattr(okno, "baza_miasto", ""))
+    film = PrzelotRejonu.nad_mapa(mapa, miasta, baza=getattr(okno, "baza_miasto", None),
+                                  mapa_pod=lambda: okno.mapa, rodzic=okno)
+    film.ustaw_start(okno.grab(mapa.geometry()))
+    film.show()
+    film.raise_()
+    for nazwa in ("taca", "toast"):
+        widget = getattr(okno, nazwa, None)
+        if widget is not None:
+            widget.raise_()
+    return film
 
 
 def miasta_wokol_bazy(baza_nazwa, baza_lat, baza_lng, woj, ile=MIAST_PODGLADU,
@@ -1128,7 +1176,57 @@ def dni_widzetow_z_tras(finalne_dni, rok, miesiac, wylaczone=()):
         if dzien_trasy.etapy:
             dzien.start = dzien_trasy.etapy[0].godz_wyj
             dzien.koniec = dzien_trasy.etapy[-1].godz_przyj
+        dzien.etapy = etapy_widzetu(dzien_trasy)
     return [wszystkie[n] for n in range(1, ile_w_miesiacu + 1)]
+
+
+def etapy_widzetu(dzien_trasy, stan_zrodla=None):
+    """Odcinki dnia na odwrót kartki delegacji — z PRAWDZIWEGO wyniku silnika.
+
+    Każdy odcinek: skąd, dokąd, godziny z dokumentu (Etap), kilometry
+    (dystans_rzeczywisty), linia prosta (RawEtap.linia_prosta, None gdy
+    silnik jej nie zapamiętał) i źródło kilometrów (RawEtap.zrodlo). Odcinek
+    bez własnego źródła bierze stan całego rozliczenia
+    (stan_zrodla_odleglosci) — to samo, co stoi na dokumencie; a gdy i ten
+    milczy (ZRODLO_BRAK), źródło zostaje puste."""
+    surowe = list(getattr(dzien_trasy, "etapy_surowe", None) or [])
+    godziny = list(getattr(dzien_trasy, "etapy", None) or [])
+    if not surowe:
+        return []
+    zapas = ""
+    try:
+        stan = stan_zrodla if stan_zrodla is not None else PMT.stan_zrodla_odleglosci()
+        if stan.get("stan") in (PMT.ZRODLO_DROGI, PMT.ZRODLO_PAMIEC, PMT.ZRODLO_SZACUNEK):
+            zapas = str(stan["stan"])
+    except Exception:
+        zapas = ""
+    wynik = []
+    suma_km = 0.0
+    for i, etap in enumerate(surowe):
+        godz = godziny[i] if i < len(godziny) else None
+        try:
+            km = float(getattr(etap, "dystans_rzeczywisty", etap.d_line) or 0.0)
+        except (TypeError, ValueError):
+            km = 0.0
+        try:
+            prosta = float(getattr(etap, "linia_prosta", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            prosta = 0.0
+        suma_km += km
+        wynik.append({
+            "z": str(etap.skad or ""), "do": str(etap.dokad or ""),
+            "wyj": str(getattr(godz, "godz_wyj", "") or ""),
+            "przyj": str(getattr(godz, "godz_przyj", "") or ""),
+            "km": round(km, 1),
+            "prosta": round(prosta, 1) if prosta > 0 else None,
+            "zrodlo": str(getattr(etap, "zrodlo", "") or zapas),
+        })
+    # domknięcie sumy jak w odcinki_dnia: odcinki zaokrąglone do 0,1 km mają
+    # sumować się DOKŁADNIE do kilometrów dnia z przodu kartki (round(suma, 1)),
+    # więc ostatni odcinek bierze resztę zaokrągleń
+    if wynik:
+        wynik[-1]["km"] = round(round(suma_km, 1) - sum(e["km"] for e in wynik[:-1]), 1)
+    return wynik
 
 
 def miasta_z_tras(finalne_dni, baza_nazwa, baza_lat, baza_lng):
@@ -1154,6 +1252,104 @@ def plik_dokumentu(folder, numer):
         if DOK.numer_delegacji(sciezka) == int(numer or 0):
             return sciezka
     return DOK.podsumowanie(folder)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  MIESIĄCE OSOBY: HISTORIA + FOLDERY NA DYSKU
+#  Z tego żyją trzy rzeczy: kropka na zakładce nierozliczonego miesiąca,
+#  kratka roku na ekranie startowym i pasek miesięcy na tacy.
+# ═══════════════════════════════════════════════════════════════════════
+
+def miesiace_z_dysku(imie, katalog=None):
+    """{(rok, miesiąc): folder} — komplety TEJ osoby w folderze wyników.
+
+    Tylko foldery generatora („Rozliczenie_Imię_Nazwisko_miesiąc_RRRRr",
+    rozbierane przez PMT._rozbierz_folder_wyniku) z choć jednym plikiem PDF
+    programu. Dwa foldery tego samego miesiąca — wygrywa świeższy."""
+    imie = " ".join(str(imie or "").split())
+    if not imie:
+        return {}
+    katalog = katalog or PMT.sciezka_pulpitu()
+    try:
+        nazwy = os.listdir(katalog)
+    except OSError:
+        return {}
+    cel = PMT._nazwa_porownawcza(PMT.nazwa_do_pliku(imie).replace("_", " "))
+    wynik = {}
+    czasy = {}
+    for nazwa in nazwy:
+        kto, miesiac, rok = PMT._rozbierz_folder_wyniku(nazwa)
+        if not kto or PMT._nazwa_porownawcza(kto) != cel:
+            continue
+        folder = os.path.join(katalog, nazwa)
+        if not dokumenty_w_wyniku(folder):
+            continue
+        try:
+            czas = os.path.getmtime(folder)
+        except OSError:
+            czas = 0.0
+        klucz = (int(rok), int(miesiac))
+        if klucz in wynik and czasy[klucz] >= czas:
+            continue
+        wynik[klucz] = folder
+        czasy[klucz] = czas
+    return wynik
+
+
+def historia_okna(imie, pesel, katalog=None):
+    """Miesiące osoby: {(rok, miesiąc): {...}} jak PMT.historia_miesiecy,
+    dołożone o foldery leżące na dysku.
+
+    Wpis historii daje liczby (kwota co do grosza, km, dni, dokumenty).
+    Folder z dysku bez wpisu (PDF-y, których nie dało się odczytać) daje
+    miesiąc z dokumentami, ale bez liczb — pola liczb są wtedy None, nigdy
+    zero. Gdy folder z wpisu zniknął, a inny folder tego miesiąca leży na
+    dysku, „folder" wskazuje ten z dysku."""
+    wynik = {}
+    if imie and pesel:
+        try:
+            wynik = {k: dict(v) for k, v in PMT.historia_miesiecy(imie, pesel).items()}
+        except Exception as blad:
+            PMT.log_error(blad)
+            wynik = {}
+    for klucz, folder in miesiace_z_dysku(imie, katalog).items():
+        wpis = wynik.get(klucz)
+        if wpis is None:
+            wynik[klucz] = {"kwota": None, "km": None, "dni": None, "dni_daty": [],
+                            "dokumenty": None, "folder": folder, "istnieje": True,
+                            "data": "", "podpisany": False, "wyslany": False,
+                            "zrodlo": "", "miejsca": {}}
+        elif not wpis.get("istnieje"):
+            wpis["folder"], wpis["istnieje"] = folder, True
+    return wynik
+
+
+def dni_z_folderu(folder, rok, miesiac):
+    """Kartki tacy dla miesiąca Z DYSKU: dni z tabel przejazdów gotowych
+    PDF-ów (pmt_dokumenty.dni_kompletu) przetłumaczone na proto_dane.Dzien
+    całego miesiąca — jak dni_widzetow_z_tras, tylko bez silnika."""
+    rok, miesiac = int(rok), int(miesiac)
+    ile_w_miesiacu = PMT.calendar.monthrange(rok, miesiac)[1]
+    wszystkie = {numer: D.Dzien(datetime.date(rok, miesiac, numer), wolny=True)
+                 for numer in range(1, ile_w_miesiacu + 1)}
+    for wpis in DOK.dni_kompletu(folder):
+        try:
+            data = datetime.date.fromisoformat(wpis["data"])
+        except (TypeError, ValueError):
+            continue
+        dzien = wszystkie.get(data.day) if (data.year, data.month) == (rok, miesiac) else None
+        if dzien is None:
+            continue
+        dzien.wolny = False
+        dzien.przystanki = list(wpis.get("przystanki") or [])
+        dzien.km = round(float(wpis.get("km") or 0.0), 1)
+        dzien.kwota = round(float(wpis.get("kwota") or 0.0), 2)
+        dzien.dokument = int(wpis.get("dokument") or 0)
+        if wpis.get("start"):
+            dzien.start = wpis["start"]
+        if wpis.get("koniec"):
+            dzien.koniec = wpis["koniec"]
+    return [wszystkie[n] for n in range(1, ile_w_miesiacu + 1)]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1717,29 +1913,362 @@ def wysrodkuj_tresc(widget, maks_szerokosc):
 
 
 class KartaStanu(QWidget):
-    """Powierzchnia nowego systemu: szkło, krawędź światła, obrys."""
+    """Powierzchnia nowego systemu: szkło, krawędź światła, obrys.
+
+    Szkło (gradienty, krawędzie światła, obrys) rysuje się raz na rozmiar
+    i zostaje w pixmapie — klatka ekranu startowego to trzy położenia
+    obrazu, nie trzy karty malowane od nowa (szkło szerokiej karty to
+    ponad milisekunda na klatkę)."""
 
     def __init__(self, rodzic=None, promien=S.PROMIEN, mocne=False):
         super().__init__(rodzic)
         self._promien = float(promien)
         self._mocne = bool(mocne)
+        self._pix = None
+        self._klucz_pix = None
 
-    def paintEvent(self, _zdarzenie):
-        malarz = QPainter(self)
+    def _pixmapa(self):
+        dpr = self.devicePixelRatioF()
+        klucz = (self.width(), self.height(), round(dpr, 2))
+        if self._pix is not None and self._klucz_pix == klucz:
+            return self._pix
+        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.GlobalColor.transparent)
+        malarz = QPainter(pix)
         malarz.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        pole = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        pole = QRectF(0, 0, self.width(), self.height()).adjusted(0.5, 0.5, -0.5, -0.5)
         if pole.width() > 4 and pole.height() > 4:
             S.szklo(malarz, pole, self._promien, mocne=self._mocne,
                     sila_krawedzi=1.6)
         malarz.end()
+        self._pix, self._klucz_pix = pix, klucz
+        return pix
+
+    def resizeEvent(self, zdarzenie):
+        self._pix = None
+        super().resizeEvent(zdarzenie)
+
+    def paintEvent(self, _zdarzenie):
+        malarz = QPainter(self)
+        malarz.drawPixmap(0, 0, self._pixmapa())
+        malarz.end()
+
+
+class KratkaRoku(QWidget):
+    """Dwanaście pól roku — po jednym na miesiąc — z historii rozliczeń.
+
+    W polu trzy liczby: kwota co do grosza, kilometry, dni w trasie.
+    Miesiąc z dokumentami świeci (szkło, cyjan i mięta), bez dokumentów
+    stoi wygaszony (a gdy już minął — z kropką ostrzeżenia, tą samą co na
+    zakładce paska), przyszły jest ledwo widoczny; bieżący ma obwódkę.
+    Strzałki przełączają rok, kliknięcie pola melduje miesiąc (okno
+    przestawia na niego cały program). Na dole sumy roku.
+
+    Obraz kratki jest buforowany: klatka ekranu startowego to jedno
+    położenie pixmapy, a nie dwanaście kart ze szkła."""
+
+    wybrano_miesiac = pyqtSignal(int, int)
+    zmieniono_rok = pyqtSignal(int)
+
+    KOLUMNY, WIERSZE = 6, 2
+    ODSTEP = 8.0
+    NAGLOWEK = 24.0            # rząd ze strzałkami i rokiem
+    STOPKA = 22.0              # rząd z sumami roku
+    PRZERWA = 6.0
+    POLE_MIN, POLE_WZOR, POLE_MAKS = 58.0, 78.0, 92.0    # 58: trzy wiersze liczb jeszcze się mieszczą
+    PROMIEN_POLA = 12.0
+    STRZALKA = 26.0
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self._rok = datetime.date.today().year
+        self._miesiace = {}
+        self._biezacy = miesiac_biezacy()
+        self._wersja = 0
+        self._pod = None            # ("pole", (rok, miesiąc)) / ("wstecz",) / ("dalej",)
+        self._pix = None
+        self._klucz_pix = None
+        self.setMouseTracking(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    # ── dane ──────────────────────────────────────────────────────
+    def ustaw_dane(self, miesiace, biezacy=None, rok=None):
+        """miesiace: {(rok, miesiąc): {...}} z historia_okna()."""
+        self._miesiace = dict(miesiace or {})
+        if biezacy:
+            self._biezacy = (int(biezacy[0]), int(biezacy[1]))
+        if rok:
+            self._rok = int(rok)
+        self._wersja += 1
+        self.update()
+
+    def ustaw_rok(self, rok):
+        rok = int(rok)
+        if rok == self._rok:
+            return
+        self._rok = rok
+        self.update()
+        self.zmieniono_rok.emit(rok)
+
+    def rok(self):
+        return self._rok
+
+    def miesiac(self, numer):
+        return self._miesiace.get((self._rok, int(numer)))
+
+    def stan_miesiaca(self, klucz):
+        """„dokumenty" / „pusty" / „przyszly"."""
+        klucz = (int(klucz[0]), int(klucz[1]))
+        if klucz in self._miesiace:
+            return "dokumenty"
+        return "przyszly" if klucz > self._biezacy else "pusty"
+
+    def nierozliczony(self, klucz):
+        """Miesiąc już minął, a nie ma ani wpisu, ani folderu — kropka."""
+        klucz = (int(klucz[0]), int(klucz[1]))
+        return klucz < self._biezacy and klucz not in self._miesiace
+
+    def sumy_roku(self, rok=None):
+        """(kwota, km, dni, miesiące z liczbami) — sumy pól z liczbami."""
+        rok = int(rok or self._rok)
+        kwota, km, dni, ile = 0.0, 0, 0, 0
+        for (r, _m), wpis in self._miesiace.items():
+            if r != rok or wpis.get("kwota") is None:
+                continue
+            kwota += float(wpis.get("kwota") or 0.0)
+            km += int(wpis.get("km") or 0)
+            dni += int(wpis.get("dni") or 0)
+            ile += 1
+        return round(kwota, 2), km, dni, ile
+
+    # ── miary ─────────────────────────────────────────────────────
+    @classmethod
+    def wysokosc_dla(cls, pole):
+        return (pole * cls.WIERSZE + cls.ODSTEP * (cls.WIERSZE - 1)
+                + cls.NAGLOWEK + cls.STOPKA + 2 * cls.PRZERWA)
+
+    def sizeHint(self):
+        return QSize(720, int(self.wysokosc_dla(self.POLE_WZOR)))
+
+    def minimumSizeHint(self):
+        return QSize(420, int(self.wysokosc_dla(self.POLE_MIN)))
+
+    def _pola(self):
+        """Prostokąty strzałek i dwunastu pól — liczone z rozmiaru."""
+        szer, wys = float(self.width()), float(self.height())
+        pola = {}
+        rok = str(self._rok)
+        szer_roku = OK._szerokosc(rok, 13, 700, mono=True)
+        pola["wstecz"] = QRectF(0.0, 0.0, self.STRZALKA, self.NAGLOWEK)
+        pola["rok"] = QRectF(self.STRZALKA + 4.0, 0.0, szer_roku + 8.0, self.NAGLOWEK)
+        pola["dalej"] = QRectF(pola["rok"].right() + 4.0, 0.0, self.STRZALKA, self.NAGLOWEK)
+        y0 = self.NAGLOWEK + self.PRZERWA
+        wys_pol = max(1.0, wys - y0 - self.PRZERWA - self.STOPKA)
+        pole_h = (wys_pol - self.ODSTEP * (self.WIERSZE - 1)) / self.WIERSZE
+        pole_w = (szer - self.ODSTEP * (self.KOLUMNY - 1)) / self.KOLUMNY
+        lista = []
+        for numer in range(12):
+            kol, wiersz = numer % self.KOLUMNY, numer // self.KOLUMNY
+            lista.append(((self._rok, numer + 1),
+                          QRectF(kol * (pole_w + self.ODSTEP), y0 + wiersz * (pole_h + self.ODSTEP),
+                                 pole_w, pole_h)))
+        pola["pola"] = lista
+        pola["stopka"] = QRectF(0.0, wys - self.STOPKA, szer, self.STOPKA)
+        return pola
+
+    def _trafienie(self, punkt):
+        pola = self._pola()
+        for nazwa in ("wstecz", "dalej"):
+            if pola[nazwa].contains(punkt):
+                return (nazwa,)
+        for klucz, pole in pola["pola"]:
+            if pole.contains(punkt):
+                return ("pole", klucz)
+        return None
+
+    # ── zdarzenia ─────────────────────────────────────────────────
+    def mousePressEvent(self, zdarzenie):
+        if zdarzenie.button() == Qt.MouseButton.LeftButton:
+            trafione = self._trafienie(zdarzenie.position())
+            if trafione == ("wstecz",):
+                self.ustaw_rok(self._rok - 1)
+            elif trafione == ("dalej",):
+                self.ustaw_rok(self._rok + 1)
+            elif trafione is not None:
+                self.wybrano_miesiac.emit(trafione[1][0], trafione[1][1])
+        super().mousePressEvent(zdarzenie)
+
+    def mouseMoveEvent(self, zdarzenie):
+        trafione = self._trafienie(zdarzenie.position())
+        if trafione != self._pod:
+            self._pod = trafione
+            self.setCursor(Qt.CursorShape.PointingHandCursor if trafione
+                           else Qt.CursorShape.ArrowCursor)
+            self.update()
+        super().mouseMoveEvent(zdarzenie)
+
+    def leaveEvent(self, zdarzenie):
+        self._pod = None
+        self.update()
+        super().leaveEvent(zdarzenie)
+
+    def resizeEvent(self, zdarzenie):
+        self._pix = None
+        super().resizeEvent(zdarzenie)
+
+    # ── rysowanie ─────────────────────────────────────────────────
+    @staticmethod
+    def _kwota_txt(kwota):
+        return "%s zł" % D.zl(float(kwota))
+
+    @staticmethod
+    def _km_txt(km):
+        return "%s km" % f"{float(km):,.0f}".replace(",", " ")
+
+    def _rysuj_strzalke(self, p, pole, w_prawo, kolor):
+        c = pole.center()
+        pioro = QPen(kolor, 1.6)
+        pioro.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pioro.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pioro)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        dx = 2.6 if w_prawo else -2.6
+        sciezka = QPainterPath()
+        sciezka.moveTo(c.x() - dx, c.y() - 4.6)
+        sciezka.lineTo(c.x() + dx, c.y())
+        sciezka.lineTo(c.x() - dx, c.y() + 4.6)
+        p.drawPath(sciezka)
+
+    def _rysuj_pole(self, p, klucz, r):
+        stan = self.stan_miesiaca(klucz)
+        wpis = self._miesiace.get(klucz) or {}
+        sciezka = QPainterPath()
+        sciezka.addRoundedRect(r, self.PROMIEN_POLA, self.PROMIEN_POLA)
+        if stan == "dokumenty":
+            S.szklo(p, r, self.PROMIEN_POLA, mocne=True, sila_krawedzi=1.2, refleks=False)
+            # krawędź światła u góry: cyjan przechodzący w miętę
+            g = QLinearGradient(QPointF(r.x(), r.y()), QPointF(r.right(), r.y()))
+            g.setColorAt(0.00, S.z_alfa(S.CYJAN, 0))
+            g.setColorAt(0.20, S.z_alfa(S.CYJAN, 150))
+            g.setColorAt(0.80, S.z_alfa(S.MIETA, 150))
+            g.setColorAt(1.00, S.z_alfa(S.MIETA, 0))
+            p.fillRect(QRectF(r.x() + 8.0, r.y() + 0.6, r.width() - 16.0, 1.4), QBrush(g))
+            kolor_etykiety = S.TEKST_2
+        elif stan == "przyszly":
+            p.fillPath(sciezka, S.z_alfa(S.POWIERZCHNIA_CIEMNA, 60))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(S.z_alfa(S.OBRYS, 70), 1.0))
+            p.drawPath(sciezka)
+            kolor_etykiety = S.z_alfa(S.TEKST_3, 110)
+        else:
+            p.fillPath(sciezka, S.z_alfa(S.POWIERZCHNIA_CIEMNA, 160))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(S.OBRYS, 1.0))
+            p.drawPath(sciezka)
+            kolor_etykiety = S.TEKST_3
+        if klucz == self._biezacy:
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(S.z_alfa(S.CYJAN, 120), 1.2))
+            p.drawPath(sciezka)
+            if stan != "dokumenty":
+                kolor_etykiety = S.TEKST_2
+
+        duze = r.height() >= 68.0
+        lewy = r.x() + 10.0
+        rozm_etykiety = 11.5 if duze else 10.5
+        S.tekst(p, lewy, r.y() + 8.0 + rozm_etykiety, PMT.MIESIACE_PL[klucz[1] - 1],
+                kolor_etykiety, rozm_etykiety, 600)
+        if self.nierozliczony(klucz):
+            srodek = QPointF(r.right() - 9.0, r.y() + 9.0)
+            S.punkt_swiatla(p, srodek, 8.0, S.BURSZTYN, 110)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(S.BURSZTYN))
+            p.drawEllipse(srodek, 2.8, 2.8)
+        if stan != "dokumenty" or wpis.get("kwota") is None:
+            return
+        rozm_kwoty = 15.0 if duze else 13.0
+        rozm_linii = 10.5 if duze else 9.5
+        y_kwoty = r.y() + 8.0 + rozm_etykiety + 7.0 + rozm_kwoty
+        # kilometry i dni tuż pod kwotą — jedna grupa liczb, nie dwa brzegi pola
+        y_linii = min(r.bottom() - 8.0, y_kwoty + 7.0 + rozm_linii)
+        if y_linii - y_kwoty < rozm_linii + 2.0:
+            y_kwoty = y_linii - rozm_linii - 2.0
+        S.tekst(p, lewy, y_kwoty, self._kwota_txt(wpis["kwota"]), S.MIETA,
+                rozm_kwoty, 700, mono=True, poswiata=0.5)
+        linia = "%s · %s" % (self._km_txt(wpis.get("km") or 0),
+                             OK._dni_txt(int(wpis.get("dni") or 0)))
+        S.tekst(p, lewy, y_linii, linia, S.TEKST_2, rozm_linii, 600, mono=True)
+
+    def _rysuj(self, p):
+        pola = self._pola()
+        self._rysuj_strzalke(p, pola["wstecz"], False, S.TEKST_2)
+        S.tekst(p, pola["rok"].x() + 4.0, pola["rok"].center().y() + 5.0, str(self._rok),
+                S.TEKST, 13, 700, mono=True)
+        self._rysuj_strzalke(p, pola["dalej"], True, S.TEKST_2)
+        for klucz, pole in pola["pola"]:
+            self._rysuj_pole(p, klucz, pole)
+        # sumy roku, od prawej: dni · km · kwota
+        kwota, km, dni, ile = self.sumy_roku()
+        stopka = pola["stopka"]
+        y = stopka.center().y() + 5.0
+        x = stopka.right()
+        for napis, kolor, rozm, waga, poswiata in (
+                (OK._dni_txt(dni), S.TEKST_2, 12, 600, 0.0),
+                (" · ", S.TEKST_3, 12, 600, 0.0),
+                (self._km_txt(km), S.TEKST_2, 12, 600, 0.0),
+                (" · ", S.TEKST_3, 12, 600, 0.0),
+                (self._kwota_txt(kwota), S.MIETA, 13, 700, 0.5)):
+            x -= OK._szerokosc(napis, rozm, waga, mono=True)
+            S.tekst(p, x, y, napis, kolor, rozm, waga, mono=True, poswiata=poswiata)
+        if ile:
+            napis = "%d z 12" % ile
+            S.tekst(p, stopka.x(), y, napis, S.TEKST_3, 11.5, 600, mono=True)
+
+    def _pixmapa(self):
+        dpr = self.devicePixelRatioF()
+        klucz = (self.width(), self.height(), round(dpr, 2), self._rok, self._wersja,
+                 self._biezacy)
+        if self._pix is not None and self._klucz_pix == klucz:
+            return self._pix
+        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        self._rysuj(p)
+        p.end()
+        self._pix, self._klucz_pix = pix, klucz
+        return pix
+
+    def paintEvent(self, _zdarzenie):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.drawPixmap(0, 0, self._pixmapa())
+        if self._pod is not None:
+            pola = self._pola()
+            if self._pod[0] == "pole":
+                for klucz, pole in pola["pola"]:
+                    if klucz == self._pod[1]:
+                        sciezka = QPainterPath()
+                        sciezka.addRoundedRect(pole, self.PROMIEN_POLA, self.PROMIEN_POLA)
+                        p.fillPath(sciezka, QColor(255, 255, 255, 12))
+                        break
+            else:
+                self._rysuj_strzalke(p, pola[self._pod[0]], self._pod[0] == "dalej", S.TEKST)
+        p.end()
 
 
 class EkranStartowy(QWidget):
-    """Ekran startowy: dzisiejsza data, dzisiejsza trasa, liczby miesiąca,
-    skrót do bilansu i do mapy tras. Zbudowany z części nowego systemu."""
+    """Ekran startowy: dzisiejsza data, dzisiejsza trasa, kratka roku,
+    liczby miesiąca, skrót do bilansu i do mapy tras. Zbudowany z części
+    nowego systemu."""
 
     MAKS_PRZYSTANKOW = 5
+    MAKS_PRZYSTANKOW_CIASNO = 3      # w niskim oknie kratka roku musi się zmieścić
     MAKS_SZEROKOSC = 1000
+    PROG_CIASNY = 600                # wysokość ekranu, poniżej której układ się zagęszcza
 
     def __init__(self, okno):
         super().__init__(okno)
@@ -1778,6 +2307,16 @@ class EkranStartowy(QWidget):
         self.karta_dnia.setMinimumHeight(172)
         z.addStretch(1)
         z.addWidget(self.karta_dnia, 0)
+
+        # ── kratka roku ───────────────────────────────────────────
+        self.karta_roku = KartaStanu(self, S.PROMIEN)
+        kr = QVBoxLayout(self.karta_roku)
+        kr.setContentsMargins(18, 12, 18, 12)
+        self.kratka = KratkaRoku(self.karta_roku)
+        self.kratka.wybrano_miesiac.connect(self._klik_miesiaca)
+        kr.addWidget(self.kratka)
+        self.karta_roku.setMaximumHeight(int(KratkaRoku.wysokosc_dla(KratkaRoku.POLE_MAKS)) + 24)
+        z.addWidget(self.karta_roku, 3)
 
         # ── liczby miesiąca ───────────────────────────────────────
         self.karta_liczb = KartaStanu(self, S.PROMIEN)
@@ -1819,6 +2358,24 @@ class EkranStartowy(QWidget):
         skroty.addWidget(self.l_folder, 0, Qt.AlignmentFlag.AlignVCenter)
         z.addLayout(skroty)
         z.addStretch(1)
+        self._ciasno = None
+        self._uloz_ciasno(False)
+
+    # ── układ: w niskim oknie wszystko ma się zmieścić bez przewijania ─
+    def _uloz_ciasno(self, ciasno):
+        ciasno = bool(ciasno)
+        if ciasno == self._ciasno:
+            return
+        self._ciasno = ciasno
+        self.layout().setSpacing(8 if ciasno else 16)
+        # karta dnia rośnie z przystankami sama — w ciasnym oknie startuje niżej
+        self.karta_dnia.setMinimumHeight(120 if ciasno else 172)
+        kl = self.karta_liczb.layout()
+        kl.setContentsMargins(24, 8 if ciasno else 14, 24, 8 if ciasno else 14)
+        self.karta_liczb.setMinimumHeight(80 if ciasno else 92)
+
+    def _maks_przystankow(self):
+        return self.MAKS_PRZYSTANKOW_CIASNO if self._ciasno else self.MAKS_PRZYSTANKOW
 
     # ── dane ──────────────────────────────────────────────────────
     def _animuj(self):
@@ -1845,7 +2402,8 @@ class EkranStartowy(QWidget):
             self.l_postep.setText("%d z %d" % (zrobione, ile))
             self.b_dzien.setText("Plan wizyt")
             pierwszy_otwarty = True
-            for wizyta in dzien.wizyty[:self.MAKS_PRZYSTANKOW]:
+            maks = self._maks_przystankow()
+            for wizyta in dzien.wizyty[:maks]:
                 odwiedzona = False
                 try:
                     odwiedzona = PMT.czy_odwiedzona(dzis, wizyta.adres or wizyta.nazwa)
@@ -1862,7 +2420,7 @@ class EkranStartowy(QWidget):
                 if wizyta.miasto and wizyta.miasto not in opis:
                     opis = "%s · %s" % (opis, wizyta.miasto)
                 self.przystanki.addWidget(Napis(opis, 12, 600, barwa, punkt=punkt))
-            reszta = len(dzien.wizyty) - self.MAKS_PRZYSTANKOW
+            reszta = len(dzien.wizyty) - maks
             if reszta > 0:
                 self.przystanki.addWidget(
                     Napis("+%d" % reszta, 11.5, 700, S.TEKST_3, mono=True))
@@ -1890,7 +2448,20 @@ class EkranStartowy(QWidget):
         self.k_punkty.ustaw_wartosc(ile_punktow, animuj)
         poprzedni = liczby.get("poprzedni_miesiac", 0)
         self.l_poprzedni.setText("poprzedni miesiąc  %d" % poprzedni)
+        self.odswiez_kratke()
         self.odswiez_mape()
+
+    def odswiez_kratke(self):
+        """Kratka roku z miesięcy osoby (historia + foldery), rok z paska."""
+        try:
+            miesiace = self._okno._miesiace_historii()
+        except Exception:
+            miesiace = {}
+        self.kratka.ustaw_dane(miesiace, miesiac_biezacy(), rok=self._okno.rok)
+
+    def _klik_miesiaca(self, rok, miesiac):
+        """Pole kratki przestawia cały program na ten miesiąc."""
+        self._okno.przejdz_do_miesiaca(rok, miesiac)
 
     def odswiez_mape(self):
         """Stan przycisku mapy — bez pliku przycisk stoi i mówi „brak”."""
@@ -1902,6 +2473,10 @@ class EkranStartowy(QWidget):
 
     def resizeEvent(self, zdarzenie):
         super().resizeEvent(zdarzenie)
+        bylo = self._ciasno
+        self._uloz_ciasno(self.height() < self.PROG_CIASNY)
+        if bylo is not None and bylo != self._ciasno and self.isVisible():
+            self.odswiez()                  # inna liczba przystanków na karcie dnia
         wysrodkuj_tresc(self, self.MAKS_SZEROKOSC)
 
     def _klik_dnia(self):
@@ -2088,9 +2663,36 @@ class PasekMiesiecy(OK.PasekGorny):
     klik_minimalizacji = pyqtSignal()
     klik_pelnego_ekranu = pyqtSignal()
 
+    PROMIEN_KROPKI = 3.0
+
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
         self._ciagniecie = None       # okno przeciągane za pasek górny
+        # Kropka ostrzeżenia na zakładce: miesiąc już minął, a nie ma dla
+        # niego ani wpisu w historii, ani folderu z dokumentami. Liczy ją
+        # okno (_odswiez_kropki) — pasek tylko rysuje.
+        self.kropki = (False, False, False)
+
+    def pole_kropki(self, numer):
+        """Środek kropki na zakładce o tym numerze (współrzędne paska)."""
+        pole = self._pola_zakladek()[int(numer)]
+        return QPointF(pole.right() - 7.0, pole.y() + 7.0)
+
+    def paintEvent(self, zdarzenie):
+        super().paintEvent(zdarzenie)
+        if not any(self.kropki):
+            return
+        malarz = QPainter(self)
+        malarz.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for numer, kropka in enumerate(self.kropki[:len(self.MIESIACE)]):
+            if not kropka:
+                continue
+            srodek = self.pole_kropki(numer)
+            S.punkt_swiatla(malarz, srodek, 9.0, S.BURSZTYN, 120)
+            malarz.setPen(Qt.PenStyle.NoPen)
+            malarz.setBrush(QBrush(S.BURSZTYN))
+            malarz.drawEllipse(srodek, self.PROMIEN_KROPKI, self.PROMIEN_KROPKI)
+        malarz.end()
 
     def _sygnaly(self):
         return {"konto": self.klik_konta, "dzwonek": self.klik_dzwonka,
@@ -2176,9 +2778,6 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._imie_zal = ""
         self._pozostalo_dni = None
         self._nieprzeczytane = 0
-        self._intro = None
-        self._intro_gra = False
-        self._intro_zakonczone = False
         self._dopasowane = False
         biezacy = miesiac_biezacy()
         self.rok = int(rok or biezacy[0])
@@ -2199,6 +2798,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._praca_dokumenty = None    # ...i ile plików PDF już napisał
         self._kwota_zamowiona = 0.0
         self._formularz_zamowiony = None
+        self._parametry_generacji = None  # parametry wątku — do wpisu historii
         self._osiagnieto = 0.0
         self._niepelna = False
         self._pole_pesel = None
@@ -2209,6 +2809,14 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._ekran_startowy = None
         self._o_programie = None
         self._kopia = None
+        self._miesiace = None           # historia + foldery osoby (historia_okna), liczone leniwie
+        # Taca pamięta poprzednie miesiące: który miesiąc na niej leży i skąd
+        # są kartki — z silnika (wynik tej sesji) albo z folderu na dysku.
+        self._taca_miesiac = None       # (rok, miesiąc) miesiąca na tacy
+        self._taca_folder = ""          # folder miesiąca z dysku ("" = wynik tej sesji)
+        self._taca_dni = []             # kartki miesiąca z dysku (proto_dane.Dzien)
+        self._taca_liczby = {}          # liczby jego PDF-ów (pmt_dokumenty.liczby_kompletu)
+        self._pliki_tacy = []
 
         self._ustaw_baze_z_profilu()
         self._ustaw_miesiac_w_prototypie()
@@ -2242,6 +2850,9 @@ class OknoNowegoWygladu(OknoPrototypu):
         if stare_okno is not None:
             self._zepnij_ze_starym(stare_okno)
         self._odswiez_pasek_konta()
+        self._dociagnij_historie()
+        self._odswiez_kropki()
+        QTimer.singleShot(0, self._dymek_rozpoznania)
         try:
             QApplication.instance().focusWindowChanged.connect(
                 self._ubierz_okno_programu)
@@ -2279,6 +2890,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         """Połączenia, których prototyp mieć nie mógł — nie miał co podłączać."""
         self.taca.pas.otwarty.connect(self._otworz_dokument_dnia)
         self.taca.b_folder.clicked.connect(self._otworz_folder)
+        self.taca.wybrano_miesiac.connect(self._wybrano_miesiac_tacy)
         # Klik w kompas W TRAKCIE pracy przerywa generowanie. Sygnał „uruchom"
         # leci wyłącznie ze stanów spoczynkowych, więc bierzemy surowe „clicked".
         self.k_kompas.kompas.clicked.connect(self._klik_kompasu)
@@ -2381,6 +2993,7 @@ class OknoNowegoWygladu(OknoPrototypu):
             self._ustaw_baze_z_profilu()      # inny adres = inny rejon na mapie
             self._przebuduj_mape()
         self._przelicz_teraz()
+        self._uniewaznij_historie()           # inna osoba = inne miesiące
 
     def _silnik_zmieniony(self, indeks):
         self.profil.silnik_idx = 1 if int(indeks) else 0
@@ -2438,9 +3051,11 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._etap_silnika = ""
         self._po_generacji = False
         self._schowaj_tace()
+        self._zdejmij_miesiac_z_tacy()
         self._ustaw_miesiac_w_prototypie()
         self.pasek.MIESIACE = self._zakladki_miesiecy()
         self.pasek._aktywny = 1
+        self._odswiez_kropki()
         self.pasek.update()
         self._wolne = self._wolne_z_ustawien()
         self.k_kompas.kompas.ustaw_stan("gotowy")
@@ -2699,6 +3314,12 @@ class OknoNowegoWygladu(OknoPrototypu):
                                        limit_dnia=self._limit_dnia)
         if kwota > maks:
             return None, "maks. %s zł" % D.zl(maks, grosze=False)
+        # Rubryka PRZEŁOŻONY na każdym dokumencie bierze się WYŁĄCZNIE z pliku
+        # menedzer.txt. Bez pliku wyszłaby pusta — stare okno zatrzymywało
+        # wtedy użytkownika przed generowaniem, nowe robi to samo: krótka
+        # etykieta przy kompasie, bez zdań.
+        if not PMT._menedzer():
+            return None, "brak menedzer.txt"
 
         stanowisko = self.k_pracownik.stanowisko.currentText().strip() or "KR"
         woj = PMT.rozpoznaj_wojewodztwo(adres_d["kod_pocztowy"])
@@ -2727,11 +3348,16 @@ class OknoNowegoWygladu(OknoPrototypu):
         if parametry is None:
             self._odmowa(powod)
             return
+        if self._taca_folder:
+            # na tacy leżał miesiąc z dysku — schodzi, wynik silnika idzie na jego miejsce
+            self._schowaj_tace()
+            self._zdejmij_miesiac_z_tacy()
         self._powod_bledu = ""
         self._po_generacji = False
         self._niepelna = False
         self._osiagnieto = 0.0
         self._kwota_zamowiona = round(parametry["kwota_cel"], 2)
+        self._parametry_generacji = dict(parametry)
         self._formularz_zamowiony = self._snapshot_formularza()
         self._etap_silnika = "dane"
         self._praca_dni = 0.0
@@ -2748,6 +3374,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._watek.blad.connect(self._blad_generacji)
         if hasattr(self._watek, "anulowano"):
             self._watek.anulowano.connect(self._anulowano_generacji)
+        if hasattr(self._watek, "dzien_gotowy"):
+            self._watek.dzien_gotowy.connect(self._dzien_gotowy_generacji)
         self._watek.start()
 
     def _klik_kompasu(self):
@@ -2765,6 +3393,8 @@ class OknoNowegoWygladu(OknoPrototypu):
         except AttributeError:
             watek.requestInterruption()
         self.k_kompas.kompas.ustaw_etap("przerywanie")
+        # wątek przerwie się dopiero na najbliższym meldunku — przelot nie czeka
+        self._zakoncz_intro_generowania(natychmiast=True)
         return True
 
     def _odmowa(self, powod, blad=False):
@@ -2782,6 +3412,33 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._etap_silnika = etap_silnika(tekst)
         self._postep_tasmy(tekst)
         self.ustaw_postep_pokazu(float(ulamek))
+        self._dokumenty_przelotu(tekst)
+
+    def _dokumenty_przelotu(self, tekst):
+        """Pisany dokument (i/n) stempluje trasy swoich dni na przelocie."""
+        film = getattr(self, "_intro_generowania", None)
+        if film is None or self._etap_silnika != "PDF":
+            return
+        ile = postep_etapu(tekst)
+        if ile is None or not hasattr(film, "ustaw_dokumenty"):
+            return
+        try:
+            film.ustaw_dokumenty(ile[0], ile[1])
+        except Exception:
+            pass
+
+    def _dzien_gotowy_generacji(self, slad):
+        """Silnik ułożył dzień (PMT.slad_dnia) — jego trasa zapala się na
+        przelocie. Sygnał idzie z wątku silnika jako gotowa krotka; silnik
+        na nic tu nie czeka."""
+        film = getattr(self, "_intro_generowania", None)
+        if film is None or not hasattr(film, "dodaj_trase"):
+            return
+        try:
+            data, punkty = slad
+            film.dodaj_trase(punkty, data=data)
+        except Exception:
+            pass
 
     def _postep_tasmy(self, tekst):
         """Kafle dni i klamry dokumentów zapalają się Z MELDUNKÓW SILNIKA.
@@ -2854,7 +3511,7 @@ class OknoNowegoWygladu(OknoPrototypu):
             self.tasma.ustaw_prace(None)
         except AttributeError:
             pass
-        self._zakoncz_intro_generowania()
+        self._zakoncz_intro_generowania(natychmiast=True)
 
     def _koniec_sekwencji(self):
         """Koniec pracy silnika — taśma przestaje pokazywać postęp."""
@@ -2866,15 +3523,17 @@ class OknoNowegoWygladu(OknoPrototypu):
             pass
         self._zakoncz_intro_generowania()
 
-    # ── zaczep na intro: film w czasie generowania ───────────────────
-    #  Właściciel chce kiedyś oglądać intro_zywa_mapa DOKŁADNIE TUTAJ —
-    #  nie na starcie programu, tylko wtedy, gdy silnik pracuje i jest na
-    #  co patrzeć. Cała sekwencja generowania woła tylko te dwa punkty i
-    #  nic więcej o intrze nie wie. Dopóki INTRO_GENEROWANIA jest puste,
-    #  oba nie robią nic i program zachowuje się jak dotąd.
-    #  Wstawka dostaje okno i ma zwrócić widżet z metodą ``zakoncz`` albo
-    #  None; postęp silnika trafia do niej przez ``ustaw_postep``.
-    INTRO_GENEROWANIA = None
+    # ── zaczep na intro: przelot w czasie generowania ────────────────
+    #  Intro gra wtedy, gdy silnik pracuje i jest na co patrzeć — nie na
+    #  starcie programu. Sekwencja generowania woła tylko te dwa punkty
+    #  i o wstawce wie tyle: dostaje okno, zwraca widżet (albo None)
+    #  z metodami ``zakoncz`` (silnik skończył — lądowanie) i, jeśli je ma,
+    #  ``przerwij`` (koniec natychmiast), ``ustaw_postep`` (ułamek postępu),
+    #  ``dodaj_trase`` (dzień ułożony) i ``ustaw_dokumenty`` (pisany plik).
+    #  Domyślna wstawka to przelot nad rejonem (proto_mapa.PrzelotRejonu);
+    #  ``INTRO_GENEROWANIA = None`` wyłącza intro w ogóle. Przy zgaszonych
+    #  animacjach wstawka nie jest wołana — zostaje sam postęp na kompasie.
+    INTRO_GENEROWANIA = staticmethod(przelot_generowania)
 
     def _zacznij_intro_generowania(self):
         wstawka = type(self).INTRO_GENEROWANIA
@@ -2883,16 +3542,21 @@ class OknoNowegoWygladu(OknoPrototypu):
             return
         try:
             self._intro_generowania = wstawka(self)
-        except Exception:
+        except Exception as blad:
+            PMT.log_error(blad)
             self._intro_generowania = None
 
-    def _zakoncz_intro_generowania(self):
+    def _zakoncz_intro_generowania(self, natychmiast=False):
+        """``natychmiast`` — bez lądowania (przerwanie, zgaszone animacje)."""
         film = getattr(self, "_intro_generowania", None)
         if film is None:
             return
         self._intro_generowania = None
         try:
-            film.zakoncz()
+            if natychmiast and hasattr(film, "przerwij"):
+                film.przerwij()
+            else:
+                film.zakoncz()
         except Exception:
             pass
 
@@ -2925,6 +3589,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._pracownik_silnika = pracownik
         self.folder_wyniku = folder
         self.pliki_wyniku = dokumenty_w_wyniku(folder)
+        self._zapisz_historie(finalne_dni, folder)
         self._osiagnieto = round(sum(d.suma for d in finalne_dni), 2)
         self._niepelna = bool(getattr(watek, "_kwota_niepelna", False)) \
             or abs(self._osiagnieto - self._kwota_zamowiona) >= 0.01
@@ -2965,6 +3630,144 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._odswiez_dzien()
         self.zakoncz_pokaz(animacja=self._animacje)
 
+    # ── historia miesięcy ────────────────────────────────────────────
+    def _zapisz_historie(self, finalne_dni, folder):
+        """Wpis historii po udanym generowaniu — ten sam format, co w starym
+        oknie (PMT.wpis_historii_generacji). Z tej historii żyją wykresy
+        „Twoja praca → Delegacje", Archiwum i historia_miesiecy()."""
+        parametry = self._parametry_generacji
+        if not parametry:
+            return False
+        try:
+            wpis = PMT.wpis_historii_generacji(parametry, finalne_dni, folder)
+            PMT.dodaj_do_historii(parametry["imie"], parametry["pesel"], wpis)
+        except Exception as blad:
+            PMT.log_error(blad)
+            self._uniewaznij_historie()       # folder i tak leży na dysku
+            return False
+        self._uniewaznij_historie()
+        return True
+
+    def _dane_uzytkownika(self):
+        """(imię, PESEL) osoby z karty PRACOWNIK — pod tym kluczem leży jej
+        historia. Panele starego okna czytały je z JEGO formularza, który w
+        nowym systemie stoi pusty: wykresy delegacji wychodziły zerowe."""
+        imie = ""
+        pesel = ""
+        try:
+            imie = " ".join(self.k_pracownik.imie.text().split())
+            if self._pole_pesel is not None:
+                pesel = "".join(self._pole_pesel.text().split())
+        except Exception:
+            imie, pesel = "", ""
+        return (imie or self.profil.imie or "",
+                pesel or self.profil.pesel or "")
+
+    def _dociagnij_historie(self):
+        """Miesiące, które leżą gotowe na dysku, a historia ich nie zna —
+        raz przy starcie, przy zmianie konta i przy otwieraniu „Twojej pracy".
+        Gdy nic nowego, kosztuje tyle, co przegląd Pulpitu."""
+        imie, pesel = self._dane_uzytkownika()
+        if not (imie and pesel):
+            self._uniewaznij_historie()
+            return 0
+        try:
+            return PMT.dociagnij_historie_z_folderow(imie, pesel)
+        except Exception as blad:
+            PMT.log_error(blad)
+            return 0
+        finally:
+            self._uniewaznij_historie()
+
+    # ── miesiące osoby: kropka na zakładce, kratka roku, pasek tacy ──
+    def _miesiace_historii(self):
+        """{(rok, miesiąc): {...}} — historia + foldery na dysku (historia_okna),
+        liczone raz i trzymane do najbliższej zmiany (generowanie, dociągnięcie,
+        inna osoba). Żaden paintEvent tego nie liczy — tylko czyta wynik."""
+        if self._miesiace is None:
+            imie, pesel = self._dane_uzytkownika()
+            try:
+                self._miesiace = historia_okna(imie, pesel)
+            except Exception as blad:
+                PMT.log_error(blad)
+                self._miesiace = {}
+        return self._miesiace
+
+    def _uniewaznij_historie(self):
+        self._miesiace = None
+        self._odswiez_kropki()
+        self._odswiez_odkryte()
+
+    # ── białe plamy rejonu: ślad obecności z historii na mapie ───────
+    def _miejsca_odkryte(self):
+        """Nazwy miejscowości ze śladem obecności programu — suma pól
+        „miejsca" wszystkich miesięcy osoby (PMT.historia_miesiecy)."""
+        nazwy = set()
+        for wpis in self._miesiace_historii().values():
+            for nazwa in (wpis.get("miejsca") or {}):
+                if nazwa:
+                    nazwy.add(str(nazwa))
+        return nazwy
+
+    def _odswiez_odkryte(self):
+        """Mapa dostaje ślad obecności; bez historii — wszystko pod mgłą."""
+        mapa = getattr(self, "mapa", None)
+        if mapa is None or not hasattr(mapa, "ustaw_odkryte"):
+            return
+        try:
+            mapa.ustaw_odkryte(self._miejsca_odkryte())
+        except Exception as blad:
+            PMT.log_error(blad)
+
+    def _folder_miesiaca(self, rok, miesiac):
+        """Folder z gotowymi dokumentami tego miesiąca albo pusty napis:
+        wynik tej sesji, a poza nim komplet z dysku (historia + foldery)."""
+        klucz = (int(rok), int(miesiac))
+        if klucz == (self.rok, self.miesiac) and self.folder_wyniku \
+                and dokumenty_w_wyniku(self.folder_wyniku):
+            return self.folder_wyniku
+        wpis = self._miesiace_historii().get(klucz) or {}
+        folder = str(wpis.get("folder") or "")
+        if wpis.get("istnieje") and folder and dokumenty_w_wyniku(folder):
+            return folder
+        return ""
+
+    def _kropki_zakladek(self):
+        """Które zakładki paska dostają kropkę: miesiąc już się skończył,
+        a nie ma dla niego ani wpisu w historii, ani folderu z dokumentami."""
+        if not hasattr(self, "pasek"):
+            return (False, False, False)
+        biezacy = miesiac_biezacy()
+        znane = self._miesiace_historii()
+        numer = self.rok * 12 + self.miesiac - 1
+        kropki = []
+        for krok in (-1, 0, 1):
+            n = numer + krok
+            klucz = (n // 12, n % 12 + 1)
+            kropki.append(klucz < biezacy and klucz not in znane)
+        return tuple(kropki)
+
+    def _odswiez_kropki(self):
+        pasek = getattr(self, "pasek", None)
+        if pasek is None:
+            return
+        kropki = self._kropki_zakladek()
+        if kropki != pasek.kropki:
+            pasek.kropki = kropki
+            pasek.update()
+
+    def przejdz_do_miesiaca(self, rok, miesiac):
+        """Kratka roku: cały program na ten miesiąc — jak zakładka paska —
+        z panelu z powrotem na ekran pracy, a komplet z dysku od razu na
+        tacę. Zwraca folder miesiąca albo pusty napis."""
+        rok, miesiac = int(rok), int(miesiac)
+        self.ustaw_miesiac(rok, miesiac)
+        if self._nakladka is not None and self._nakladka.isVisible():
+            self._nakladka.zamknij()          # → dzial_bilans_miesiaca
+        else:
+            self.dzial_bilans_miesiaca()
+        return self.pokaz_tace_miesiaca(rok, miesiac)
+
     def _podaj_miasta_mapie(self):
         """Prawdziwe współrzędne i rangi miejscowości do mapy.
 
@@ -3001,6 +3804,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._przelicz_kotwice()
         self._podaj_zaslony()
         self._podaj_miasta_mapie()
+        self._odswiez_odkryte()
         stara.ustaw_animacje(False)
         stara.setParent(None)
         stara.deleteLater()
@@ -3010,92 +3814,188 @@ class OknoNowegoWygladu(OknoPrototypu):
             widget.raise_()
         self._przelicz_kotwice()
 
-    # ── taca z prawdziwymi plikami ───────────────────────────────────
-    def _skrot_folderu(self):
+    # ── taca z prawdziwymi plikami; pamięta poprzednie miesiące ─────
+    #  Na tacy leży JEDEN miesiąc: wynik tej sesji (kartki z silnika) albo
+    #  miesiąc z dysku (kartki z tabel przejazdów gotowych PDF-ów, bez
+    #  generowania). Pasek nad kartkami przełącza miesiące, a przyciski
+    #  (folder, mapa, podpis, wysyłka) działają na tym, który leży.
+    def _folder_tacy(self):
+        return self._taca_folder or self.folder_wyniku
+
+    def _miesiac_tacy(self):
+        return self._taca_miesiac or (self.rok, self.miesiac)
+
+    def _taca_z_dysku(self):
+        return bool(self._taca_folder)
+
+    def _dni_tacy(self):
+        """Dni z kartkami na tacy — z dysku albo z silnika."""
+        if self._taca_z_dysku():
+            return [d for d in self._taca_dni if not d.wolny and not d.wylaczony]
+        return self._dni_w_trasie()
+
+    def _zdejmij_miesiac_z_tacy(self):
+        self._taca_miesiac = None
+        self._taca_folder = ""
+        self._taca_dni = []
+        self._taca_liczby = {}
+        self._pliki_tacy = []
+
+    def _miesiace_tacy(self):
+        """[(rok, miesiąc)] — pigułki paska tacy: miesiące z gotowymi
+        dokumentami na dysku, których liczby dały się odczytać (kwota we
+        wpisie); folder z nieczytelnymi PDF-ami nie dostaje pigułki, bo
+        taca pokazałaby zero kartek i zerową kwotę."""
+        miesiace = set()
+        for klucz, wpis in self._miesiace_historii().items():
+            if wpis.get("istnieje") and wpis.get("folder") and wpis.get("kwota") is not None \
+                    and dokumenty_w_wyniku(wpis["folder"]):
+                miesiace.add(klucz)
+        if self.folder_wyniku and self._po_generacji and dokumenty_w_wyniku(self.folder_wyniku):
+            miesiace.add((self.rok, self.miesiac))
+        if self._taca_miesiac and self._folder_tacy():
+            miesiace.add(self._taca_miesiac)
+        return sorted(miesiace)
+
+    def _skrot_folderu(self, folder=None):
         """Folder wyniku w zapisie z prototypu: „Pulpit / Rozliczenie_…"."""
-        if not self.folder_wyniku:
+        folder = self._folder_tacy() if folder is None else folder
+        if not folder:
             return ""
-        sciezka = self.folder_wyniku.rstrip(os.sep)
+        sciezka = folder.rstrip(os.sep)
         rodzic = os.path.basename(os.path.dirname(sciezka))
         nazwa = os.path.basename(sciezka)
         return "%s / %s" % (rodzic, nazwa) if rodzic else nazwa
 
     def _opisz_tace(self):
-        """Podpisy i kafle tacy: prawdziwe pliki, folder i stan odległości."""
-        if not self.folder_wyniku:
+        """Podpisy i kafle tacy: prawdziwe pliki, folder, miesiące i stan odległości."""
+        folder = self._folder_tacy()
+        if not folder:
             return
-        self.pliki_wyniku = dokumenty_w_wyniku(self.folder_wyniku)
+        rok, miesiac = self._miesiac_tacy()
+        self._pliki_tacy = dokumenty_w_wyniku(folder)
+        if not self._taca_z_dysku():
+            self.pliki_wyniku = list(self._pliki_tacy)
         self.taca.l_sciezka.setText(
-            "%s %d · %s" % (PMT.MIESIACE_PL[self.miesiac - 1], self.rok,
-                            PMT._odmiana_plikow(len(self.pliki_wyniku))))
-        self.taca.l_folder.setText(self._skrot_folderu())
-        self.taca.l_folder.setToolTip(self.folder_wyniku)
+            "%s %d · %s" % (PMT.MIESIACE_PL[miesiac - 1], rok,
+                            PMT._odmiana_plikow(len(self._pliki_tacy))))
+        self.taca.l_folder.setText(self._skrot_folderu(folder))
+        self.taca.l_folder.setToolTip(folder)
         # Kafel kilometrów nosił na sztywno podpis „REALNE DROGI" — także
-        # wtedy, gdy kilometry były szacunkiem z linii prostej.
-        stan = PMT.stan_zrodla_odleglosci()
-        opis = stan["etykieta"].upper() if stan["odcinki"] else "KILOMETRY"
+        # wtedy, gdy kilometry były szacunkiem z linii prostej. Miesiąc z dysku
+        # mówi to, co stoi w jego dokumentach („Odległości: szacunek").
+        if self._taca_z_dysku():
+            etykieta = (self._taca_liczby or {}).get("odleglosci") or ""
+            opis = etykieta.upper() if etykieta else "KILOMETRY"
+        else:
+            stan = PMT.stan_zrodla_odleglosci()
+            opis = stan["etykieta"].upper() if stan["odcinki"] else "KILOMETRY"
         kafel = self.taca.k_km
         if getattr(kafel, "_opis", "") != opis:
             kafel._opis = opis
             kafel.updateGeometry()
             kafel.update()
+        self.taca.ustaw_miesiace(self._miesiace_tacy(), (rok, miesiac))
         self._odswiez_stan_mapy()
 
     def _pokaz_tace(self, animacja=True):
+        """Kompas „Otwórz dokumenty" i koniec generowania: na tacę wraca
+        wynik TEJ sesji, także gdy wcześniej leżał na niej miesiąc z dysku."""
+        self._zdejmij_miesiac_z_tacy()
+        if self._po_generacji:
+            self._taca_miesiac = (self.rok, self.miesiac)
         super()._pokaz_tace(animacja)
         self._opisz_tace()
 
+    def pokaz_tace_miesiaca(self, rok, miesiac, animacja=None):
+        """Taca z kartkami TAMTEGO miesiąca — z folderu na dysku, bez
+        generowania czegokolwiek. Miesiąc tej sesji z wynikiem silnika idzie
+        zwykłą drogą. Zwraca folder miesiąca albo pusty napis."""
+        rok, miesiac = int(rok), int(miesiac)
+        animacja = self._animacje if animacja is None else animacja
+        if (rok, miesiac) == (self.rok, self.miesiac) and self._po_generacji \
+                and self.folder_wyniku:
+            self._pokaz_tace(animacja)
+            return self.folder_wyniku
+        folder = self._folder_miesiaca(rok, miesiac)
+        if not folder:
+            return ""
+        dni = dni_z_folderu(folder, rok, miesiac)
+        if not any(not d.wolny for d in dni):
+            return ""                     # PDF-y bez czytelnych tabel — taca bez kartek kłamałaby zerem
+        self._taca_miesiac = (rok, miesiac)
+        self._taca_folder = folder
+        self._taca_dni = dni
+        self._taca_liczby = DOK.liczby_kompletu(folder)
+        self._oznacz_podpisane(self._taca_dni, folder)
+        self.taca.ustaw_dni(self._taca_dni)
+        if self._taca_liczby.get("km") is not None:
+            self.taca.k_km.od_zera(float(self._taca_liczby["km"]))   # kilometry wprost z dokumentów
+        self._odswiez_stan_tacy()
+        self._wysun_tace(animacja)
+        self._opisz_tace()
+        return folder
+
+    def _wybrano_miesiac_tacy(self, rok, miesiac):
+        """Pigułka na pasku tacy — kartki tamtego miesiąca, taca zostaje."""
+        if (int(rok), int(miesiac)) == self._miesiac_tacy() and self._folder_tacy():
+            return
+        self.pokaz_tace_miesiaca(rok, miesiac, animacja=False)
+
     def _otworz_folder(self):
-        if self.folder_wyniku:
-            PMT.otworz_w_systemie(self.folder_wyniku)
+        folder = self._folder_tacy()
+        if folder:
+            PMT.otworz_w_systemie(folder)
 
     def _otworz_wszystkie(self):
         """Prawdziwe pliki PDF otwierane w systemie."""
-        if not self.folder_wyniku:
+        folder = self._folder_tacy()
+        if not folder:
             return
-        self.pliki_wyniku = dokumenty_w_wyniku(self.folder_wyniku)
-        for sciezka in self.pliki_wyniku:
+        pliki = dokumenty_w_wyniku(folder)
+        self._pliki_tacy = pliki
+        if not self._taca_z_dysku():
+            self.pliki_wyniku = list(pliki)
+        for sciezka in pliki:
             PMT.otworz_w_systemie(sciezka)
         self.taca.l_stan.setText(
-            "otwarto %s" % PMT._odmiana_plikow(len(self.pliki_wyniku)))
+            "otwarto %s" % PMT._odmiana_plikow(len(pliki)))
         self._zegar_stanu.start()
 
     def _otworz_dokument_dnia(self, dzien):
         """Kliknięcie kartki na tacy otwiera PDF z jej dniem."""
-        if not self.folder_wyniku:
+        folder = self._folder_tacy()
+        if not folder:
             return
-        sciezka = plik_dokumentu(self.folder_wyniku, getattr(dzien, "dokument", 0))
+        sciezka = plik_dokumentu(folder, getattr(dzien, "dokument", 0))
         if sciezka:
             PMT.otworz_w_systemie(sciezka)
             self.taca.l_stan.setText(os.path.basename(sciezka))
             self._zegar_stanu.start()
 
     def _odswiez_stan_tacy(self):
-        if not self.folder_wyniku:
+        folder = self._folder_tacy()
+        if not folder:
             super()._odswiez_stan_tacy()
             return
-        w_trasie = self._dni_w_trasie()
+        w_trasie = self._dni_tacy()
         podpisane = [d for d in w_trasie if d.podpisany]
         if podpisane:
             self.taca.l_stan.setText("%d z %d podpisanych"
                                      % (len(podpisane), len(w_trasie)))
         else:
-            self.taca.l_stan.setText(DOK.opis_kompletu(self.folder_wyniku))
+            self.taca.l_stan.setText(DOK.opis_kompletu(folder))
 
     # ── podpis i wysyłka: okna programu, nie makiety ─────────────────
-    def _wczytaj_podpisy(self, odswiez=True):
-        """Które dni są już podpisane — z manifestu paczki podpisowej.
-
-        Manifest prowadzi pmt_podpis: dla każdej kopii PDF trzyma nazwę
-        źródła i status. Numer delegacji z nazwy pliku wskazuje dokument,
-        a dzień zna numer swojego dokumentu — stąd pieczęć na kartce."""
-        if not self.folder_wyniku:
-            return 0
+    def _podpisane_numery(self, folder):
+        """Numery dokumentów podpisanych w TYM folderze — z manifestu paczki
+        podpisowej (pmt_podpis prowadzi go dla każdej kopii PDF: nazwa
+        źródła i status). Numer delegacji z nazwy pliku wskazuje dokument."""
         modul = PMT.modul_pomocniczy("pmt_wysylka")
         dane = None
         if modul is not None:
             try:
-                dane, _katalog = modul.wczytaj_manifest(self.folder_wyniku)
+                dane, _katalog = modul.wczytaj_manifest(folder)
             except Exception:
                 dane = None
         modul_podpisu = PMT.modul_pomocniczy("pmt_podpis")
@@ -3106,31 +4006,57 @@ class OknoNowegoWygladu(OknoPrototypu):
             if wpis.get("status") != getattr(modul, "STATUS_PODPISANY", "podpisany"):
                 continue
             nazwa = wpis.get("plik_zrodlowy") or wpis.get("plik") or ""
-            if not self._to_ten_sam_plik(modul_podpisu, nazwa, wpis.get("skrot")):
+            if not self._to_ten_sam_plik(modul_podpisu, nazwa, wpis.get("skrot"), folder):
                 continue
             numer = DOK.numer_delegacji(nazwa)
             if numer:
                 podpisane.add(numer)
-        for dzien in self.dni:
+        return podpisane
+
+    def _oznacz_podpisane(self, dni, folder):
+        podpisane = self._podpisane_numery(folder)
+        for dzien in dni:
             dzien.podpisany = getattr(dzien, "dokument", 0) in podpisane
+        return len(podpisane)
+
+    def _wczytaj_podpisy(self, odswiez=True):
+        """Które dni WYNIKU TEJ SESJI są już podpisane — pieczęć na kartce
+        i na kartce delegacji nad mapą. Miesiąc z dysku ma własną drogę
+        (_odswiez_podpisy_tacy)."""
+        if not self.folder_wyniku:
+            return 0
+        ile = self._oznacz_podpisane(self.dni, self.folder_wyniku)
         if odswiez:
-            self.taca.ustaw_dni(self.dni_widoczne)
-            self._opisz_tace()
+            if not self._taca_z_dysku():
+                self.taca.ustaw_dni(self.dni_widoczne)
+                self._opisz_tace()
             self.tasma.ustaw_dni(self.dni_widoczne)
             self.tasma.ustaw_dzis(OK.DZIS)
             self.tasma.ustaw_wybrany(self._wybrany)
             self._odswiez_dzien()
-        return len(podpisane)
+        return ile
 
-    def _to_ten_sam_plik(self, modul_podpisu, nazwa, skrot):
+    def _odswiez_podpisy_tacy(self):
+        """Po podpisie albo wysyłce: pieczęcie na kartkach miesiąca, który
+        leży na tacy — z dysku albo z silnika."""
+        if self._taca_z_dysku():
+            self._oznacz_podpisane(self._taca_dni, self._taca_folder)
+            self.taca.ustaw_dni(self._taca_dni)
+            self._opisz_tace()
+        else:
+            self._wczytaj_podpisy()
+        self._odswiez_stan_tacy()
+
+    def _to_ten_sam_plik(self, modul_podpisu, nazwa, skrot, folder=None):
         """Czy pieczęć z manifestu dotyczy PLIKU, KTÓRY TERAZ LEŻY W FOLDERZE.
 
         Po ponownym generowaniu w tym samym folderze nazwy się powtarzają,
         a treść nie — bez porównania sumy kontrolnej świeży, niepodpisany
         dokument dostawałby pieczęć po poprzedniku."""
+        folder = self.folder_wyniku if folder is None else folder
         if not nazwa or not skrot or modul_podpisu is None:
             return True          # stary manifest bez sumy — wierzymy statusowi
-        zrodlo = os.path.join(self.folder_wyniku, nazwa)
+        zrodlo = os.path.join(folder, nazwa)
         if not os.path.isfile(zrodlo):
             return True          # plik źródłowy zniknął — nie ma z czym równać
         try:
@@ -3139,10 +4065,12 @@ class OknoNowegoWygladu(OknoPrototypu):
             return True
 
     def _panel_podpisu(self):
-        """Prawdziwy podpis elektroniczny — DialogPodpis nad pmt_podpis."""
-        if not self.folder_wyniku or not os.path.isdir(self.folder_wyniku):
+        """Prawdziwy podpis elektroniczny — DialogPodpis nad pmt_podpis,
+        na folderze miesiąca, który leży na tacy."""
+        folder = self._folder_tacy()
+        if not folder or not os.path.isdir(folder):
             return
-        okno = PMT.DialogPodpis(self, folder=self.folder_wyniku, is_dark=True)
+        okno = PMT.DialogPodpis(self, folder=folder, is_dark=True)
         self._dialog_podpisu = okno
         try:
             okno.exec()
@@ -3152,16 +4080,18 @@ class OknoNowegoWygladu(OknoPrototypu):
             except Exception:
                 pass
             self._dialog_podpisu = None
-        self._wczytaj_podpisy()
-        self._odswiez_stan_tacy()
+        self._odswiez_podpisy_tacy()
 
     def _panel_wysylki(self):
-        """Prawdziwa wysyłka pocztą — DialogWysylka nad pmt_wysylka."""
-        if not self.folder_wyniku or not os.path.isdir(self.folder_wyniku):
+        """Prawdziwa wysyłka pocztą — DialogWysylka nad pmt_wysylka,
+        na folderze i miesiącu, który leży na tacy."""
+        folder = self._folder_tacy()
+        if not folder or not os.path.isdir(folder):
             return
-        okno = PMT.DialogWysylka(self, folder=self.folder_wyniku,
-                                 imie=self.profil.imie, miesiac=self.miesiac,
-                                 rok=self.rok, is_dark=True)
+        rok, miesiac = self._miesiac_tacy()
+        okno = PMT.DialogWysylka(self, folder=folder,
+                                 imie=self.profil.imie, miesiac=miesiac,
+                                 rok=rok, is_dark=True)
         self._dialog_wysylki = okno
         try:
             okno.exec()
@@ -3172,8 +4102,7 @@ class OknoNowegoWygladu(OknoPrototypu):
                 pass
             self._watek_wysylki = getattr(okno, "watek", None)
             self._dialog_wysylki = None
-        self._wczytaj_podpisy()
-        self._odswiez_stan_tacy()
+        self._odswiez_podpisy_tacy()
 
     # ═══════════════════════════════════════════════════════════════
     #  KONTO ZALOGOWANEJ OSOBY (pasek górny, prawa strona)
@@ -3308,14 +4237,6 @@ class OknoNowegoWygladu(OknoPrototypu):
         akcja_tester = menu.addAction("Karta testera")
         akcje = {akcja_haslo: self.zmien_haslo,
                  akcja_tester: lambda: PMT.uruchom_karte_testera(self)}
-        # Przełącznik animacji pokazujemy tylko wtedy, gdy animacja w ogóle
-        # startuje. Przy PMT.INTRO_NA_STARCIE = False nie zmieniałby niczego,
-        # a martwa pozycja w menu jest gorsza niż jej brak.
-        if bool(getattr(PMT, "INTRO_NA_STARCIE", True)):
-            akcja_intro = menu.addAction("Animacja startowa")
-            akcja_intro.setCheckable(True)
-            akcja_intro.setChecked(not bool(PMT.ustawienie("bez_intra", False)))
-            akcje[akcja_intro] = lambda: self.przelacz_intro(akcja_intro.isChecked())
         menu.addSeparator()
         akcja_wyloguj = menu.addAction("Wyloguj")
         akcje[akcja_wyloguj] = self.wyloguj
@@ -3324,9 +4245,6 @@ class OknoNowegoWygladu(OknoPrototypu):
     def zmien_haslo(self):
         PMT.zmien_haslo_w_programie(
             self, self._kod_uzytkownika or PMT.online_kod_uzytkownika(), True)
-
-    def przelacz_intro(self, wlaczona):
-        PMT.zapisz_ustawienie("bez_intra", not bool(wlaczona))
 
     def wyloguj(self):
         """Wylogowanie i logowanie na inne konto — bez zamykania programu."""
@@ -3399,10 +4317,14 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.pliki_wyniku = []
         self._dni_silnika = []
         self._po_generacji = False
+        self._schowaj_tace()
+        self._zdejmij_miesiac_z_tacy()
         self._przebuduj_mape()
         self._wolne = self._wolne_z_ustawien()
         self._przelicz_teraz()
         self._odswiez_pasek_konta()
+        self._dociagnij_historie()
+        self._dymek_rozpoznania()
 
     def _odswiez_karte_pracownika(self):
         """Pola karty PRACOWNIK z bieżącego profilu (bez budzenia zapisu)."""
@@ -3465,19 +4387,26 @@ class OknoNowegoWygladu(OknoPrototypu):
         return self._stare
 
     def _zepnij_ze_starym(self, stare):
-        """Jedno konto, jedna historia powiadomień, jedna ścieżka wylogowania."""
+        """Jedno konto, jedna historia powiadomień, dane pracownika i miesiąc
+        planu z tego ekranu, okna dialogowe paneli nad tym ekranem."""
         try:
             stare._kod_uzytkownika = self._kod_uzytkownika or PMT.online_kod_uzytkownika()
             stare._imie_zalogowany = self._imie_zal
             stare._demo_pozostalo = self._pozostalo_dni
-            # Okno aktualizacji czeka na koniec animacji startowej — ta gra
-            # teraz w nowym oknie, więc stare musi o niej wiedzieć. Bez intra
-            # na starcie nie ma na co czekać ani chwili.
-            gra = bool(PMT.INTRO_NA_STARCIE) and not self._intro_zakonczone
-            stare._intro_gra = gra
-            stare._intro_zakonczone = self._intro_zakonczone or not gra
         except Exception:
             pass
+        # Tamto okno jest ukryte: okna dialogowe paneli (doprecyzowanie
+        # adresu, różnice importu, aktualizacja) stają nad TYM ekranem.
+        stare._okno_dialogow = self
+        # Panele czytają pracownika z karty PRACOWNIK, a miesiąc planu
+        # z paska miesięcy — formularza tamtego okna już nie ma.
+        stare._dane_pracownika = self._profil_do_paneli
+        stare._miesiac_planu = lambda: (self.rok, self.miesiac)
+        for nazwa in ("overlay_staty", "overlay_plan"):
+            try:
+                getattr(stare, nazwa)._on_dane_uzytkownika = self._dane_uzytkownika
+            except Exception:
+                pass
         try:
             stare.toast.historia = self.toast.historia
             stare.panel_powiadomien.podepnij_historie(self.toast.historia)
@@ -3491,24 +4420,27 @@ class OknoNowegoWygladu(OknoPrototypu):
             stare.toast.on_nowe_powiadomienie = _obie_strony
         except Exception:
             pass
-        try:
-            # Ekran powitalny tamtego okna animuje się w ukryciu — gasimy go
-            # na stałe: jego miejsce zajął ekran startowy nowego systemu.
-            QTimer.singleShot(0, stare.ekran_powitalny.stop)
-        except Exception:
-            pass
-        try:
-            oryginalne = stare._wyloguj_uzytkownika
 
-            def _wylogowanie(_o=oryginalne):
-                _o()
-                self.przejmij_konto()
-
-            stare._wyloguj_uzytkownika = _wylogowanie
-            stare.btn_wyloguj.clicked.disconnect()
-            stare.btn_wyloguj.clicked.connect(_wylogowanie)
+    def _profil_do_paneli(self):
+        """Komplet danych pracownika dla paneli starego okna (delegacja
+        z planu, adres bazy planera): karta PRACOWNIK, w zapasie profil."""
+        imie, pesel = self._dane_uzytkownika()
+        try:
+            adres = " ".join(self.k_pracownik.adres.text().split())
         except Exception:
-            pass
+            adres = ""
+        try:
+            stanowisko = self.k_pracownik.stanowisko.currentText()
+        except Exception:
+            stanowisko = ""
+        try:
+            silnik = int(self.k_parametry.pojemnosc.currentIndex())
+        except Exception:
+            silnik = self.profil.silnik_idx
+        return {"imie": imie, "pesel": pesel,
+                "adres": adres or self.profil.adres,
+                "stanowisko": stanowisko or self.profil.stanowisko,
+                "silnik_idx": silnik if silnik in (0, 1) else self.profil.silnik_idx}
 
     # ── rama paneli nad nowym oknem ──────────────────────────────────
     def nakladka(self):
@@ -3728,6 +4660,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.activateWindow()
 
     def dzial_twoja_praca(self):
+        self._dociagnij_historie()
         okno = self.stare_okno()
         PMT.App._pokaz_statystyki(okno)
         liczby = liczby_miesiaca()
@@ -3767,8 +4700,10 @@ class OknoNowegoWygladu(OknoPrototypu):
 
     # ── mapa tras miesiąca ───────────────────────────────────────────
     def sciezka_mapy_tras(self):
-        """Plik mapy tras: z folderu tej sesji albo z ostatniego rozliczenia."""
-        return plik_mapy_tras(self.folder_wyniku) or \
+        """Plik mapy tras: miesiąca z tacy, folderu tej sesji albo
+        ostatniego rozliczenia na dysku."""
+        return plik_mapy_tras(self._taca_folder) or \
+            plik_mapy_tras(self.folder_wyniku) or \
             plik_mapy_tras(folder_z_mapa_tras())
 
     def otworz_mape_tras(self):
@@ -3809,109 +4744,36 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._odswiez_stan_mapy()
 
     # ═══════════════════════════════════════════════════════════════
-    #  ANIMACJA STARTOWA (ta sama, co w starym oknie)
+    #  PO STARCIE — bez animacji startowej
     # ═══════════════════════════════════════════════════════════════
 
-    def intro_po_sprawdzeniu(self, imie="", limit_ms=0):
+    def po_starcie(self, imie=""):
+        """Wołane z sekwencji startowej zaraz po show(). Do 3.22.0 tu
+        ruszała animacja startowa, a na jej koniec czekało zaproszenie
+        testera i okno aktualizacji. Animacji nie ma — zaproszenie idzie
+        po tej samej chwili co dawniej (900 ms), a okno aktualizacji
+        buduje się w starym oknie od razu, gdy wątek zna werdykt."""
         if imie:
-            self._imie_zalogowany = imie
-        if not PMT.INTRO_NA_STARCIE:
-            self._bez_intra()
-            return
-        self.pokaz_intro(imie or self._imie_zal)
-
-    def _bez_intra(self):
-        """Start bez animacji — program od razu w oknie głównym.
-
-        Intro NIE ZNIKA z programu: moduł intro_zywa_mapa i pokaz_intro
-        zostają nietknięte i wrócą PODCZAS GENEROWANIA DOKUMENTÓW.
-        Wyłączone jest tylko wywołanie na starcie (PMT.INTRO_NA_STARCIE).
-        Idziemy prosto tam, dokąd doprowadziłby sygnał końca animacji, żeby
-        nic — ani okno aktualizacji, ani zaproszenie testera — nie wisiało
-        na zdarzeniu, które już nie nadejdzie."""
-        self._intro = None
-        self._intro_gra = False
-        self._intro_zakonczone = False
-        self._intro_koniec()
-
-    def pokaz_intro(self, imie=""):
-        """Animacja startowa jako nakładka — teraz nad nowym ekranem."""
-        try:
-            PMT._dziennik_animacji("nowy wygląd: start intro w wersji %s"
-                                   % PMT.WERSJA_PROGRAMU)
-        except Exception:
-            pass
-        self._intro = None
-        self._intro_gra = False
-        self._intro_zakonczone = False
-        QTimer.singleShot(50000, self._intro_straznik)
-        katalog = PMT._katalog_programu()
-        if bool(PMT.ustawienie("bez_intra", False)) \
-                or PMT._intro_wylaczone_plikiem(katalog):
-            self._intro_koniec()
-            return
-        try:
-            from intro_zywa_mapa import sprobuj_intro
-            dane = PMT.dane_intra_z_dysku(imie or "")
-            if imie:
-                dane["imie"] = str(imie).split()[0]
-            self._intro_gra = True
-            if sprobuj_intro(self, dane=dane, po_zakonczeniu=self._intro_koniec,
-                             katalog_zasobow=katalog, ciemny=True):
-                return
-            self._intro_gra = False
-        except Exception:
-            self._intro_gra = False
-        try:
-            self._intro = PMT.AnimacjaStartowa(imie, is_dark=True, parent=self)
-            self._intro.zakonczony.connect(self._intro_koniec)
-            self._intro.setGeometry(self.rect())
-            self._intro.raise_()
-            self._intro.show()
-        except Exception:
-            self._intro_koniec()
-
-    def _intro_koniec(self):
-        if self._intro_zakonczone:
-            return
-        self._intro_gra = False
-        self._intro_zakonczone = True
-        nakladka = self._intro
-        self._intro = None
-        if nakladka is not None:
-            try:
-                nakladka._zapisz_diag()
-            except Exception:
-                pass
-            nakladka.hide()
-            nakladka.deleteLater()
-        self._zdejmij_intro_zywej_mapy()
-        if self._stare is not None:
-            self._stare._intro_gra = False
-            self._stare._intro_zakonczone = True
-        try:
-            PMT._dziennik_animacji("nowy wygląd: intro zakończone — ekran główny")
-        except Exception:
-            pass
+            self._imie_zalogowany = imie      # właściwość: karta i pasek konta
         QTimer.singleShot(900, lambda: PMT.zaproszenie_testera(
             self, self._imie_zal or "", True))
 
-    def _zdejmij_intro_zywej_mapy(self):
-        for dziecko in self.findChildren(QWidget):
-            if type(dziecko).__name__ != "IntroZywaMapa":
-                continue
-            try:
-                dziecko._koniec_wyslany = True
-                dziecko._timer.stop()
-            except Exception:
-                pass
-            dziecko.hide()
-            dziecko.deleteLater()
-
-    def _intro_straznik(self):
-        """Gdy animacja nie zgłosi końca, i tak odsłaniamy program."""
-        if not self._intro_zakonczone:
-            self._intro_koniec()
+    def _dymek_rozpoznania(self):
+        """„Rozpoznano pracownika": profil ZALOGOWANEJ osoby leżał na dysku,
+        więc karta PRACOWNIK jest już wypełniona. Do 3.22.0 dymek pokazywał
+        formularz starego okna po intrze; teraz ten ekran, zaraz po starcie
+        i po zmianie konta. Nigdy dla cudzego profilu: tylko pełna zgodność
+        imienia i nazwiska z kontem."""
+        try:
+            konto = " ".join((PMT.online_imie_uzytkownika() or "").split()).lower()
+        except Exception:
+            konto = ""
+        profil = self.profil
+        imie = " ".join(str(profil.imie or "").split())
+        if not (konto and imie and profil.prawdziwy and imie.lower() == konto):
+            return False
+        self.toast.show_toast("Rozpoznano pracownika", imie, success=True)
+        return True
 
     # ── okno jako główne okno programu ───────────────────────────────
     def show(self):
@@ -3955,6 +4817,7 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._watek = None
         if watek is None:
             return
+        self._zakoncz_intro_generowania(natychmiast=True)   # przelot ginie razem z nim
         try:
             watek.anuluj()
         except AttributeError:
@@ -4101,6 +4964,9 @@ def main(argv=None):
 #     zawsze ciemne (materiał nowego systemu).
 #  5. W oknie o minimalnym rozmiarze (1040×660) karta planera ma własne
 #     minimum szersze niż rama i przycina się o kilkanaście pikseli.
+#  6. Miesiąc z dysku (kratka roku → taca) ma na tacy PRAWDZIWE kartki
+#     z jego PDF-ów, ale taśma, mapa i kartka nad mapą pokazują dla niego
+#     wciąż podgląd (szacunek) — wynik silnika nie jest odtwarzany z plików.
 # ═══════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":

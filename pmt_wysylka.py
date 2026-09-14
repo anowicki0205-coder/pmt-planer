@@ -82,6 +82,10 @@ ROZSZERZENIA_DOKUMENTOW = (".pdf",)
 # Podpis odłączony (XAdES) — sam plik podpisu bez PDF-a jest bezwartościowy,
 # a sam PDF jest niepodpisany, więc para leci zawsze razem.
 ROZSZERZENIA_PODPISU = (".xades", ".xml", ".sig", ".p7s", ".p7m")
+# Sufiksy, po których pmt_podpis rozpoznaje podpisany egzemplarz — TA SAMA
+# lista co pmt_podpis.SUFIKSY_PODPISU (testy pilnują zgodności; moduł nie
+# importuje pmt_podpis, bo ma zostać samodzielny).
+SUFIKSY_PODPISU = ("-podpisany", "_podpisany", "-signed", "_signed", "-sig", "-xades")
 
 MIESIACE = ("styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec",
             "lipiec", "sierpień", "wrzesień", "październik", "listopad",
@@ -429,8 +433,34 @@ def _z_manifestu(dane, katalogi, tylko_podpisane):
     return (pliki, niepodpisane)
 
 
+def _rdzen(nazwa):
+    """Rdzeń nazwy do porównań — jak _normalizuj w pmt_podpis: bez ogonków,
+    małymi literami, tylko litery i cyfry."""
+    rdzen = os.path.splitext(os.path.basename(str(nazwa or "")))[0]
+    return "".join(z for z in _uproszcz(rdzen) if z.isalnum())
+
+
+def _podpisany_po_nazwie(sciezka):
+    """Dokument poza podfolderem Podpisane uchodzi za podpisany tylko wtedy,
+    gdy rozpoznałby go tak pmt_podpis: nazwa niesie sufiks podpisu
+    („-podpisany", „_signed", …) albo obok leży plik podpisu odłączonego
+    o tym samym rdzeniu."""
+    plaska = _uproszcz(os.path.splitext(os.path.basename(sciezka))[0])
+    if any(s in plaska for s in SUFIKSY_PODPISU):
+        return True
+    return bool(_pary_podpisu(sciezka))
+
+
 def _ze_skanu(folder, tylko_podpisane):
-    """Bez manifestu: podfolder Podpisane, a gdy go nie ma — sam folder."""
+    """Bez manifestu: podpisany jest egzemplarz z podfolderu Podpisane, a poza
+    nim dokument, który pmt_podpis rozpoznałby po nazwie (_podpisany_po_nazwie).
+    Każdy inny dokument z folderu to dokument BEZ podpisu: liczy się do
+    `niepodpisane` i leci wyłącznie przy tylko_podpisane=False.
+
+    Dotąd bez podfolderu Podpisane cały folder leciał niezależnie od
+    przełącznika, a licznik stał na zerze — „tylko podpisane" nic nie
+    filtrowało. Folder, który SAM jest podfolderem Podpisane, ma same
+    egzemplarze podpisane."""
     pliki = []
     niepodpisane = 0
     podpisane = ""
@@ -439,31 +469,39 @@ def _ze_skanu(folder, tylko_podpisane):
         if os.path.isdir(kandydat):
             podpisane = kandydat
             break
-    zrodla = [podpisane] if podpisane else [folder]
-    for katalog in zrodla:
+    sam_podpisane = (os.path.basename(folder.rstrip("\\/")).casefold()
+                     == PODFOLDER_PODPISANE.casefold())
+    rdzenie_podpisanych = []
+    if podpisane:
         try:
-            nazwy = sorted(os.listdir(katalog))
+            nazwy = sorted(os.listdir(podpisane))
         except OSError:
             nazwy = []
         for nazwa in nazwy:
-            sciezka = os.path.join(katalog, nazwa)
+            sciezka = os.path.join(podpisane, nazwa)
             if os.path.isfile(sciezka) and (_dokument(nazwa) or _podpis(nazwa)):
                 pliki.append(sciezka)
-    if podpisane:
-        rdzenie = set(os.path.splitext(os.path.basename(p))[0].casefold() for p in pliki)
-        try:
-            nazwy = sorted(os.listdir(folder))
-        except OSError:
-            nazwy = []
-        for nazwa in nazwy:
-            sciezka = os.path.join(folder, nazwa)
-            if not os.path.isfile(sciezka) or not _dokument(nazwa):
-                continue
-            if os.path.splitext(nazwa)[0].casefold() in rdzenie:
-                continue
-            niepodpisane += 1
-            if not tylko_podpisane:
-                pliki.append(sciezka)
+                rdzenie_podpisanych.append(_rdzen(nazwa))
+    try:
+        nazwy = sorted(os.listdir(folder))
+    except OSError:
+        nazwy = []
+    for nazwa in nazwy:
+        sciezka = os.path.join(folder, nazwa)
+        if not os.path.isfile(sciezka) or not _dokument(nazwa):
+            continue
+        rdzen = _rdzen(nazwa)
+        # podpisany egzemplarz tego dokumentu już leży w Podpisane — jak
+        # w pmt_podpis: rdzeń oryginału zawiera się w nazwie podpisanego
+        if rdzen and any(rdzen in r for r in rdzenie_podpisanych):
+            continue
+        if sam_podpisane or _podpisany_po_nazwie(sciezka):
+            pliki.append(sciezka)
+            pliki.extend(_pary_podpisu(sciezka))
+            continue
+        niepodpisane += 1
+        if not tylko_podpisane:
+            pliki.append(sciezka)
     return (pliki, niepodpisane)
 
 
@@ -475,9 +513,11 @@ def zalaczniki(folder, tylko_podpisane=True, limit_bajtow=LIMIT_ZALACZNIKOW_B):
 
     Domyślnie lecą wyłącznie dokumenty podpisane: wpisy manifestu ze statusem
     `podpisany` (wraz z plikiem podpisu odłączonego), a bez manifestu —
-    zawartość podfolderu Podpisane. Wpisy `nieaktualny` nie lecą nigdy.
-    Gdy nie ma ani manifestu, ani podfolderu Podpisane, brane są dokumenty
-    ze wskazanego folderu — bo nie ma czym odróżnić podpisanych.
+    zawartość podfolderu Podpisane i dokumenty, które pmt_podpis rozpoznałby
+    po nazwie jako podpisane. Wpisy `nieaktualny` nie lecą nigdy. Dokument
+    bez podpisu liczy się w `niepodpisane` i leci tylko przy
+    tylko_podpisane=False — także wtedy, gdy nie ma ani manifestu, ani
+    podfolderu Podpisane.
     """
     folder = str(folder or "")
     limit = int(limit_bajtow or 0)
@@ -974,6 +1014,54 @@ def main():
         _sprawdz("bez manifestu bierzemy podfolder Podpisane",
                  [os.path.basename(p) for p in skan.pliki] == ["a-podpisany.pdf"],
                  repr([os.path.basename(p) for p in skan.pliki]))
+        _sprawdz("bez manifestu dokument spoza Podpisane liczy się jako niepodpisany",
+                 skan.niepodpisane == 1, str(skan.niepodpisane))
+
+        # Ani manifestu, ani podfolderu Podpisane: „tylko podpisane" MUSI
+        # filtrować, a licznik ma mówić prawdę — dotąd leciało wszystko, a licznik
+        # stał na zerze.
+        goly = os.path.join(katalog, "Rozliczenie_Anna_Nowak_maj_2026r")
+        for n in ("delegacja_01_Anna_Nowak_maj_2026r.pdf",
+                  "delegacja_02_Anna_Nowak_maj_2026r.pdf",
+                  "rozliczenie_wydatków_Anna_Nowak_maj_2026r.pdf"):
+            _utworz(goly, n)
+        with open(os.path.join(goly, "Trasy_Mapa.html"), "w", encoding="utf-8") as f:
+            f.write("<html></html>")
+        tylko = zalaczniki(goly, tylko_podpisane=True)
+        wszystko = zalaczniki(goly, tylko_podpisane=False)
+        _sprawdz("bez śladu podpisu „tylko podpisane” nie wysyła niczego",
+                 tylko.pliki == [], repr([os.path.basename(p) for p in tylko.pliki]))
+        _sprawdz("bez śladu podpisu licznik niepodpisanych = liczba dokumentów",
+                 tylko.niepodpisane == 3 and wszystko.niepodpisane == 3,
+                 "%d / %d" % (tylko.niepodpisane, wszystko.niepodpisane))
+        _sprawdz("po wyłączeniu „tylko podpisane” lecą wszystkie dokumenty (bez HTML)",
+                 len(wszystko.pliki) == 3
+                 and all(p.endswith(".pdf") for p in wszystko.pliki),
+                 repr([os.path.basename(p) for p in wszystko.pliki]))
+        # egzemplarz z sufiksem podpisu obok oryginału — podpisany po nazwie,
+        # jak rozpoznaje to pmt_podpis; oryginał zostaje niepodpisany
+        _utworz(goly, "delegacja_02_Anna_Nowak_maj_2026r-podpisany.pdf")
+        z_sufiksem = zalaczniki(goly, tylko_podpisane=True)
+        _sprawdz("dokument z sufiksem podpisu leci jako podpisany, oryginał nie",
+                 [os.path.basename(p) for p in z_sufiksem.pliki]
+                 == ["delegacja_02_Anna_Nowak_maj_2026r-podpisany.pdf"]
+                 and z_sufiksem.niepodpisane == 3,
+                 "%r / %d" % ([os.path.basename(p) for p in z_sufiksem.pliki],
+                              z_sufiksem.niepodpisane))
+        # podpisany egzemplarz w Podpisane „pokrywa" oryginał o tym samym rdzeniu
+        # (nazwa podpisanego ZAWIERA rdzeń oryginału, jak w pmt_podpis)
+        os.remove(os.path.join(goly, "delegacja_02_Anna_Nowak_maj_2026r-podpisany.pdf"))
+        _utworz(os.path.join(goly, PODFOLDER_PODPISU, PODFOLDER_PODPISANE),
+                "delegacja_01_Anna_Nowak_maj_2026r-podpisany.pdf")
+        pokryty = zalaczniki(goly, tylko_podpisane=False)
+        _sprawdz("oryginał, którego podpisany egzemplarz leży w Podpisane, nie leci drugi raz",
+                 [os.path.basename(p) for p in pokryty.pliki]
+                 == ["delegacja_01_Anna_Nowak_maj_2026r-podpisany.pdf",
+                     "delegacja_02_Anna_Nowak_maj_2026r.pdf",
+                     "rozliczenie_wydatków_Anna_Nowak_maj_2026r.pdf"]
+                 and pokryty.niepodpisane == 2,
+                 "%r / %d" % ([os.path.basename(p) for p in pokryty.pliki],
+                              pokryty.niepodpisane))
 
         luzny = os.path.join(katalog, "luzny_manifest")
         luzne_podpisane = os.path.join(luzny, PODFOLDER_PODPISANE)

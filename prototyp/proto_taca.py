@@ -1013,12 +1013,151 @@ class PasPapierow(QWidget):
         p.end()
 
 
+# ── pasek miesięcy nad kartkami ──────────────────────────────────────
+SKROTY_MIESIECY = ("sty", "lut", "mar", "kwi", "maj", "cze",
+                   "lip", "sie", "wrz", "paź", "lis", "gru")
+
+
+class PasekMiesiecyTacy(QWidget):
+    """Wąski rząd pigułek z miesiącami, które leżą gotowe na dysku.
+
+    Taca pamięta poprzednie miesiące: kliknięcie pigułki wczytuje kartki
+    TAMTEGO miesiąca. Pigułki idą rosnąco (najnowszy z prawej); gdy nie
+    mieszczą się wszystkie, zostaje ciągły odcinek z wybranym miesiącem.
+    Bez miesięcy pasek się chowa."""
+
+    WYSOKOSC = 24
+    wybrano = pyqtSignal(int, int)          # (rok, miesiąc)
+
+    def __init__(self, rodzic=None):
+        super().__init__(rodzic)
+        self.setFixedHeight(self.WYSOKOSC)
+        self.setMouseTracking(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._miesiace = []                 # [(rok, miesiąc)] rosnąco
+        self._aktywny = None
+        self._pod = None
+        self._pola = []                     # [(klucz, QRectF)] z ostatniego rysowania
+        self.hide()
+
+    # — dane —
+    def ustaw_miesiace(self, miesiace, aktywny=None):
+        nowe = sorted({(int(r), int(m)) for r, m in (miesiace or ()) if 1 <= int(m) <= 12})
+        aktywny = (int(aktywny[0]), int(aktywny[1])) if aktywny else None
+        if nowe == self._miesiace and aktywny == self._aktywny:
+            return
+        self._miesiace, self._aktywny = nowe, aktywny
+        self.setVisible(bool(nowe))
+        self.update()
+
+    def miesiace(self):
+        return list(self._miesiace)
+
+    def aktywny(self):
+        return self._aktywny
+
+    @staticmethod
+    def napis(klucz):
+        return "%s %d" % (SKROTY_MIESIECY[klucz[1] - 1], klucz[0])
+
+    # — układ —
+    def _szerokosc_pigulki(self, klucz):
+        return _szer(self.napis(klucz), 11, 600) + 18
+
+    def _uloz(self):
+        """Pigułki od lewej; gdy brakuje miejsca, odcinek kończy się na
+        najnowszym miesiącu i cofa tak, by wybrany był widoczny."""
+        if not self._miesiace:
+            return []
+        szerokosci = [self._szerokosc_pigulki(k) for k in self._miesiace]
+        odstep = 4.0
+        wolne = float(self.width())
+        koniec = len(self._miesiace)
+        if self._aktywny in self._miesiace:
+            koniec = max(koniec, self._miesiace.index(self._aktywny) + 1)
+        poczatek = koniec
+        zajete = 0.0
+        while poczatek > 0 and zajete + szerokosci[poczatek - 1] <= wolne:
+            zajete += szerokosci[poczatek - 1] + odstep
+            poczatek -= 1
+        if self._aktywny in self._miesiace and self._miesiace.index(self._aktywny) < poczatek:
+            poczatek = self._miesiace.index(self._aktywny)
+            koniec, zajete = poczatek, 0.0
+            while koniec < len(self._miesiace) and zajete + szerokosci[koniec] <= wolne:
+                zajete += szerokosci[koniec] + odstep
+                koniec += 1
+        pola = []
+        x = 0.0
+        for i in range(poczatek, koniec):
+            pola.append((self._miesiace[i], QRectF(x, 1.0, szerokosci[i], self.WYSOKOSC - 2.0)))
+            x += szerokosci[i] + odstep
+        return pola
+
+    def _pod_kursorem(self, punkt):
+        for klucz, pole in self._pola:
+            if pole.contains(punkt):
+                return klucz
+        return None
+
+    # — zdarzenia —
+    def mousePressEvent(self, z):
+        klucz = self._pod_kursorem(z.position())
+        if z.button() == Qt.MouseButton.LeftButton and klucz is not None:
+            self.wybrano.emit(klucz[0], klucz[1])
+        super().mousePressEvent(z)
+
+    def mouseMoveEvent(self, z):
+        klucz = self._pod_kursorem(z.position())
+        if klucz != self._pod:
+            self._pod = klucz
+            self.setCursor(Qt.CursorShape.PointingHandCursor if klucz
+                           else Qt.CursorShape.ArrowCursor)
+            self.update()
+        super().mouseMoveEvent(z)
+
+    def leaveEvent(self, z):
+        self._pod = None
+        self.update()
+        super().leaveEvent(z)
+
+    def resizeEvent(self, z):
+        self._pola = self._uloz()
+        super().resizeEvent(z)
+
+    def paintEvent(self, _z):
+        self._pola = self._uloz()
+        if not self._pola:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        for klucz, r in self._pola:
+            czynny = (klucz == self._aktywny)
+            if czynny:
+                s = _sciezka(r, 7.0)
+                p.fillPath(s, QColor(24, 40, 62, 245))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(S.z_alfa(S.CYJAN, 90), 1.0))
+                p.drawPath(s)
+            elif klucz == self._pod:
+                p.fillPath(_sciezka(r, 7.0), QColor(255, 255, 255, 14))
+            else:
+                p.fillPath(_sciezka(r, 7.0), QColor(10, 17, 28, 150))
+            napis = self.napis(klucz)
+            kolor = S.TEKST if czynny else S.TEKST_3
+            szer = _szer(napis, 11, 600)
+            S.tekst(p, r.center().x() - szer / 2.0, r.center().y() + 4.0, napis,
+                    kolor, 11, 600)
+        p.end()
+
+
 # ── taca ─────────────────────────────────────────────────────────────
 class TacaDokumentow(QWidget):
     zwin = pyqtSignal()
     otworz_podpis = pyqtSignal()
     otworz_wysylke = pyqtSignal()
     otworz_wszystkie = pyqtSignal()
+    wybrano_miesiac = pyqtSignal(int, int)     # pigułka z paska miesięcy nad kartkami
 
     def __init__(self, rodzic=None):
         super().__init__(rodzic)
@@ -1064,6 +1203,11 @@ class TacaDokumentow(QWidget):
         gora.addWidget(self.b_zwin, 0, Qt.AlignmentFlag.AlignVCenter)
         z.addLayout(gora)
 
+        # miesiące z dysku nad kartkami — taca pamięta poprzednie miesiące
+        self.miesiace = PasekMiesiecyTacy(self)
+        self.miesiace.wybrano.connect(self.wybrano_miesiac.emit)
+        z.addWidget(self.miesiace, 0)
+
         self.pas = PasPapierow(self)
         self.pas.otwarty.connect(self._kartka_klikieta)
         z.addWidget(self.pas, 1)
@@ -1107,6 +1251,10 @@ class TacaDokumentow(QWidget):
         else:
             self._czeka_kaskada = True
 
+    def ustaw_miesiace(self, miesiace, aktywny=None):
+        """Pigułki miesięcy nad kartkami: [(rok, miesiąc)] i wybrany."""
+        self.miesiace.ustaw_miesiace(miesiace, aktywny)
+
     def resizeEvent(self, z):
         # przy wąskim oknie znikają rzeczy najmniej ważne — pasek ma się zmieścić
         w = self.width()
@@ -1144,7 +1292,8 @@ class TacaDokumentow(QWidget):
         super().closeEvent(z)
 
     def sizeHint(self):
-        return QSize(1100, 324)
+        # pasek miesięcy (24 px + odstęp) leży nad kartkami — taca o tyle wyższa
+        return QSize(1100, 358)
 
     # — rysowanie —
     def paintEvent(self, _z):
@@ -1789,6 +1938,7 @@ if __name__ == "__main__":
     l.addWidget(taca)
     okno.show()
     taca.ustaw_dni(dni)
+    taca.ustaw_miesiace([(2026, 6), (2026, 7), (2026, 8), (2026, 9)], (2026, 9))
 
     if "--zrzut" in sys.argv:
         for _ in range(6):

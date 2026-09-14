@@ -100,6 +100,13 @@ class Dzien:
     wylaczony: bool = False      # użytkownik sam wyłączył ten dzień
     podpisany: bool = False
     dokument: int = 0            # numer polecenia wyjazdu, do którego trafia ten dzień
+    # Odcinki dnia takie, jakie były NAPRAWDĘ — druga strona kartki delegacji.
+    # Słowniki {"z", "do", "wyj", "przyj", "km", "prosta", "zrodlo"}: godziny
+    # z dokumentu, kilometry odcinka, linia prosta między punktami (None, gdy
+    # nieznana) i skąd wzięły się kilometry („drogi" / „pamiec" / „szacunek";
+    # „" = nie wiadomo). Wypełnia je program z silnika; pusta lista znaczy,
+    # że kartka rozkłada dzień sama (proto_mapa.odcinki_dnia).
+    etapy: list = field(default_factory=list)
 
     @property
     def etykieta(self):

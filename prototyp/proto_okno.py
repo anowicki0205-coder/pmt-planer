@@ -916,10 +916,17 @@ class PoleKwoty(QWidget):
     def _oczysc(cls, napis):
         """Z dowolnego napisu robi samą kwotę: „1 850,50 zł”, „1850.5”, „12,50”.
 
-        Kropka i przecinek znaczą to samo. Trzy cyfry za ostatnim znakiem
-        rozdzielającym to tysiące (tak samo czyta je silnik), nie grosze."""
+        Przecinek jest ZAWSZE znakiem dziesiętnym — tak samo, jak przy pisaniu
+        w polu: „1850,555” to 1850,55 (trzecia cyfra groszy odpada, jak
+        odpada przy pisaniu — nic nie dopisujemy i nie zaokrąglamy w górę),
+        a nie 1 850 555 zł. Kropka jest dziesiętna, gdy stoi za przecinkiem
+        („1,850.55”) albo ma za sobą jedną lub dwie cyfry („1850.5”); kropka
+        z trzema cyframi i bez przecinka rozdziela tysiące („1.850”).
+        Spacje, „zł”, minus i inne znaki odpadają — kwota delegacji nie bywa
+        ujemna."""
         napis = str(napis or "")
-        ostatni = max(napis.rfind(","), napis.rfind("."))
+        przecinek, kropka = napis.rfind(","), napis.rfind(".")
+        ostatni = max(przecinek, kropka)
         if ostatni < 0:
             calosc, ulamek, dziesietny = napis, "", False
         else:
@@ -930,8 +937,10 @@ class PoleKwoty(QWidget):
                     po_znaku += znak
                 else:
                     break
-            dziesietny = not (len(po_znaku) == 3
-                              and any(z.isdigit() for z in napis[:ostatni]))
+            tysiace = (ostatni == kropka and przecinek < 0
+                       and len(po_znaku) == 3
+                       and any(z.isdigit() for z in napis[:ostatni]))
+            dziesietny = not tysiace
             calosc, ulamek = (napis[:ostatni], ogon) if dziesietny else (napis, "")
         zlote = "".join(z for z in calosc if z.isdigit())[:cls.MAKS_ZLOTYCH]
         grosze = "".join(z for z in ulamek if z.isdigit())[:cls.MAKS_GROSZY]
@@ -1065,10 +1074,22 @@ class PoleKwoty(QWidget):
             self._uklad()
             self.update()
 
+    def _zloz(self, a, b, znaki=""):
+        """Treść po zastąpieniu zakresu [a, b) znakami.
+
+        Gdy z zakresu znika przecinek, znikają z nim grosze: skasowany
+        przecinek ZDEJMUJE grosze („1850,55” → „1850”), a nigdy nie dokleja
+        ich do złotych („185055” — stukrotny błąd jednym klawiszem). Wpisany
+        w to miejsce nowy przecinek zostawia grosze groszami."""
+        przed, wyciete, po = self._tresc[:a], self._tresc[a:b], self._tresc[b:]
+        if "," in wyciete and not any(z in ",." for z in znaki):
+            po = ""
+        return przed + znaki + po
+
     def _wstaw(self, znaki):
         a, b = self._zakres()
-        tresc, kursor = self._popraw(self._tresc[:a] + str(znaki) + self._tresc[b:],
-                                     a + len(str(znaki)))
+        znaki = str(znaki)
+        tresc, kursor = self._popraw(self._zloz(a, b, znaki), a + len(znaki))
         self._ustaw_tresc(tresc, kursor)
 
     def _skasuj(self, wstecz):
@@ -1080,7 +1101,7 @@ class PoleKwoty(QWidget):
                 b += 1
             else:
                 return
-        tresc, kursor = self._popraw(self._tresc[:a] + self._tresc[b:], a)
+        tresc, kursor = self._popraw(self._zloz(a, b), a)
         self._ustaw_tresc(tresc, kursor)
 
     def _zaznaczone(self):
@@ -1096,11 +1117,20 @@ class PoleKwoty(QWidget):
             schowek.setText(wybor)
 
     def _ze_schowka(self):
+        """Wklejenie: same cyfry wchodzą tam, gdzie stoi kursor — jak pisane.
+        Kwota z groszami zastępuje całe pole: wstawiona w środek liczby
+        robiłaby z jej cyfr grosze („12,5” w „1850,55” dawało 12,51 zł)."""
         schowek = QApplication.clipboard()
         napis = schowek.text() if schowek is not None else ""
         czysty = self._oczysc(napis)
-        if czysty:
-            self._wstaw(czysty)
+        if not czysty:
+            return
+        if "," in czysty:
+            self._ustaw_tresc(*self._popraw(czysty, len(czysty)))
+        else:
+            # same cyfry, razem z zerami wiodącymi: „07” wklejone w grosze
+            # to „,07”, a nie „,70”; zbędne zera zdejmuje _popraw
+            self._wstaw("".join(z for z in str(napis) if z.isdigit()))
 
     def zaznacz_wszystko(self):
         self._kotwica, self._kursor = 0, len(self._tresc)
@@ -2421,6 +2451,11 @@ class OknoPrototypu(QWidget):
             return
         self.taca.ustaw_dni(self.dni_widoczne)
         self._odswiez_stan_tacy()
+        self._wysun_tace(animacja)
+
+    def _wysun_tace(self, animacja=True):
+        """Sam ruch tacy — bez zmiany kartek. Osobno, bo program kładzie na
+        tacę także miesiące z dysku, których ten ekran nie generował."""
         self._taca_widoczna = True
         self.taca.show()
         self.taca.raise_()

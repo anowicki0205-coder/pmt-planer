@@ -19,6 +19,7 @@ import glob
 import shutil
 import tempfile
 import importlib
+import importlib.util
 import zlib
 import math
 import time
@@ -118,6 +119,15 @@ import PMT_Delegacje as P                                    # noqa: E402
 
 sprawdz("program importuje się bez błędu", True)
 
+# Zaproszenie do testów to okno MODALNE, które program otwiera 900 ms po
+# pokazaniu okna (nowy_wyglad.po_starcie → QTimer). Każda sekcja,
+# która pokazuje okno programu i miele zdarzenia (8, 11, ...), doczekałaby
+# się jego exec() i testy stanęłyby na zawsze — w trybie --szybko właśnie
+# tak było, bo łatka siedziała w sekcji 8d, pod „if not SZYBKO". Wyciszenie
+# obowiązuje więc od importu, w OBU trybach; sekcje podmieniają je tylko
+# na własne atrapy i przywracają tę.
+P.zaproszenie_testera = lambda *args, **reszta: False
+
 _wersja_txt = ""
 _min_txt = ""
 _blok_txt = ""
@@ -167,40 +177,35 @@ if _blok_txt:
 
 
 # ══════════════════════════════════════════════════════════════════
-sekcja("1b. Moduły towarzyszące: intro z kulą ziemską, karta testera, głębia 3D")
-for _mod in ("intro_zywa_mapa", "karta_testera", "wyglad_3d"):
+sekcja("1b. Moduły towarzyszące: karta testera i głębia 3D — a aparatu intra NIE MA")
+# Do 3.22.0 obok programu leżał intro_zywa_mapa.py (617 KB), a w programie
+# klasa AnimacjaStartowa, przełącznik INTRO_NA_STARCIE, ustawienie bez_intra
+# i plik BEZ_INTRA.txt — razem ~4 600 linii, które przy wyłączonym intrze nie
+# wykonywały się ani razu. Od 3.23.0 tego nie ma; nowe intro przy generowaniu
+# powstanie z innych klocków (zaczep INTRO_GENEROWANIA, sekcja 18k).
+for _mod in ("karta_testera", "wyglad_3d"):
     try:
         importlib.import_module(_mod)
         sprawdz("moduł %s importuje się" % _mod, True)
     except Exception as _e:
         sprawdz("moduł %s importuje się" % _mod, False, repr(_e))
-try:
-    import intro_zywa_mapa as _izm
-    _izm._DZWIEK_ON = False            # testy bez dźwięku
-    sprawdz("intro ma wtopione logotypy sieci (nie potrzebuje plików PNG)",
-            len(json.loads(zlib.decompress(base64.b64decode(_izm._LOGO_B64)).decode("utf-8"))) >= 6)
-    sprawdz("intro ma wtopione kontury geograficzne", len(_izm._geo()) >= 2)
-except Exception as _e:
-    sprawdz("intro: dane wtopione w moduł", False, repr(_e))
-sprawdz("_siec_ma_logo: Żabka / Biedronka Codziennie / nieznana sieć",
-        P._siec_ma_logo("Żabka") and P._siec_ma_logo("BIEDRONKA Codziennie") and not P._siec_ma_logo("Carrefour"))
-_di = P.dane_intra_z_dysku("Jan Testowy")
-sprawdz("dane intra bez historii: losowa trasa naszych sieci i środek Polski",
-        isinstance(_di, dict) and len(_di.get("wezly") or []) >= 4
-        and all(P._siec_ma_logo(w["siec"]) for w in _di["wezly"])
-        and 49.0 < float(_di.get("lat", 0)) < 55.0 and 14.0 < float(_di.get("lon", 0)) < 24.5,
-        str({k: v for k, v in _di.items() if k != "wezly"}))
-sprawdz("dane intra nie podstawiają cudzego profilu, gdy imię się nie zgadza",
-        str(_di.get("imie", "")).strip().lower() in ("", "jan"), str(_di.get("imie")))
-sprawdz("dane intra bez historii: zera zamiast danych pokazowych modułu (bez cudzego imienia)",
-        "dni" in _di and int(_di.get("dni", 0)) == 0 and int(_di.get("wizyty", 0)) == 0
-        and str(_di.get("imie", "")).strip().lower() in ("", "jan"), str({k: v for k, v in _di.items() if k != "wezly"}))
-_bez_intra = os.path.join(_TMP_HOME, "BEZ_INTRA.txt")
-open(_bez_intra, "w").close()
-_wyl1 = P._intro_wylaczone_plikiem(_TMP_HOME)
-os.remove(_bez_intra)
-sprawdz("BEZ_INTRA.txt w katalogu użytkownika wyłącza intro (a bez pliku nie)",
-        _wyl1 is True and P._intro_wylaczone_plikiem(_TMP_HOME) is False)
+sprawdz("intro_zywa_mapa.py zniknęło z katalogu programu i nie da się go wczytać",
+        not os.path.exists(os.path.join(KATALOG, "intro_zywa_mapa.py"))
+        and importlib.util.find_spec("intro_zywa_mapa") is None)
+_aparat_intra = ("AnimacjaStartowa", "pokaz_animacje_startowa", "INTRO_NA_STARCIE",
+                 "dane_intra_z_dysku", "_intro_wylaczone_plikiem", "_siec_ma_logo",
+                 "_losowa_trasa_pokazowa", "SIECI_Z_LOGO")
+sprawdz("w programie nie ma już aparatu intra (klasa, przełącznik, dane, BEZ_INTRA)",
+        not [n for n in _aparat_intra if hasattr(P, n)],
+        str([n for n in _aparat_intra if hasattr(P, n)]))
+_zrodlo_pmt_1b = open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+_zrodlo_nw_1b = open(os.path.join(KATALOG, "nowy_wyglad.py"), encoding="utf-8").read()
+sprawdz("ani program, ani nowy ekran nie wspominają intro_zywa_mapa, bez_intra ani BEZ_INTRA.txt",
+        not any(s in _zrodlo_pmt_1b or s in _zrodlo_nw_1b
+                for s in ("intro_zywa_mapa", "bez_intra", "BEZ_INTRA", "AnimacjaStartowa",
+                          "IntroZywaMapa", "pokaz_intro", "_intro_koniec")))
+sprawdz("dźwięk intra (winsound, QtMultimedia) zniknął z programu i z nowego ekranu",
+        not any(s in _zrodlo_pmt_1b or s in _zrodlo_nw_1b for s in ("winsound", "QtMultimedia")))
 _dz = datetime.date(2026, 9, 10)
 sprawdz("logowanie offline: świeży wpis (30 dni) — wolno",
         P._logowanie_offline_dozwolone({"ostatnio": "2026-08-11T10:00:00"}, _dz) is True)
@@ -464,12 +469,12 @@ with open(P.USER_STORE, "w", encoding="utf-8") as f:
 try:
     _prof = P.szukaj_profilu_po_nazwisku("Jan Testowy")
     _st = P.statystyki_administratora()
-    _di2 = P.dane_intra_z_dysku("Jan Testowy")
-    sprawdz("zaśmiecony magazyn profili (3.21.0 lokalna) nie wywraca podpowiedzi, panelu ani intra",
-            isinstance(_prof, dict) and _prof.get("pesel") == "90010112345" and isinstance(_st, dict)
-            and _di2.get("miasto") == "RADOM", "profil=%s miasto=%s" % (bool(_prof), _di2.get("miasto")))
+    # (do 3.22.0 sprawdzaliśmy tu też dane_intra_z_dysku — intra już nie ma)
+    sprawdz("zaśmiecony magazyn profili (3.21.0 lokalna) nie wywraca podpowiedzi ani panelu",
+            isinstance(_prof, dict) and _prof.get("pesel") == "90010112345" and isinstance(_st, dict),
+            "profil=%s" % bool(_prof))
 except Exception as _e:
-    sprawdz("zaśmiecony magazyn profili (3.21.0 lokalna) nie wywraca podpowiedzi, panelu ani intra", False, repr(_e))
+    sprawdz("zaśmiecony magazyn profili (3.21.0 lokalna) nie wywraca podpowiedzi ani panelu", False, repr(_e))
 sprawdz("obce wpisy znikają z magazynu przy odczycie",
         all(isinstance(v, dict) for v in P._wczytaj_store().values()) and len(P._wczytaj_store()) == 1)
 try:
@@ -554,6 +559,15 @@ finally:
     else:
         sys._MEIPASS = _bylo_meipass
     P._ustawienia_reset()
+
+# Od tej chwili testy mają zaślepkę menedzer.txt w tymczasowym katalogu
+# domowym — tak jak każda paczka programu ma prawdziwy plik. Nowe okno bez
+# pliku ODMAWIA generowania („brak menedzer.txt", sekcja 8c sprawdza to,
+# zdejmując plik na chwilę), więc bez zaślepki sekcje 11 i 14 padały w
+# trybie --szybko, gdzie sekcja 8c (która ją dotąd tworzyła) nie działa.
+_PLIK_MENEDZERA_TESTOW = os.path.join(_TMP_HOME, "menedzer.txt")
+with open(_PLIK_MENEDZERA_TESTOW, "w", encoding="utf-8") as _f:
+    _f.write("Przełożony Testowy\n")            # zaślepka — nigdy prawdziwe nazwisko
 
 # ══════════════════════════════════════════════════════════════════
 sekcja("3. Obowiązkowa aktualizacja (min= / blokada=)")
@@ -1542,6 +1556,165 @@ if not SZYBKO:
             and not _w_pdf(_pl_r[0], "szacunek"),
             str([os.path.basename(x) for x in _pl_r]))
 
+    # ── KILOMETRY I STAWKA NA DOKUMENCIE ──────────────────────────
+    # Dotąd ten sam komplet przy stawkach 0,60 / 0,89 / 1,15 dawał bajt w bajt
+    # ten sam plik — argument stawka był ozdobny. Teraz rubryka „(1) Przejazdy"
+    # niesie sumę kilometrów dokumentu i użytą stawkę, a ich iloczyn MUSI
+    # zgadzać się z sumą kwot etapów co do grosza.
+    import hashlib as _hl7
+    _RE_KM7 = re.compile(r"(\d+,\d+) km × (\d+,\d+) zł/km")
+
+    def _km_i_stawka7(sciezka):
+        for t in _teksty_pdf(sciezka):
+            m = _RE_KM7.search(t)
+            if m:
+                return (float(m.group(1).replace(",", ".")), float(m.group(2).replace(",", ".")),
+                        m.group(2))
+        return None
+
+    _skroty7 = {}
+    for _st7 in (0.60, 0.89, 1.15):
+        _f7 = os.path.join(_TMP_HOME, "pdf_stawka_%s" % _st7)
+        P.generuj_pdfy(_dni[:1], _prac, _mies, _rok, _f7, stawka=_st7)
+        _d7 = [x for x in sorted(glob.glob(os.path.join(_f7, "*.pdf")))
+               if "rozliczenie" not in os.path.basename(x).lower()][0]
+        _skroty7[_st7] = _hl7.sha256(open(_d7, "rb").read()).hexdigest()
+        _odczyt7 = _km_i_stawka7(_d7)
+        _suma7 = round(sum(d.suma for d in _dni[:1]), 2)
+        sprawdz("dokument przy stawce %.2f drukuje km × stawkę, a iloczyn zgadza się z sumą etapów co do grosza" % _st7,
+                _odczyt7 is not None and _odczyt7[2] == P.tekst_stawki(_st7)
+                and round(_odczyt7[0] * _odczyt7[1], 2) == _suma7,
+                "%s vs %.2f" % (_odczyt7, _suma7))
+    sprawdz("trzy stawki dają trzy różne pliki PDF",
+            len(set(_skroty7.values())) == 3, str(_skroty7))
+    # …i tak na KAŻDYM poleceniu wyjazdu pełnego miesiąca (komplet z _folder)
+    _zle_km7 = []
+    for _w7 in _pods:
+        _pl7 = os.path.join(_folder, "delegacja_%02d_Jan_Testowy_%s_%dr.pdf"
+                            % (_w7["lp"], P.MIESIACE_PL[_mies - 1], _rok))
+        _odczyt7 = _km_i_stawka7(_pl7)
+        if (_odczyt7 is None or _odczyt7[2] != P.tekst_stawki(_stawka)
+                or round(_odczyt7[0] * _odczyt7[1], 2) != round(_w7["kwota"], 2)):
+            _zle_km7.append((_w7["lp"], _odczyt7, round(_w7["kwota"], 2)))
+    sprawdz("każde polecenie wyjazdu miesiąca: km × stawka = kwota dokumentu co do grosza (%d dokumentów)" % len(_pods),
+            _pods and not _zle_km7, str(_zle_km7[:3]))
+    sprawdz("kilometry dokumentu: najmniej miejsc po przecinku, przy których iloczyn się zgadza",
+            P.kilometry_dokumentu(359.26, 1.15) == "312,4"
+            and P.kilometry_dokumentu(986.34, 1.15) == "857,69"
+            and P.tekst_stawki(0.6) == "0,60" and P.tekst_stawki(1.15) == "1,15",
+            str((P.kilometry_dokumentu(359.26, 1.15), P.kilometry_dokumentu(986.34, 1.15))))
+    # dopisane teksty mieszczą się w rubrykach o stałej szerokości (get_string_width)
+    _pdf7 = P.PDFReport(); _pdf7.add_page()
+    _pdf7.set_font("Arial", "", 8)
+    _za_szerokie7 = [(w["kwota"], _pdf7.get_string_width(P.opis_przejazdow(w["kwota"], _stawka)))
+                     for w in _pods
+                     if _pdf7.get_string_width(P.opis_przejazdow(w["kwota"], _stawka)) > 140.0 - 2.0]
+    _najszerszy7 = max(_pdf7.get_string_width(P.opis_przejazdow(k, s))
+                       for k in (986.34, 999.99, 1234.56) for s in (0.60, 0.89, 1.15, 0.8935))
+    _pdf7.set_font("Arial", "", 7)
+    _etykiety7 = max(_pdf7.get_string_width("Odległości: %s" % e) for e in P.ETYKIETY_ZRODLA.values())
+    sprawdz("rubryka „(1) Przejazdy” (140 mm) mieści opis z kilometrami i stawką",
+            not _za_szerokie7 and _najszerszy7 <= 138.0,
+            "%s / najszerszy %.1f mm" % (_za_szerokie7[:2], _najszerszy7))
+    sprawdz("rubryka źródła odległości (70 mm) mieści każdą etykietę",
+            _etykiety7 <= 68.0, "%.1f mm" % _etykiety7)
+
+    # ── PUSTY LICZNIK ODCINKÓW: BEZ ZAPEWNIENIA ───────────────────
+    # stan_zrodla_odleglosci() przy zerowym liczniku mówiło „realne drogi"
+    # i realne=True, a dokument to drukował. Zero pomiarów = osobny stan.
+    _licznik_kopia7 = dict(P._zrodlo_licznik)
+    try:
+        P.zeruj_zrodlo_odleglosci()
+        _stan0 = P.stan_zrodla_odleglosci()
+        sprawdz("zerowy licznik odcinków to osobny stan „brak”: bez etykiety i bez zapewnienia realności",
+                _stan0["stan"] == P.ZRODLO_BRAK and _stan0["etykieta"] == ""
+                and _stan0["realne"] is False and _stan0["odcinki"] == 0, str(_stan0))
+        _folder_0 = os.path.join(_TMP_HOME, "pdf_zero")
+        P.generuj_pdfy(_dni[:1], _prac, _mies, _rok, _folder_0, stawka=_stawka)
+        _pl_0 = sorted(glob.glob(os.path.join(_folder_0, "*.pdf")))
+        sprawdz("przy zerowym liczniku ani delegacja, ani rozliczenie nie drukują zdania o odległościach",
+                len(_pl_0) == 2 and not any(_w_pdf(x, "Odległości") for x in _pl_0)
+                and not any(_w_pdf(x, "realne drogi") for x in _pl_0),
+                str([os.path.basename(x) for x in _pl_0]))
+        _folder_0h = os.path.join(_TMP_HOME, "mapa_zero"); os.makedirs(_folder_0h, exist_ok=True)
+        P.generuj_mape_html(_dni[:1], _prac, "październik", _rok, _folder_0h, True)
+        with open(os.path.join(_folder_0h, "Trasy_Mapa.html"), encoding="utf-8") as _f:
+            _html_0 = _f.read()
+        sprawdz("podgląd tras przy zerowym liczniku też milczy o źródle odległości",
+                "Odległości:" not in _html_0 and "realne drogi" not in _html_0)
+    finally:
+        P._zrodlo_licznik.clear(); P._zrodlo_licznik.update(_licznik_kopia7)
+
+    # ── SIEROTY PO PONOWNYM GENEROWANIU ───────────────────────────
+    # Generowanie na dużą kwotę, potem na małą: pliki o wyższych numerach
+    # zostawały z pierwszego przebiegu i szły do kadr razem z nowymi.
+    _folder_s = os.path.join(_TMP_HOME, "Rozliczenie_Jan_Testowy_%s_%dr" % (P.MIESIACE_PL[_mies - 1], _rok))
+    os.makedirs(_folder_s, exist_ok=True)
+    _obcy_s = [os.path.join(_folder_s, "delegacja_09_Inna_Osoba_%s_%dr.pdf" % (P.MIESIACE_PL[_mies - 1], _rok)),
+               os.path.join(_folder_s, "delegacja_09_Jan_Testowy_%s_%dr.pdf" % (P.MIESIACE_PL[_mies % 12], _rok)),
+               os.path.join(_folder_s, "faktura_z_hotelu.pdf")]
+    for _o in _obcy_s:
+        with open(_o, "wb") as _f:
+            _f.write(b"%PDF-1.4\nobcy\n%%EOF\n")
+    _pods_s1 = P.generuj_pdfy(_dni, _prac, _mies, _rok, _folder_s, stawka=_stawka)
+    _po1 = sorted(os.path.basename(x) for x in glob.glob(os.path.join(_folder_s, "*.pdf")))
+    _pods_s2 = P.generuj_pdfy(_dni[:2], _prac, _mies, _rok, _folder_s, stawka=_stawka)
+    _po2 = sorted(os.path.basename(x) for x in glob.glob(os.path.join(_folder_s, "*.pdf")))
+    _wlasne2 = [n for n in _po2 if n.startswith("delegacja_") and "Jan_Testowy_%s" % P.MIESIACE_PL[_mies - 1] in n]
+    sprawdz("pierwszy przebieg zostawia więcej delegacji niż drugi (test ma co sprzątać)",
+            len(_pods_s1) > len(_pods_s2) >= 1, "%d / %d" % (len(_pods_s1), len(_pods_s2)))
+    sprawdz("po drugim przebiegu w folderze jest DOKŁADNIE tyle delegacji, ile ma drugi przebieg",
+            len(_wlasne2) == len(_pods_s2), str(_wlasne2))
+    sprawdz("pliki innej osoby, innego miesiąca i obce PDF-y zostają nietknięte",
+            all(os.path.exists(o) for o in _obcy_s)
+            and len(_po2) == len(_wlasne2) + 1 + len(_obcy_s), str(_po2))
+    sprawdz("sprzątanie nie tworzy podfolderu, gdy nic nie było podpisane",
+            not glob.glob(os.path.join(_folder_s, P.PODFOLDER_POPRZEDNICH + "_*")))
+    # ślad podpisu: poprzedni komplet idzie do podfolderu z datą, nie do kosza
+    _podpisane_s = os.path.join(_folder_s, "Do_podpisu", "Podpisane")
+    os.makedirs(_podpisane_s, exist_ok=True)
+    with open(os.path.join(_podpisane_s, "delegacja_01_Jan_Testowy-podpisany.pdf"), "wb") as _f:
+        _f.write(b"%PDF-1.4\npodpisany\n%%EOF\n")
+    _pods_s3 = P.generuj_pdfy(_dni[:1], _prac, _mies, _rok, _folder_s, stawka=_stawka)
+    _po3 = sorted(os.path.basename(x) for x in glob.glob(os.path.join(_folder_s, "*.pdf")))
+    _wlasne3 = [n for n in _po3 if n.startswith("delegacja_") and "Jan_Testowy_%s" % P.MIESIACE_PL[_mies - 1] in n]
+    _poprzednie = glob.glob(os.path.join(_folder_s, P.PODFOLDER_POPRZEDNICH + "_*"))
+    _w_poprzednich = sorted(os.listdir(_poprzednie[0])) if _poprzednie else []
+    sprawdz("gdy poprzedni komplet ma ślad podpisu, stare pliki idą do podfolderu z datą",
+            len(_poprzednie) == 1 and len(_w_poprzednich) == len(_pods_s2) + 1
+            and len(_wlasne3) == len(_pods_s3), str((_poprzednie, _w_poprzednich)))
+    sprawdz("podpisany egzemplarz w Do_podpisu/Podpisane zostaje nietknięty",
+            os.path.exists(os.path.join(_podpisane_s, "delegacja_01_Jan_Testowy-podpisany.pdf")))
+    import pmt_dokumenty as _PD7
+    _komplet7 = [os.path.basename(x) for x in _PD7.dokumenty_w_folderze(_folder_s)
+                 if "Jan_Testowy_%s" % P.MIESIACE_PL[_mies - 1] in os.path.basename(x)]
+    sprawdz("po sprzątaniu komplet z pmt_dokumenty to wyłącznie pliki ostatniego przebiegu",
+            _komplet7 == sorted(_wlasne3)
+            + ["rozliczenie_wydatków_Jan_Testowy_%s_%dr.pdf" % (P.MIESIACE_PL[_mies - 1], _rok)],
+            str(_komplet7))
+
+    # ── NAZWA PLIKU: znaki zabronione w Windows ───────────────────
+    _prac_z = P.DanePracownika(imie='Jan Kowalski-Żółć: "x"?', pesel="90010112345",
+                               adres="ul. Kwiatowa 5, 26-600 Radom", stanowisko="KR",
+                               kod_pocztowy="26-600", baza_miasto=_nazwa,
+                               baza_lat=_lat, baza_lng=_lng, wojewodztwo=_woj)
+    _folder_n = os.path.join(_TMP_HOME, "pdf_nazwa")
+    P.generuj_pdfy(_dni[:1], _prac_z, _mies, _rok, _folder_n, stawka=_stawka)
+    _nazwy_n = sorted(os.path.basename(x) for x in glob.glob(os.path.join(_folder_n, "*.pdf")))
+    sprawdz("nazwa pliku PDF bez znaków zabronionych w Windows, z polskimi literami zachowanymi",
+            len(_nazwy_n) == 2 and not any(z in n for n in _nazwy_n for z in '<>:"/\\|?*')
+            and all("Jan_Kowalski-Żółć_x" in n for n in _nazwy_n), str(_nazwy_n))
+    sprawdz("nazwa_do_pliku: odstępy w „_”, znaki zabronione i sterujące znikają, pusta = „pracownik”",
+            P.nazwa_do_pliku("  Anna   Nowak ") == "Anna_Nowak"
+            and P.nazwa_do_pliku("a/b\\c|d*e<f>g") == "abcdefg"
+            and P.nazwa_do_pliku("Jan\tKowalski\n") == "JanKowalski"
+            and P.nazwa_do_pliku("") == "pracownik"
+            and P.nazwa_do_pliku("Łukasz Ćwikliński") == "Łukasz_Ćwikliński")
+    sprawdz("folder wyniku i pliki w nim składane są z tej samej bezpiecznej nazwy",
+            "nazwa_do_pliku(pracownik.imie)" in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+            and "imie.replace(' ','_')" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+            and "imie.replace(' ', '_')" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read())
+
     sekcja("7b. Aktualizacja: użytkownik zawsze ma wybór")
 
     # bezpiecznik pętli aktualizacji: paczka z serwera musi być NOWSZA od programu
@@ -1655,7 +1828,7 @@ if not SZYBKO:
     except Exception as _e:
         sprawdz("okna aktualizacji budują się bez błędu", False, repr(_e))
 
-    sekcja("8. Okno programu buduje się i zamyka")
+    sekcja("8. Stare okno (App) buduje się jako pojemnik na panele i zamyka")
     try:
         from PyQt6.QtWidgets import QApplication, QWidget
         from PyQt6.QtCore import QTimer
@@ -1664,40 +1837,79 @@ if not SZYBKO:
         _okno.show()
         QTimer.singleShot(600, _app.quit)
         _app.exec()
-        sprawdz("główne okno programu buduje się bez błędu", True)
-        sprawdz("pasek górny ma przyciski: karta testera ★ i hasło; bez ⋯ i bez pola przełożonego",
-                all(hasattr(_okno, n) for n in ("btn_tester", "btn_haslo"))
-                and not hasattr(_okno, "btn_wyglad") and not hasattr(_okno, "e_menedzer"))
-        # wiersz PARAMETRY TRASY: przy wąskiej karcie (rozwinięte menu) dwa rzędy
+        sprawdz("stare okno (pojemnik na panele) buduje się bez błędu", True)
+        # Od 3.23.0 App to POJEMNIK NA PANELE: buduje cztery panele, dymki,
+        # centrum powiadomień i sprawdzanie aktualizacji — nic więcej. Dawny
+        # formularz, pasek górny, druga szyna nawigacji i kokpit (189 widżetów,
+        # których w nowym ekranie nikt nie widział) zniknęły — sprawdzenia
+        # układu karty PARAMETRY TRASY i przycisków paska z 3.22.0 zastąpiły
+        # sprawdzenia, że tych elementów NIE MA, a panele są.
+        _panele8 = ("overlay_planer", "overlay_plan", "overlay_staty", "overlay_admin",
+                    "toast", "panel_powiadomien")
+        sprawdz("pojemnik ma cztery panele nowego ekranu, dymki i centrum powiadomień",
+                all(getattr(_okno, n, None) is not None for n in _panele8))
+        _zbedne8 = ("btn_tester", "btn_haslo", "btn_wyloguj", "btn_theme", "btn_nav_kokpit",
+                    "sidebar_frame", "topbar", "title_bar", "card_top_frame", "card_bot_frame",
+                    "e_imie", "e_pesel", "e_adres", "e_kwota", "e_mies", "assistant",
+                    "timeline", "ekran_powitalny", "btn_settings", "logo_lbl", "btn_intro")
+        sprawdz("bez formularza, paska górnego, szyny nawigacji, kokpitu i ekranu powitalnego",
+                not [n for n in _zbedne8 if hasattr(_okno, n)],
+                str([n for n in _zbedne8 if hasattr(_okno, n)]))
+        _widzety8 = _okno.findChildren(QWidget)
+        _w_panelach8 = set()
+        for _n8 in ("overlay_planer", "overlay_plan", "overlay_staty", "overlay_admin",
+                    "toast", "panel_powiadomien", "overlay"):
+            _p8 = getattr(_okno, _n8)
+            _w_panelach8 |= {id(_p8)} | {id(c) for c in _p8.findChildren(QWidget)}
+        _poza8 = [type(c).__name__ for c in _widzety8 if id(c) not in _w_panelach8]
+        sprawdz("poza panelami, dymkami i nakładką postępu zostaje tylko kontener (371 → ≤ 230 widżetów)",
+                len(_widzety8) <= 230 and len(_poza8) <= 1, str((len(_widzety8), _poza8)))
+        sprawdz("pojemnik nie zna żadnej metody intra ani własnego generatora",
+                not [n for n in ("intro_po_sprawdzeniu", "pokaz_intro", "_intro_koniec",
+                                 "_intro_straznik", "_przelacz_intro", "_odswiez_btn_intro",
+                                 "proces", "_finalizuj_sukces", "_klik_generuj",
+                                 "_analizuj_formularz", "_podpowiedz_profil", "apply_theme")
+                     if hasattr(P.App, n)])
+        # dane pracownika dla paneli: bez zaczepu profil ZALOGOWANEJ osoby z dysku
+        _bylo8 = P.online_imie_uzytkownika
         try:
-            _okno.card_bot_frame.width = lambda: 900
-            _okno._parametry_waskie = None; _okno._uloz_parametry()
-            _waski_ok = (_okno._row2_b.count() == 2 and _okno._parametry_waskie is True
-                         and _okno.card_bot_frame.minimumHeight() >= _okno.card_bot_frame.layout().sizeHint().height())
-            _okno.card_bot_frame.width = lambda: 1200
-            _okno._uloz_parametry()
-            _szeroki_ok = (_okno._row2_b.count() == 0 and _okno._parametry_waskie is False
-                           and 118 <= _okno.card_bot_frame.minimumHeight() < 160)
-            sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają",
-                    _waski_ok and _szeroki_ok, str((_waski_ok, _szeroki_ok)))
-        except Exception as _e:
-            sprawdz("parametry trasy: tryb pracy i dni bez pracy schodzą do 2. wiersza przy wąskiej karcie i wracają", False, repr(_e))
-        # start: intro rusza od razu, bez czarnej „kurtyny" pod paskiem
-        try:
-            _okno._intro_zakonczone = False; _okno._intro_gra = False
-            _okno.intro_po_sprawdzeniu("Jan Testowy")
-            _kurt = getattr(_okno, "_kurtyna_start", "brak")
-            _intro_od_razu = bool(getattr(_okno, "_intro_gra", False)) or bool(getattr(_okno, "_intro_zakonczone", False))
-            sprawdz("start programu: intro rusza od razu, bez czarnej kurtyny", _kurt is None and _intro_od_razu,
-                    str((_kurt, getattr(_okno, "_intro_gra", None), getattr(_okno, "_intro_zakonczone", None))))
-            _okno._intro_koniec()
-        except Exception as _e:
-            sprawdz("start programu: intro rusza od razu, bez czarnej kurtyny", False, repr(_e))
-        sprawdz("dymek Rozpoznano pracownika czeka na koniec intra",
-                "_dymek_po_intrze" in open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read().split("def _podpowiedz_profil")[1][:2500])
-        sprawdz("ikona okna i intro używają logo retro (spójnie z logo po intrze)",
-                os.path.basename(P.znajdz_ikone() or "").startswith("pmt_logo_retro")
-                and '"pmt_logo_retro.png"' in open(os.path.join(KATALOG, "intro_zywa_mapa.py"), encoding="utf-8").read())
+            P.zapisz_profil("Jan Testowy", "85010112345", "ul. Kwiatowa 5, 26-600 Radom", "KR", 0)
+            P.online_imie_uzytkownika = lambda: "Jan Testowy"
+            _prof8 = _okno._profil_pracownika()
+            sprawdz("bez zaczepu panele dostają profil zalogowanej osoby (imię, PESEL, adres, stanowisko, silnik)",
+                    _prof8.get("imie") == "Jan Testowy" and _prof8.get("pesel") == "85010112345"
+                    and "Radom" in _prof8.get("adres", "") and _prof8.get("stanowisko") == "KR"
+                    and _prof8.get("silnik_idx") == 0
+                    and _okno._imie_i_pesel() == ("Jan Testowy", "85010112345"), str(_prof8))
+            P.online_imie_uzytkownika = lambda: "Anna Obca"
+            sprawdz("cudzy profil nigdy: przy innym koncie panele dostają puste rubryki",
+                    _okno._profil_pracownika().get("pesel", "") == "")
+            _okno._dane_pracownika = lambda: {"imie": "Ewa Nowa", "pesel": "90010112345",
+                                              "adres": "Rynek 1, 00-001 Warszawa",
+                                              "stanowisko": "merchandiser", "silnik_idx": 1}
+            sprawdz("zaczep nowego ekranu ma pierwszeństwo przed profilem z dysku",
+                    _okno._imie_i_pesel() == ("Ewa Nowa", "90010112345"))
+            _okno._dane_pracownika = None
+        finally:
+            P.online_imie_uzytkownika = _bylo8
+        _okno._miesiac_planu = None
+        _dzis8 = datetime.date.today()
+        sprawdz("miesiąc planu wizyt bez zaczepu = bieżący, a z zaczepem = wskazany przez nowy ekran",
+                _okno._rok_i_miesiac_planu() == (_dzis8.year, _dzis8.month)
+                and (setattr(_okno, "_miesiac_planu", lambda: (2027, 3)) or _okno._rok_i_miesiac_planu() == (2027, 3)))
+        _okno._miesiac_planu = None
+        for _p8 in (_okno.overlay_planer, _okno.overlay_plan, _okno.overlay_staty, _okno.overlay_admin):
+            _p8.show()
+        _okno._schowaj_panele()
+        sprawdz("krzyżyk panelu (_schowaj_panele) chowa wszystkie cztery panele pojemnika",
+                not any(p.isVisible() for p in (_okno.overlay_planer, _okno.overlay_plan,
+                                                _okno.overlay_staty, _okno.overlay_admin)))
+        _okno._po_zmianie_konta("Ewa Nowa")
+        sprawdz("zmiana konta bez formularza: pojemnik zapamiętuje imię i odświeża planer bez błędu",
+                _okno._imie_zalogowany == "Ewa Nowa"
+                and isinstance(getattr(_okno.overlay_planer, "_przystanki", None), list))
+        sprawdz("ikona okna to logo retro",
+                os.path.basename(P.znajdz_ikone() or "").startswith("pmt_logo_retro"))
         # głębia 3D: nakłada się bez błędu i trzyma limit efektów
         import wyglad_3d as _w3d
         _ile3d = P.zastosuj_glebie_interfejsu(_okno)
@@ -1706,42 +1918,37 @@ if not SZYBKO:
         P.zapisz_ustawienie("wyglad_3d", False)
         sprawdz("głębia 3D wyłączona w ustawieniach = 0 elementów", P.zastosuj_glebie_interfejsu(_okno) == 0)
         P.zapisz_ustawienie("wyglad_3d", True)
-        # intro „z orbity do trasy" jako nakładka w oknie: startuje, rysuje klatki, kończy się sygnałem
-        import intro_zywa_mapa as _izm
-        _izm._DZWIEK_ON = False
-        _stan = {"koniec": 0}
-        _ok_intro = _izm.sprobuj_intro(_okno, dane=P.dane_intra_z_dysku("Jan Testowy"),
-                                       po_zakonczeniu=lambda: _stan.__setitem__("koniec", _stan["koniec"] + 1),
-                                       katalog_zasobow=KATALOG, ciemny=True)
-        sprawdz("intro z kulą ziemską startuje jako nakładka w oknie", bool(_ok_intro))
-        _nakl = [c for c in _okno.findChildren(QWidget) if type(c).__name__ == "IntroZywaMapa"]
-        QTimer.singleShot(700, _app.quit)
-        _app.exec()                                  # kilkanaście klatek animacji
-        sprawdz("nakładka intra istnieje, jest pokazana po pierwszych klatkach i zakrywa okno",
-                len(_nakl) == 1 and _nakl[0].isVisibleTo(_okno) and not _nakl[0].isHidden()
-                and _nakl[0].width() >= _okno.width() - 2 and float(getattr(_nakl[0], "_t", 0) or 0) > 0.3,
-                str([(c.isVisibleTo(_okno), c.width(), _okno.width(), getattr(c, "_t", None)) for c in _nakl]))
-        _blad_klatek = None
+        # okno aktualizacji: nic nie czeka na koniec animacji — dialog od razu
+        class _OknoAkt8:
+            zbudowane = []
+
+            def __init__(self, rodzic, **reszta):
+                _OknoAkt8.zbudowane.append((rodzic, reszta))
+
+            def exec(self):
+                return 0
+
+        _bylo_akt8 = P.OknoAktualizacji
+        P.OknoAktualizacji = _OknoAkt8
         try:
-            _nakl[0]._zakoncz()                      # jak klik/klawisz użytkownika
-            _app.processEvents()
-        except Exception as _e:
-            _blad_klatek = repr(_e)
-        sprawdz("kliknięcie kończy intro i wywołuje po_zakonczeniu dokładnie raz",
-                _blad_klatek is None and _stan["koniec"] == 1, _blad_klatek or str(_stan))
-        # strażnik: po zdjęciu nakładki przez program intro nie zgłasza końca drugi raz
-        _okno._intro_gra = True
-        _izm.sprobuj_intro(_okno, dane=P.dane_intra_z_dysku(""), po_zakonczeniu=_okno._intro_koniec,
-                           katalog_zasobow=KATALOG, ciemny=True)
-        _okno._intro_straznik()
-        _app.processEvents()
-        _zywe = [c for c in _okno.findChildren(QWidget)
-                 if type(c).__name__ == "IntroZywaMapa" and c.isVisible()]
-        sprawdz("strażnik zdejmuje żywą mapę i zatrzymuje jej zegar", not _zywe and _okno._intro_zakonczone)
+            _okno._dialog_akt_byl = False
+            _okno._nowa_wersja, _okno._nowa_opis = "9.9.9", "próba"
+            _okno._okno_dialogow = _okno
+            _okno._pokaz_okno_aktualizacji()
+            _okno._pokaz_okno_aktualizacji()          # drugi raz: nic
+        finally:
+            P.OknoAktualizacji = _bylo_akt8
+        sprawdz("okno aktualizacji buduje się od razu i tylko raz, bez czekania na cokolwiek",
+                len(_OknoAkt8.zbudowane) == 1 and _OknoAkt8.zbudowane[0][0] is _okno
+                and _OknoAkt8.zbudowane[0][1].get("wersja_nowa") == "9.9.9"
+                and not hasattr(_okno, "_akt_czekanie"), str(len(_OknoAkt8.zbudowane)))
         # karta testera buduje się (osobne okno)
         import karta_testera as _kt
         _kt_ok = _kt.pokaz_karte(_okno)
         sprawdz("karta testera otwiera się z programu", bool(_kt_ok) and _kt._OKNO is not None and _kt._OKNO.isVisible())
+        sprawdz("karta testera nie ma już scenariuszy „Intro” (nie ma czego sprawdzać), a reszta została",
+                not any(s[0] == "Intro" for s in _kt.SCENARIUSZE) and len(_kt.SCENARIUSZE) >= 20
+                and {"Logowanie", "Plan wizyt", "Delegacje"} <= {s[0] for s in _kt.SCENARIUSZE})
         try:
             _kt._OKNO.close()
         except Exception:
@@ -1841,6 +2048,13 @@ if not SZYBKO:
 
         # ── okno na prawdziwym profilu ────────────────────────────────
         P.zapisz_ustawienie(_NW.OknoNowegoWygladu.USTAWIENIE_KWOTY, 0)
+        # Nazwisko przełożonego przychodzi WYŁĄCZNIE z pliku menedzer.txt, a bez
+        # niego nowy wygląd (jak stare okno) odmawia generowania. Okna z sekcji
+        # 8c-14 mają generować, więc od tego miejsca w tymczasowym katalogu
+        # domowym leży zaślepka — nie nazwisko, tylko napis testowy.
+        _PLIK_MENEDZERA_TESTOW = os.path.join(_TMP_HOME, "menedzer.txt")
+        with open(_PLIK_MENEDZERA_TESTOW, "w", encoding="utf-8") as _f:
+            _f.write("Przełożony Testowy\n")
         _prof_8c = _NW.ProfilWidoku("Jan Testowy", "85010112345",
                                     "ul. Kwiatowa 5, 26-600 Radom", "KR")
         _okno8c = _NW.OknoNowegoWygladu(profil=_prof_8c, rok=2026, miesiac=10)
@@ -1886,6 +2100,65 @@ if not SZYBKO:
                 and _param8c["miesiac"] == _okno8c.miesiac
                 and _param8c["stawka"] == _okno8c.profil.stawka
                 and _param8c["dni_robocze"], str(_powod8c))
+
+        # ── pusty menedzer.txt: nowe okno zatrzymuje jak stare ───────
+        # Bez pliku rubryka PRZEŁOŻONY na każdym PDF-ie wychodziła pusta,
+        # a podgląd kartki świecił zielonym „uzupełniony".
+        os.remove(_PLIK_MENEDZERA_TESTOW)
+        try:
+            _param_bez, _powod_bez = _okno8c._dane_do_generacji()
+        finally:
+            with open(_PLIK_MENEDZERA_TESTOW, "w", encoding="utf-8") as _f:
+                _f.write("Przełożony Testowy\n")
+        sprawdz("bez menedzer.txt nowy wygląd odmawia generowania krótką etykietą (bez zdania)",
+                _param_bez is None and _powod_bez == "brak menedzer.txt"
+                and _okno8c._dane_do_generacji()[0] is not None, str(_powod_bez))
+        try:
+            import proto_mapa as _PM8c
+            import proto_dane as _dn8c
+            sprawdz("podgląd kartki: zaślepka „(brak pliku …)” to brak, nazwisko z pliku to nazwisko",
+                    _PM8c._tekst_menedzera("(brak pliku menedzer.txt)") == ("—", True)
+                    and _PM8c._tekst_menedzera("") == ("—", True)
+                    and _PM8c._tekst_menedzera("Przełożony Testowy") == ("Przełożony Testowy", False))
+            _dzien8c = [d for d in _dn8c.oblicz_miesiac(1850, rok=2026, miesiac=10) if not d.wolny][0]
+            _menedzer_bylo = _dn8c.MENEDZER
+
+            def _piksele_kartki(wartosc):
+                """(bursztyn, zieleń) — ile pikseli rubryk ma barwę ostrzeżenia
+                z papieru i ile zieleń sukcesu."""
+                _dn8c.MENEDZER = wartosc
+                k = _PM8c.KartkaDelegacji()
+                k.ustaw_animacje(False)
+                k.resize(360, 470)
+                k.ustaw_dzien(_dzien8c)
+                k.ustaw_stan("zwykla")
+                obraz = k._pixmapa().toImage()
+                o = _PM8c.OSTRZEZENIE_NA_PAPIERZE
+                amber = zielone = 0
+                for y in range(obraz.height()):
+                    for x in range(obraz.width()):
+                        c = obraz.pixelColor(x, y)
+                        if c.alpha() < 200:
+                            continue
+                        if (abs(c.red() - o.red()) < 30 and abs(c.green() - o.green()) < 30
+                                and abs(c.blue() - o.blue()) < 30):
+                            amber += 1
+                        if abs(c.red() - 0x0E) < 30 and abs(c.green() - 0x9B) < 30 and abs(c.blue() - 0x74) < 30:
+                            zielone += 1
+                k.deleteLater()
+                return amber, zielone
+
+            try:
+                _bez_pliku8c = _piksele_kartki("(brak pliku menedzer.txt)")
+                _z_pliku8c = _piksele_kartki("Przełożony Testowy")
+            finally:
+                _dn8c.MENEDZER = _menedzer_bylo
+            sprawdz("kartka bez menedzer.txt: kreska w barwie ostrzeżenia, ani piksela zielonego sukcesu",
+                    _bez_pliku8c[0] > 0 and _bez_pliku8c[1] == 0, str(_bez_pliku8c))
+            sprawdz("kartka z menedzer.txt: nazwisko na zielono, bez barwy ostrzeżenia",
+                    _z_pliku8c[1] > 0 and _z_pliku8c[0] == 0, str(_z_pliku8c))
+        except Exception as _e:
+            sprawdz("podgląd kartki pokazuje brak menedzer.txt jako brak", False, repr(_e))
 
         # ── miesiąc: zakładki naprawdę przełączają ────────────────────
         _okno8c.ustaw_miesiac(2026, 10)
@@ -2057,7 +2330,8 @@ if not SZYBKO:
 if not SZYBKO:
     sekcja("8d. Nowy wygląd: kompas naprawdę generuje dokumenty")
     # Okno programu z sekcji 8 zostaje żywe i ma ODŁOŻONE zegary, które
-    # otwierają okna MODALNE: zaproszenie do testów (900 ms po intrze) oraz
+    # otwierają okna MODALNE: zaproszenie do testów (900 ms po intrze —
+    # wyciszone na stałe zaraz po imporcie programu, patrz sekcja 1) oraz
     # okno aktualizacji. Ta sekcja jako pierwsza mieli zdarzenia przez dłuższą
     # chwilę, więc to ona doczekałaby się ich exec() — i testy stanęłyby
     # na zawsze. Na czas sekcji podstawiamy atrapy; oryginały wracają w finally.
@@ -2384,6 +2658,38 @@ if _PW is not None:
             and "TAJNE-HASLO-TESTOWE" not in json.dumps(_s9_ust_bez, ensure_ascii=False),
             str(sorted(_s9_ust_bez)))
 
+    # ── „Tylko podpisane" musi filtrować, a licznik mówić prawdę ─────
+    # Folder z sekcji 9 nie ma ani manifestu, ani podfolderu Podpisane —
+    # dotąd leciało z niego wszystko niezależnie od przełącznika, a licznik
+    # „bez podpisu" stał na zerze.
+    _s9_tylko = _PW.zalaczniki(_S9_DOK, tylko_podpisane=True)
+    _s9_wszystko = _PW.zalaczniki(_S9_DOK, tylko_podpisane=False)
+    sprawdz("wysyłka: bez śladu podpisu „tylko podpisane” nie wysyła nic, a licznik liczy wszystkie dokumenty",
+            _s9_tylko.pliki == [] and _s9_tylko.niepodpisane == 5
+            and len(_s9_wszystko.pliki) == 5 and _s9_wszystko.niepodpisane == 5,
+            str(([os.path.basename(p) for p in _s9_tylko.pliki], _s9_tylko.niepodpisane,
+                 len(_s9_wszystko.pliki), _s9_wszystko.niepodpisane)))
+    if _PS is not None:
+        sprawdz("wysyłka rozpoznaje podpisany egzemplarz po TYCH SAMYCH sufiksach, co pmt_podpis",
+                tuple(_PW.SUFIKSY_PODPISU) == tuple(_PS.SUFIKSY_PODPISU),
+                str((_PW.SUFIKSY_PODPISU, _PS.SUFIKSY_PODPISU)))
+    try:
+        from PyQt6.QtWidgets import QApplication as _QApp9
+        _app9 = _QApp9.instance() or _QApp9(sys.argv)
+        _dlg9 = P.DialogWysylka(None, folder=_S9_DOK, imie="Jan Testowy", miesiac=7, rok=2026)
+        _bez_podpisu9 = _dlg9.lbl_rozmiar.text()
+        _pliki_bez9 = list(_dlg9._pliki)
+        _dlg9.chk_podpisane.setChecked(True)
+        _tylko9 = _dlg9.lbl_rozmiar.text()
+        _pliki_tylko9 = list(_dlg9._pliki)
+        _dlg9.deleteLater()
+        sprawdz("okno wysyłki: przy braku podpisów startuje z pełnym folderem i pokazuje liczbę „bez podpisu”",
+                len(_pliki_bez9) == 5 and "bez podpisu: 5" in _bez_podpisu9, repr(_bez_podpisu9))
+        sprawdz("okno wysyłki: „tylko podpisane” zostawia pustą listę, liczba bez podpisu zostaje",
+                _pliki_tylko9 == [] and "bez podpisu: 5" in _tylko9, repr(_tylko9))
+    except Exception as _e:
+        sprawdz("okno wysyłki pokazuje liczbę dokumentów bez podpisu", False, repr(_e))
+
 # ── etykieta wydania a czysty numer wersji ────────────────────────
 # testy_pmt.py robi int() na członach numeru POZA blokiem obsługi wyjątków —
 # dopisek w rodzaju „3.22.0-TEST" wysypałby cały skrypt, a nie jeden test.
@@ -2432,29 +2738,14 @@ sprawdz("BEZ_AKTUALIZACJI.txt w katalogu UŻYTKOWNIKA niczego nie wyłącza "
         _s9_u_uzytkownika is False and _s9_domyslny is False,
         str((_s9_u_uzytkownika, _s9_domyslny)))
 
-# ── wyłącznik animacji startowej ──────────────────────────────────
-_s9_bylo_intro = P.ustawienie("bez_intra", False)
-try:
-    P.zapisz_ustawienie("bez_intra", True)
-    P._ustawienia_reset()                 # tak samo jak świeży start programu
-    _s9_zapisane = P.ustawienie("bez_intra", False)
-    with open(P.USTAWIENIA_STORE, encoding="utf-8") as _f:
-        _s9_na_dysku = json.load(_f).get("bez_intra")
-    P.zapisz_ustawienie("bez_intra", False)
-    P._ustawienia_reset()
-    _s9_cofniete = P.ustawienie("bez_intra", True)
-finally:
-    P.zapisz_ustawienie("bez_intra", _s9_bylo_intro)
-    P._ustawienia_reset()
-sprawdz("ustawienie bez_intra zapisuje się na dysk i wraca przy kolejnym odczycie",
-        _s9_zapisane is True and _s9_na_dysku is True and _s9_cofniete is False,
-        str((_s9_zapisane, _s9_na_dysku, _s9_cofniete)))
-sprawdz("przełącznik animacji ma obsługę w oknie (stan przycisku i zapis ustawienia)",
-        callable(getattr(P.App, "_przelacz_intro", None))
-        and callable(getattr(P.App, "_odswiez_btn_intro", None)))
-sprawdz("animacja startowa czyta dokładnie ten klucz, który zapisuje przycisk",
-        '"bez_intra"' in _zrodlo.split("def pokaz_intro")[1][:4000]
-        or "'bez_intra'" in _zrodlo.split("def pokaz_intro")[1][:4000])
+# ── wyłącznik animacji startowej: NIE MA czego wyłączać ───────────
+# Do 3.22.0 był tu test zapisu ustawienia bez_intra i przycisku 🎬 w pasku.
+# Animacja startowa zniknęła z programu razem z przełącznikiem — zostaje
+# sprawdzenie, że żaden przełącznik ani plik już jej nie dotyczy.
+sprawdz("żaden przełącznik intra nie został w programie (ustawienie, przycisk, plik)",
+        "bez_intra" not in _zrodlo and "BEZ_INTRA" not in _zrodlo
+        and "INTRO_NA_STARCIE" not in _zrodlo
+        and not hasattr(P.App, "_przelacz_intro") and not hasattr(P.App, "_odswiez_btn_intro"))
 
 shutil.rmtree(_S9, ignore_errors=True)
 
@@ -2480,16 +2771,17 @@ try:
     sprawdz("start programu wciąż rozgrzewa zaplecze, sprawdza wersję i ŻĄDA LOGOWANIA",
             "_rozgrzej_backend()" in _blok10 and "wersja_zablokowana()" in _blok10
             and "dialog_logowania()" in _blok10 and "sys.exit(0)" in _blok10)
-    sprawdz("sekwencja startowa nadal woła intro_po_sprawdzeniu "
-            "(samo intro jest w tej wersji wyłączone — patrz sekcja 11)",
-            "intro_po_sprawdzeniu" in _blok10)
+    sprawdz("sekwencja startowa woła po_starcie (zaproszenie testera) — i nigdzie intro_po_sprawdzeniu",
+            "window.po_starcie(" in _blok10 and "intro_po_sprawdzeniu" not in _zrodlo10)
     sprawdz("okno główne powstaje na końcu sekwencji, przez zbuduj_okno_glowne()",
             "window = zbuduj_okno_glowne()" in _blok10)
     sprawdz("przełącznik --nowy zniknął jako droga wejścia",
             "--nowy" not in _zrodlo10)
-    sprawdz("wyjście awaryjne --stary istnieje, ale nigdzie się nim nie chwalimy "
-            "(jedno wystąpienie: sama decyzja w zbuduj_okno_glowne)",
-            _zrodlo10.count('"--stary"') == 1)
+    # Do 3.22.0 istniało wyjście awaryjne --stary (dawne okno jako główne).
+    # Dawnego okna już nie ma — App jest pojemnikiem na panele — więc
+    # zbuduj_okno_glowne zawsze oddaje nowy ekran, bez względu na argumenty.
+    sprawdz("przełącznik --stary zniknął razem ze starym oknem (żadnego sprawdzania argumentu)",
+            '"--stary"' not in _zrodlo10 and "in argv" not in _zrodlo10.split("def zbuduj_okno_glowne")[1][:1500])
 
     # ── które okno powstaje ───────────────────────────────────────
     _okno10 = P.zbuduj_okno_glowne(["prog"])
@@ -2498,8 +2790,8 @@ try:
     sprawdz("stare okno żyje pod nim jako gospodarz paneli (nic nie ginie)",
             isinstance(getattr(_okno10, "_stare", None), P.App))
     _okno10_stare = P.zbuduj_okno_glowne(["prog", "--stary"])
-    sprawdz("argument awaryjny --stary nadal oddaje dawne okno",
-            isinstance(_okno10_stare, P.App), type(_okno10_stare).__name__)
+    sprawdz("nawet z argumentem --stary powstaje nowy ekran (innego okna nie ma)",
+            type(_okno10_stare).__name__ == "OknoNowegoWygladu", type(_okno10_stare).__name__)
     try:
         _okno10_stare.close()
     except Exception:
@@ -2661,26 +2953,13 @@ try:
             all(hasattr(_okno10.pasek, s10) for s10 in
                 ("klik_konta", "klik_dzwonka", "klik_bledu", "klik_awatara")))
 
-    # ── menu awatara: hasło, tester, intro, wylogowanie ───────────
+    # ── menu awatara: hasło, tester, wylogowanie (bez animacji) ───
     _menu10, _akcje_menu10 = _okno10.buduj_menu_konta()
     _pozycje10 = [a.text() for a in _menu10.actions() if a.text()]
-    _oczekiwane10 = ["Zmień hasło", "Karta testera"]
-    if bool(getattr(P, "INTRO_NA_STARCIE", True)):
-        _oczekiwane10.append("Animacja startowa")
-    _oczekiwane10.append("Wyloguj")
-    sprawdz("menu pod inicjałami ma hasło, kartę testera i wylogowanie",
-            _pozycje10 == _oczekiwane10, str(_pozycje10))
+    sprawdz("menu pod inicjałami ma hasło, kartę testera i wylogowanie — i nic o animacji",
+            _pozycje10 == ["Zmień hasło", "Karta testera", "Wyloguj"], str(_pozycje10))
     sprawdz("każda pozycja menu awatara ma podpiętą akcję",
             all(callable(_akcje_menu10.get(a)) for a in _menu10.actions() if a.text()))
-    # Przełącznik animacji pojawia się TYLKO wtedy, gdy animacja startuje —
-    # przy wyłączonym intrze byłby martwą pozycją.
-    _intro_akcje10 = [a for a in _menu10.actions() if a.text() == "Animacja startowa"]
-    sprawdz("przełącznik animacji jest w menu wtedy i tylko wtedy, gdy intro startuje",
-            bool(_intro_akcje10) == bool(getattr(P, "INTRO_NA_STARCIE", True)))
-    if _intro_akcje10:
-        sprawdz("pozycja „Animacja startowa” pokazuje stan ustawienia bez_intra",
-                _intro_akcje10[0].isChecked()
-                == (not bool(P.ustawienie("bez_intra", False))))
     _menu10.deleteLater()
 
     # ── dzwonek: jedna historia powiadomień dla obu okien ─────────
@@ -2738,33 +3017,65 @@ try:
     _okno11.show()
     _app11.processEvents()
 
-    # ── 1. INTRO NIE STARTUJE ─────────────────────────────────────
-    sprawdz("intro startowe jest w tej wersji wyłączone przełącznikiem",
-            P.INTRO_NA_STARCIE is False, repr(P.INTRO_NA_STARCIE))
-    _okno11.intro_po_sprawdzeniu("Jan Testowy")
-    _app11.processEvents()
-    _zywe11 = [c for c in _okno11.findChildren(_QW11)
-               if type(c).__name__ in ("IntroZywaMapa", "AnimacjaStartowa")]
-    sprawdz("po starcie nie ma ani żywej mapy, ani klasycznej animacji",
-            not _zywe11 and _okno11._intro is None
-            and _okno11._intro_gra is False, str([type(c).__name__ for c in _zywe11]))
-    sprawdz("nic nie czeka na koniec intra: ekran główny jest od razu odsłonięty",
-            _okno11._intro_zakonczone is True)
+    # ── 1. INTRA NIE MA — start to po_starcie, nic na nic nie czeka ──
+    _zapr11 = []
+    _bylo_zapr11 = P.zaproszenie_testera
+    P.zaproszenie_testera = lambda rodzic, imie="", ciemny=True: _zapr11.append((rodzic, imie)) or False
+    try:
+        _okno11.po_starcie("Jan Testowy")
+        _app11.processEvents()
+        _zywe11 = [c for c in _okno11.findChildren(_QW11)
+                   if type(c).__name__ in ("IntroZywaMapa", "AnimacjaStartowa")]
+        sprawdz("po starcie nie ma żadnej nakładki animacji, a nowy ekran nie ma metod intra",
+                not _zywe11 and not any(hasattr(_okno11, n) for n in
+                                        ("pokaz_intro", "_intro_koniec", "_intro_straznik",
+                                         "intro_po_sprawdzeniu", "_intro", "_intro_gra")),
+                str([type(c).__name__ for c in _zywe11]))
+        _koniec11 = time.time() + 3.0
+        while not _zapr11 and time.time() < _koniec11:
+            _app11.processEvents()
+            time.sleep(0.02)
+        sprawdz("zaproszenie testera przychodzi ~900 ms po starcie — bez intra, na które by czekało",
+                len(_zapr11) == 1 and _zapr11[0][0] is _okno11 and _zapr11[0][1] == "Jan Testowy",
+                str(_zapr11))
+    finally:
+        P.zaproszenie_testera = _bylo_zapr11
     _stare11 = _okno11.stare_okno()
     _okno11._zepnij_ze_starym(_stare11)
-    sprawdz("okno aktualizacji nie wisi na sygnale końca intra",
-            _stare11._intro_gra is False and _stare11._intro_zakonczone is True)
-    _stare11._akt_czekanie = 0
-    _stare11._intro_gra = True          # nawet z zapomnianą flagą
-    _stare11._dialog_akt_byl = True     # (dalej i tak nie budujemy dialogu)
-    _stare11._pokaz_okno_aktualizacji()
-    sprawdz("okno aktualizacji rusza od razu, choćby flaga intra została zapalona",
-            getattr(_stare11, "_akt_czekanie", 0) == 0)
-    _stare11._intro_gra = False
-    sprawdz("kod intra zostaje w programie — wróci przy generowaniu dokumentów",
-            callable(getattr(_okno11, "pokaz_intro", None))
-            and callable(getattr(P, "pokaz_intro", None) or P.App.pokaz_intro)
-            and os.path.exists(os.path.join(KATALOG, "intro_zywa_mapa.py")))
+    sprawdz("stare okno nie zna flag intra, a jego okna dialogowe stają nad nowym ekranem",
+            not hasattr(_stare11, "_intro_gra") and not hasattr(_stare11, "_intro_zakonczone")
+            and _stare11._okno_dialogow is _okno11 and _stare11._rodzic_dialogow() is _okno11)
+    sprawdz("panele dostają z nowego ekranu pracownika z karty PRACOWNIK i miesiąc z paska",
+            _stare11._imie_i_pesel() == ("Jan Testowy", "85010112345")
+            and _stare11._profil_pracownika().get("adres", "").endswith("Radom")
+            and _stare11._rok_i_miesiac_planu() == (2026, 10),
+            str((_stare11._imie_i_pesel(), _stare11._rok_i_miesiac_planu())))
+    _prof11 = _okno11._profil_do_paneli()
+    sprawdz("stanowisko i pojemność silnika dla paneli idą z karty PRACOWNIK i PARAMETRY (KR, silnik powyżej 900 cm³ = 1)",
+            _prof11.get("stanowisko") == "KR" and _prof11.get("silnik_idx") == 1
+            and set(_prof11) == {"imie", "pesel", "adres", "stanowisko", "silnik_idx"}, str(_prof11))
+    sprawdz("po_starcie zapamiętuje imię zalogowanej osoby (właściwość: karta i pasek konta)",
+            _okno11._imie_zal == "Jan Testowy" and _okno11._imie_zalogowany == "Jan Testowy")
+    sprawdz("okno aktualizacji w starym oknie nie ma już na co czekać (brak licznika czekania)",
+            "_akt_czekanie" not in _zrodlo and "_intro" not in
+            _zrodlo.split("class App(QMainWindow):")[1].split("def zbuduj_okno_glowne")[0])
+    # ── 1b. DYMEK „ROZPOZNANO PRACOWNIKA" — teraz w nowym ekranie ────
+    _bylo_imie11 = P.online_imie_uzytkownika
+    try:
+        P.online_imie_uzytkownika = lambda: "Jan Testowy"
+        _ile_hist11 = len(_okno11.toast.historia)
+        _pokazany11 = _okno11._dymek_rozpoznania()
+        _wpis11 = _okno11.toast.historia[0] if _okno11.toast.historia else None
+        sprawdz("dymek „Rozpoznano pracownika” pokazuje nowy ekran, gdy profil z konta leżał na dysku",
+                _pokazany11 is True and len(_okno11.toast.historia) == _ile_hist11 + 1
+                and "Rozpoznano pracownika" in str(_wpis11) and "Jan Testowy" in str(_wpis11),
+                str(_wpis11))
+        P.online_imie_uzytkownika = lambda: "Anna Obca"
+        sprawdz("dymek nigdy dla cudzego profilu (imię z konta musi się zgadzać z kartą)",
+                _okno11._dymek_rozpoznania() is False
+                and len(_okno11.toast.historia) == _ile_hist11 + 1)
+    finally:
+        P.online_imie_uzytkownika = _bylo_imie11
 
     # ── 2. OKNO BEZ RAMY SYSTEMU, NA PEŁNYM EKRANIE ───────────────
     sprawdz("okno programu nie ma ramy systemowej",
@@ -3694,6 +4005,59 @@ try:
     sprawdz("kasowanie groszy razem z przecinkiem wraca do samych złotych",
             _obraz14(_pole14) == ("1 850", ",00 zł", 1850.0), str(_obraz14(_pole14)))
 
+    # ── 3a. SKASOWANY PRZECINEK ZDEJMUJE GROSZE, NIE DOKLEJA ICH ──
+    # Backspace postawiony na przecinku sklejał grosze ze złotymi:
+    # „1850,55” → „185055” — stukrotny błąd jednym klawiszem.
+    _pisz14(_pole14, "1850,55")
+    _pole14._ustaw_kursor(5)                              # tuż za przecinkiem
+    _klaw14(_pole14, klucz=_Qt14.Key.Key_Backspace)
+    sprawdz("Backspace na przecinku zdejmuje grosze: „1850,55” → „1850”, nie „185055”",
+            _obraz14(_pole14) == ("1 850", ",00 zł", 1850.0) and _pole14._kursor == 4,
+            str((_obraz14(_pole14), _pole14._kursor)))
+    _pisz14(_pole14, "1850,55")
+    _pole14._ustaw_kursor(4)                              # tuż przed przecinkiem
+    _klaw14(_pole14, klucz=_Qt14.Key.Key_Delete)
+    sprawdz("Delete na przecinku też zdejmuje grosze zamiast je doklejać",
+            _obraz14(_pole14) == ("1 850", ",00 zł", 1850.0), str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850,55")
+    _pole14._kotwica, _pole14._kursor = 2, 6              # zaznaczone „50,5”
+    _klaw14(_pole14, klucz=_Qt14.Key.Key_Backspace)
+    sprawdz("skasowane zaznaczenie przez przecinek nie robi złotych z reszty groszy",
+            _obraz14(_pole14) == ("18", ",00 zł", 18.0), str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850,55")
+    _pole14._kotwica, _pole14._kursor = 2, 6
+    _klaw14(_pole14, "9")
+    sprawdz("cyfra wpisana na zaznaczenie z przecinkiem też nie skleja groszy ze złotymi",
+            _obraz14(_pole14) == ("189", ",00 zł", 189.0), str(_obraz14(_pole14)))
+    _pisz14(_pole14, "1850,55")
+    _pole14._kotwica, _pole14._kursor = 2, 6
+    _klaw14(_pole14, ",")
+    sprawdz("przecinek wpisany na zaznaczenie zostawia grosze groszami",
+            _obraz14(_pole14) == ("18", ",50 zł", 18.5), str(_obraz14(_pole14)))
+    # KAŻDE kasowanie i KAŻDE zastąpienie zaznaczenia: gdy przecinek znika,
+    # w polu nie zostaje więcej cyfr niż złotych sprzed plus wpisana cyfra
+    _sklejone14 = []
+    for _tresc14 in ("1850,55", "123,07", "0,55", "999999999,99", "5,5"):
+        _zl14 = _tresc14.split(",")[0]
+        _n14 = len(_tresc14)
+        _ruchy14 = [(i, i, k) for i in range(_n14 + 1) for k in ("BS", "DEL")]
+        _ruchy14 += [(a, b, k) for a in range(_n14) for b in range(a + 1, _n14 + 1)
+                     for k in ("BS", "9")]
+        for _a14, _b14, _k14 in _ruchy14:
+            _pole14.ustaw_tekst(_tresc14)
+            _pole14._kotwica, _pole14._kursor = _a14, _b14
+            if _k14 == "BS":
+                _klaw14(_pole14, klucz=_Qt14.Key.Key_Backspace)
+            elif _k14 == "DEL":
+                _klaw14(_pole14, klucz=_Qt14.Key.Key_Delete)
+            else:
+                _klaw14(_pole14, _k14)
+            _cyfr14 = sum(z.isdigit() for z in _pole14._tresc)
+            if "," not in _pole14._tresc and _cyfr14 > len(_zl14) + (_k14 == "9"):
+                _sklejone14.append((_tresc14, _a14, _b14, _k14, _pole14._tresc))
+    sprawdz("żadne kasowanie ani zastąpienie zaznaczenia nie dokleja groszy do złotych",
+            not _sklejone14, str(_sklejone14[:5]))
+
     # ── 4. SCHOWEK: KROPKA, SPACJE, ZŁOTÓWKA ──────────────────────
     _schowek14 = _QA14.clipboard()
     _wklejone14 = []
@@ -3705,6 +4069,37 @@ try:
         _wklejone14.append((_co14, _pole14.wartosc(), _ile14))
     sprawdz("wklejona kwota z kropką, spacjami i złotówką trafia w grosze",
             all(abs(w - o) < 0.005 for _, w, o in _wklejone14), str(_wklejone14))
+    # Wklejenie czyta się tak samo, jak pisanie: przecinek jest zawsze
+    # dziesiętny („1850,555” dawało 1 850 555 zł), trzecia cyfra groszy odpada
+    # bez zaokrąglania, spacje, minus i „zł” nie przeszkadzają, puste nic nie robi.
+    _wklej14 = []
+    for _co14, _ile14, _tekst14 in (
+            ("1 850,55 zł", 1850.55, "1 850,55"), ("1850.55", 1850.55, "1 850,55"),
+            ("1850,5", 1850.5, "1 850,50"), ("1850,555", 1850.55, "1 850,55"),
+            ("1850,559", 1850.55, "1 850,55"), ("  1850  ", 1850.0, "1 850,00"),
+            ("-1850,55", 1850.55, "1 850,55"), ("", 0.0, ""), ("zł", 0.0, ""),
+            ("1.850,55", 1850.55, "1 850,55"), ("1,850.55", 1850.55, "1 850,55"),
+            ("1.850", 1850.0, "1 850,00"), ("123,07", 123.07, "123,07"),
+            ("0,5", 0.5, "0,50"), ("1,850", 1.85, "1,85")):
+        _schowek14.setText(_co14)
+        _pole14.ustaw_tekst("")
+        _pole14._ze_schowka()
+        if (_pole14.wartosc(), _pole14.tekst()) != (_ile14, _tekst14):
+            _wklej14.append((_co14, _pole14.wartosc(), _pole14.tekst()))
+    sprawdz("wklejone „1850,555”, „-1850,55”, „1 850,55 zł”, puste… trafiają co do grosza",
+            not _wklej14, str(_wklej14))
+    _schowek14.setText("12,5")
+    _pisz14(_pole14, "1850,55")
+    _pole14._ustaw_kursor(0)
+    _pole14._ze_schowka()
+    sprawdz("wklejona kwota z groszami zastępuje całe pole, nie wchodzi w środek liczby",
+            _obraz14(_pole14) == ("12", ",50 zł", 12.5), str(_obraz14(_pole14)))
+    _schowek14.setText("07")
+    _pisz14(_pole14, "1850,55")
+    _pole14._kotwica, _pole14._kursor = 5, 7              # zaznaczone grosze „55”
+    _pole14._ze_schowka()
+    sprawdz("wklejone same cyfry wchodzą tam, gdzie stoi kursor — jak pisane",
+            _obraz14(_pole14) == ("1 850", ",07 zł", 1850.07), str(_obraz14(_pole14)))
 
     # ── 5. DŁUGA LICZBA I MIEJSCE W KARCIE ────────────────────────
     _pisz14(_pole14, "123456789,99")
@@ -3845,12 +4240,53 @@ try:
     if not SZYBKO:
         P._osrm_dostepny = False
         P._road_cache.clear()
-        _dni_gr14 = P.generuj_trasy(1850.55, "Radom", 51.40, 21.15, "mazowieckie",
-                                    P.pobierz_dni_robocze(2026, 10), "90010112345",
-                                    stawka=0.89)
+        _pisz14(_pole14, "1850,55")                # kwota Z POLA, nie literał
+        _dni_gr14 = P.generuj_trasy(_pole14.wartosc(), "Radom", 51.40, 21.15,
+                                    "mazowieckie", P.pobierz_dni_robocze(2026, 10),
+                                    "90010112345", stawka=0.89)
         _suma_gr14 = sum(_d14.suma for _d14 in _dni_gr14)
         sprawdz("silnik rozpisuje kwotę z groszami co do grosza",
                 abs(_suma_gr14 - 1850.55) <= 0.01, "wyszło %.2f zł" % _suma_gr14)
+
+        # ── 9. 1850,55 OD POLA DO PDF ─────────────────────────────
+        # Liczby z gotowych plików czytamy tak, jak czyta je pmt_dokumenty
+        # (Decimal — bez błędów sumowania float): kwoty etapów każdej
+        # delegacji, rubryka „(1) Przejazdy”, „Suma wydatków” i „Suma
+        # wydatków global:” w rozliczeniu zbiorczym.
+        import decimal as _dec14
+        import pmt_dokumenty as _DOK14
+        _Dec14 = _dec14.Decimal
+        _folder14 = tempfile.mkdtemp(prefix="grosze_", dir=_TMP_HOME)
+        _prac14 = P.DanePracownika(
+            imie="Jan Testowy", pesel="90010112345", adres="ul. Kwiatowa 5, 26-600 Radom",
+            stanowisko="KR", kod_pocztowy="26-600", baza_miasto="Radom",
+            baza_lat=51.40, baza_lng=21.15, wojewodztwo="mazowieckie")
+        P.generuj_pdfy(_dni_gr14, _prac14, 10, 2026, _folder14, 0.89)
+        _etapy14, _sumy14, _zbior14, _rozjazdy14 = _Dec14(0), _Dec14(0), None, []
+        _plikow14 = 0
+        for _plik14 in sorted(glob.glob(os.path.join(_folder14, "*.pdf"))):
+            _kwoty14 = [_Dec14(s.strip()) for s in _DOK14.tekst_dokumentu(_plik14)
+                        if re.match(r"^\d+\.\d\d$", s.strip())]
+            if os.path.basename(_plik14).startswith("delegacja"):
+                _plikow14 += 1
+                # kolejność rysowania: kwoty etapów, „(1) Przejazdy”, „Suma wydatków”
+                _e14, _p14, _s14 = _kwoty14[:-2], _kwoty14[-2], _kwoty14[-1]
+                _etapy14 += sum(_e14)
+                _sumy14 += _s14
+                if not (_e14 and sum(_e14) == _p14 == _s14):
+                    _rozjazdy14.append((os.path.basename(_plik14), sum(_e14), _p14, _s14))
+            else:
+                _zbior14 = _kwoty14[-1] if _kwoty14 else None     # „Suma wydatków global:”
+        _komplet14 = _DOK14.liczby_kompletu(_folder14)
+        sprawdz("1850,55 od pola do PDF: suma kwot etapów we wszystkich delegacjach "
+                "to dokładnie 1850,55",
+                _plikow14 >= 2 and _etapy14 == _Dec14("1850.55") and not _rozjazdy14,
+                str((_plikow14, _etapy14, _rozjazdy14)))
+        sprawdz("sumy dokumentów, rozliczenie zbiorcze i odczyt z plików: 1850,55 co do grosza",
+                _sumy14 == _zbior14 == _Dec14("1850.55")
+                and _komplet14["kwota"] == 1850.55 and _komplet14["zgodne"],
+                str((_sumy14, _zbior14, _komplet14["kwota"], _komplet14["zgodne"])))
+        shutil.rmtree(_folder14, ignore_errors=True)
         P._road_cache.clear()
 except Exception as _e14:
     sprawdz("pole kwoty pokazuje grosze, które wpisano", False, repr(_e14))
@@ -4346,15 +4782,23 @@ try:
             " trasy w kadrze sięgającym pod papier",
             not _zle_wejscie16, str(_zle_wejscie16[:2]))
 
-    # ── 8. KLIK W KARTKĘ ZWIJA JĄ DO BRZEGU ───────────────────────
+    # ── 8. UCHWYT PRZY BRZEGU ZWIJA KARTKĘ, KLIK W PAPIER JĄ OBRACA ──
+    # ZMIANA ZACHOWANIA (zaciekawienie 2): dotąd klik w dowolne miejsce
+    # kartki zwijał ją do brzegu. Teraz kartka ma dwie strony i klik w papier
+    # OBRACA ją (gest ciekawości dostaje całą powierzchnię), a zwinięcie —
+    # które idzie w stronę krawędzi ekranu — ma uchwyt na tej krawędzi:
+    # perforowany pasek przy prawym brzegu (KartkaDelegacji.UCHWYT).
+    # Zwinięty pasek rozwija się kliknięciem w dowolne miejsce, jak dotąd.
     _rozmiar16(1440, 900)
     _okno16._wybierz_dzien(_daleki16)
     _okno16.ustaw_animacje(False)
     _miel16(3)
     _kadr_przed16 = _okno16.mapa._pole().width()
 
-    def _klik_kartki16():
-        pkt = _QP16(_okno16.kartka.width() * 0.5, _okno16.kartka.height() * 0.5)
+    def _klik_kartki16(uchwyt=False):
+        kar16 = _okno16.kartka._pole_kartki()[0]
+        pkt = (_QP16(kar16.right() - 4.0, kar16.center().y()) if uchwyt
+               else _QP16(_okno16.kartka.width() * 0.5, _okno16.kartka.height() * 0.5))
         glob = _okno16.kartka.mapToGlobal(pkt.toPoint()).toPointF()
         _okno16.kartka.mousePressEvent(
             _QME16(_QE16.Type.MouseButtonPress, pkt, glob,
@@ -4364,8 +4808,18 @@ try:
         _miel16(6)
 
     _klik_kartki16()
+    sprawdz("klik w papier OBRACA kartkę na odwrót — nie zwija jej i nie rusza kadru",
+            _okno16.kartka.strona() == "tyl" and not _okno16.kartka.zwinieta()
+            and abs(_okno16.mapa._pole().width() - _kadr_przed16) < 0.5,
+            "%s / zwinięta %s / kadr %.0f wobec %.0f"
+            % (_okno16.kartka.strona(), _okno16.kartka.zwinieta(),
+               _okno16.mapa._pole().width(), _kadr_przed16))
+    _klik_kartki16()
+    sprawdz("drugi klik w papier obraca kartkę z powrotem na przód",
+            _okno16.kartka.strona() == "przod" and not _okno16.kartka.zwinieta())
+    _klik_kartki16(uchwyt=True)
     _kadr_po16 = _okno16.mapa._pole().width()
-    sprawdz("klik w kartkę zwija ją do paska przy brzegu i oddaje mapie miejsce",
+    sprawdz("klik w uchwyt przy prawym brzegu zwija kartkę do paska i oddaje mapie miejsce",
             _okno16.kartka.zwinieta()
             and _okno16.kartka.width() == _PM16.KartkaDelegacji.SZEROKOSC_ZWINIETA
             and _kadr_po16 > _kadr_przed16 * 1.4,
@@ -5319,8 +5773,13 @@ try:
         def zakoncz(self):
             _Film18.slad.append("koniec")
 
-    sprawdz("bez wstawki intro sekwencja generowania nic o nim nie wie",
-            _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA is None)
+    # Od kroku „Zaciekawienie 3" zaczep NIE jest pusty: domyślną wstawką jest
+    # przelot nad rejonem (sekcja 25). Zaczep ma dalej przyjmować dowolną
+    # wstawkę o tym samym interfejsie — sprawdzamy to atrapą, a oryginał
+    # wraca w finally (dotąd test wymagał tu None).
+    _wstawka18 = _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA
+    sprawdz("domyślna wstawka intra przy generowaniu to przelot nad rejonem",
+            _wstawka18 is _NW18.przelot_generowania)
     _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA = _Film18
     try:
         _okno18.ustaw_animacje(True)
@@ -5333,8 +5792,9 @@ try:
     sprawdz("intro dostaje zaczep na starcie, w trakcie i na końcu generowania",
             _Film18.slad == ["start", "postep", "koniec"], str(_Film18.slad))
     _okno18._zacznij_intro_generowania()
-    sprawdz("po zdjęciu wstawki zaczep znowu nic nie robi",
+    sprawdz("po zdjęciu wstawki (None) zaczep nic nie robi",
             getattr(_okno18, "_intro_generowania", None) is None)
+    _NW18.OknoNowegoWygladu.INTRO_GENEROWANIA = staticmethod(_wstawka18)
 
     _okno18.ustaw_animacje(False)
     _okno18.close()
@@ -5519,10 +5979,1642 @@ try:
     sprawdz("żadne dwie miejscowości o tej samej nazwie nie leżą w zasięgu jednej trasy",
             not _sasiedzi20, str(_sasiedzi20[:3]))
 
+    # ── współrzędne poprawione wg rejestru państwowego (PRNG) ──────────
+    # Te wpisy leżały dziesiątki–setki kilometrów od prawdziwej miejscowości
+    # (Płoty pod Nakłem, Słońsk pod Lesznem, Jarocin pod Ostrowem). Punkt z
+    # rejestru ma zostać w bazie na stałe.
+    _wg_rejestru20 = {"Płoty": (53.80316, 15.26728), "Słońsk": (52.56353, 14.80564),
+                      "Jarocin": (51.97238, 17.50163), "Mieścisko": (52.74375, 17.32843),
+                      "Gorzów Śląski": (51.02816, 18.42233), "Sztabin": (53.68090, 23.09802),
+                      "Rudnik nad Sanem": (50.44160, 22.24656), "Czerwińsk nad Wisłą": (52.39384, 20.31277)}
+    _pkt20 = {_m20.n: (_m20.lat, _m20.lng) for _v20 in P._baza_miast.values() for _m20 in _v20}
+    _zle20 = [(_n20, _pkt20.get(_n20)) for _n20, (_la20, _ln20) in _wg_rejestru20.items()
+              if _n20 not in _pkt20 or P.oblicz_dystans(_la20, _ln20, *_pkt20[_n20]) > 2.0]
+    sprawdz("miejscowości poprawione wg rejestru leżą tam, gdzie rejestr (do 2 km)",
+            not _zle20, str(_zle20[:3]))
+    # bogus „Bojanowo" (52,01; 16,54) leżało 1 km od Śmigla i scalanie usuwało Śmigiel z bazy
+    sprawdz("Śmigiel nie ginie przy scalaniu bazy (fałszywy sąsiad poprawiony)",
+            "Śmigiel" in _pkt20 and P.oblicz_dystans(52.01, 16.53, *_pkt20["Śmigiel"]) < 3.0,
+            str(_pkt20.get("Śmigiel")))
+    # duplikaty pod skrótem / bez dopisku (Konstancin obok Konstancina-Jeziorny,
+    # Kobylin obok Kobylina-Borzym) — nie ma ich, więc jedna trasa nie odwiedzi
+    # tej samej miejscowości dwa razy pod dwiema nazwami
+    _dubl20 = [_n20 for _n20 in ("Konstancin", "Kobylin", "Kulesze", "Iłowo", "Ruda Malen.", "Jordanów")
+               if _n20 in _pkt20]
+    sprawdz("baza nie ma bocznych kopii miejscowości pod skróconą nazwą", not _dubl20, str(_dubl20))
+
+    # ── liczba sieci WAŻY dobór miast ─────────────────────────────────
+    sprawdz("waga_sieci: jedynka = 1,0, rośnie z liczbą sieci, poza zakresem bez wyjątku",
+            P.waga_sieci(1) == 1.0 and P.waga_sieci(1) < P.waga_sieci(2) < P.waga_sieci(3)
+            < P.waga_sieci(4) < P.waga_sieci(5) and P.waga_sieci(9) == P.waga_sieci(5)
+            and P.waga_sieci(0) == 1.0 and P.waga_sieci("x") == 1.0 and P.waga_sieci(None) == 1.0)
+    P._osrm_dostepny = False
+    P._road_cache.clear()
+    _sieci20 = {}
+    for _v20 in P.MIASTA_RAW.values():
+        for _m20 in _v20:
+            _sieci20.setdefault(_m20["n"], _m20["sieci"])
+    _wagi_kopia20 = dict(P.WAGI_SIECI)
+    def _srednia_sieci20(wagi):
+        P.WAGI_SIECI.clear(); P.WAGI_SIECI.update(wagi)
+        _s = []
+        for _b20, _la20, _ln20, _w20 in (("Lublin", 51.25, 22.57, "lubelskie"),
+                                          ("Bydgoszcz", 53.12, 18.01, "kujawsko-pomorskie")):
+            _plan = P.generuj_trasy(4700.0, _b20, _la20, _ln20, _w20, _dni20, "90010112345", stawka=0.89)
+            _s += [_sieci20.get(_e20.dokad, 0) for _d20 in _plan for _e20 in _d20.etapy_surowe[:-1]]
+        return _s
+    try:
+        _plasko20 = _srednia_sieci20({1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0})
+        _wazone20 = _srednia_sieci20(_wagi_kopia20)
+    finally:
+        P.WAGI_SIECI.clear(); P.WAGI_SIECI.update(_wagi_kopia20)
+    _sr_pl20 = sum(_plasko20) / max(1, len(_plasko20))
+    _sr_wa20 = sum(_wazone20) / max(1, len(_wazone20))
+    sprawdz("z wagą sieci silnik odwiedza miejscowości z większą liczbą sieci niż bez niej",
+            _sr_wa20 > _sr_pl20 + 0.05, "bez wagi %.2f, z wagą %.2f" % (_sr_pl20, _sr_wa20))
+    sprawdz("jedynki nie znikają z tras — zostają jako postoje „po drodze”",
+            _wazone20.count(1) > 0 and _wazone20.count(1) >= 0.1 * len(_wazone20),
+            "%d z %d" % (_wazone20.count(1), len(_wazone20)))
+
 except Exception as _e20:
     sprawdz("baza miejscowości", False, repr(_e20))
     import traceback as _tb20
     _tb20.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("21. Wydanie: jedno źródło prawdy budowania, numer wersji, backend")
+
+# Paczki 3.22.0 z GitHuba NIE zawierały nowego wyglądu ani nowego okna
+# logowania: build.yml miał własną, krótszą listę --hidden-import niż
+# zbuduj.py. Od 3.23.0 CI woła „python zbuduj.py --folder" — ta sekcja
+# pilnuje, żeby listy nie mogły się rozjechać ponownie, żeby polecenie
+# PyInstallera niosło komplet, a numer wersji był jeden w całym repozytorium.
+try:
+    import zbuduj as _ZB21
+
+    # ── 21a. build.yml buduje WYŁĄCZNIE przez zbuduj.py ───────────
+    _yml21 = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"),
+                  encoding="utf-8").read()
+    _bez_komentarzy21 = "\n".join(l for l in _yml21.splitlines()
+                                  if not l.strip().startswith("#"))
+    sprawdz("build.yml buduje przez „python zbuduj.py --folder” w OBU jobach (Windows, macOS/Linux)",
+            _bez_komentarzy21.count("python zbuduj.py --folder") == 2,
+            str(_bez_komentarzy21.count("python zbuduj.py --folder")))
+    sprawdz("build.yml nie ma własnego wywołania PyInstallera ani własnych list --hidden-import/--add-data",
+            "pyinstaller " not in _bez_komentarzy21.lower()
+            and "--hidden-import" not in _bez_komentarzy21
+            and "--add-data" not in _bez_komentarzy21)
+    sprawdz("build.yml po budowie sprawdza, że zbuduj.py dołożył pmt_wersja.txt, URUCHOM_PMT.bat i podpowiedź",
+            all(n in _bez_komentarzy21 for n in
+                ("pmt_wersja.txt", "URUCHOM_PMT.bat", "0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt")))
+
+    # ── 21b. polecenie PyInstallera — bez budowania ───────────────
+    _args21, _dol21 = _ZB21.polecenie_pyinstallera("python", True)
+    _ukryte21 = [_args21[i + 1] for i, a in enumerate(_args21) if a == "--hidden-import"]
+    sprawdz("polecenie PyInstallera podaje wprost KAŻDY moduł z UKRYTE — nowy wygląd, logowanie, dokumenty, podpis, wysyłka, prototyp",
+            set(_ukryte21) == set(_ZB21.UKRYTE)
+            and {"nowy_wyglad", "okno_logowania", "pmt_dokumenty", "pmt_podpis",
+                 "pmt_wysylka", "logo_retro"} <= set(_ukryte21)
+            and set(_ZB21.PROTOTYP) <= set(_ukryte21),
+            str(sorted(set(_ZB21.UKRYTE) ^ set(_ukryte21))))
+    sprawdz("UKRYTE bez intro_zywa_mapa, winsound i PyQt6.QtMultimedia — paczka nie ciągnie bibliotek dźwięku",
+            not any(m in _ZB21.UKRYTE for m in ("intro_zywa_mapa", "winsound", "PyQt6.QtMultimedia"))
+            and not any(m.startswith("PyQt6") for m in _ZB21.UKRYTE)
+            and "intro_zywa_mapa.py" not in _ZB21.WYMAGANE)
+    _paths21 = [_args21[i + 1] for i, a in enumerate(_args21) if a == "--paths"]
+    sprawdz("PyInstaller dostaje katalog prototyp w --paths (inaczej proto_okno nie ma skąd wejść do paczki)",
+            any(os.path.basename(k) == "prototyp" and os.path.isdir(k) for k in _paths21),
+            str(_paths21))
+    sprawdz("tryb folderowy: --onedir, --noupx, --windowed, nazwa PMT_Planer, na końcu PMT_Delegacje.py",
+            "--onedir" in _args21 and "--noupx" in _args21 and "--windowed" in _args21
+            and _args21[_args21.index("--name") + 1] == "PMT_Planer"
+            and _args21[-1] == "PMT_Delegacje.py")
+    _args21j, _ = _ZB21.polecenie_pyinstallera("python", False)
+    sprawdz("--jeden daje --onefile zamiast --onedir",
+            "--onefile" in _args21j and "--onedir" not in _args21j)
+    _rozdz21 = ";" if os.name == "nt" else ":"
+    _dane21 = [_args21[i + 1].split(_rozdz21)[0]
+               for i, a in enumerate(_args21) if a == "--add-data"]
+    _oczek21 = []
+    for _n21 in _ZB21.DANE:
+        if os.path.exists(os.path.join(KATALOG, _n21)) \
+                and os.path.normcase(_n21) not in map(os.path.normcase, _oczek21):
+            _oczek21.append(_n21)
+    sprawdz("każdy istniejący plik z DANE (tła, logo) wchodzi przez --add-data — i żaden inny",
+            sorted(_dane21) == sorted(_oczek21) and _dol21 == _oczek21
+            and {"ciemny.png", "jasny.png", "pmt_logo_retro.png", "pmt_logo_retro.ico"} <= set(_dane21),
+            str(_dane21))
+    if os.name == "nt":
+        sprawdz("Windows: ikona retro .ico i --version-file wersja_exe.txt",
+                os.path.basename(_ZB21.ikona_programu()) == "pmt_logo_retro.ico"
+                and "--version-file" in _args21
+                and _args21[_args21.index("--version-file") + 1].endswith("wersja_exe.txt"))
+    else:
+        sprawdz("poza Windows: bez --version-file (PyInstaller pominąłby je z ostrzeżeniem)",
+                "--version-file" not in _args21)
+
+    # ── 21c. listy zbuduj.py a pliki na dysku i w programie ──────
+    _na_dysku21 = sorted(os.path.splitext(f)[0]
+                         for f in os.listdir(os.path.join(KATALOG, "prototyp"))
+                         if f.startswith("proto_") and f.endswith(".py"))
+    sprawdz("każdy widżet prototyp/proto_*.py z dysku jest na liście PROTOTYP (nowy plik = nowy wpis)",
+            _na_dysku21 == sorted(_ZB21.PROTOTYP),
+            str(sorted(set(_na_dysku21) ^ set(_ZB21.PROTOTYP))))
+    _zr21 = open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+    _lenne21 = set(re.findall(r'modul_pomocniczy\("([A-Za-z_0-9]+)"\)', _zr21)) \
+        | {"nowy_wyglad", "okno_logowania"}
+    sprawdz("każdy moduł wczytywany leniwie przez program (modul_pomocniczy, nowy_wyglad, okno_logowania) jest w UKRYTE",
+            _lenne21 and _lenne21 <= set(_ZB21.UKRYTE),
+            "poza listą: " + str(sorted(_lenne21 - set(_ZB21.UKRYTE))))
+    sprawdz("moduły własne do kontroli paczki = UKRYTE bez winsound i PyQt6.*",
+            set(_ZB21.moduly_wlasne()) == {m for m in _ZB21.UKRYTE
+                                           if m != "winsound" and not m.startswith("PyQt6")}
+            and "nowy_wyglad" in _ZB21.moduly_wlasne())
+
+    # ── 21d. kontrola zawartości paczki (spis PYZ) ────────────────
+    _kat21 = os.path.join(_TMP_HOME, "budowa21")
+    os.makedirs(_kat21, exist_ok=True)
+    # PyInstaller łamie długie krotki spisu na kilka wierszy — tak jak
+    # proto_kompas w prawdziwym build/PMT_Planer/PYZ-00.toc
+    _toc21 = "".join("('%s',\n '/x/%s.py',\n 'PYMODULE'),\n" % (m, m)
+                     for m in _ZB21.moduly_wlasne())
+    with open(os.path.join(_kat21, "PYZ-00.toc"), "w", encoding="utf-8") as _f21:
+        _f21.write(_toc21)
+    sprawdz("kontrola zawartości paczki: komplet modułów = brak braków (także przy łamanych wierszach spisu)",
+            _ZB21.sprawdz_zawartosc_paczki(_kat21) == [])
+    with open(os.path.join(_kat21, "PYZ-00.toc"), "w", encoding="utf-8") as _f21:
+        _f21.write(_toc21.replace("('nowy_wyglad',", "('nowy_wyglad_stary',")
+                          .replace("('proto_okno',", "('proto_okno_x',"))
+    sprawdz("kontrola zawartości paczki wykrywa brak nowego wyglądu i widżetu prototypu",
+            _ZB21.sprawdz_zawartosc_paczki(_kat21) == ["nowy_wyglad", "proto_okno"],
+            str(_ZB21.sprawdz_zawartosc_paczki(_kat21)))
+    sprawdz("brak spisu = zgłoszony brak, nie cisza",
+            _ZB21.sprawdz_zawartosc_paczki(os.path.join(_kat21, "nie_ma")) != [])
+
+    # ── 21e. numer wersji: jedno źródło (WERSJA_PROGRAMU) ─────────
+    _exe21 = os.path.join(_kat21, "wersja_exe.txt")
+    _ZB21.LOG = os.path.join(_kat21, "log.txt")     # pisz() nie śmieci w repozytorium
+    shutil.copy(os.path.join(KATALOG, "wersja_exe.txt"), _exe21)
+    _zm21 = _ZB21.uzgodnij_wersje_exe("9.8.7", _exe21)
+    _t21 = open(_exe21, encoding="utf-8").read()
+    sprawdz("wersja_exe.txt idzie za numerem ze źródła: filevers, prodvers, FileVersion, ProductVersion",
+            _zm21 is True and "filevers=(9, 8, 7, 0)" in _t21 and "prodvers=(9, 8, 7, 0)" in _t21
+            and _t21.count("'9.8.7'") == 2 and P.WERSJA_PROGRAMU not in _t21,
+            _t21[:200])
+    sprawdz("zgodny plik metadanych zostaje nietknięty",
+            _ZB21.uzgodnij_wersje_exe("9.8.7", _exe21) is False)
+    shutil.copy(os.path.join(KATALOG, "wersja_exe.txt"), _exe21)
+    sprawdz("wersja_exe.txt w repozytorium już zgadza się ze źródłem (budowanie nic nie zmienia)",
+            _ZB21.uzgodnij_wersje_exe(P.WERSJA_PROGRAMU, _exe21) is False)
+    import wersja_pomocnik as _WP21
+    sprawdz("zbuduj.py i wersja_pomocnik.py czytają numer z PMT_Delegacje.py — ten sam",
+            _ZB21.wersja_zrodla() == P.WERSJA_PROGRAMU == _WP21.wersja_zrodla(KATALOG))
+    _stale21 = []
+    for _plik21, _wzor21 in (("START_TUTAJ.txt", "PMT PLANER %s"),
+                             ("README.md", "(program v%s)"),
+                             ("README_TESTER.txt", "Numer wersji: %s."),
+                             ("INSTRUKCJA_BUDOWY.txt", "OD ZERA (%s)")):
+        try:
+            with open(os.path.join(KATALOG, _plik21), encoding="utf-8") as _f21:
+                if (_wzor21 % P.WERSJA_PROGRAMU) not in _f21.read():
+                    _stale21.append(_plik21)
+        except Exception:
+            _stale21.append(_plik21)
+    sprawdz("instrukcje (START_TUTAJ, README, README_TESTER, INSTRUKCJA_BUDOWY) niosą bieżący numer wersji",
+            not _stale21, "stary numer w: " + ", ".join(_stale21))
+
+    # ── 21f. --szybko nie może wisieć na oknie modalnym ───────────
+    _testy21 = open(os.path.join(KATALOG, "testy_pmt.py"), encoding="utf-8").read()
+    _przed21 = _testy21.split('sekcja("1b.')[0]
+    # (szukamy KODU „if not SZYBKO", nie wzmianki w komentarzu)
+    sprawdz("zaproszenie testera jest wyciszone od importu programu — w obu trybach, nie tylko poza --szybko",
+            re.search(r"^\s*P\.zaproszenie_testera = lambda", _przed21, re.M) is not None
+            and re.search(r"^\s*if not SZYBKO", _przed21, re.M) is None)
+
+    # ── 21g. backend (apps_script_POPRAWIONY_v2.gs) — źródło do wdrożenia ──
+    _gs21 = open(os.path.join(KATALOG, "apps_script_POPRAWIONY_v2.gs"), encoding="utf-8").read()
+    _zh21 = _gs21.split("function zmienHaslo(")[1].split("\nfunction ")[0]
+    sprawdz("backend: w zmianie hasła telefon działa TYLKO na koncie bez hasła (!hashBaza, jak w logowaniu)",
+            "var telefonem = !hashBaza && telPasuje" in _zh21
+            and "mozesz podac numer telefonu" not in _zh21)
+    _rh21 = _gs21.split("function resetHasla(")[1].split("\nfunction ")[0]
+    _zd21 = _gs21.split("function _zaDuzoProb(")[1].split("\nfunction ")[0]
+    sprawdz("backend: reset hasła liczy próby w CacheService (na kod i łącznie) i loguje KAŻDĄ próbę",
+            "_zaDuzoProb(" in _rh21 and "CacheService" in _zd21
+            and _rh21.count('_log(ss, kod, "reset_hasla"') >= 5
+            and "RESET_PROB_NA_KOD_NA_GODZINE" in _rh21 and "RESET_PROB_LACZNIE_NA_GODZINE" in _rh21)
+    sprawdz("backend: puls oddaje tylko nieobecności pytającego i osób, które zastępuje",
+            "nieobecnosci: _nieobecnosci(ss, kod)" in _gs21
+            and "if (czyj !== kod && zastepca !== kod) continue" in _gs21
+            and "_nieobecnosci(ss)\n" not in _gs21)
+    _wola21 = re.findall(r"^[^#\n]*?(?<!def )online_nieobecnosci\(", _zr21, re.M)
+    _inne21 = [n for n in ("nowy_wyglad.py", "okno_logowania.py", "pmt_dokumenty.py",
+                           "pmt_podpis.py", "pmt_wysylka.py")
+               if "online_nieobecnosci" in open(os.path.join(KATALOG, n), encoding="utf-8").read()]
+    sprawdz("program nigdzie nie czyta cudzych nieobecności — zawężenie pulsu niczego nie psuje",
+            not _wola21 and not _inne21, str((_wola21, _inne21)))
+    sprawdz("nagłówek backendu mówi, co zmieniono w 3.23.0 i jak to wdrożyć",
+            "ZMIANY PRZY WYDANIU 3.23.0" in _gs21 and "WDROŻENIE:" in _gs21)
+except Exception as _e21:
+    sprawdz("wydanie: jedno źródło prawdy budowania", False, repr(_e21))
+    import traceback as _tb21
+    _tb21.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("22. Historia miesięcy: nowe okno zapisuje, stare foldery się dociągają")
+
+# Do 3.23.0 wpis historii robiło TYLKO stare okno (App._finalizuj_sukces).
+# Nowe okno — domyślne — po udanym generowaniu nie zapisywało nic, więc
+# „Twoja praca → Delegacje" i Archiwum były u każdego puste. Teraz wpis
+# buduje JEDNA funkcja (wpis_historii_generacji), z której korzysta nowe
+# okno; własny generator starego okna (proces/_finalizuj_sukces) zniknął
+# razem z formularzem — App jest pojemnikiem na panele. Miesiące wygenerowane
+# wcześniej dociąga skan folderu wyników (pmt_dokumenty czyta kwoty z PDF-ów).
+try:
+    import pmt_dokumenty as _PD22
+    _IMIE22, _PESEL22 = "Jan Testowy", "85010112345"
+    _SKLEP22 = P._klucz_uzytkownika(_IMIE22, _PESEL22)
+
+    def _wpis22(rok, mies, kwota, folder, data, **reszta):
+        w = {"imie": _IMIE22, "data": data, "kwota": kwota, "woj": "Mazowieckie",
+             "woj_wizyty": {"Mazowieckie": 3}, "baza": "Radom",
+             "miejsc_wizyty": {"Iłża": 2}, "dokumenty": 2, "km": 640,
+             "miesiac": mies, "rok": rok, "dni_wyjazdowe": 4,
+             "dni_daty": ["%04d-%02d-0%d" % (rok, mies, d) for d in (1, 2, 3, 4)],
+             "folder": folder}
+        w.update(reszta)
+        return w
+
+    def _historia22():
+        return P.wczytaj_historie(_IMIE22, _PESEL22)
+
+    def _wyczysc22():
+        _st = P._wczytaj_store()
+        if _SKLEP22 in _st:
+            _st[_SKLEP22]["historia"] = []
+            P._zapisz_store(_st)
+
+    # ── 22a. limit 60, kolejność od najnowszego, jeden wpis na folder ──
+    _wyczysc22()
+    sprawdz("limit historii to 60 wpisów (20 = niecałe dwa lata miesięcy)",
+            P.LIMIT_HISTORII == 60 and "hist[:20]" not in
+            open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read(),
+            str(P.LIMIT_HISTORII))
+    for _i in range(65):
+        _r, _m = 2020 + _i // 12, _i % 12 + 1
+        P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(
+            _r, _m, "100.00", os.path.join(_TMP_HOME, "h22_%d" % _i),
+            "01.%02d.%d 10:00" % (_m, _r)))
+    _h22 = _historia22()
+    sprawdz("po 65 wpisach zostaje 60 NAJNOWSZYCH, najnowszy na górze",
+            len(_h22) == 60 and (_h22[0]["rok"], _h22[0]["miesiac"]) == (2025, 5)
+            and (_h22[-1]["rok"], _h22[-1]["miesiac"]) == (2020, 6),
+            str((len(_h22), _h22[0].get("rok"), _h22[0].get("miesiac"),
+                 _h22[-1].get("rok"), _h22[-1].get("miesiac"))))
+    _wyczysc22()
+    _f22 = os.path.join(_TMP_HOME, "Rozliczenie_Jan_Testowy_marzec_2026r")
+    P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(2026, 3, "1500.00", _f22, "05.03.2026 12:00"))
+    P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(2026, 3, "900.00", _f22 + os.sep, "06.03.2026 12:00"))
+    P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(2026, 3, "300.00", _f22 + "_inny", "07.03.2026 12:00"))
+    P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(2026, 1, "200.00", _f22 + "_sty", "05.01.2026 12:00"))
+    _h22 = _historia22()
+    sprawdz("ponowne generowanie do TEGO SAMEGO folderu zastępuje wpis (wykres nie sumuje miesiąca 2×), inny folder zostaje",
+            [(h["kwota"], h["miesiac"]) for h in _h22]
+            == [("300.00", 3), ("900.00", 3), ("200.00", 1)],
+            str([(h["kwota"], h["miesiac"], h["data"]) for h in _h22]))
+    sprawdz("wpis ze starszą datą (dociągnięty) wchodzi POD nowsze, nie na górę",
+            _h22[-1]["miesiac"] == 1 and _h22[0]["data"] == "07.03.2026 12:00",
+            str([h["data"] for h in _h22]))
+
+    # ── 22b. API historia_miesiecy ─────────────────────────────────
+    _api22 = P.historia_miesiecy(_IMIE22, _PESEL22)
+    sprawdz("historia_miesiecy: klucz (rok, miesiąc), najnowszy wpis miesiąca wygrywa",
+            sorted(_api22) == [(2026, 1), (2026, 3)]
+            and _api22[(2026, 3)]["kwota"] == 300.0 and _api22[(2026, 1)]["kwota"] == 200.0,
+            str({k: v["kwota"] for k, v in _api22.items()}))
+    # „miejsca" doszło w zaciekawieniu 2 (białe plamy rejonu) — ślad obecności
+    # z miejsc_wizyty wpisu; docstring historia_miesiecy wymienia je razem z resztą
+    _pola22 = {"kwota", "km", "dni", "dni_daty", "dokumenty", "folder", "istnieje",
+               "data", "podpisany", "wyslany", "zrodlo", "miejsca"}
+    sprawdz("historia_miesiecy: komplet pól z docstringu i właściwe typy",
+            all(set(v) == _pola22 for v in _api22.values())
+            and isinstance(_api22[(2026, 3)]["kwota"], float)
+            and isinstance(_api22[(2026, 3)]["km"], int)
+            and _api22[(2026, 3)]["dni"] == 4 and _api22[(2026, 3)]["dokumenty"] == 2
+            and _api22[(2026, 3)]["podpisany"] is False
+            and _api22[(2026, 3)]["wyslany"] is False
+            and _api22[(2026, 3)]["istnieje"] is False,
+            str(_api22[(2026, 3)]))
+    _wyczysc22()
+    P.dodaj_do_historii(_IMIE22, _PESEL22, _wpis22(2025, 11, "2 254,50", _f22 + "_gr", "03.11.2025 09:00"))
+    P.dodaj_do_historii(_IMIE22, _PESEL22, {"imie": _IMIE22, "data": "12.02.2019 09:00",
+                                            "kwota": "12.00", "woj": "Mazowieckie"})
+    _api22 = P.historia_miesiecy(_IMIE22, _PESEL22)
+    sprawdz("historia_miesiecy: kwota „2 254,50” czytana co do grosza; wpis bez roku/miesiąca pomijany bez błędu",
+            list(_api22) == [(2025, 11)] and _api22[(2025, 11)]["kwota"] == 2254.5,
+            str(_api22))
+    sprawdz("oznacz_wyslane_w_historii: udana wysyłka zostawia ślad, obcy folder — nie",
+            P.oznacz_wyslane_w_historii(_f22 + "_gr") == 1
+            and P.historia_miesiecy(_IMIE22, _PESEL22)[(2025, 11)]["wyslany"] is True
+            and P.oznacz_wyslane_w_historii(os.path.join(_TMP_HOME, "nie_ma")) == 0
+            and P.oznacz_wyslane_w_historii("") == 0)
+    sprawdz("udana wysyłka w DialogWysylka woła oznacz_wyslane_w_historii",
+            "oznacz_wyslane_w_historii(self.folder)" in
+            open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+            .split("def _na_sukces_wysylki")[1][:400])
+
+    # ── 22c. nazwy folderów wyników ────────────────────────────────
+    sprawdz("nazwa folderu generatora → (imię, miesiąc, rok); z planu i obce — pomijane",
+            P._rozbierz_folder_wyniku("Rozliczenie_Jan_Testowy_marzec_2026r") == ("Jan Testowy", 3, 2026)
+            and P._rozbierz_folder_wyniku("Rozliczenie_Anna_Maria_Kowalska-Nowak_październik_2025r")
+            == ("Anna Maria Kowalska-Nowak", 10, 2025)
+            and P._rozbierz_folder_wyniku("rozliczenie_jan_testowy_MARZEC_2026r") == ("jan testowy", 3, 2026)
+            and P._rozbierz_folder_wyniku("Rozliczenie_z_planu_Jan_Testowy_marzec_2026r") == (None, None, None)
+            and P._rozbierz_folder_wyniku("Rozliczenie_Jan_Testowy_marzec_2026") == (None, None, None)
+            and P._rozbierz_folder_wyniku("Rozliczenie_Jan_Testowy_2026r") == (None, None, None)
+            and P._rozbierz_folder_wyniku("Faktury_2026") == (None, None, None)
+            and P._rozbierz_folder_wyniku("") == (None, None, None))
+
+    # ── 22d. skan folderów: bez czytelnej kwoty NIE ma wpisu (zero byłoby kłamstwem) ──
+    # Własny katalog: w pełnym trybie na „Pulpicie" testów (_TMP_HOME) leżą już
+    # PRAWDZIWE komplety Jana z wcześniejszych sekcji i skan by je dociągnął.
+    _wyczysc22()
+    _pulpit22 = os.path.join(_TMP_HOME, "skan22")
+    _atrapa22 = os.path.join(_pulpit22, "Rozliczenie_Jan_Testowy_luty_2026r")
+    os.makedirs(_atrapa22, exist_ok=True)
+    for _n in ("delegacja_01_Jan_Testowy_luty_2026r.pdf", "rozliczenie_wydatków_Jan_Testowy_luty_2026r.pdf"):
+        with open(os.path.join(_atrapa22, _n), "wb") as _fp:
+            _fp.write(b"%PDF-1.4\n" + b"x" * 2000)
+    for _i in range(30):
+        os.makedirs(os.path.join(_pulpit22, "Rozliczenie_Osoba_Obca%d_maj_2026r" % _i), exist_ok=True)
+    _t22 = time.perf_counter()
+    _ile22 = P.dociagnij_historie_z_folderow(_IMIE22, _PESEL22, _pulpit22)
+    _ms22 = (time.perf_counter() - _t22) * 1000
+    sprawdz("skan: folder z PDF-ami bez czytelnej kwoty nie daje wpisu; cudze foldery pominięte",
+            _ile22 == 0 and _historia22() == [], str((_ile22, _historia22())))
+    sprawdz("skan 31 folderów bez nowości kosztuje milisekundy (< 50 ms)",
+            _ms22 < 50, "%.1f ms" % _ms22)
+    sprawdz("pmt_dokumenty: liczby z nieczytelnego / obcego / nieistniejącego pliku to None, nie zero",
+            _PD22.liczby_dokumentu(os.path.join(_atrapa22, "delegacja_01_Jan_Testowy_luty_2026r.pdf"))["kwota"] is None
+            and _PD22.liczby_kompletu(_atrapa22)["kwota"] is None
+            and _PD22.liczby_kompletu(_atrapa22)["delegacje"] == 1
+            and _PD22.liczby_kompletu(os.path.join(_TMP_HOME, "nie_ma_22"))["delegacje"] == 0
+            and _PD22.tekst_dokumentu(None) == [])
+    _napisy22 = ["Suma wydatków", "780.90", "Prywatny samochód: 1 234,5 km × 0,89 zł/km",
+                 "02.03.2026r", "02.03.2026r", "11.03.2026r", "Suma wydatków global:", "1500.00"]
+    _l22 = _PD22._liczby_z_napisow(_napisy22)
+    sprawdz("pmt_dokumenty: z napisów dokumentu wychodzi kwota po etykiecie, km, stawka i daty bez powtórzeń",
+            _l22 == {"kwota": 780.9, "km": 1234.5, "stawka": 0.89,
+                     "daty": ["2026-03-02", "2026-03-11"]}, str(_l22))
+    sprawdz("nowe okno: wpis historii przez wpis_historii_generacji, tożsamość paneli i skan przy starcie",
+            all(s in open(os.path.join(KATALOG, "nowy_wyglad.py"), encoding="utf-8").read()
+                for s in ("PMT.wpis_historii_generacji(parametry, finalne_dni, folder)",
+                          "self._zapisz_historie(finalne_dni, folder)",
+                          "._on_dane_uzytkownika = self._dane_uzytkownika",
+                          "PMT.dociagnij_historie_z_folderow(imie, pesel)")))
+    _wyczysc22()
+    shutil.rmtree(_pulpit22, ignore_errors=True)
+except Exception as _e22:
+    sprawdz("historia miesięcy: rdzeń", False, repr(_e22))
+    import traceback as _tb22
+    _tb22.print_exc()
+
+if not SZYBKO:
+    # ── 22e. PRAWDZIWE generowanie w nowym oknie → wpis; stare okno → ten sam wpis ──
+    _stare_okno_akt22 = P.OknoAktualizacji
+    _stare_zaproszenie22 = P.zaproszenie_testera
+    _men22 = os.path.join(_TMP_HOME, "menedzer.txt")
+    _men22_bylo = os.path.exists(_men22)
+
+    class _AtrapaAktualizacji22:
+        def __init__(self, *args, **reszta):
+            pass
+
+        def exec(self):
+            return 0
+
+    P.OknoAktualizacji = _AtrapaAktualizacji22
+    P.zaproszenie_testera = lambda *args, **reszta: False
+    try:
+        if not P._menedzer():
+            with open(_men22, "w", encoding="utf-8") as _fp:
+                _fp.write("Jan Przykładowy\n")       # zaślepka — nigdy prawdziwe nazwisko
+            P._ustawienia_reset()
+        import nowy_wyglad as _NW22
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QColor
+        _app = QApplication.instance() or QApplication(sys.argv)
+        _wyczysc22()
+        _prof22 = _NW22.ProfilWidoku(_IMIE22, _PESEL22, "ul. Kwiatowa 5, 26-600 Radom", "KR")
+        _okno22 = _NW22.OknoNowegoWygladu(profil=_prof22, rok=2026, miesiac=4)
+        _okno22.ustaw_animacje(False)
+        sprawdz("panel „Twoja praca” dostaje tożsamość z karty PRACOWNIK nowego okna, nie z pustego formularza starego",
+                _okno22.stare_okno().overlay_staty._on_dane_uzytkownika() == (_IMIE22, _PESEL22)
+                and _okno22.stare_okno().overlay_plan._on_dane_uzytkownika() == (_IMIE22, _PESEL22),
+                str(_okno22.stare_okno().overlay_staty._on_dane_uzytkownika()))
+        _okno22.k_parametry.kwota.ustaw_tekst("900")
+        _okno22._przelicz_teraz()
+        _okno22.uruchom_pokaz()
+        _koniec22 = datetime.datetime.now() + datetime.timedelta(seconds=300)
+        while _okno22._watek is not None and datetime.datetime.now() < _koniec22:
+            _app.processEvents()
+        for _ in range(12):
+            _app.processEvents()
+        _h22 = _historia22()
+        _nowy22 = [h for h in _h22 if h.get("rok") == 2026 and h.get("miesiac") == 4]
+        sprawdz("po udanym generowaniu w NOWYM oknie historia ma wpis kwietnia 2026",
+                _okno22._po_generacji is True and len(_nowy22) == 1,
+                str((_okno22._po_generacji, [(h.get("rok"), h.get("miesiac")) for h in _h22])))
+        _nowy22 = _nowy22[0] if _nowy22 else {}
+        _dni22 = list(_okno22._dni_silnika)
+        _km22 = round(sum(getattr(e, "dystans_rzeczywisty", e.d_line)
+                          for d in _dni22 for e in d.etapy_surowe))
+        _pliki22 = _NW22.dokumenty_w_wyniku(_okno22.folder_wyniku)
+        _ile_del22 = len([p for p in _pliki22
+                          if _NW22.DOK.rodzaj_dokumentu(p) == _NW22.DOK.RODZAJ_DELEGACJA])
+        sprawdz("wpis nowego okna: kwota co do grosza, km, dni, daty dni, liczba delegacji, folder, źródło",
+                _nowy22.get("kwota") == "%.2f" % _okno22._osiagnieto
+                and _nowy22.get("km") == _km22
+                and _nowy22.get("dni_wyjazdowe") == len(_dni22)
+                and _nowy22.get("dni_daty") == [d.data.isoformat() for d in _dni22]
+                and _nowy22.get("dokumenty") == _ile_del22 >= 1
+                and _nowy22.get("folder") == _okno22.folder_wyniku
+                and _nowy22.get("zrodlo") == P.ZRODLO_HISTORII_PROGRAM
+                and _nowy22.get("imie") == _IMIE22
+                and isinstance(_nowy22.get("woj_wizyty"), dict) and _nowy22["woj_wizyty"]
+                and isinstance(_nowy22.get("miejsc_wizyty"), dict) and _nowy22["miejsc_wizyty"],
+                str({k: _nowy22.get(k) for k in ("kwota", "km", "dni_wyjazdowe", "dokumenty", "zrodlo")})
+                + " vs " + str((_okno22._osiagnieto, _km22, len(_dni22), _ile_del22)))
+
+        # Ta sama funkcja na tych samych danych silnika daje ten sam wpis pole
+        # po polu — a stare okno nie ma już drugiej drogi do historii (do
+        # 3.23.0 sprawdzaliśmy tu App._finalizuj_sukces; generator starego
+        # okna zniknął razem z jego formularzem, wpis buduje wyłącznie
+        # wpis_historii_generacji).
+        _stary22 = P.wpis_historii_generacji(dict(_okno22._parametry_generacji), _dni22,
+                                             _okno22.folder_wyniku)
+        _roznice22 = {k: (_nowy22.get(k), _stary22.get(k))
+                      for k in set(_nowy22) | set(_stary22)
+                      if k != "data" and _nowy22.get(k) != _stary22.get(k)}
+        _po22 = [h for h in _historia22() if h.get("rok") == 2026 and h.get("miesiac") == 4]
+        sprawdz("wpis_historii_generacji na tych samych danych = wpis zapisany przez nowe okno pole po polu (poza chwilą zapisu); jeden wpis miesiąca",
+                len(_po22) == 1 and not _roznice22 and set(_nowy22) == set(_stary22)
+                and P._data_wpisu(_stary22) is not None and P._data_wpisu(_nowy22) is not None
+                and not hasattr(P.App, "_finalizuj_sukces") and not hasattr(P.App, "proces"),
+                str((len(_po22), _roznice22)))
+
+        # DOCIĄGANIE: kopia folderu pod innym nazwiskiem = miesiąc innej osoby;
+        # skan czyta z PDF-ów TE SAME liczby, które zapisał generator.
+        _obca22 = os.path.join(P.sciezka_pulpitu(), "Rozliczenie_Anna_Obca_kwiecień_2026r")
+        shutil.rmtree(_obca22, ignore_errors=True)
+        shutil.copytree(_okno22.folder_wyniku, _obca22)
+        _t22 = time.perf_counter()
+        _ile22 = P.dociagnij_historie_z_folderow("Anna Obca", "85010112345")
+        _ms22 = (time.perf_counter() - _t22) * 1000
+        _skan22 = [h for h in P.wczytaj_historie("Anna Obca", "85010112345")
+                   if h.get("rok") == 2026 and h.get("miesiac") == 4]
+        _skan22 = _skan22[0] if _skan22 else {}
+        sprawdz("skan dociąga miesiąc z folderu: kwota CO DO GROSZA, km ±1, dni, daty, delegacje, miejscowości, województwa jak u generatora",
+                _ile22 == 1 and _skan22.get("kwota") == _nowy22.get("kwota")
+                and abs(int(_skan22.get("km", -9)) - int(_nowy22.get("km"))) <= 1
+                and _skan22.get("dni_wyjazdowe") == _nowy22.get("dni_wyjazdowe")
+                and _skan22.get("dni_daty") == _nowy22.get("dni_daty")
+                and _skan22.get("dokumenty") == _nowy22.get("dokumenty")
+                and _skan22.get("miejsc_wizyty") == _nowy22.get("miejsc_wizyty")
+                and _skan22.get("woj_wizyty") == _nowy22.get("woj_wizyty")
+                and _skan22.get("baza") == _nowy22.get("baza")
+                and _skan22.get("zrodlo") == P.ZRODLO_HISTORII_SKAN
+                and _skan22.get("imie") == "Anna Obca" and _skan22.get("folder") == _obca22,
+                str({k: (_skan22.get(k), _nowy22.get(k))
+                     for k in ("kwota", "km", "dni_wyjazdowe", "dokumenty", "baza", "zrodlo")}))
+        sprawdz("dociągnięcie jednego miesiąca (odczyt PDF-ów + HTML) kosztuje milisekundy (< 200 ms)",
+                _ms22 < 200, "%.1f ms" % _ms22)
+        sprawdz("skan nie dopisuje cudzego folderu do historii Jana i jest idempotentny",
+                P.dociagnij_historie_z_folderow(_IMIE22, _PESEL22) == 0
+                and P.dociagnij_historie_z_folderow("Anna Obca", "85010112345") == 0
+                and len([h for h in _historia22() if h.get("miesiac") == 4]) == 1)
+        _api22 = P.historia_miesiecy(_IMIE22, _PESEL22)
+        sprawdz("historia_miesiecy po generowaniu: kwiecień 2026 istnieje na dysku, niepodpisany, niewysłany",
+                (2026, 4) in _api22 and _api22[(2026, 4)]["istnieje"] is True
+                and _api22[(2026, 4)]["kwota"] == _okno22._osiagnieto
+                and _api22[(2026, 4)]["podpisany"] is False and _api22[(2026, 4)]["wyslany"] is False,
+                str(_api22.get((2026, 4))))
+
+        # PANEL „Twoja praca → Delegacje” w NOWYM oknie: prawdziwe liczby, nie zera.
+        _okno22.showNormal()            # show() wchodzi na pełny ekran (800×800 offscreen)
+        _okno22.resize(1600, 1000)
+        for _ in range(6):
+            _app.processEvents()
+        _okno22.dzial_twoja_praca()
+        _app.processEvents()
+        _ov22 = _okno22._stare.overlay_staty
+        _ov22._przelacz_zakladke("delegacje")
+        _ov22._rok_del = 2026
+        _ov22._przelicz_delegacje()
+        for _ in range(6):
+            _app.processEvents()
+        _karty22 = [w.text() for w, _o in _ov22.karty_stat_del]
+        _suma_roku22 = sum(v["kwota"] for (r, m), v in _api22.items() if r == 2026)
+        sprawdz("karty Delegacje w nowym oknie pokazują prawdziwe liczby: wyprawy, km, suma rozliczeń co do złotówki",
+                _karty22[0] == str(len([1 for (r, m) in _api22 if r == 2026]))
+                and _karty22[1] == ("%s km" % "{:,}".format(int(sum(v["km"] for (r, m), v in _api22.items() if r == 2026))).replace(",", " "))
+                and _karty22[2] == ("%s zł" % "{:,.0f}".format(_suma_roku22).replace(",", " "))
+                and _karty22[3] not in ("—", ""),
+                str(_karty22))
+        _obraz22 = _ov22.wyk_koszty.grab().toImage()
+        _akcent22 = 0
+        for _y in range(0, _obraz22.height(), 2):
+            for _x in range(0, _obraz22.width(), 2):
+                _c = QColor(_obraz22.pixel(_x, _y))
+                if _c.blue() > 180 and _c.green() > 150 and _c.red() < 120:
+                    _akcent22 += 1
+        sprawdz("wykres „Koszty miesięczne” ma narysowany słupek (piksele w kolorze akcentu), nie same zera",
+                _akcent22 > 30, str(_akcent22))
+        _okno22.close()
+        shutil.rmtree(_obca22, ignore_errors=True)
+    except Exception as _e22:
+        sprawdz("historia miesięcy: nowe okno zapisuje, panel pokazuje liczby", False, repr(_e22))
+        import traceback as _tb22
+        _tb22.print_exc()
+    finally:
+        P.OknoAktualizacji = _stare_okno_akt22
+        P.zaproszenie_testera = _stare_zaproszenie22
+        if not _men22_bylo:
+            try:
+                os.remove(_men22)
+            except OSError:
+                pass
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("23. Zaciekawienie: kropka nierozliczonego miesiąca, kratka roku, taca z pamięcią miesięcy")
+
+# Trzy rzeczy na jednej historii miesięcy (historia_okna = wpisy historii +
+# foldery na dysku): kropka ostrzeżenia na zakładce miesiąca, który minął
+# bez dokumentów; kratka roku na ekranie startowym (12 pól: kwota co do
+# grosza, km, dni; klik przestawia program na miesiąc); taca, która wczytuje
+# kartki poprzedniego miesiąca z JEGO folderu bez generowania — a podpis,
+# wysyłka, folder i mapa działają na wybranym miesiącu. PDF-y powstają tu
+# prawdziwym generuj_pdfy na dniach ułożonych ręcznie: bez sieci i bez silnika.
+try:
+    import nowy_wyglad as _NW23
+    import pmt_dokumenty as _PD23
+    import statistics as _stat23
+    from PyQt6.QtWidgets import QApplication as _QA23
+    from PyQt6.QtCore import Qt as _Qt23, QEvent as _QE23
+    from PyQt6.QtGui import QMouseEvent as _QME23, QColor as _QC23, QImage as _QI23, QPainter as _QP23
+    _app23 = _QA23.instance() or _QA23(sys.argv)
+    _app23.setStyleSheet(_NW23.arkusz())
+    _IMIE23, _PESEL23 = "Ewa Kratkowa", "85010112345"
+    _pulpit23 = os.path.join(_TMP_HOME, "pulpit23")
+    os.makedirs(_pulpit23, exist_ok=True)
+    _bylo_pulpit23 = P.sciezka_pulpitu
+    P.sciezka_pulpitu = lambda: _pulpit23        # foldery wyników tej sekcji, nic z innych
+    _bylo_otworz23 = P.otworz_w_systemie
+    _otwarte23 = []
+    P.otworz_w_systemie = lambda sciezka: _otwarte23.append(sciezka)
+    try:
+        _dzis23 = _NW23.miesiac_biezacy()
+        _n23 = _dzis23[0] * 12 + _dzis23[1] - 1
+
+        def _mies23(krok):
+            n = _n23 + int(krok)
+            return (n // 12, n % 12 + 1)
+
+        _m1, _m2, _m_pusty, _m_nast = _mies23(-6), _mies23(-3), _mies23(-1), _mies23(1)
+        _prac23 = P.DanePracownika(imie=_IMIE23, pesel=_PESEL23, adres="ul. Kwiatowa 5, 26-600 Radom",
+                                   stanowisko="KR", kod_pocztowy="26-600", baza_miasto="Radom",
+                                   baza_lat=51.40, baza_lng=21.15, wojewodztwo="mazowieckie")
+
+        def _folder23(rok, mies):
+            return os.path.join(_pulpit23, "Rozliczenie_%s_%s_%dr"
+                                % (P.nazwa_do_pliku(_IMIE23), P.MIESIACE_PL[mies - 1], rok))
+
+        def _dzien23(rok, mies, dz, przystanki, kwoty):
+            data = datetime.date(rok, mies, dz)
+            napis = "%02d.%02d.%dr" % (dz, mies, rok)
+            punkty = ["Radom"] + list(przystanki) + ["Radom"]
+            etapy = []
+            for i, kwota in enumerate(kwoty):
+                etapy.append(P.Etap(punkty[i], punkty[i + 1], napis, "%02d:00" % (7 + i),
+                                    "%02d:40" % (7 + i), float(kwota), "mazowieckie"))
+            return P.DzienTrasy(data=data, etapy=etapy)
+
+        _zrodlo23 = {"stan": P.ZRODLO_SZACUNEK, "etykieta": "szacunek", "odcinki": 9, "realne": False}
+        _dni_m1 = [_dzien23(_m1[0], _m1[1], 2, ["Iłża", "Lipsko"], [150.00, 130.50, 119.50]),
+                   _dzien23(_m1[0], _m1[1], 9, ["Pionki"], [200.25, 149.75]),
+                   _dzien23(_m1[0], _m1[1], 16, ["Zwoleń", "Kozienice", "Pionki"], [100.10, 99.90, 50.00, 50.00])]
+        _dni_m2 = [_dzien23(_m2[0], _m2[1], 3, ["Skaryszew"], [120.00, 80.45]),
+                   _dzien23(_m2[0], _m2[1], 11, ["Jedlińsk", "Białobrzegi"], [99.99, 60.01, 40.00])]
+        P.generuj_pdfy(_dni_m1, _prac23, _m1[1], _m1[0], _folder23(*_m1), stawka=0.89, zrodlo=_zrodlo23)
+        P.generuj_pdfy(_dni_m2, _prac23, _m2[1], _m2[0], _folder23(*_m2), stawka=0.89, zrodlo=_zrodlo23)
+        P.generuj_mape_html(_dni_m2, _prac23, P.MIESIACE_PL[_m2[1] - 1], _m2[0], _folder23(*_m2), True)
+        _suma_m1 = round(sum(d.suma for d in _dni_m1), 2)         # 1050.00 → dwa polecenia wyjazdu
+        _suma_m2 = round(sum(d.suma for d in _dni_m2), 2)         # 400.45
+        # cudzy folder i folder tej osoby z PDF-ami nie do odczytania
+        _obcy23 = os.path.join(_pulpit23, "Rozliczenie_Inna_Osoba_%s_%dr" % (P.MIESIACE_PL[_m1[1] - 1], _m1[0]))
+        shutil.copytree(_folder23(*_m1), _obcy23)
+        _m_zly = _mies23(-9)
+        os.makedirs(_folder23(*_m_zly), exist_ok=True)
+        with open(os.path.join(_folder23(*_m_zly), "delegacja_01_x.pdf"), "wb") as _fp:
+            _fp.write(b"%PDF-1.4\n" + b"x" * 1500)
+
+        # ── 23a. dni z tabel przejazdów gotowych PDF-ów ─────────────
+        _dk23 = _PD23.dni_kompletu(_folder23(*_m1))
+        _lk23 = _PD23.liczby_kompletu(_folder23(*_m1))
+        sprawdz("dni_kompletu: z tabel przejazdów wychodzą dni z datami, przystankami bez powrotu, kwotami CO DO GROSZA i numerem dokumentu",
+                [d["data"] for d in _dk23] == [d.data.isoformat() for d in _dni_m1]
+                and [d["przystanki"] for d in _dk23] == [["Iłża", "Lipsko"], ["Pionki"], ["Zwoleń", "Kozienice", "Pionki"]]
+                and [d["kwota"] for d in _dk23] == [400.00, 350.00, 300.00]
+                and [d["dokument"] for d in _dk23] == [d.dokument for d in _dni_m1]
+                and len({d["dokument"] for d in _dk23}) == 2
+                and _dk23[0]["start"] == "07:00" and _dk23[0]["koniec"] == "09:40",
+                str(_dk23))
+        sprawdz("suma dni = suma kompletu = suma tras co do grosza; km dni sumują się do km z rubryki „Przejazdy”; etykieta źródła z PDF-u",
+                abs(sum(d["kwota"] for d in _dk23) - _suma_m1) < 0.005
+                and abs(float(_lk23["kwota"]) - _suma_m1) < 0.005
+                and _lk23["km"] is not None
+                and abs(sum(d["km"] for d in _dk23) - _lk23["km"]) <= 0.1 * len(_dk23)
+                and _lk23["odleglosci"] == "szacunek",
+                str((sum(d["kwota"] for d in _dk23), _suma_m1, _lk23)))
+        _kwoty_zle = ["Radom", "02.03.2026r", "07:00", "Iłża", "02.03.2026r", "07:40", "samochód osobowy", "10.00",
+                      "Suma wydatków", "99.00"]
+        sprawdz("dni, których kwoty nie zgadzają się z „Sumą wydatków”, nie dają kartek (pusta lista, nie zero)",
+                _PD23._dni_z_napisow(_kwoty_zle)[0]["kwota"] == 10.0
+                and _PD23.dni_dokumentu(os.path.join(_folder23(*_m_zly), "delegacja_01_x.pdf")) == []
+                and _PD23.dni_kompletu(_folder23(*_m_zly)) == [])
+
+        # ── 23b. miesiące osoby: historia + foldery na dysku ────────
+        _dysk23 = _NW23.miesiace_z_dysku(_IMIE23, _pulpit23)
+        sprawdz("miesiace_z_dysku: foldery TEJ osoby z PDF-ami (także nieczytelnymi); cudzy folder pominięty",
+                sorted(_dysk23) == sorted([_m1, _m2, _m_zly])
+                and _dysk23[_m1] == _folder23(*_m1)
+                and _NW23.miesiace_z_dysku("Inna Osoba", _pulpit23) == {_m1: _obcy23}
+                and _NW23.miesiace_z_dysku("", _pulpit23) == {}
+                and _NW23.miesiace_z_dysku(_IMIE23, os.path.join(_TMP_HOME, "nie_ma_23")) == {},
+                str(_dysk23))
+        _ho23 = _NW23.historia_okna(_IMIE23, _PESEL23, _pulpit23)
+        sprawdz("historia_okna bez wpisów: miesiące z dysku mają folder i „istnieje”, a liczby None — nigdy zero",
+                sorted(_ho23) == sorted([_m1, _m2, _m_zly])
+                and all(v["istnieje"] and v["folder"] and v["kwota"] is None and v["km"] is None for v in _ho23.values()),
+                str(_ho23))
+        _ile23 = P.dociagnij_historie_z_folderow(_IMIE23, _PESEL23, _pulpit23)
+        _ho23 = _NW23.historia_okna(_IMIE23, _PESEL23, _pulpit23)
+        sprawdz("po dociągnięciu: dwa czytelne miesiące z kwotami CO DO GROSZA z PDF-ów, nieczytelny zostaje bez liczb",
+                _ile23 == 2 and _ho23[_m1]["kwota"] == _suma_m1 and _ho23[_m2]["kwota"] == _suma_m2
+                and _ho23[_m1]["dni"] == 3 and _ho23[_m2]["dni"] == 2 and _ho23[_m1]["dokumenty"] == 2
+                and _ho23[_m_zly]["kwota"] is None and _ho23[_m_zly]["istnieje"] is True,
+                str({k: (v["kwota"], v["dni"], v["dokumenty"]) for k, v in _ho23.items()}))
+
+        # ── 23c. okno: kropka na zakładce ───────────────────────────
+        _prof23 = _NW23.ProfilWidoku(_IMIE23, _PESEL23, "ul. Kwiatowa 5, 26-600 Radom", "KR")
+        _okno23 = _NW23.OknoNowegoWygladu(profil=_prof23, rok=_dzis23[0], miesiac=_dzis23[1])
+        _okno23.ustaw_animacje(False)
+        _okno23.show()
+        _okno23.showNormal()
+        _okno23.resize(1040, 660)
+        for _ in range(6):
+            _app23.processEvents()
+
+        def _piksel_kropki23(numer):
+            obraz = _okno23.pasek.grab().toImage()
+            s = _okno23.pasek.pole_kropki(numer)
+            c = _QC23(obraz.pixel(int(s.x()), int(s.y())))
+            return (c.red(), c.green(), c.blue())
+
+        def _bursztyn23(rgb):
+            return rgb[0] > 200 and 150 < rgb[1] < 215 and rgb[2] < 120
+
+        sprawdz("zakładka poprzedniego miesiąca (minął, ani wpisu, ani folderu) ma kropkę; bieżący i następny — nie",
+                _okno23.pasek.kropki == (True, False, False)
+                and _bursztyn23(_piksel_kropki23(0)) and not _bursztyn23(_piksel_kropki23(1))
+                and not _bursztyn23(_piksel_kropki23(2)),
+                str((_okno23.pasek.kropki, _piksel_kropki23(0), _piksel_kropki23(1))))
+        _okno23.ustaw_miesiac(*_m1)
+        sprawdz("miesiąc z folderem na dysku stoi bez kropki, sąsiednie puste miesiące z kropką",
+                _okno23.pasek.kropki == (True, False, True)
+                and not _bursztyn23(_piksel_kropki23(1)) and _bursztyn23(_piksel_kropki23(2)),
+                str((_okno23.pasek.kropki, _piksel_kropki23(1), _piksel_kropki23(2))))
+        _okno23.ustaw_miesiac(*_m_zly)
+        sprawdz("folder z nieczytelnymi PDF-ami to też dokumenty — bez kropki",
+                _okno23.pasek.kropki[1] is False, str(_okno23.pasek.kropki))
+        _okno23.ustaw_miesiac(*_m_nast)
+        sprawdz("bieżący i przyszłe miesiące nigdy nie dostają kropki",
+                _okno23.pasek.kropki == (False, False, False), str(_okno23.pasek.kropki))
+        _okno23.ustaw_miesiac(*_dzis23)
+        _bylo23 = _okno23.pasek.kropki
+        P.generuj_pdfy([_dzien23(_m_pusty[0], _m_pusty[1], 5, ["Iłża"], [50.00, 50.00])],
+                       _prac23, _m_pusty[1], _m_pusty[0], _folder23(*_m_pusty), stawka=0.89, zrodlo=_zrodlo23)
+        _okno23._uniewaznij_historie()           # to samo, co robi _zapisz_historie po generowaniu
+        sprawdz("kropka gaśnie, gdy dokumenty poprzedniego miesiąca powstaną",
+                _bylo23 == (True, False, False) and _okno23.pasek.kropki == (False, False, False)
+                and not _bursztyn23(_piksel_kropki23(0)),
+                str((_bylo23, _okno23.pasek.kropki, _piksel_kropki23(0))))
+        _zr23 = open(os.path.join(KATALOG, "nowy_wyglad.py"), encoding="utf-8").read()
+        sprawdz("wpis historii po generowaniu i dociągnięcie unieważniają miesiące (kropka, kratka, taca liczą się na nowo)",
+                "self._uniewaznij_historie()" in _zr23.split("def _zapisz_historie")[1].split("def _dane_uzytkownika")[0]
+                and "self._uniewaznij_historie()" in _zr23.split("def _dociagnij_historie")[1].split("def _miesiace_historii")[0])
+        shutil.rmtree(_folder23(*_m_pusty), ignore_errors=True)
+        _okno23._uniewaznij_historie()
+
+        # ── 23d. kratka roku na ekranie startowym ───────────────────
+        _okno23.dzial_ekran_startowy()
+        for _ in range(6):
+            _app23.processEvents()
+        _ekran23 = _okno23._ekran_startowy
+        _kr23 = _ekran23.kratka
+        sprawdz("kratka roku: 12 pól, rok z paska, stany: dokumenty / pusty (z kropką) / przyszły",
+                len(_kr23._pola()["pola"]) == 12 and _kr23.rok() == _dzis23[0]
+                and _kr23.stan_miesiaca(_m1) == "dokumenty" and _kr23.stan_miesiaca(_m2) == "dokumenty"
+                and _kr23.stan_miesiaca(_m_pusty) == "pusty" and _kr23.nierozliczony(_m_pusty)
+                and _kr23.stan_miesiaca(_m_nast) == "przyszly" and not _kr23.nierozliczony(_m_nast)
+                and _kr23.stan_miesiaca(_dzis23) in ("pusty", "dokumenty") and not _kr23.nierozliczony(_dzis23),
+                str([(k, _kr23.stan_miesiaca(k)) for k in (_m1, _m2, _m_pusty, _dzis23, _m_nast)]))
+        _hist23 = _okno23._miesiace_historii()
+        _rok_m1 = _m1[0]
+        _oczek23 = (round(sum(v["kwota"] for (r, m), v in _hist23.items() if r == _rok_m1 and v["kwota"] is not None), 2),
+                    sum(int(v["km"]) for (r, m), v in _hist23.items() if r == _rok_m1 and v["kwota"] is not None),
+                    sum(int(v["dni"]) for (r, m), v in _hist23.items() if r == _rok_m1 and v["kwota"] is not None))
+        _sumy23 = _kr23.sumy_roku(_rok_m1)
+        sprawdz("sumy roku na dole kratki: kwota CO DO GROSZA, km i dni = sumy miesięcy z historii tego roku",
+                abs(_sumy23[0] - _oczek23[0]) < 0.005 and _sumy23[1] == _oczek23[1] and _sumy23[2] == _oczek23[2]
+                and _sumy23[0] > 0,
+                str((_sumy23, _oczek23)))
+        sprawdz("pole miesiąca z dokumentami pokazuje kwotę co do grosza, km i dni z historii",
+                _kr23.miesiac(_m1[1]) is None or _kr23.rok() != _rok_m1
+                or (_kr23.miesiac(_m1[1])["kwota"] == _suma_m1 and _kr23.miesiac(_m1[1])["dni"] == 3))
+        sprawdz("ekran startowy przy 1040×660 mieści kratkę bez przewijania (układ ciasny, skróty nad dolną krawędzią)",
+                _ekran23._ciasno is True and _ekran23.karta_roku.isVisible()
+                and _ekran23.b_bilans.geometry().bottom() <= _ekran23.height()
+                and _ekran23.karta_roku.geometry().bottom() < _ekran23.karta_liczb.geometry().top()
+                and _kr23.height() >= _kr23.minimumSizeHint().height(),
+                str((_ekran23.height(), _ekran23.b_bilans.geometry().bottom(), _ekran23.karta_roku.geometry())))
+        _okno23.resize(1920, 1080)
+        for _ in range(6):
+            _app23.processEvents()
+        sprawdz("ekran startowy przy 1920×1080: układ swobodny, kratka nie rośnie bez końca, wszystko w kadrze",
+                _ekran23._ciasno is False
+                and _ekran23.b_bilans.geometry().bottom() <= _ekran23.height()
+                and _ekran23.karta_roku.height() <= _ekran23.karta_roku.maximumHeight()
+                and _kr23.height() <= _NW23.KratkaRoku.wysokosc_dla(_NW23.KratkaRoku.POLE_MAKS) + 1,
+                str((_ekran23.height(), _ekran23.karta_roku.geometry())))
+        _okno23.resize(1040, 660)
+        for _ in range(6):
+            _app23.processEvents()
+
+        # piksele: pole z dokumentami świeci miętą, pole puste nie
+        def _mieta_w_polu23(klucz):
+            _kr23.ustaw_rok(klucz[0])
+            obraz = _kr23.grab().toImage()
+            pole = dict(_kr23._pola()["pola"])[klucz]
+            ile = 0
+            for y in range(int(pole.top()) + 2, int(pole.bottom()) - 2, 2):
+                for x in range(int(pole.left()) + 2, int(pole.right()) - 2, 2):
+                    c = _QC23(obraz.pixel(x, y))
+                    if c.green() > 190 and c.blue() > 150 and c.red() < 200 and c.green() > c.red() + 40:
+                        ile += 1
+            return ile
+
+        _swieci23, _wygaszony23, _przyszly23 = _mieta_w_polu23(_m1), _mieta_w_polu23(_m_pusty), _mieta_w_polu23(_m_nast)
+        sprawdz("pole miesiąca z dokumentami świeci (piksele mięty/cyjanu), wygaszone i przyszłe — nie",
+                _swieci23 > 20 and _wygaszony23 < 3 and _przyszly23 < 3,
+                str((_swieci23, _wygaszony23, _przyszly23)))
+        _kr23.ustaw_rok(_dzis23[0])
+
+        def _klik_kratki23(punkt):
+            glob = _kr23.mapToGlobal(punkt.toPoint()).toPointF()
+            _kr23.mousePressEvent(_QME23(_QE23.Type.MouseButtonPress, punkt, glob,
+                                         _Qt23.MouseButton.LeftButton, _Qt23.MouseButton.LeftButton,
+                                         _Qt23.KeyboardModifier.NoModifier))
+            for _ in range(6):
+                _app23.processEvents()
+
+        _klik_kratki23(_kr23._pola()["wstecz"].center())
+        _rok_wstecz23 = _kr23.rok()
+        _klik_kratki23(_kr23._pola()["dalej"].center())
+        sprawdz("strzałki przełączają rok kratki w tył i w przód",
+                _rok_wstecz23 == _dzis23[0] - 1 and _kr23.rok() == _dzis23[0], str((_rok_wstecz23, _kr23.rok())))
+
+        # koszt klatki: karty ze szkła i kratka są buforowane — klatka to położenia pixmap
+        _obraz23 = _QI23(_ekran23.size(), _QI23.Format.Format_ARGB32_Premultiplied)
+        _czasy23 = []
+        for _ in range(25):
+            _obraz23.fill(0)
+            _p23 = _QP23(_obraz23)
+            _t23 = time.perf_counter()
+            _ekran23.render(_p23)
+            _p23.end()
+            _czasy23.append((time.perf_counter() - _t23) * 1000)
+        sprawdz("klatka ekranu startowego z kratką roku: szkło kart i kratka z bufora (mediana < 25 ms)",
+                _stat23.median(_czasy23) < 25 and _ekran23.karta_roku._pix is not None
+                and _kr23._pix is not None and _ekran23.karta_dnia._pix is not None,
+                "%.2f ms" % _stat23.median(_czasy23))
+
+        # klik pola = cały program na ten miesiąc, panel schodzi, komplet z dysku na tacę
+        _kr23.ustaw_rok(_m1[0])
+        _klik_kratki23(dict(_kr23._pola()["pola"])[_m1].center())
+        sprawdz("kliknięcie pola kratki przestawia program na ten miesiąc (jak zakładka paska) i wraca na ekran pracy",
+                (_okno23.rok, _okno23.miesiac) == _m1 and not _okno23._nakladka.isVisible()
+                and _okno23.pasek.MIESIACE[1] == "%s %d" % (P.MIESIACE_PL[_m1[1] - 1], _m1[0])
+                and _okno23.szyna._aktywna == _okno23.NUMER_BILANSU,
+                str(((_okno23.rok, _okno23.miesiac), _okno23._nakladka.isVisible())))
+
+        # ── 23e. taca pamięta poprzednie miesiące ───────────────────
+        sprawdz("miesiąc z dysku ląduje na tacy BEZ generowania: kartki z PDF-ów, kwota co do grosza, km z dokumentów, pigułki miesięcy",
+                _okno23._taca_widoczna is True and _okno23._folder_tacy() == _folder23(*_m1)
+                and _okno23._watek is None and _okno23._po_generacji is False and _okno23._dni_silnika == []
+                and len(_okno23.taca.dni) == 3
+                and [d.data.day for d in _okno23.taca.dni] == [2, 9, 16]
+                and [d.kwota for d in _okno23.taca.dni] == [400.00, 350.00, 300.00]
+                and abs(_okno23.taca.k_kwota._cel - _suma_m1) < 0.005
+                and abs(_okno23.taca.k_km._cel - _lk23["km"]) < 0.05
+                and _okno23.taca.miesiace.miesiace() == sorted([_m1, _m2])   # bez miesiąca z nieczytelnymi PDF-ami
+                and _okno23.taca.miesiace.aktywny() == _m1
+                and _okno23.taca.l_sciezka.text().startswith("%s %d · " % (P.MIESIACE_PL[_m1[1] - 1], _m1[0]))
+                and _okno23.taca.l_folder.toolTip() == _folder23(*_m1)
+                and _okno23.taca.k_km._opis == "SZACUNEK",
+                str((_okno23._taca_widoczna, _okno23._folder_tacy(), len(_okno23.taca.dni),
+                     _okno23.taca.k_kwota._cel, _okno23.taca.k_km._cel, _okno23.taca.miesiace.miesiace(),
+                     _okno23.taca.l_sciezka.text(), _okno23.taca.k_km._opis)))
+        _okno23.taca.miesiace.wybrano.emit(_m2[0], _m2[1])
+        for _ in range(6):
+            _app23.processEvents()
+        sprawdz("pigułka innego miesiąca wczytuje kartki z TAMTEGO folderu; miesiąc programu zostaje",
+                _okno23._folder_tacy() == _folder23(*_m2) and (_okno23.rok, _okno23.miesiac) == _m1
+                and len(_okno23.taca.dni) == 2 and [d.data.day for d in _okno23.taca.dni] == [3, 11]
+                and [d.kwota for d in _okno23.taca.dni] == [200.45, 200.00]
+                and abs(_okno23.taca.k_kwota._cel - _suma_m2) < 0.005
+                and _okno23.taca.miesiace.aktywny() == _m2
+                and _okno23.taca.l_sciezka.text().startswith("%s %d · " % (P.MIESIACE_PL[_m2[1] - 1], _m2[0])),
+                str((_okno23._folder_tacy(), (_okno23.rok, _okno23.miesiac), len(_okno23.taca.dni),
+                     _okno23.taca.k_kwota._cel)))
+        _otwarte23.clear()
+        _okno23._otworz_dokument_dnia(_okno23.taca.dni[1])
+        _okno23._otworz_folder()
+        _okno23._otworz_wszystkie()
+        sprawdz("kartka, folder i „otwórz wszystkie” działają na WYBRANYM miesiącu",
+                len(_otwarte23) >= 3 and _otwarte23[0] == _NW23.plik_dokumentu(_folder23(*_m2), _okno23.taca.dni[1].dokument)
+                and _otwarte23[1] == _folder23(*_m2)
+                and all(os.path.dirname(s) == _folder23(*_m2) for s in _otwarte23[2:]),
+                str(_otwarte23))
+        sprawdz("„Mapa tras” na tacy prowadzi do mapy WYBRANEGO miesiąca",
+                _okno23.sciezka_mapy_tras() == os.path.join(_folder23(*_m2), "Trasy_Mapa.html")
+                and _okno23.taca.b_mapa.isEnabled())
+
+        _slad23 = {}
+
+        class _AtrapaOkna23:
+            def __init__(self, rodzic=None, **reszta):
+                _slad23.update(reszta)
+                _slad23["klasa"] = type(self).__name__
+
+            def exec(self):
+                return 0
+
+            def zatrzymaj_zegar(self):
+                pass
+
+            def zakoncz_watek(self):
+                pass
+
+        _byl_podpis23, _byla_wysylka23 = P.DialogPodpis, P.DialogWysylka
+        P.DialogPodpis = type("AtrapaPodpisu23", (_AtrapaOkna23,), {})
+        P.DialogWysylka = type("AtrapaWysylki23", (_AtrapaOkna23,), {})
+        try:
+            _okno23._panel_podpisu()
+            _slad_p23 = dict(_slad23)
+            _slad23.clear()
+            _okno23._panel_wysylki()
+            _slad_w23 = dict(_slad23)
+        finally:
+            P.DialogPodpis, P.DialogWysylka = _byl_podpis23, _byla_wysylka23
+        sprawdz("podpis i wysyłka (ta sama mechanika: DialogPodpis / DialogWysylka) dostają folder i miesiąc WYBRANY na tacy, nie miesiąc programu",
+                _slad_p23.get("klasa") == "AtrapaPodpisu23" and _slad_p23.get("folder") == _folder23(*_m2)
+                and _slad_w23.get("klasa") == "AtrapaWysylki23" and _slad_w23.get("folder") == _folder23(*_m2)
+                and (_slad_w23.get("rok"), _slad_w23.get("miesiac")) == _m2 and _m2 != _m1,
+                str((_slad_p23, _slad_w23)))
+        # pieczęć podpisu z manifestu TAMTEGO folderu
+        _mod_podpisu23 = P.modul_pomocniczy("pmt_podpis")
+        _paczka23, _wpisy23 = _mod_podpisu23.przygotuj_paczke(_folder23(*_m2))
+        _man23 = _mod_podpisu23.wczytaj_manifest(_mod_podpisu23.sciezka_manifestu(_paczka23))
+        for _w23 in _man23.get("pliki", []):
+            if _NW23.DOK.numer_delegacji(_w23.get("plik_zrodlowy", "")) == 1:
+                _w23["status"] = _mod_podpisu23.STATUS_PODPISANY
+        _mod_podpisu23.zapisz_manifest(_paczka23, _man23)
+        _okno23._odswiez_podpisy_tacy()
+        sprawdz("pieczęć podpisu na kartkach miesiąca z dysku bierze się z manifestu JEGO folderu",
+                all(d.podpisany == (d.dokument == 1) for d in _okno23.taca.dni)
+                and any(d.podpisany for d in _okno23.taca.dni)
+                and _okno23.taca.l_stan.text().endswith("podpisanych"),
+                str([(d.data.day, d.dokument, d.podpisany) for d in _okno23.taca.dni]))
+        _okno23.ustaw_miesiac(*_dzis23)
+        sprawdz("zmiana miesiąca zdejmuje miesiąc z tacy (taca schodzi, przyciski wracają do wyniku sesji)",
+                _okno23._taca_widoczna is False and _okno23._folder_tacy() == "" and _okno23._taca_dni == []
+                and _okno23._miesiac_tacy() == _dzis23)
+        sprawdz("bez folderu na dysku (albo z nieczytelnymi PDF-ami) taca miesiąca nie wysuwa się i nic nie generuje",
+                _okno23.pokaz_tace_miesiaca(*_m_nast) == "" and _okno23.pokaz_tace_miesiaca(*_m_zly) == ""
+                and _okno23._taca_widoczna is False and _okno23._watek is None)
+
+        # pasek miesięcy prototypu: ciasno → ciągły odcinek z wybranym miesiącem
+        _taca_tmp23 = _NW23.OK.TacaDokumentow()      # referencja: bez niej Qt sprząta pasek
+        _pm23 = _taca_tmp23.miesiace
+        _pm23.resize(300, 24)
+        _pm23.ustaw_miesiace([(2021 + i // 12, i % 12 + 1) for i in range(60)], (2022, 3))
+        _pola23 = _pm23._uloz()
+        sprawdz("pasek miesięcy tacy w ciasnym miejscu pokazuje ciągły odcinek z wybranym miesiącem i chowa się bez miesięcy",
+                0 < len(_pola23) < 60 and (2022, 3) in [k for k, _r in _pola23]
+                and all(_pola23[i][0] < _pola23[i + 1][0] for i in range(len(_pola23) - 1))
+                and _pm23.isHidden() is False and (_pm23.ustaw_miesiace([]) or _pm23.isHidden()),
+                str([k for k, _r in _pola23]))
+        _okno23.close()
+    finally:
+        P.sciezka_pulpitu = _bylo_pulpit23
+        P.otworz_w_systemie = _bylo_otworz23
+except Exception as _e23:
+    sprawdz("zaciekawienie: kropka, kratka roku, taca z pamięcią miesięcy", False, repr(_e23))
+    import traceback as _tb23
+    _tb23.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("24. Zaciekawienie 2: druga strona kartki i białe plamy rejonu")
+
+# Kartka delegacji nad mapą dostaje odwrót — ten sam dzień taki, jaki był
+# naprawdę: godziny z dokumentu, postoje, kilometry każdego odcinka z jego
+# źródłem (RawEtap.zrodlo: drogi / pamięć / szacunek) i linią prostą.
+# Klik w papier obraca kartkę (przekształcenie gotowej pixmapy, nie
+# rysowanie), uchwyt przy prawym brzegu ją zwija. Mapa rejonu leży pod
+# delikatną mgłą: miejscowości ze śladem obecności (pole „miejsca" z
+# historia_miesiecy) są odsłonięte i świecą, trasa dnia zawsze; w rogu
+# licznik odkryte / w zasięgu. Mgła jest częścią gotowej warstwy POD trasą,
+# więc klatka animacji nic za nią nie płaci.
+try:
+    import nowy_wyglad as _NW24
+    import proto_mapa as _PM24
+    import proto_dane as _dn24
+    from PyQt6.QtWidgets import QApplication as _QA24, QWidget as _QW24
+    from PyQt6.QtCore import Qt as _Qt24, QPointF as _QP24, QEvent as _QE24, QPoint as _QPt24
+    from PyQt6.QtGui import QRegion as _QRg24
+    from PyQt6.QtGui import QMouseEvent as _QME24, QImage as _QI24, QPixmap as _QPX24
+    _app24 = _QA24.instance() or _QA24(sys.argv)
+    _app24.setStyleSheet(_NW24.arkusz())
+
+    def _miel24(ile=6):
+        for _ in range(ile):
+            _app24.processEvents()
+
+    # ── 24a. źródło kilometrów PER ODCINEK ────────────────────────
+    _e24 = P.RawEtap(skad="A", dokad="B", data_str="01.04.2026", d_line=10.0,
+                     czas_w_sklepie=15, dokad_woj="", skad_lat=51.4, skad_lng=21.15,
+                     dokad_lat=51.5, dokad_lng=21.3)
+    sprawdz("RawEtap ma pole zrodlo — puste, zanim odcinek policzono", _e24.zrodlo == "")
+    _klucz24 = P._klucz_drogi(51.4, 21.15, 51.5, 21.3)
+    _bylo_droga24 = P._road_cache.get(_klucz24)
+    _bylo_osrm24 = P._osrm_dostepny
+    try:
+        P._osrm_dostepny = False                    # bez sieci — i bez czekania na nią
+        P._road_cache.pop(_klucz24, None)
+        P.uzupelnij_zrodla_etapow([_e24])
+        _szac24 = _e24.zrodlo
+        P.zeruj_zrodlo_odleglosci()
+        P.dystans_drogowy(51.4, 21.15, 51.5, 21.3)
+        _ost_szac24 = P.zrodlo_ostatniego_odcinka()
+        P._road_cache[_klucz24] = 17.3
+        P.dystans_drogowy(51.4, 21.15, 51.5, 21.3)
+        _ost_pam24 = P.zrodlo_ostatniego_odcinka()
+        _e24.zrodlo = ""
+        _ile24 = P.uzupelnij_zrodla_etapow([_e24])
+        _pam24 = _e24.zrodlo
+        _stan24 = P.stan_zrodla_odleglosci()
+    finally:
+        P._osrm_dostepny = _bylo_osrm24
+        if _bylo_droga24 is None:
+            P._road_cache.pop(_klucz24, None)
+        else:
+            P._road_cache[_klucz24] = _bylo_droga24
+    sprawdz("odcinek bez źródła bierze je z pamięci dróg: droga w pamięci → „pamiec”, poza nią → „szacunek”",
+            _szac24 == P.ZRODLO_SZACUNEK and _pam24 == P.ZRODLO_PAMIEC and _ile24 == 1,
+            str((_szac24, _pam24, _ile24)))
+    sprawdz("dystans_drogowy zostawia źródło ostatniego odcinka — to samo, które liczy stan całości",
+            _ost_szac24 == P.ZRODLO_SZACUNEK and _ost_pam24 == P.ZRODLO_PAMIEC
+            and _stan24[P.ZRODLO_SZACUNEK] == 1 and _stan24[P.ZRODLO_PAMIEC] == 1,
+            str((_ost_szac24, _ost_pam24, _stan24)))
+
+    try:
+        _dni_silnika24 = list(_dni22)               # PRAWDZIWY miesiąc z sekcji 22e
+    except NameError:
+        _dni_silnika24 = []
+    if _dni_silnika24:
+        _etapy24 = [e for d in _dni_silnika24 for e in d.etapy_surowe]
+        sprawdz("po generuj_trasy KAŻDY odcinek miesiąca ma źródło z trójki drogi / pamięć / szacunek",
+                _etapy24 and all(e.zrodlo in (P.ZRODLO_DROGI, P.ZRODLO_PAMIEC, P.ZRODLO_SZACUNEK)
+                                 for e in _etapy24),
+                str(sorted({e.zrodlo for e in _etapy24})))
+        _dw24 = _NW24.dni_widzetow_z_tras(_dni_silnika24, 2026, 4)
+        _zle24 = []
+        for _dt24 in _dni_silnika24:
+            _dz24 = _dw24[_dt24.data.day - 1]
+            _t24 = _PM24.tresc_tylu(_dz24)
+            _godz24 = [(e["wyj"], e["przyj"]) for e in _t24["etapy"]]
+            _dok24 = [(et.godz_wyj, et.godz_przyj) for et in _dt24.etapy]
+            if not (abs(_t24["km"] - _dz24.km) < 0.06
+                    and _t24["wyjazd"] == _dz24.start and _t24["powrot"] == _dz24.koniec
+                    and _t24["jazda_min"] + _t24["postoje_min"] == _t24["razem_min"]
+                    and _godz24 == _dok24
+                    and all(e["prosta"] and e["km"] >= e["prosta"] * P.MNOZNIK_MIN - 0.06
+                            for e in _t24["etapy"])
+                    and _t24["wskaznik"] >= P.MNOZNIK_MIN - 0.01
+                    and sum(_t24["zrodla"].values()) == len(_t24["etapy"])
+                    and all(p is not None and p >= 0 for p in _t24["postoje"][:-1])):
+                _zle24.append((_dt24.data.day, _t24.get("km"), _dz24.km, _t24.get("wskaznik")))
+        sprawdz("odwrót kartki z silnika: km odcinków = km dnia, godziny = dokument, jazda + postoje = dzień,"
+                " droga ≥ linia prosta × MNOZNIK_MIN, każdy odcinek ze źródłem",
+                not _zle24 and len(_dw24) >= 28, str(_zle24[:3]))
+
+    # ── 24b. gesty: klik obraca, uchwyt zwija, pasek rozwija ──────
+    _dni24 = _dn24.oblicz_miesiac(1850, rok=2026, miesiac=10)
+    _dzien24 = next(d for d in _dni24 if not d.wolny and len(d.przystanki) >= 3)
+    _odc24 = _PM24.odcinki_dnia(_dzien24)
+    _zr24 = ["drogi", "pamiec", "szacunek", "drogi"]
+    _dzien24.etapy = [{"z": o["z"], "do": o["do"], "wyj": o["wyj"], "przyj": o["przyj"],
+                       "km": o["km"], "prosta": round(o["km"] / 1.25, 1), "zrodlo": _zr24[i % 4]}
+                      for i, o in enumerate(_odc24)]
+    _k24 = _PM24.KartkaDelegacji()
+    _k24.resize(342, 470)
+    _k24.ustaw_animacje(False)
+    _k24.ustaw_dzien(_dzien24)
+    _k24.ustaw_numer("2026/10/01")
+    _k24.ustaw_stan("zwykla")
+    _k24.show()
+    _miel24()
+
+    def _klik24(pkt):
+        _k24.mousePressEvent(_QME24(_QE24.Type.MouseButtonPress, pkt, _k24.mapToGlobal(pkt.toPoint()).toPointF(),
+                                    _Qt24.MouseButton.LeftButton, _Qt24.MouseButton.LeftButton,
+                                    _Qt24.KeyboardModifier.NoModifier))
+        _miel24(3)
+
+    def _bajty24(widzet):
+        return same_piksele(widzet.grab().toImage().convertToFormat(_QI24.Format.Format_RGB888))
+
+    _kar24 = _k24._pole_kartki()[0]
+    _srodek24 = _kar24.center()
+    _uchwyt24 = _QP24(_kar24.right() - 4.0, _srodek24.y())
+    _przod24 = _bajty24(_k24)
+    _klik24(_srodek24)
+    _tyl_a24 = _bajty24(_k24)
+    sprawdz("klik w papier obraca kartkę na odwrót; bez animacji obrót jest natychmiastowy",
+            _k24.strona() == "tyl" and _k24.obrot() == 1.0 and not _k24.zwinieta()
+            and _tyl_a24 != _przod24, "%s %.2f" % (_k24.strona(), _k24.obrot()))
+    _klik24(_srodek24)
+    _wrocil24 = _k24.strona() == "przod" and _bajty24(_k24) == _przod24
+    _klik24(_srodek24)
+    sprawdz("obrót jest odwracalny i powtarzalny: przód wraca co do bajta, odwrót wygląda tak samo za każdym razem",
+            _wrocil24 and _k24.strona() == "tyl" and _bajty24(_k24) == _tyl_a24)
+    sprawdz("uchwyt zwinięcia to pasek przy prawym brzegu — środek papieru do niego nie należy",
+            _k24.w_uchwycie(_uchwyt24) and not _k24.w_uchwycie(_srodek24)
+            and 12.0 <= _k24.szerokosc_uchwytu() <= _PM24.KartkaDelegacji.UCHWYT + 0.01)
+    _klik24(_uchwyt24)
+    sprawdz("klik w uchwyt zwija kartkę", _k24.zwinieta())
+    _klik24(_QP24(_k24.width() * 0.5, _k24.height() * 0.5))
+    sprawdz("klik w zwinięty pasek rozwija kartkę — na tę samą stronę, na której była",
+            not _k24.zwinieta() and _k24.strona() == "tyl")
+
+    # odwrót pokazuje źródła w ich barwach: zieleń dróg i bursztyn szacunku,
+    # przód — żadnej z nich poza zielenią nagłówka; liczymy piksele jak w 8c
+    def _piksele_barw24(obraz, barwy):
+        ile = [0] * len(barwy)
+        for y in range(obraz.height()):
+            for x in range(obraz.width()):
+                c = obraz.pixelColor(x, y)
+                if c.alpha() < 200:
+                    continue
+                for i, b in enumerate(barwy):
+                    if abs(c.red() - b.red()) < 26 and abs(c.green() - b.green()) < 26 \
+                            and abs(c.blue() - b.blue()) < 26:
+                        ile[i] += 1
+        return ile
+
+    _barwy24 = (_PM24.OSTRZEZENIE_NA_PAPIERZE, _PM24.KartkaDelegacji.KOLORY_ZRODEL["pamiec"])
+    _na_tyle24 = _piksele_barw24(_k24._pixmapa_tylu().toImage(), _barwy24)
+    _na_przodzie24 = _piksele_barw24(_k24._pixmapa().toImage(), _barwy24)
+    sprawdz("odwrót ma bursztyn szacunku i granat pamięci dróg, przód nie ma ich wcale",
+            _na_tyle24[0] > 0 and _na_tyle24[1] > 0 and _na_przodzie24 == [0, 0],
+            "tył %s / przód %s" % (_na_tyle24, _na_przodzie24))
+    _t24 = _PM24.tresc_tylu(_dzien24)
+    sprawdz("liczby odwrotu: km odcinków sumują się do km dnia, źródła policzone co do odcinka, wskaźnik = km / prosta",
+            abs(_t24["km"] - _dzien24.km) < 0.06 and sum(_t24["zrodla"].values()) == len(_odc24)
+            and abs(_t24["wskaznik"] - _t24["km"] / _t24["prosta"]) < 1e-9
+            and _t24["jazda_min"] + _t24["postoje_min"] == _t24["razem_min"],
+            str({k: v for k, v in _t24.items() if k != "etapy"}))
+    _wolny24 = _dn24.Dzien(datetime.date(2026, 10, 3), wolny=True)
+    sprawdz("dzień wolny nie ma odwrotu z liczbami — tresc_tylu jest pusta",
+            _PM24.tresc_tylu(_wolny24) == {} and _PM24.etapy_dnia(None) == [])
+
+    # ── 24c. obrót to przekształcenie gotowej pixmapy ─────────────
+    _k24._pixmapa()
+    _k24._pixmapa_tylu()
+    _liczby24 = {"przod": 0, "tyl": 0}
+    _rt24, _rtt24 = _k24._rysuj_tresc, _k24._rysuj_tresc_tylu
+
+    def _licz_przod24(*a, **k):
+        _liczby24["przod"] += 1
+        return _rt24(*a, **k)
+
+    def _licz_tyl24(*a, **k):
+        _liczby24["tyl"] += 1
+        return _rtt24(*a, **k)
+
+    _k24._rysuj_tresc, _k24._rysuj_tresc_tylu = _licz_przod24, _licz_tyl24
+    _px24 = _QPX24(_k24.size())
+
+    def _render24():
+        # bez tła okna: liczymy kolumny SAMEGO papieru, nie jasnego tła widżetu
+        _px24.fill(_Qt24.GlobalColor.transparent)
+        _k24.render(_px24, _QPt24(), _QRg24(), _QW24.RenderFlag.DrawChildren)
+
+    def _kolumny24():
+        obraz = _px24.toImage()
+        ile = 0
+        y = int(_kar24.center().y())
+        for x in range(obraz.width()):
+            if obraz.pixelColor(x, y).alpha() > 200 and obraz.pixelColor(x, y).lightness() > 150:
+                ile += 1
+        return ile
+
+    try:
+        _k24._obrot.ustaw(0.0)
+        _render24()
+        _szer_przod24 = _kolumny24()
+        _czasy24 = []
+        for _faza24 in (0.3, 0.7):
+            _k24._obrot.ustaw(_faza24)
+            for _ in range(10):
+                _t0 = time.perf_counter()
+                _render24()
+                _czasy24.append((time.perf_counter() - _t0) * 1000.0)
+        _k24._obrot.ustaw(0.3)
+        _render24()
+        _szer_obrot24 = _kolumny24()
+    finally:
+        _k24._rysuj_tresc, _k24._rysuj_tresc_tylu = _rt24, _rtt24
+        _k24._obrot.ustaw(1.0)
+    _czasy24.sort()
+    sprawdz("w trakcie obrotu żadna klatka nie rysuje treści od nowa — obie strony leżą gotowe w pixmapach",
+            _liczby24 == {"przod": 0, "tyl": 0}, str(_liczby24))
+    sprawdz("obrócona kartka jest ściśnięta w poziomie o cosinus kąta (faza 0,3 → ok. 59% szerokości)",
+            _szer_przod24 > 100 and abs(_szer_obrot24 / float(_szer_przod24) - math.cos(0.3 * math.pi)) < 0.08,
+            "%d → %d kolumn (%.2f)" % (_szer_przod24, _szer_obrot24, _szer_obrot24 / float(max(1, _szer_przod24))))
+    sprawdz("klatka obrotu kosztuje ułamki milisekundy (mediana < 3 ms przy 342x470)",
+            _czasy24[len(_czasy24) // 2] < 3.0, "%.2f ms" % _czasy24[len(_czasy24) // 2])
+    _k24.close()
+
+    # ── 24d. białe plamy: mgła, wycięcia, licznik ─────────────────
+    _m24 = _PM24.MapaDnia()
+    _m24.resize(900, 600)
+    _m24.ustaw_animacje(False)
+    _m24.ustaw_dzien(_dzien24)
+    _m24.show()
+    _miel24()
+    _nazwy24 = [n for n in _m24._nazwy() if n != _m24._baza]
+    _trasa24 = set(_dzien24.trasa)
+    sprawdz("bez śladu obecności licznik mówi 0 / N (N = miejscowości mapy bez bazy)",
+            _m24.odkryte_w_zasiegu() == (0, len(_nazwy24)), str(_m24.odkryte_w_zasiegu()))
+    _geo24 = _m24._geometria()
+    _rzut24 = _m24.rzut()
+
+    def _alfa_mgly24(nazwa, poswiata=False):
+        obraz = _m24._pixmapa_mgly(_rzut24, _geo24, poswiata=poswiata).toImage()
+        pkt = _m24._punkt(nazwa)
+        return obraz.pixelColor(int(pkt.x()), int(pkt.y())).alpha()
+
+    _w_kadrze24 = [n for n in _nazwy24 if n not in _trasa24
+                   and _m24.rect().adjusted(20, 20, -20, -20).contains(_m24._punkt(n).toPoint())]
+    # najdalsza od trasy — jej nie odsłania ani wycięcie przystanku, ani korytarz
+    _pkt_trasy24 = [_m24._punkt(n) for n in _trasa24]
+    _daleka24 = max(_w_kadrze24, key=lambda n: min(
+        math.hypot(_m24._punkt(n).x() - q.x(), _m24._punkt(n).y() - q.y()) for q in _pkt_trasy24))
+    sprawdz("trasa dnia i jej przystanki są zawsze odsłonięte (mgła ma tam alfa 0), reszta leży pod mgłą",
+            all(_alfa_mgly24(n) == 0 for n in _trasa24) and _alfa_mgly24(_daleka24) >= 20,
+            "%s: alfa %d" % (_daleka24, _alfa_mgly24(_daleka24)))
+    _gora_przed24 = same_piksele(_m24.grab().toImage().copy(
+        _m24.width() - 120, _m24.height() - 60, 120, 60).convertToFormat(_QI24.Format.Format_RGB888))
+    _m24.ustaw_odkryte([_daleka24.upper(), "Nibylandia"])
+    _miel24()
+    _gora_po24 = same_piksele(_m24.grab().toImage().copy(
+        _m24.width() - 120, _m24.height() - 60, 120, 60).convertToFormat(_QI24.Format.Format_RGB888))
+    _obraz24 = _m24._pixmapa_mgly(_rzut24, _geo24).toImage()
+    _pkt24 = _m24._punkt(_daleka24)
+    _c24 = _obraz24.pixelColor(int(_pkt24.x()), int(_pkt24.y()))
+    sprawdz("ślad obecności odsłania miejscowość (dopasowanie bez wielkości liter), nazwa spoza mapy się nie liczy",
+            _m24.odkryte_w_zasiegu() == (1, len(_nazwy24)) and _alfa_mgly24(_daleka24) == 0,
+            str((_m24.odkryte_w_zasiegu(), _alfa_mgly24(_daleka24))))
+    sprawdz("odkryta miejscowość świeci miętą (w warstwie mgły zieleń przeważa nad czerwienią)",
+            _c24.alpha() > 0 and _c24.green() > _c24.red() + 30, str((_c24.red(), _c24.green(), _c24.blue(), _c24.alpha())))
+    sprawdz("licznik w rogu mapy zmienia się razem ze śladem (0 / N → 1 / N)",
+            _gora_przed24 != _gora_po24)
+    _m24.ustaw_odkryte([])
+    sprawdz("zdjęcie śladu wraca do 0 / N", _m24.odkryte_w_zasiegu() == (0, len(_nazwy24)))
+
+    # ── 24e. mgła nie kosztuje klatki: leży w gotowej warstwie ────
+    _m24.ustaw_odkryte([_daleka24])
+    _pxm24 = _QPX24(_m24.size())
+    for _ in range(3):
+        _m24.render(_pxm24)
+    _ile_mgly24 = {"n": 0}
+    _pm24 = _m24._pixmapa_mgly
+
+    def _licz_mgle24(*a, **k):
+        _ile_mgly24["n"] += 1
+        return _pm24(*a, **k)
+
+    _m24._pixmapa_mgly = _licz_mgle24
+    try:
+        for _ in range(12):
+            _m24._tik()
+            _m24.render(_pxm24)
+    finally:
+        del _m24._pixmapa_mgly
+    sprawdz("dwanaście klatek animacji nie buduje mgły ani razu — jest częścią warstwy pod trasą",
+            _ile_mgly24["n"] == 0, str(_ile_mgly24))
+    _t0 = time.perf_counter()
+    _m24._pixmapa_mgly(_rzut24, _geo24)
+    _koszt_mgly24 = (time.perf_counter() - _t0) * 1000.0
+    print("      budowa mgły rejonu %dx%d: %.2f ms (raz na układ, nie na klatkę)"
+          % (_m24.width(), _m24.height(), _koszt_mgly24))
+    sprawdz("zbudowanie mgły przy 900x600 to pojedyncze milisekundy", _koszt_mgly24 < 12.0,
+            "%.2f ms" % _koszt_mgly24)
+    _m24.close()
+
+    # ── 24f. nowe okno: ślad z historii miesięcy trafia na mapę ───
+    _IMIE24, _PESEL24 = "Zofia Mglista", "90020212345"
+    _okno24 = _NW24.OknoNowegoWygladu(
+        profil=_NW24.ProfilWidoku(_IMIE24, _PESEL24, "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=10)
+    _okno24.showNormal()
+    _okno24.resize(1440, 900)
+    _okno24.ustaw_animacje(False)
+    _miel24(10)
+    _mapa24 = _okno24.mapa
+    _zasieg24 = _mapa24.odkryte_w_zasiegu()[1]
+    sprawdz("nowe okno bez historii: mapa cała pod mgłą, licznik 0 / N",
+            _mapa24.odkryte_w_zasiegu() == (0, _zasieg24) and _zasieg24 >= 10, str(_mapa24.odkryte_w_zasiegu()))
+    _miejsca24 = [n for n in _mapa24._nazwy() if n != _mapa24._baza][::7][:6]
+    P.dodaj_do_historii(_IMIE24, _PESEL24, {
+        "imie": _IMIE24, "data": "05.03.2026 12:00", "kwota": "1500.00", "woj": "Mazowieckie",
+        "woj_wizyty": {"Mazowieckie": 3}, "baza": "Radom",
+        "miejsc_wizyty": {n: 1 + i for i, n in enumerate(_miejsca24)},
+        "dokumenty": 2, "km": 1685, "miesiac": 3, "rok": 2026, "dni_wyjazdowe": 8,
+        "dni_daty": ["2026-03-%02d" % (d + 2) for d in range(8)],
+        "folder": os.path.join(_TMP_HOME, "Rozliczenie_Zofia_Mglista_marzec_2026r")})
+    _hm24 = P.historia_miesiecy(_IMIE24, _PESEL24)
+    sprawdz("historia_miesiecy niesie pole „miejsca” — {miejscowość: liczba wizyt} z wpisu",
+            _hm24.get((2026, 3), {}).get("miejsca") == {n: 1 + i for i, n in enumerate(_miejsca24)},
+            str(_hm24.get((2026, 3), {}).get("miejsca")))
+    _okno24._uniewaznij_historie()
+    _miel24()
+    sprawdz("po zmianie historii mapa odsłania miejscowości z pola „miejsca” — licznik k / N",
+            _mapa24.odkryte_w_zasiegu() == (len(_miejsca24), _zasieg24)
+            and _okno24._miejsca_odkryte() == set(_miejsca24),
+            str((_mapa24.odkryte_w_zasiegu(), len(_miejsca24))))
+    _okno24._przebuduj_mape()
+    _miel24()
+    sprawdz("nowa mapa po przebudowie (jak po generowaniu) dostaje ten sam ślad",
+            _okno24.mapa is not _mapa24 and _okno24.mapa.odkryte_w_zasiegu()[0] == len(_miejsca24),
+            str(_okno24.mapa.odkryte_w_zasiegu()))
+    sprawdz("historia_okna przekazuje „miejsca” dalej (miesiąc z samego dysku ma pusty słownik)",
+            _NW24.historia_okna(_IMIE24, _PESEL24).get((2026, 3), {}).get("miejsca") == _hm24[(2026, 3)]["miejsca"])
+    # odwrót kartki w oknie: dzień podglądu ma etapy z rozkładu prototypu (bez źródeł),
+    # a klik w kartkę nad mapą obraca ją tak samo jak samodzielnie
+    _kart24 = _okno24.kartka
+    _kar_o24 = _kart24._pole_kartki()[0]
+    _pkt_o24 = _kar_o24.center()
+    _kart24.mousePressEvent(_QME24(_QE24.Type.MouseButtonPress, _pkt_o24,
+                                   _kart24.mapToGlobal(_pkt_o24.toPoint()).toPointF(),
+                                   _Qt24.MouseButton.LeftButton, _Qt24.MouseButton.LeftButton,
+                                   _Qt24.KeyboardModifier.NoModifier))
+    _okno24.ustaw_animacje(False)
+    _miel24()
+    sprawdz("w oknie programu klik w kartkę obraca ją na odwrót i kadr mapy stoi w miejscu",
+            _kart24.strona() == "tyl" and not _kart24.zwinieta()
+            and _PM24.tresc_tylu(_okno24._dzien_wybrany())["km"] > 0)
+    _okno24.close()
+except Exception as _e24:
+    sprawdz("zaciekawienie 2: druga strona kartki i białe plamy rejonu", False, repr(_e24))
+    import traceback as _tb24
+    _tb24.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("25. Zaciekawienie 3: przelot nad rejonem w czasie generowania")
+
+# Gdy silnik pracuje, mapa zamienia się w przelot (proto_mapa.PrzelotRejonu):
+# scena rejonu upieczona RAZ na filmie szerszym niż mapa, tą samą kamerą;
+# klatka to jedno ścinanie gotowych pixmap (paralaksa: wiersz ekranu jedzie
+# o dx·skala(y), a skala rzutu jest w y niemal liniowa). Trasy ułożonych dni
+# przychodzą z wątku silnika sygnałem dzien_gotowy (PMT.slad_dnia) i zapalają
+# się na filmie; pisane dokumenty stemplują je. Silnik nie czeka na klatkę.
+# Koniec silnika = lądowanie na zwykłym widoku dnia; Esc kończy przelot
+# natychmiast; zgaszone animacje = brak przelotu i zrzuty jak dotąd.
+try:
+    import inspect as _insp25
+    import statistics as _stat25
+    import threading as _thr25
+    import nowy_wyglad as _NW25
+    import proto_mapa as _PM25
+    from PyQt6.QtWidgets import QApplication as _QA25
+    from PyQt6.QtCore import Qt as _Qt25, QPointF as _QP25, QRectF as _QR25, QEvent as _QE25
+    from PyQt6.QtGui import QKeyEvent as _QKE25, QPixmap as _QPX25, QPainter as _QPa25
+    _app25 = _QA25.instance() or _QA25(sys.argv)
+    _app25.setStyleSheet(_NW25.arkusz())
+
+    def _miel25(ile=6):
+        for _ in range(ile):
+            _app25.processEvents()
+
+    # ── 25a. silnik: ślad dnia i zaczep dzien_cb ──────────────────
+    _e25 = lambda a, b, la1, ln1, la2, ln2: P.RawEtap(
+        skad=a, dokad=b, data_str="01.06.2026r", d_line=20.0, czas_w_sklepie=15,
+        dokad_woj="", skad_lat=la1, skad_lng=ln1, dokad_lat=la2, dokad_lng=ln2)
+    _d25 = P.DzienTrasy(data=datetime.date(2026, 6, 1), etapy_surowe=[
+        _e25("Radom", "Zwoleń", 51.40, 21.15, 51.36, 21.59),
+        _e25("Zwoleń", "Pionki", 51.36, 21.59, 51.48, 21.45),
+        _e25("Pionki", "Radom", 51.48, 21.45, 51.40, 21.15)])
+    _s25 = P.slad_dnia(_d25)
+    sprawdz("slad_dnia: (data, ((miejscowość, szerokość, długość), …)) od bazy przez przystanki do bazy — krotka",
+            _s25[0] == datetime.date(2026, 6, 1) and isinstance(_s25[1], tuple)
+            and [p[0] for p in _s25[1]] == ["Radom", "Zwoleń", "Pionki", "Radom"]
+            and _s25[1][1] == ("Zwoleń", 51.36, 21.59), str(_s25))
+    sprawdz("GeneratorThread ma sygnał dzien_gotowy, a generuj_trasy przyjmuje dzien_cb",
+            hasattr(P.GeneratorThread, "dzien_gotowy")
+            and "dzien_cb" in _insp25.signature(P.generuj_trasy).parameters)
+    if not SZYBKO:
+        _dni_cb25 = []
+        _dni_rob25 = P.pobierz_dni_robocze(2026, 6)[:10]
+        _wynik25 = P.generuj_trasy(P.MIN_KWOTA, "Radom", 51.40, 21.15, "mazowieckie",
+                                   _dni_rob25, "85010112345", dzien_cb=lambda d: _dni_cb25.append(d))
+        sprawdz("dzien_cb dostaje KAŻDY ułożony dzień (DzienTrasy) — zanim silnik przytnie odcinki",
+                len(_dni_cb25) >= len(_wynik25) >= 1
+                and all(isinstance(d, P.DzienTrasy) and d.etapy_surowe for d in _dni_cb25),
+                str((len(_dni_cb25), len(_wynik25))))
+
+        def _zly_odbiorca(_d):
+            raise RuntimeError("odbiorca się wywalił")
+        _wynik25b = P.generuj_trasy(P.MIN_KWOTA, "Radom", 51.40, 21.15, "mazowieckie",
+                                    _dni_rob25, "85010112345", dzien_cb=_zly_odbiorca)
+        sprawdz("błąd odbiorcy dzien_cb nie psuje generowania — silnik go nie czeka i nie obsługuje",
+                len(_wynik25b) >= 1 and len(_wynik25b) == len(_wynik25),
+                str((len(_wynik25b), len(_wynik25))))
+
+    # ── 25b. okno: przelot startuje i kończy się razem z PRAWDZIWYM generowaniem
+    if not os.path.exists(_PLIK_MENEDZERA_TESTOW):
+        with open(_PLIK_MENEDZERA_TESTOW, "w", encoding="utf-8") as _f:
+            _f.write("Przełożony Testowy\n")
+    _okno25 = _NW25.OknoNowegoWygladu(
+        profil=_NW25.ProfilWidoku("Jan Testowy", "85010112345", "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=6)
+    _okno25.showNormal()
+    _okno25.resize(1920, 1080)
+    _okno25.ustaw_animacje(True)
+    _miel25(12)
+    _okno25.k_parametry.kwota.ustaw_tekst("1200")
+    _okno25._przelicz_teraz()
+    _miel25(12)
+    sprawdz("domyślna wstawka INTRO_GENEROWANIA to przelot nad rejonem",
+            _NW25.OknoNowegoWygladu.INTRO_GENEROWANIA is _NW25.przelot_generowania)
+    _klatki25 = []
+    _paint25 = _PM25.PrzelotRejonu.paintEvent
+
+    def _paint_mierz25(self, zdarzenie):
+        _t = time.perf_counter()
+        _paint25(self, zdarzenie)
+        _klatki25.append((time.perf_counter() - _t) * 1000.0)
+    _PM25.PrzelotRejonu.paintEvent = _paint_mierz25
+    _stare_akt25 = P.OknoAktualizacji
+
+    class _AtrapaAkt25:
+        def __init__(self, *a, **k):
+            pass
+
+        def exec(self):
+            return 0
+    P.OknoAktualizacji = _AtrapaAkt25
+    try:
+        if not SZYBKO:
+            _watek_glowny25 = _thr25.get_ident()
+            _okno25.uruchom_pokaz()
+            _film25 = _okno25._intro_generowania
+            _dzieci25 = _okno25.children()
+            sprawdz("kliknięcie kompasu przy włączonych animacjach stawia przelot DOKŁADNIE na mapie, nad kartką i pigułką",
+                    isinstance(_film25, _PM25.PrzelotRejonu) and _film25.isVisible()
+                    and _film25.geometry() == _okno25.mapa.geometry()
+                    and _dzieci25.index(_film25) > _dzieci25.index(_okno25.kartka)
+                    and _dzieci25.index(_film25) > _dzieci25.index(_okno25.pigulka),
+                    str((type(_film25).__name__, _film25.geometry() if _film25 else None)))
+            _sygnaly25 = []
+            _okno25._watek.dzien_gotowy.connect(
+                lambda s: _sygnaly25.append((s, _thr25.get_ident())))
+            _w_locie25 = {"trasy": 0, "stemple": 0, "fazy": set(), "postep": 0.0, "ladowanie_po_sukcesie": None}
+            _koniec25 = datetime.datetime.now() + datetime.timedelta(seconds=300)
+            while _okno25._watek is not None and datetime.datetime.now() < _koniec25:
+                _app25.processEvents()
+                try:
+                    _w_locie25["trasy"] = max(_w_locie25["trasy"], _film25.trasy())
+                    _w_locie25["stemple"] = max(_w_locie25["stemple"], _film25.stemple())
+                    _w_locie25["fazy"].add(_film25.faza())
+                except RuntimeError:
+                    pass
+                _w_locie25["postep"] = max(_w_locie25["postep"], _okno25.k_kompas.kompas.postep())
+            _miel25(3)
+            try:
+                _w_locie25["ladowanie_po_sukcesie"] = (_film25.faza(), _film25.isVisible())
+            except RuntimeError:
+                _w_locie25["ladowanie_po_sukcesie"] = ("(usunięty)", False)
+            sprawdz("wątek naprawdę skończył, a kompas przez cały czas pokazywał postęp",
+                    _okno25._watek is None and _okno25._po_generacji is True
+                    and _w_locie25["postep"] >= 0.9, str(_w_locie25))
+            sprawdz("trasy ułożonych dni przychodzą sygnałem z wątku (odbiór w wątku okna) i zapalają się na przelocie — tyle tras, ile dni zameldował silnik",
+                    len(_sygnaly25) >= 1 and _w_locie25["trasy"] == len(_sygnaly25)
+                    and all(w == _watek_glowny25 for _, w in _sygnaly25)
+                    and all(isinstance(s, tuple) and len(s[1]) >= 3 for s, _ in _sygnaly25),
+                    str((len(_sygnaly25), _w_locie25["trasy"])))
+            sprawdz("przy pisaniu plików PDF trasy dostają stempel dokumentu — na końcu wszystkie",
+                    _w_locie25["stemple"] == _w_locie25["trasy"] >= 1, str(_w_locie25))
+            sprawdz("po sukcesie silnika przelot ląduje (faza „ladowanie”), a okno już o nim nie wie",
+                    _w_locie25["ladowanie_po_sukcesie"][0] == "ladowanie"
+                    and _okno25._intro_generowania is None, str(_w_locie25["ladowanie_po_sukcesie"]))
+            _granica25 = datetime.datetime.now() + datetime.timedelta(seconds=6)
+            while datetime.datetime.now() < _granica25 and (
+                    _okno25.findChildren(_PM25.PrzelotRejonu)
+                    or _okno25.mapa.rysuje_trase() or _okno25.kartka.obecnosc() < 0.999):
+                _app25.processEvents()
+            sprawdz("po lądowaniu przelot znika bez śladu, trasa dnia rysuje się od nowa i kartka wsuwa się jak zawsze",
+                    not _okno25.findChildren(_PM25.PrzelotRejonu)
+                    and _okno25.mapa.postep_rysowania() >= 0.999 and not _okno25.mapa.rysuje_trase()
+                    and _okno25.kartka.obecnosc() >= 0.999
+                    and _okno25.k_kompas.kompas.stan() == "sukces",
+                    str((len(_okno25.findChildren(_PM25.PrzelotRejonu)), _okno25.mapa.postep_rysowania(),
+                         _okno25.kartka.obecnosc())))
+            _s25 = sorted(_klatki25)
+            sprawdz("budżet klatki w czasie PRACY SILNIKA przy 1920×1080: mediana i p90 klatki przelotu poniżej 16 ms",
+                    len(_s25) >= 8 and _stat25.median(_s25) < 16.0 and _s25[int(0.9 * (len(_s25) - 1))] < 16.0,
+                    "klatek %d, mediana %.2f, p90 %.2f, max %.2f" % (
+                        len(_s25), _stat25.median(_s25) if _s25 else -1,
+                        _s25[int(0.9 * (len(_s25) - 1))] if _s25 else -1, _s25[-1] if _s25 else -1))
+            _okno25.ustaw_animacje(True)
+
+        # ── 25c. przelot sam: film, paralaksa, trasy, zrzuty, Esc, wyłącznik ──
+        _klatki25[:] = []
+        _okno25._zacznij_intro_generowania()
+        _f25 = _okno25._intro_generowania
+        sprawdz("zaczep stawia przelot także bez wątku (film do zrzutów i pomiarów)",
+                isinstance(_f25, _PM25.PrzelotRejonu) and _f25.scena() is None)
+        _f25._tik()                                  # wypiek filmu
+        _zapas25, _a25, _b25 = _f25.wspolczynniki()
+        _rejon25 = _f25._rejon
+        sprawdz("film sceny jest szerszy od mapy o zapas z każdej strony, tą samą kamerą (ta sama ogniskowa i oko)",
+                _f25.scena().width() == _okno25.mapa.width() + 2 * _zapas25 and _zapas25 > 0
+                and _f25.scena().height() == _okno25.mapa.height()
+                and abs(_f25._rzut.k - _rejon25.rzut().k) < 1e-9 and _f25._rzut.oko == _rejon25.rzut().oko
+                and abs(_f25._rzut.px - _rejon25.rzut().px - _zapas25) < 1e-9,
+                str((_f25.scena().size(), _okno25.mapa.size(), _zapas25)))
+        _rz25 = _f25._rzut
+        _odch25 = 0.0
+        for _y in range(int(_f25._srodek_h * 0.3), int(_f25._srodek_h * 0.98), 8):
+            _gx, _gy = _rz25.na_grunt(_f25._film_w * 0.5, _y)
+            if _rz25.glebokosc(_gx, _gy, 0.0) < 2400.0:
+                _odch25 = max(_odch25, abs(_f25._amplituda * (_rz25.skala(_gx, _gy, 0.0) - (_a25 + _b25 * _y))))
+        sprawdz("paralaksa: bliższy wiersz jedzie szybciej (b > 0), a prosta a + b·y odtwarza skalę rzutu z dokładnością poniżej 1 px przy pełnym wahnięciu",
+                _b25 > 0 and _a25 > 0 and _odch25 < 1.0, "b=%.5f odchyłka %.3f px" % (_b25, _odch25))
+        _pix25 = _QPX25(_f25.width(), _f25.height())
+        _p25 = _QPa25(_pix25)
+        _f25._kamera(_p25, _QR25(_f25.rect()), 10.0, 1.0)
+        _tr25 = _p25.worldTransform()
+        _p25.end()
+        _pt25 = _tr25.map(_QP25(1000.0, 400.0))
+        sprawdz("klatka to ścinanie: punkt filmu (x, y) trafia na ekran w (x − zapas − dx·(a + b·y), y)",
+                abs(_pt25.x() - (1000.0 - _zapas25 - 10.0 * (_a25 + _b25 * 400.0))) < 1e-6
+                and abs(_pt25.y() - 400.0) < 1e-6, str(_pt25))
+        _dx0 = _f25.przesuniecie()
+        _f25.ustaw_chwile(0.0)
+        _dx_0 = _f25.przesuniecie()
+        _f25.ustaw_chwile(_PM25.OKRES_PRZELOTU_S * 0.25)
+        _dx_q = _f25.przesuniecie()
+        sprawdz("kamera waha się jak wahadło: w chwili 0 stoi w środku, po ćwierci okresu jest na skraju amplitudy (na filmie zostaje zapas)",
+                abs(_dx_0) < 1e-9 and abs(_dx_q - _f25._amplituda) < 1e-6
+                and _f25._amplituda * (_a25 + _b25 * _f25._srodek_h) <= _zapas25 + 0.5,
+                str((_dx_0, _dx_q, _f25._amplituda, _zapas25)))
+        _geo25, _baza25 = _okno25.geo, _okno25.baza_miasto
+        _inne25 = sorted(n for n in _geo25 if n != _baza25)
+        _trasa25 = [(_baza25,) + tuple(_geo25[_baza25])] + [(n,) + tuple(_geo25[n]) for n in _inne25[:4]] \
+            + [(_baza25,) + tuple(_geo25[_baza25])]
+        _f25.ustaw_chwile(3.0)
+        _przed25 = _f25.grab().toImage()
+        _ok_dodaj25 = _f25.dodaj_trase(_trasa25, data=datetime.date(2026, 6, 3))
+        _t25 = _f25._trasy[-1]
+        _bx25, _by25 = _rejon25._miasta[_baza25]
+        _pkt_bazy25 = _rz25.ekran(_bx25, _by25, _rejon25._wysokosc(_bx25, _by25) + _rejon25._wznios_trasy)
+        sprawdz("dodaj_trase kładzie trasę dnia na filmie: pixmapa w obrysie trasy, początek w bazie, przy zamrożonym zegarze od razu scalona",
+                _ok_dodaj25 and _f25.trasy() == 1 and _t25["obrys"].width() > 60
+                and _t25["obrys"].contains(_t25["punkty"][0])
+                and abs(_t25["punkty"][0].x() - _pkt_bazy25.x()) < 1e-6
+                and _t25["zapal"] is None and _f25._trasy_pix is not None,
+                str((_ok_dodaj25, _t25["obrys"], _t25["punkty"][0], _pkt_bazy25)))
+        _po25 = _f25.grab().toImage()
+        sprawdz("zapalona trasa zmienia klatkę, a ta sama chwila daje ten sam obraz (powtarzalne zrzuty)",
+                same_piksele(_przed25) != same_piksele(_po25)
+                and same_piksele(_po25) == same_piksele(_f25.grab().toImage()))
+        _f25.ustaw_chwile(9.0)
+        _dalej25 = _f25.grab().toImage()
+        sprawdz("w innej chwili lotu krajobraz stoi gdzie indziej", same_piksele(_dalej25) != same_piksele(_po25))
+        sprawdz("trasa spoza prawdziwych współrzędnych i za krótka nie wchodzi na film",
+                _f25.dodaj_trase([("A", 51.4, 21.15)]) is False
+                and _f25.dodaj_trase([("A", "x", None), ("B", 51.4, 21.2)]) is False and _f25.trasy() == 1)
+        for _i in range(3):
+            _f25.dodaj_trase([(_baza25,) + tuple(_geo25[_baza25]),
+                              (_inne25[5 + _i],) + tuple(_geo25[_inne25[5 + _i]]),
+                              (_baza25,) + tuple(_geo25[_baza25])], data=datetime.date(2026, 6, 4 + _i))
+        _nowe25 = _f25.ustaw_dokumenty(1, 2)
+        sprawdz("dokument 1/2 stempluje pierwszą połowę dni (po datach), 2/2 resztę; ten sam meldunek drugi raz nic nie zmienia",
+                _nowe25 == 2 and _f25.stemple() == 2 and _f25.ustaw_dokumenty(1, 2) == 0
+                and _f25.ustaw_dokumenty(2, 2) == 2 and _f25.stemple() == 4
+                and _f25._trasy[0]["stempel"] and _f25._trasy[3]["stempel"], str((_nowe25, _f25.stemple())))
+        _pomiar25 = []
+        _f25.ustaw_chwile(None)
+        for _i in range(40):
+            _t = time.perf_counter()
+            _f25.repaint()
+            _pomiar25.append((time.perf_counter() - _t) * 1000.0)
+        _pm25 = sorted(_pomiar25)
+        sprawdz("budżet klatki przelotu z 4 trasami przy 1920×1080 (silnik stoi): mediana poniżej 16 ms",
+                _stat25.median(_pm25) < 16.0 and _pm25[int(0.9 * 39)] < 16.0,
+                "mediana %.2f p90 %.2f max %.2f" % (_stat25.median(_pm25), _pm25[int(0.9 * 39)], _pm25[-1]))
+        _mapa_z25 = _PM25.MapaDnia()
+        _mapa_z25.resize(400, 300)
+        _przelot_z25 = _PM25.PrzelotRejonu(_mapa_z25)
+        sprawdz("przelot nad mapą bez prawdziwych miast (układ z proto_dane) nie ma jak położyć trasy — dodaj_trase zwraca False",
+                _przelot_z25.dodaj_trase([("A", 51.4, 21.15), ("B", 51.5, 21.3)]) is False
+                and _mapa_z25.swiat_z_geo(51.4, 21.15) is None)
+        _przelot_z25.przerwij()
+        _miel25()
+
+        # Esc: przelot kończy się natychmiast, choć wątek jeszcze „pracuje"
+        class _WatekAtrapa25:
+            anulowano_razy = 0
+
+            def anuluj(self):
+                _WatekAtrapa25.anulowano_razy += 1
+        _okno25._watek = _WatekAtrapa25()
+        _okno25.k_kompas.kompas.ustaw_stan("praca")
+        _okno25.keyPressEvent(_QKE25(_QE25.Type.KeyPress, _Qt25.Key.Key_Escape, _Qt25.KeyboardModifier.NoModifier))
+        _miel25(3)
+        sprawdz("Esc w czasie generowania kończy przelot NATYCHMIAST — nakładka schodzi, zanim wątek zdąży się zatrzymać",
+                _WatekAtrapa25.anulowano_razy == 1 and _okno25._intro_generowania is None
+                and _f25.faza() == "koniec" and not _f25.isVisible()
+                and _okno25.k_kompas.kompas.etap() == "przerywanie", str((_f25.faza(), _f25.isVisible())))
+        _okno25._watek = None
+        _okno25._anulowano_generacji()
+        _miel25(4)
+        # w pełnym zestawie okno ma już wynik z 25b, więc kompas wraca do
+        # „sukces" (wynik dalej pasuje do formularza), w --szybko do „gotowy"
+        sprawdz("po przerwaniu nakładki nie ma w oknie, a kompas nie jest już w pracy",
+                not _okno25.findChildren(_PM25.PrzelotRejonu)
+                and _okno25.k_kompas.kompas.stan() in ("gotowy", "sukces")
+                and _okno25.k_kompas.kompas.etap() != "przerywanie",
+                str((_okno25.k_kompas.kompas.stan(), _okno25.k_kompas.kompas.etap())))
+
+        # wyłącznik animacji w trakcie lotu i przy starcie
+        _okno25._zacznij_intro_generowania()
+        _g25 = _okno25._intro_generowania
+        _g25._tik()
+        _okno25.ustaw_animacje(False)
+        _miel25(4)
+        sprawdz("ustaw_animacje(False) w locie gasi przelot od razu i bez śladu",
+                _okno25._intro_generowania is None and _g25.faza() == "koniec"
+                and not _okno25.findChildren(_PM25.PrzelotRejonu))
+        _okno25._zacznij_intro_generowania()
+        _miel25(2)
+        _zrzut_a25 = _okno25.grab().toImage()
+        _miel25(4)
+        sprawdz("przy zgaszonych animacjach przelotu nie ma (zostaje sam postęp na kompasie), a zrzuty okna są powtarzalne",
+                _okno25._intro_generowania is None and not _okno25.findChildren(_PM25.PrzelotRejonu)
+                and same_piksele(_zrzut_a25) == same_piksele(_okno25.grab().toImage()))
+        _NW25.OknoNowegoWygladu.INTRO_GENEROWANIA = None
+        try:
+            _okno25.ustaw_animacje(True)
+            _okno25._zacznij_intro_generowania()
+            _bez25 = _okno25._intro_generowania is None
+        finally:
+            _NW25.OknoNowegoWygladu.INTRO_GENEROWANIA = staticmethod(_NW25.przelot_generowania)
+        sprawdz("INTRO_GENEROWANIA = None: brak przelotu mimo animacji; po przywróceniu wstawka wraca",
+                _bez25 and _NW25.OknoNowegoWygladu.INTRO_GENEROWANIA is _NW25.przelot_generowania)
+        _okno25.ustaw_animacje(False)
+    finally:
+        _PM25.PrzelotRejonu.paintEvent = _paint25
+        P.OknoAktualizacji = _stare_akt25
+    _okno25.close()
+except Exception as _e25:
+    sprawdz("zaciekawienie 3: przelot nad rejonem w czasie generowania", False, repr(_e25))
+    import traceback as _tb25
+    _tb25.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

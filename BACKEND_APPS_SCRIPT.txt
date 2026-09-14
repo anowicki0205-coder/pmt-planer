@@ -1,12 +1,47 @@
 ═══════════════════════════════════════════════════════════════════════
   BACKEND (GOOGLE APPS SCRIPT) — CO ZROBIĆ PRZY WYDANIU 3.21.0
-  wersja instrukcji: 3.21.0
+  wersja instrukcji: 3.23.0 (dopisek na górze; kroki 0–4 bez zmian)
+═══════════════════════════════════════════════════════════════════════
+
+PRZY WYDANIU 3.23.0 — WDRÓŻ NOWY PLIK .GS (5 minut)
+
+  CO ZMIENIONO w apps_script_POPRAWIONY_v2.gs (szczegóły w nagłówku
+  pliku, sekcja „ZMIANY PRZY WYDANIU 3.23.0"):
+    1. zmienHaslo — numer telefonu ustawia hasło TYLKO na koncie, które
+       hasła jeszcze nie ma (ten sam warunek !hashBaza, co w logowanie).
+       Dotąd: kto znał cudzy numer, podmieniał cudze hasło.
+       Konto z hasłem + telefon → odmowa; konto bez hasła + telefon → OK;
+       konto z hasłem + dotychczasowe hasło → OK.
+    2. resetHasla — limit prób w CacheService: 5 na godzinę na kod
+       i 30 na godzinę łącznie (Apps Script nie zdradza adresu wywołującego,
+       więc licznik łączny zastępuje licznik „na adres"). Szósta próba
+       w godzinie = odmowa „Za duzo prob resetu". KAŻDA próba (OK,
+       zły telefon, nieznany kod, konto bez telefonu, za dużo prób) ma
+       wpis w zakładce Log.
+    3. puls — odpowiedź niesie tylko nieobecności pytającego kodu i kodów,
+       które on zastępuje (kolumna „Zastepuje kod"). Program nigdzie nie
+       czyta cudzych wpisów (online_nieobecnosci() nie ma żadnego
+       wywołania), więc nic mu nie ubywa.
+
+  CO WDROŻYĆ:
+    a) Rozszerzenia → Apps Script → Code.gs: zaznacz wszystko i wklej
+       CAŁY apps_script_POPRAWIONY_v2.gs. Jeśli na górze Code.gs masz
+       już blok z KROKU 1 (SEKRETY_PMT, weryfikujPodpis, AKCJE_PODPISANE)
+       i trzy linie z KROKU 2 w doPost — wklej je z powrotem w te same
+       miejsca (nowy plik ich nie zawiera, tak jak poprzedni).
+    b) Zapisz, potem Wdróż → Zarządzaj wdrożeniami → ołówek →
+       Wersja: Nowa → Wdróż. Adres /exec zostaje ten sam.
+    c) Sprawdź (KROK 3 niżej): logowanie z programu, „Nie pamiętam hasła"
+       z programu (reset telefonem + nowe hasło + logowanie nowym hasłem),
+       logowanie z telefonu (pmt_wizyty.html), jeden puls w arkuszu.
+       Nowe: w zakładce Log po każdej próbie resetu ma być wiersz.
+
 ═══════════════════════════════════════════════════════════════════════
 
 KTÓRY PLIK .GS JEST TEN WŁAŚCIWY
 
   W repozytorium leżą trzy warianty. NAJNOWSZY jest
-  apps_script_POPRAWIONY_v2.gs (866 linii) — i to on odpowiada temu,
+  apps_script_POPRAWIONY_v2.gs (939 linii) — i to on odpowiada temu,
   co masz wdrożone (inaczej nikt z hasłem literowym nie mógłby się
   zalogować).
 
@@ -198,13 +233,20 @@ DZIURY, KTÓRE ZOSTAJĄ W BACKENDZIE — do zrobienia osobno
 
   3. reset_hasla — kasuje hasło konta po samym numerze telefonu, bez
      limitu prób. Kto zna numer współpracownika, może przejąć konto.
-     → licznik prób w CacheService (np. 5/godz.), wpis do zakładki Log
-       przy każdej próbie, także nieudanej.
+     → ZAMKNIĘTE W 3.23.0 (apps_script_POPRAWIONY_v2.gs): licznik prób
+       w CacheService (5/godz. na kod, 30/godz. łącznie), wpis do
+       zakładki Log przy każdej próbie, także nieudanej.
 
   4. puls zwraca listę nieobecności WSZYSTKICH pracowników (z typem,
      np. „L4") każdemu, kto się odpyta.
-     → zwracać wyłącznie wiersze dotyczące pytającego kodu i kodów,
-       które ten kod zastępuje.
+     → ZAMKNIĘTE W 3.23.0: puls zwraca wyłącznie wiersze pytającego kodu
+       i kodów, które ten kod zastępuje.
+
+  4b. zmien_haslo przyjmował numer telefonu jako „stare hasło" także na
+     koncie z ustawionym hasłem — kto znał cudzy numer, podmieniał cudze
+     hasło.
+     → ZAMKNIĘTE W 3.23.0: telefon ustawia hasło tylko na koncie bez
+       hasła (jak w logowanie); reszta idzie przez reset_hasla.
 
   5. Nieznany kod bywa dopisywany do arkusza jako nowy użytkownik.
      → zwracać {status:'blad'} zamiast zakładać konto.

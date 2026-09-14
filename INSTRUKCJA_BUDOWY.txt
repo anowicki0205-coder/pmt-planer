@@ -1,10 +1,13 @@
-JAK ZBUDOWAC PROGRAM OD ZERA (3.21.0)
+JAK ZBUDOWAC PROGRAM OD ZERA (3.23.0)
 =====================================
 
 1. Rozpakuj CALA paczke do jednego, pustego folderu (np. C:\PMT\build).
-   Musza w nim lezec co najmniej: PMT_Delegacje.py, intro_zywa_mapa.py,
-   karta_testera.py, wyglad_3d.py,
-   zbuduj.py, wersja_exe.txt, pmt_logo.ico.
+   Musza w nim lezec co najmniej: PMT_Delegacje.py,
+   karta_testera.py, wyglad_3d.py, nowy_wyglad.py, okno_logowania.py,
+   pmt_dokumenty.py, pmt_podpis.py, pmt_wysylka.py, logo_retro.py,
+   podfolder prototyp\ (proto_*.py), zbuduj.py, wersja_exe.txt,
+   pmt_logo_retro.ico. Pelna lista: WYMAGANE w zbuduj.py — brak
+   ktoregokolwiek pliku zatrzymuje budowanie.
    Warto dolozyc tla: ciemny.png i jasny.png (bez nich program dziala,
    tylko rysuje tlo zastepcze).
 
@@ -12,13 +15,16 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.21.0)
    W zrodle i w wersja.txt ma byc ten sam numer.
 
 3. Przetestuj:  python testy_pmt.py
-   Maja przejsc WSZYSTKIE: pelny przebieg to ponad 200 kontroli,
-   wariant "python testy_pmt.py --szybko" ponad 100.
+   Maja przejsc WSZYSTKIE: pelny przebieg to ponad 680 kontroli,
+   wariant "python testy_pmt.py --szybko" ponad 500 (okolo 1,5 min).
    Jesli cokolwiek nie przechodzi - NIE buduj.
 
 4. Zbuduj:  dwuklik ZBUDUJ_EXE_FOLDER.bat   (wariant zalecany)
-   Skrypt sam sprawdzi pliki, doinstaluje brakujace biblioteki,
-   wyczysci build/, dist/ i pliki .spec, po czym zbuduje program.
+   Skrypt sam sprawdzi pliki, uzgodni wersja_exe.txt z numerem ze
+   zrodla, doinstaluje brakujace biblioteki, wyczysci build/, dist/
+   i pliki .spec, zbuduje program i sprawdzi w build\PMT_Planer\
+   PYZ-00.toc, czy KAZDY wlasny modul (nowy wyglad, logowanie,
+   widzety z prototyp\, dokumenty, podpis, wysylka) trafil do paczki.
    Wynik: dist\PMT_Planer\PMT_Planer.exe
 
    ZBUDUJ_EXE.bat (jeden plik) jest do wlasnych testow. Ten wariant
@@ -34,15 +40,20 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.21.0)
    JEDEN folder PMT_Planer - luzny plik obok psuje aktualizator 3.21.0/1.
 
 BUDOWANIE NA GITHUBIE (to samo, automatycznie)
-  Opublikowanie wydania z tagiem "v3.21.0" uruchamia .github/workflows/
-  build.yml. Buduje na Windows, macOS i Linux i dolacza paczki do wydania.
+  Opublikowanie wydania z tagiem "v3.23.0" uruchamia .github/workflows/
+  build.yml. Na Windows, macOS i Linux robot uruchamia DOKLADNIE to samo
+  polecenie, co ZBUDUJ_EXE_FOLDER.bat: python zbuduj.py --folder.
+  Listy modulow i plikow sa TYLKO w zbuduj.py (do 3.22.0 build.yml mial
+  wlasna, krotsza liste i paczki z GitHuba nie mialy nowego wygladu).
+  Paczki dolaczaja sie do wydania.
   Gdy paczka Windows jest juz w wydaniu, ten sam automat SAM podbija
   wersja.txt (numer ze zrodla + pierwsza linia opisu wydania; wiersze
   min= i blokada= zostaja). Dziala tez wtedy, gdy wydanie tworzysz przez
   edycje starego wpisu w Releases. Recznie wersja.txt NIE podbijaj -
   numer bez gotowej paczki kaze starym wersjom pobierac ja w kolko.
-  Wersja z CI jest budowana z tymi samymi ustawieniami co lokalna:
-  --onedir, --noupx, --version-file wersja_exe.txt, ikona, znacznik wersji.
+  Wersja z CI jest budowana tym samym skryptem co lokalna, wiec ma te
+  same ustawienia: --onedir, --noupx, --version-file wersja_exe.txt,
+  ikona, znacznik wersji, URUCHOM_PMT.bat i podpowiedz w folderze.
 
 CO NIE POWINNO SIE ZMIENIC
   * --onedir, nie --onefile   (mniej blokad, brak bledu "Failed to load
@@ -54,8 +65,8 @@ CO NIE POWINNO SIE ZMIENIC
   * Python 3.13, nie 3.14     (blad python314.dll u uzytkownikow).
 
 JAK ODCZYTAC WYNIK URUCHOMIENIA
-  * rusza animacja startowa            -> wszystko dziala;
-  * okno "PMT Planer 3.21.0 - blad startu" -> program wystartowal, ale cos
+  * okno logowania, po nim ekran programu -> wszystko dziala;
+  * okno "PMT Planer 3.23.0 - blad startu" -> program wystartowal, ale cos
     zawiodlo pozniej: przeslij plik .pmt_start_blad.txt z katalogu
     uzytkownika;
   * goly traceback w czarnej konsoli   -> uruchomil sie STARY plik,

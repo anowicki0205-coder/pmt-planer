@@ -169,6 +169,7 @@ import proto_dane as D                                             # noqa: E402
 import proto_okno as OK                                            # noqa: E402
 from proto_mapa import (MapaDnia, PrzelotRejonu, RANGA_BAZA, RANGA_MIASTO,  # noqa: E402
                         RANGA_WIES)
+from proto_spektakl import SpektaklMiesiaca                        # noqa: E402
 from proto_okno import OknoPrototypu, arkusz                       # noqa: E402
 from proto_taca import (KafelLiczby, Napis, Panel, PanelPodpisu,   # noqa: E402
                         PanelWysylki, Przycisk)
@@ -536,20 +537,32 @@ PROMIEN_MAPY_KM = 115.0        # tyle terenu pokazuje mapa wokół bazy
 
 
 def przelot_generowania(okno):
-    """Wstawka INTRO_GENEROWANIA: przelot nad rejonem na czas pracy silnika.
+    """Wstawka INTRO_GENEROWANIA: spektakl nad rejonem na czas pracy silnika
+    (proto_spektakl.SpektaklMiesiaca — przelot z choreografią: noc, nitki
+    światła po drogach ułożonych dni, kartki dokumentów, lądowanie).
 
     Nakładka staje dokładnie na mapie, nad kartką i pigułką, pod tacą
     i dymkami. Rejon to te same miejscowości, które dostała mapa, i ten sam
     krajobraz; obraz sprzed przelotu (mapa z kartką, tak jak leży na
-    ekranie) odchodzi w tył w pierwszych klatkach. Zwraca widżet albo None."""
+    ekranie) odchodzi w tył w pierwszych klatkach. Uderzenie pieczęci
+    rozpędza kompas; pominięty kliknięciem pokaz zgłasza się oknu
+    (zakonczono → _intro_zeszlo). Zwraca widżet albo None."""
     mapa = getattr(okno, "mapa", None)
     if mapa is None or not mapa.isVisible():
         return None
     miasta = miasta_dla_mapy(getattr(okno, "geo", None),
                              getattr(okno, "baza_miasto", ""))
-    film = PrzelotRejonu.nad_mapa(mapa, miasta, baza=getattr(okno, "baza_miasto", None),
-                                  mapa_pod=lambda: okno.mapa, rodzic=okno)
+    try:
+        data = datetime.date(int(okno.rok), int(okno.miesiac), 1)
+    except (AttributeError, TypeError, ValueError):
+        data = None
+    film = SpektaklMiesiaca.nad_mapa(mapa, miasta, baza=getattr(okno, "baza_miasto", None),
+                                     mapa_pod=lambda: okno.mapa, rodzic=okno, data=data,
+                                     na_stempel=getattr(okno, "_uderzenie_pieczeci", None))
     film.ustaw_start(okno.grab(mapa.geometry()))
+    zeszlo = getattr(okno, "_intro_zeszlo", None)
+    if zeszlo is not None:
+        film.zakonczono.connect(lambda: zeszlo(film))
     film.show()
     film.raise_()
     for nazwa in ("taca", "toast"):
@@ -3661,6 +3674,19 @@ class OknoNowegoWygladu(OknoPrototypu):
         except Exception as blad:
             PMT.log_error(blad)
             self._intro_generowania = None
+
+    def _intro_zeszlo(self, film):
+        """Wstawka zeszła sama (pominięta kliknięciem albo wylądowała) —
+        okno przestaje ją karmić meldunkami; silnik pracuje jak pracował."""
+        if getattr(self, "_intro_generowania", None) is film:
+            self._intro_generowania = None
+
+    def _uderzenie_pieczeci(self):
+        """Kartka dokumentu osiadła na stosie pokazu — kompas dostaje rozpęd."""
+        try:
+            self.k_kompas.kompas.impuls()
+        except AttributeError:
+            pass
 
     def _zakoncz_intro_generowania(self, natychmiast=False):
         """``natychmiast`` — bez lądowania (przerwanie, zgaszone animacje)."""

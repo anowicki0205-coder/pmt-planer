@@ -164,8 +164,23 @@ ODSTEP_NIEBA = 6.0
 UDZIAL_LAKI = 0.16                # jaka część otwartych działek jest łąką
 UDZIAL_JEZIOR = 0.030             # ...a jaka stawem albo jeziorem (w dolinach)
 POZIOMIC = 4                      # tyle poziomic mieści się w najwyższym garbie
-KROK_CIENIOWANIA = 12.0           # krok siatki cieniowania terenu przy 1920 px
+KROK_CIENIOWANIA = 14.0           # krok siatki cieniowania terenu przy 1920 px
 MOC_CIENIOWANIA = 2.4             # jak mocno rzeźba ciemni i rozjaśnia teren
+# Rzeźba w górach ma być CZYTELNA: cieniowanie rośnie z rzeźbą rejonu, grzbiety
+# dostają jasną krawędź, a doliny ciemną (z krzywizny siatki wysokości);
+# poziomice rysują się tylko od tej rzeźby wzwyż — na nizinie nie pomagają.
+MOC_GRZBIETU = 0.55               # siła akcentu grzbiet/dolina (ułamek alfy)
+RZEZBA_POZIOMIC = 1.5
+# Druga oktawa rzeźby: drobne garby między wielkimi kopułami — bez nich
+# teren był kilkoma rozmytymi plamami, a góry nie miały grzbietów. Bok kratki
+# i wysokość w ułamku pierwszej oktawy; zasięg w ułamku kadru (dalej mgła).
+OKTAWA_KRATKA = 0.36
+OKTAWA_WYSOKOSC = 0.34
+OKTAWA_ZASIEG = 0.95
+TLUMIK_GOR = 0.60                 # w górach środek kadru nie jest płaski
+RZEZBA_GOR = 1.6                  # od tej rzeźby szczyty dostają skałę i śnieg
+GRANICA_SKALY = 0.50              # ułamek najwyższego garbu, od którego jest skała
+GRANICA_SNIEGU = 0.80             # ...i śnieg (zimą schodzi do połowy)
 CHMUR = 4                         # chmury na niebie i ich cienie na ziemi
 # Rzeźba terenu wg rejonu: z szerokości geograficznej bazy. Program nie
 # ma rzeźby prawdziwej — ma za to adres bazy, a Zakopane leży w górach,
@@ -371,9 +386,9 @@ RANGI = {
 # wysokich (wieżowce bazy), czy stoi wieża kościelna i ile kominów. Baza ma
 # wyższą zabudowę i punkty orientacyjne, miasto powiatowe wieżę, wieś
 # niskie domy.
-WYSOKOSC_RANGI = {RANGA_BAZA: (1.55, 4, True, 2), RANGA_MIASTO: (1.0, 1, True, 1),
+WYSOKOSC_RANGI = {RANGA_BAZA: (1.70, 5, True, 2), RANGA_MIASTO: (1.05, 2, True, 1),
                   RANGA_WIES: (0.72, 0, False, 0)}
-WYSOKIE_BRYLY_MNOZNIK = 2.6      # bryła „wysoka” jest tyle razy wyższa od zwykłej
+WYSOKIE_BRYLY_MNOZNIK = 2.8      # bryła „wysoka” jest tyle razy wyższa od zwykłej
 WIEZA_WYSOKOSC_KM = 0.55         # wieża i komin sięgają tyle kilometrów w skali znaku
 # Próg czytelności znaku miejscowości: ile pikseli ma mieć plama zabudowy
 # w poprzek, mierzona w środku kadru. Prawdziwa baza ma osiem kilometrów,
@@ -972,7 +987,9 @@ def _kreskowana(p, sciezka, kolor, warstwy=((15, 22), (7, 60), (2.4, 205)),
 
 
 _SPRITE_SWIATLA = {}
+_SPRITE_DUZE = {}       # (barwa, promień) → sprite już w docelowej wielkości
 _BOK_SPRITE = 96
+_KROK_DUZEGO = 6        # promień dużego halo zaokrąglany do tylu pikseli
 
 
 def _punkt_swiatla(p, srodek, promien, kolor, sila):
@@ -1001,13 +1018,28 @@ def _punkt_swiatla(p, srodek, promien, kolor, sila):
         return
     stara = p.opacity()
     p.setOpacity(stara * sila / 255.0)
-    # bardzo duże halo jest tak miękkie, że sąsiednie piksele różnią się o
-    # ułamek stopnia alfy — wygładzanie przy rozciąganiu nic nie wnosi,
-    # a kosztuje milisekundę na klatkę
-    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, promien < 90.0)
-    p.drawPixmap(QRectF(srodek.x() - promien, srodek.y() - promien,
-                        promien * 2.0, promien * 2.0), pix, QRectF(pix.rect()))
+    if promien >= 90.0:
+        # bardzo duże halo (oddech bazy, zapalany przystanek) jest tak
+        # miękkie, że promień zaokrąglony do kilku pikseli wygląda tak samo;
+        # gotowy sprite w docelowej wielkości kładzie się zwykłym blitem,
+        # a skalowanie 96 px na 360 px co klatkę kosztowało milisekundę
+        r = int(round(promien / _KROK_DUZEGO)) * _KROK_DUZEGO
+        duzy = _SPRITE_DUZE.get((klucz, r))
+        if duzy is None:
+            if len(_SPRITE_DUZE) >= 32:
+                _SPRITE_DUZE.clear()
+            duzy = pix.scaled(2 * r, 2 * r, Qt.AspectRatioMode.IgnoreAspectRatio,
+                              Qt.TransformationMode.SmoothTransformation)
+            _SPRITE_DUZE[(klucz, r)] = duzy
+        p.drawPixmap(QPointF(srodek.x() - r, srodek.y() - r), duzy)
+    else:
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        p.drawPixmap(QRectF(srodek.x() - promien, srodek.y() - promien,
+                            promien * 2.0, promien * 2.0), pix, QRectF(pix.rect()))
     p.setOpacity(stara)
+
+
+_ODCINKOW_KAWALKA = 8       # tyle odcinków trasy dostaje jedną szerokość pióra
 
 
 def _poswiata_zmienna(p, punkty, skale, kolor, warstwy):
@@ -1022,15 +1054,28 @@ def _poswiata_zmienna(p, punkty, skale, kolor, warstwy):
     n = len(punkty)
     if n < 2:
         return
+    # kawałkami po kilka odcinków z jedną szerokością (ze średniej skali
+    # kawałka): sto pięćdziesiąt osobnych linii z okrągłymi końcami na warstwę
+    # kosztowało trzy razy tyle, co kilkanaście ścieżek; skala zmienia się
+    # wzdłuż kawałka o ułamek procenta, więc oko różnicy nie widzi
     for szer, alfa, krok in warstwy:
         pen = QPen(st.z_alfa(kolor, alfa), 1.0)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         i = 0
         while i < n - 1:
-            j = min(n - 1, i + krok)
-            pen.setWidthF(max(0.7, szer * (skale[i] + skale[j]) * 0.5))
+            sciezka = QPainterPath(punkty[i])
+            suma, ile, j = skale[i], 1, i
+            for _ in range(_ODCINKOW_KAWALKA):
+                if j >= n - 1:
+                    break
+                j = min(n - 1, j + krok)
+                sciezka.lineTo(punkty[j])
+                suma += skale[j]
+                ile += 1
+            pen.setWidthF(max(0.7, szer * suma / ile))
             p.setPen(pen)
-            p.drawLine(punkty[i], punkty[j])
+            p.drawPath(sciezka)
             i = j
 
 
@@ -1380,7 +1425,13 @@ class MapaDnia(QWidget):
         self._powrot_pix = None         # kreskowany powrót: przerysowany co pełny piksel
         self._powrot_poz = None
         self._powrot_klucz = None
+        self._cien_poz = QPointF(0.0, 0.0)
         self._cien_klucz = None
+        self._blask_pix = None          # poświata całej trasy: klatka odsłania z niej okno
+        self._trasa_pole = None         # obrys trasy na ekranie: tylko tyle się blituje
+        self._nitka_pix = None          # nitka do kartki: przerysowana co pełny piksel
+        self._nitka_poz = None
+        self._nitka_klucz = None
         self._wykonczenie_pix = None    # winieta i ziarno — też się nie ruszają
         self._wykonczenie_klucz = None
         self._faza = self.FAZA_ZRZUTU
@@ -1886,6 +1937,10 @@ class MapaDnia(QWidget):
         self._mosty = self._znajdz_mosty()
         self._ziarno_terenu = self._ziarno
         self._probki_klucz = None      # trasa unosi się nad INNYM już terenem
+        # ...więc i kamera dopasowuje się od nowa: wpasowuje w kadr trasę
+        # RAZEM z jej wysokością nad terenem, a stara kamera pamiętała
+        # wysokości poprzedniego terenu i tabliczki przeskakiwały o piksel
+        self._rzut_klucz = None
         self._pola = None
         self._statyk_klucz = None
         self._warstwy_klucz = None
@@ -2264,12 +2319,39 @@ class MapaDnia(QWidget):
                 cx = px + (i + 0.14 + 0.72 * _hasz(z, i, j, 2)) * kom
                 cy = py + (j + 0.14 + 0.72 * _hasz(z, i, j, 3)) * kom
                 tlum = _tlumik_srodka(cx - px, cy - py, srx, sry)
+                if self._rzezba >= RZEZBA_GOR:      # góry są górami i w środku kadru
+                    tlum = max(tlum, TLUMIK_GOR)
                 prom = kom * (0.40 + 0.36 * _hasz(z, i, j, 4))
                 niski, wysoki = UDZIAL_GARBU
                 wys = self._miara * (niski + wysoki
                                      * _hasz(z, i, j, 5) ** 1.35) * tlum * self._rzezba
                 kopuly.append((cx, cy, prom,
-                               prom * (0.68 + 0.54 * _hasz(z, i, j, 7)), wys))
+                               prom * (0.52 + 0.40 * _hasz(z, i, j, 7)), wys, False))
+        # druga oktawa: grzbiety — garby wydłużone ze wschodu na zachód,
+        # ustawione w łańcuchy wzdłuż wierszy kratki (jak pasma Beskidów
+        # i Tatr). Kamera i słońce stoją na południu, więc widać jasne
+        # stoki i ciemne przeciwstoki za grzbietem — z tego oko czyta góry,
+        # nie z okrągłych bąbli. Tylko w zasięgu kadru; dalej jest mgła.
+        # Wysokość rośnie z KWADRATEM rzeźby: w Tatrach grzbiety sięgają
+        # połowy wielkich kopuł, na Mazowszu ledwie falują. Grań jest ostra
+        # (profil (1-r)² w _wysokosc), więc stok i przeciwstok stykają się
+        # na wyraźnej linii, a nie przechodzą w siebie rozmytą smugą.
+        kom2 = kom * OKTAWA_KRATKA
+        zas2 = int(math.ceil(max(sx, sy) * OKTAWA_ZASIEG / kom2))
+        wys2 = self._miara * UDZIAL_GARBU[1] * OKTAWA_WYSOKOSC * self._rzezba ** 2
+        # poza górami grzbietów jest o połowę mniej: nizina ma falować, nie
+        # jeżyć się, a każdy garb kosztuje przy liczeniu wysokości
+        prog_grzbietu = 0.68 if self._rzezba > 1.0 else 0.40
+        for i in range(-zas2, zas2 + 1):
+            for j in range(-zas2, zas2 + 1):
+                if _hasz(z, i, j, 21) > prog_grzbietu:
+                    continue
+                cx = px + (i + 0.5 + 0.9 * (_hasz(z, i, j, 22) - 0.5)) * kom2
+                cy = py + (j + 0.5 + 0.55 * (_hasz(z, i, j, 23) - 0.5)) * kom2
+                rx = kom2 * (1.0 + 0.9 * _hasz(z, i, j, 24))
+                ry = rx * (0.30 + 0.28 * _hasz(z, i, j, 25))
+                kopuly.append((cx, cy, rx, ry,
+                               wys2 * (0.35 + 0.65 * _hasz(z, i, j, 26) ** 1.2), True))
         siatka = {}
         for k in kopuly:
             cx, cy, rx, ry = k[0], k[1], k[2], k[3]
@@ -2292,7 +2374,7 @@ class MapaDnia(QWidget):
         if not lista:
             return 0.0
         h = 0.0
-        for (cx, cy, rx, ry, wys) in lista:
+        for (cx, cy, rx, ry, wys, ostra) in lista:
             dx = x - cx
             if dx < -rx or dx > rx:
                 continue
@@ -2303,9 +2385,14 @@ class MapaDnia(QWidget):
             dy /= ry
             r2 = dx * dx + dy * dy
             if r2 < 1.0:
-                # (1-r²)²: zbocze najstromsze w połowie promienia, przy
-                # obrzeżu wygasa — garb ma miękkie stopy, nie krawędź
-                h += wys * (1.0 - r2) * (1.0 - r2)
+                if ostra:
+                    # (1-r)²: ostra grań na szczycie, miękkie stopy — grzbiet
+                    p = 1.0 - math.sqrt(r2)
+                    h += wys * p * p
+                else:
+                    # (1-r²)²: zbocze najstromsze w połowie promienia, przy
+                    # obrzeżu wygasa — garb ma miękkie stopy, nie krawędź
+                    h += wys * (1.0 - r2) * (1.0 - r2)
         return h
 
     # — otwarty teren: pola, łąki, lasy, wody i rzeźba —
@@ -2321,7 +2408,7 @@ class MapaDnia(QWidget):
         if not lista:
             return 0.0, 0.0, 0.0
         h = gx = gy = 0.0
-        for (cx, cy, rx, ry, wys) in lista:
+        for (cx, cy, rx, ry, wys, ostra) in lista:
             dx = x - cx
             if dx < -rx or dx > rx:
                 continue
@@ -2332,11 +2419,22 @@ class MapaDnia(QWidget):
             uy = dy / ry
             r2 = ux * ux + uy * uy
             if r2 < 1.0:
-                p = 1.0 - r2
-                h += wys * p * p
-                k = -4.0 * wys * p            # pochodna (1-r²)² po r² razy (-2u/r)
-                gx += k * ux / rx
-                gy += k * uy / ry
+                if ostra:
+                    r = math.sqrt(r2)
+                    if r < 1e-9:
+                        h += wys
+                        continue
+                    p = 1.0 - r
+                    h += wys * p * p
+                    k = -2.0 * wys * p / r        # pochodna (1-r)² po r razy (u/r)
+                    gx += k * ux / rx
+                    gy += k * uy / ry
+                else:
+                    p = 1.0 - r2
+                    h += wys * p * p
+                    k = -4.0 * wys * p            # pochodna (1-r²)² po r² razy (-2u/r)
+                    gx += k * ux / rx
+                    gy += k * uy / ry
         return h, gx, gy
 
     def _horyzont(self, rzut, r):
@@ -2392,14 +2490,18 @@ class MapaDnia(QWidget):
         # węzeł i raz na działkę, a potrzebne liczby bierzemy z osobnych bitów
         pamiec, kepy_lasu, kepy_tonu, kepy_lak = {}, {}, {}, {}
 
+        ekran = rzut.ekran
+
         def wezel(i, j):
-            """Wierzchołek siatki wraz z wysokością — wspólny dla czterech działek."""
+            """Wierzchołek siatki z wysokością i punktem ekranu — wspólny dla
+            czterech działek, więc rzutowany raz, nie cztery razy."""
             w = pamiec.get((i, j))
             if w is None:
                 h = _hasz_calk(z, i, j, 71)
                 wx = (i + 0.56 * ((h & 0xFFFF) / 65535.0 - 0.5)) * kom
                 wy = (j + 0.56 * (((h >> 16) & 0xFFFF) / 65535.0 - 0.5)) * kom
-                w = (wx, wy, self._wysokosc(wx, wy))
+                wh = self._wysokosc(wx, wy)
+                w = (wx, wy, wh, ekran(wx, wy, wh))
                 pamiec[(i, j)] = w
             return w
 
@@ -2416,7 +2518,6 @@ class MapaDnia(QWidget):
         barwy_pol = pal["pola"]
         ile_barw = len(barwy_pol)
         laka = pal["laka"]
-        ekran = rzut.ekran
         zamgl = rzut.zamgl
         prog_jeziora = self._miara * 0.004
         dzialki, lasy, jeziora = [], [], []
@@ -2472,14 +2573,13 @@ class MapaDnia(QWidget):
                 pole = zamgl(QColor(min(255, int(baza.red() * kr * mn)),
                                     min(255, int(baza.green() * kg * mn)),
                                     min(255, int(baza.blue() * kb * mn))), mgla, 0.62)
-                dzialki.append((gleb, QPolygonF([ekran(a[0], a[1], ha), ekran(b[0], b[1], hb),
-                                                 ekran(c[0], c[1], hc), ekran(d[0], d[1], hd)]),
+                dzialki.append((gleb, QPolygonF([a[3], b[3], c[3], d[3]]),
                                 pole, pole.darker(112)))
                 # lasy rosną ZWARTYMI masywami: o tym, czy w tej okolicy w ogóle
                 # jest las, decyduje hasz większej kratki (poza masywem lasu nie
                 # ma wcale, w masywie rośnie prawie wszędzie), a dopiero potem
                 # sama działka
-                prog = UDZIAL_LASU * 3.0 * max(0.0, kepa(kepy_lasu, i // 3, j // 3, 81) - 0.33) / 0.67
+                prog = UDZIAL_LASU * 2.3 * max(0.0, kepa(kepy_lasu, i // 3, j // 3, 81) - 0.33) / 0.67
                 if los < prog:
                     lasy.append(self._las(rzut, sx, sy, kom, jas, mgla, hasz, gleb))
                 elif (h_sr < prog_jeziora and not jest_laka
@@ -2500,8 +2600,8 @@ class MapaDnia(QWidget):
         """
         sw = self._swiatlo
         cien_k, korona_k = sw.paleta["las"]
-        prom = kom * (0.52 + 0.30 * _hasz(klucz, 3))
-        obrys = _plama(sx, sy, prom, klucz, lobow=8 + int(_hasz(klucz, 4) * 3.99),
+        prom = kom * (0.60 + 0.36 * _hasz(klucz, 3))
+        obrys = _plama(sx, sy, prom, klucz, lobow=6 + int(_hasz(klucz, 4) * 3.99),
                        splasz=0.62 + 0.46 * _hasz(klucz, 6),
                        sila=0.46 + 0.34 * _hasz(klucz, 7), gestosc=2)
         wys = self._wysokosc
@@ -2513,26 +2613,33 @@ class MapaDnia(QWidget):
         szer_px = prom * 2.0 * rzut.k / max(1.0, gleb)
         if szer_px < 18.0:
             return (gleb, None, None, gora, None, (None, wierzch, None))
-        # cień lasu leży na gruncie po stronie odwróconej od słońca
-        cx, cy = rzut.cien_x * korona, rzut.cien_y * korona
+        # cień lasu leży na gruncie po stronie odwróconej od słońca — dłuższy
+        # niż korona jest wysoka, bo słońce stoi nisko nad zboczem
+        cx, cy = rzut.cien_x * korona * 1.35, rzut.cien_y * korona * 1.35
         cien = QPolygonF([ekran(x + cx, y + cy, h) for ((x, y), h) in zip(obrys, wysokosci)])
         dol = QPolygonF([ekran(x, y, h) for ((x, y), h) in zip(obrys, wysokosci)])
         sciana = rzut.zamgl(sw.oswietl(cien_k, 0.05), mgla, 0.62)
-        # korony: gradient od słonecznej strony (jasna zieleń) ku cieniowi;
-        # w bliskich płatach kilka ciemnych luk między koronami daje fakturę
+        # korony: gradient liniowy wzdłuż światła — od słonecznej krawędzi
+        # (jasna zieleń) do krawędzi w cieniu; gradient promienisty liczył
+        # pierwiastek w każdym pikselu i kosztował połowę wypieku lasów
         lx, ly = rzut.swiatlo_ekran
         ramka = gora.boundingRect()
-        srodek = QPointF(ramka.center().x() + lx * ramka.width() * 0.22,
-                         ramka.center().y() + ly * ramka.height() * 0.22)
-        jasno = rzut.zamgl(sw.oswietl(korona_k, min(1.0, jas * 0.7 + 0.55), 1.10), mgla, 0.62)
-        luki = []
+        zas = max(ramka.width(), ramka.height()) * 0.52
+        od = QPointF(ramka.center().x() + lx * zas, ramka.center().y() + ly * zas)
+        do = QPointF(ramka.center().x() - lx * zas, ramka.center().y() - ly * zas)
+        jasno = rzut.zamgl(sw.oswietl(korona_k, min(1.0, jas * 0.7 + 0.55), 1.12), mgla, 0.62)
+        # faktura koron: w bliskich płatach kilka kęp — ciemna luka od strony
+        # cienia i jasny grzbiet korony od słońca, jak kłęby na zdjęciu lotniczym
+        kepy = []
         if szer_px > 44.0:
-            for k in range(3 + int(szer_px / 40.0)):
+            r_kepy = max(1.8, szer_px * 0.06)
+            for k in range(2 + int(szer_px / 70.0)):
                 u = 6.2832 * _hasz(klucz, 30 + k)
-                v = 0.15 + 0.55 * _hasz(klucz, 50 + k)
-                luki.append(QPointF(ramka.center().x() + math.cos(u) * ramka.width() * 0.5 * v,
-                                    ramka.center().y() + math.sin(u) * ramka.height() * 0.5 * v))
-        slonce = (srodek, max(ramka.width(), ramka.height()) * 0.72, luki, max(1.4, szer_px * 0.035))
+                v = 0.12 + 0.58 * _hasz(klucz, 50 + k)
+                kepy.append((QPointF(ramka.center().x() + math.cos(u) * ramka.width() * 0.5 * v,
+                                     ramka.center().y() + math.sin(u) * ramka.height() * 0.5 * v),
+                             r_kepy * (0.7 + 0.6 * _hasz(klucz, 70 + k))))
+        slonce = (od, do, kepy, (lx, ly))
         return (gleb, cien, dol, gora, slonce, (sciana, wierzch, jasno))
 
     def _jezioro(self, rzut, sx, sy, kom, mgla, klucz, gleb, zima):
@@ -2558,7 +2665,7 @@ class MapaDnia(QWidget):
                        sr.width() * 0.36, sr.height() * 0.20)
         return (gleb, brzeg, tafla, blask, woda,
                 rzut.zamgl(st.WODA_BRZEG, mgla, 0.62),
-                st.z_alfa(st.WODA_BLASK, int((60 if zima else 130) * (1.0 - mgla))))
+                st.z_alfa(st.WODA_BLASK, int((60 if zima else 170) * (1.0 - mgla))))
 
     def _rysuj_pola(self, p, pola=None):
         """Działki od najdalszej do najbliższej — bliższa zasłania dalszą.
@@ -2579,29 +2686,45 @@ class MapaDnia(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         lasy = pola["lasy"]
         cien = st.z_alfa(BARWA_CIENIA, 74)
+        # cienie i ściany koron leżą pod koronami i są ciemne — bez
+        # wygładzania nie widać schodków, a wypiek lasów tanieje o trzecią część
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         p.setBrush(QBrush(cien))
         for (_gleb, cien_w, _dol, _gora, _slonce, _barwy) in lasy:
             if cien_w is not None:
                 p.drawPolygon(cien_w)
-        for (_gleb, _cien, dol, gora, slonce, (sciana, wierzch, jasno)) in lasy:
+        for (_gleb, _cien, dol, _gora, _slonce, (sciana, _wierzch, _jasno)) in lasy:
             if dol is not None:
                 p.setBrush(QBrush(sciana))
                 p.drawPolygon(dol)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for (_gleb, _cien, dol, gora, slonce, (sciana, wierzch, jasno)) in lasy:
+            p.setPen(Qt.PenStyle.NoPen)
             if slonce is None:
                 p.setBrush(QBrush(wierzch))
                 p.drawPolygon(gora)
                 continue
-            srodek, promien, luki, r_luki = slonce
-            g = QRadialGradient(srodek, promien)
+            od, do, kepy, (lx, ly) = slonce
+            g = QLinearGradient(od, do)
             g.setColorAt(0.0, jasno)
-            g.setColorAt(0.45, wierzch)
+            g.setColorAt(0.5, wierzch)
             g.setColorAt(1.0, sciana)
             p.setBrush(QBrush(g))
+            # obwódka w barwie ściany domyka płat przy gruncie — bez niej
+            # korony wyglądały jak naklejka położona na polach
+            p.setPen(QPen(st.z_alfa(sciana, 170), 1.0))
             p.drawPolygon(gora)
-            if luki:
-                p.setBrush(QBrush(st.z_alfa(sciana, 150)))
-                for pt in luki:
-                    p.drawEllipse(pt, r_luki, r_luki * 0.7)
+            p.setPen(Qt.PenStyle.NoPen)
+            if kepy:
+                luka = QBrush(st.z_alfa(sciana, 150))
+                grzbiet = QBrush(st.z_alfa(jasno, 120))
+                for pt, rk in kepy:
+                    p.setBrush(luka)
+                    p.drawEllipse(QPointF(pt.x() - lx * rk * 0.45, pt.y() - ly * rk * 0.45),
+                                  rk, rk * 0.72)
+                    p.setBrush(grzbiet)
+                    p.drawEllipse(QPointF(pt.x() + lx * rk * 0.35, pt.y() + ly * rk * 0.35),
+                                  rk * 0.78, rk * 0.55)
         p.setBrush(Qt.BrushStyle.NoBrush)
 
     def _rysuj_jeziora(self, p, pola):
@@ -2615,17 +2738,26 @@ class MapaDnia(QWidget):
             if blask.width() > 2.0:
                 p.setBrush(QBrush(kolor_blasku))
                 p.drawEllipse(blask)
+                # jasna obwódka tafli: brzeg wody odbija niebo
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(st.z_alfa(kolor_blasku, 90), 1.0))
+                p.drawPolygon(tafla)
+                p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(Qt.BrushStyle.NoBrush)
 
     # — rzeźba terenu: gładkie cieniowanie i poziomice —
     def _cieniowanie(self, rzut, r, y_hor_px):
-        """(obraz cieniowania w małej rozdzielczości, jego prostokąt, poziomice).
+        """(cieniowanie, warstwa skały i śniegu, prostokąt, poziomice).
 
-        Nachylenie terenu liczy się w siatce co kilkanaście pikseli, a obraz
-        rozciąga się potem gładko na cały widżet: rzeźba wychodzi miękka,
-        doliny jaśniejsze, zbocza od słońca w cieniu. Z tej samej siatki
-        wychodzą poziomice (marching squares) — rysowane tylko tam, gdzie
-        jest garb, bo na płaskim nie ma czego obrysowywać.
+        Nachylenie terenu liczy się w siatce co kilkanaście pikseli, a obrazy
+        rozciągają się potem gładko na cały widżet: rzeźba wychodzi miękka,
+        doliny jaśniejsze, zbocza od słońca w cieniu. Moc cieniowania rośnie
+        z rzeźbą rejonu — w Tatrach zbocza mają być czytelne, na Mazowszu
+        ledwo falować. Z drugiego przejścia po siatce (krzywizna) wychodzi
+        akcent grzbietów (jasna krawędź) i dolin (ciemna), a w górach z
+        samej wysokości warstwa skały ponad lasem i śniegu na szczytach.
+        Z tej samej siatki wychodzą poziomice (marching squares) — tylko
+        w rejonach górskich, bo na płaskim nie ma czego obrysowywać.
         """
         W, H = r.width(), r.height()
         krok = max(5.0, KROK_CIENIOWANIA * min(W, H) / 1080.0)
@@ -2633,17 +2765,20 @@ class MapaDnia(QWidget):
         nx = int(math.ceil(W / krok)) + 1
         ny = int(math.ceil((r.bottom() - y0) / krok)) + 1
         if nx < 2 or ny < 2:
-            return None, None, None
+            return None, None, None, None
         lx, ly, lz = self._swiatlo.jedn
         nach = self._nachylenie
         na_grunt = rzut.na_grunt
-        moc = MOC_CIENIOWANIA
+        rzezba = self._rzezba
+        moc = MOC_CIENIOWANIA * (0.30 + 0.70 * rzezba)
         blisko = rzut.blisko_y(BLISKO_KAMERY)
         _gx, y_hor = na_grunt(r.center().x(), y_hor_px, dal_max=4000.0)
-        hmax = max(1e-6, UDZIAL_GARBU[1] * self._miara * self._rzezba)
+        hmax = max(1e-6, UDZIAL_GARBU[1] * self._miara * rzezba)
         bufor = bytearray(nx * ny * 4)
         wysokosci = [0.0] * (nx * ny)
+        wartosci = [0.0] * (nx * ny)          # d przed zapisem — do akcentu grzbietów
         tlumy = [0.0] * ny
+        rozstawy = [1.0] * ny                 # rozstaw siatki w świecie, wiersz po wierszu
         x_lewy = r.x()
         for jj in range(ny):
             sy = y0 + (jj + 0.5) * krok
@@ -2653,6 +2788,7 @@ class MapaDnia(QWidget):
             mgla = rzut.mgla(rzut.glebokosc(0.0, gy, 0.0))
             tlum = 1.0 - 0.78 * mgla
             tlumy[jj] = tlum
+            rozstawy[jj] = max(1e-6, na_grunt(x_lewy + 1.5 * krok, sy)[0] - _gx)
             wiersz = jj * nx
             for ii in range(nx):
                 gx, _gy = na_grunt(x_lewy + (ii + 0.5) * krok, sy)
@@ -2666,19 +2802,95 @@ class MapaDnia(QWidget):
                 # pierwiastek: łagodne zbocza też mają być widoczne, a strome
                 # nie mają zalewać terenu czernią
                 d = (math.sqrt(d) if d > 0.0 else -math.sqrt(-d)) * 0.62
-                d = (d - 0.10 * h / hmax) * tlum
-                idx = (wiersz + ii) * 4
-                if d > 0.0:
-                    a = min(120, int(d * 255.0))
-                    bufor[idx] = bufor[idx + 1] = bufor[idx + 2] = bufor[idx + 3] = a
-                elif d < 0.0:
-                    bufor[idx + 3] = min(130, int(-d * 285.0))
+                wartosci[wiersz + ii] = (d - 0.10 * h / hmax) * tlum
+        # akcent grzbietów i dolin: krzywizna siatki (laplasjan wysokości);
+        # wypukły grzbiet dostaje jasną krawędź, wklęsła dolina ciemną —
+        # tylko tam, gdzie teren stoi wyżej niż stopy garbów
+        # krzywizna typowego drobnego garbu (druga oktawa): 4·H/R²; laplasjan
+        # siatki dzieli się przez kwadrat rozstawu wiersza w świecie
+        prom2 = self._komorka_terenu * OKTAWA_KRATKA * 0.8
+        krzywizna = 4.0 * hmax * OKTAWA_WYSOKOSC * 0.7 / max(1e-6, prom2 * prom2)
+        sila_g = MOC_GRZBIETU * (0.5 + 0.5 * min(1.0, rzezba / 1.7))
+        # akcent tylko tam, gdzie jest co akcentować: na nizinie grzbiety są
+        # płaskie, a drugie przejście po siatce kosztowało tyle, co niebo
+        for jj in range(1, ny - 1) if rzezba > 1.0 else ():
+            if tlumy[jj] <= 0.0:
+                continue
+            w0 = jj * nx
+            prog_grzbietu = krzywizna * rozstawy[jj] * rozstawy[jj]
+            for ii in range(1, nx - 1):
+                h = wysokosci[w0 + ii]
+                if h <= 0.0:
+                    continue
+                lap = (wysokosci[w0 + ii - 1] + wysokosci[w0 + ii + 1]
+                       + wysokosci[w0 - nx + ii] + wysokosci[w0 + nx + ii] - 4.0 * h)
+                c = -lap / prog_grzbietu
+                if c > 1.0:
+                    c = 1.0
+                elif c < -1.0:
+                    c = -1.0
+                wartosci[w0 + ii] += c * sila_g * min(1.0, h / hmax * 2.2) * tlumy[jj]
+        for idx in range(nx * ny):
+            d = wartosci[idx]
+            if d > 0.0:
+                a = min(84, int(d * 210.0))
+                i4 = idx * 4
+                bufor[i4] = bufor[i4 + 1] = bufor[i4 + 2] = bufor[i4 + 3] = a
+            elif d < 0.0:
+                bufor[idx * 4 + 3] = min(150, int(-d * 285.0))
         dane = bytes(bufor)
         obraz = QImage(dane, nx, ny, nx * 4, QImage.Format.Format_ARGB32_Premultiplied)
-        pix = QPixmap.fromImage(obraz)          # kopia: bufor może zginąć
+        # copy() jest konieczne: fromImage przy tym samym formacie NIE kopiuje
+        # danych, tylko dzieli bufor z QImage, a ten bufor to bajty Pythona,
+        # które giną po wyjściu z funkcji — pixmapa pokazywała wtedy śmieci
+        pix = QPixmap.fromImage(obraz.copy())
         pole = QRectF(x_lewy, y0, nx * krok, ny * krok)
-        poziomice = self._poziomice(wysokosci, nx, ny, krok, x_lewy, y0, tlumy, hmax)
-        return pix, pole, poziomice
+        szczyty = None
+        if rzezba >= RZEZBA_GOR:
+            szczyty = self._warstwa_szczytow(wysokosci, tlumy, nx, ny, hmax)
+        poziomice = None
+        if rzezba >= RZEZBA_POZIOMIC:
+            poziomice = self._poziomice(wysokosci, nx, ny, krok, x_lewy, y0, tlumy, hmax)
+        return pix, szczyty, pole, poziomice
+
+    def _warstwa_szczytow(self, wysokosci, tlumy, nx, ny, hmax):
+        """Skała ponad granicą lasu i śnieg na szczytach — z samej wysokości.
+
+        Alfa rośnie od granicy skały do pełnej przy najwyższym garbie, a
+        śnieg wchodzi na skałę od swojej granicy; zimą śnieg leży od
+        połowy wysokości. Obraz w siatce cieniowania, rozciągany gładko.
+        """
+        zima = self._swiatlo.pora_roku == "zima"
+        skala, snieg = st.SKALA, st.SNIEG
+        gr_skaly = GRANICA_SKALY
+        gr_sniegu = 0.50 if zima else GRANICA_SNIEGU
+        bufor = bytearray(nx * ny * 4)
+        for jj in range(ny):
+            tlum = tlumy[jj]
+            if tlum <= 0.0:
+                continue
+            w0 = jj * nx
+            for ii in range(nx):
+                u = wysokosci[w0 + ii] / hmax
+                if u <= gr_skaly:
+                    continue
+                if u >= gr_sniegu:
+                    barwa = snieg
+                    a = min(1.0, (u - gr_sniegu) / max(0.05, 1.0 - gr_sniegu)) * 0.85 + 0.35
+                else:
+                    barwa = skala
+                    a = min(1.0, (u - gr_skaly) / max(0.05, gr_sniegu - gr_skaly)) * 0.72
+                a = int(255 * min(1.0, a) * (0.55 + 0.45 * tlum))
+                if a <= 0:
+                    continue
+                i4 = (w0 + ii) * 4
+                bufor[i4] = barwa.blue() * a // 255
+                bufor[i4 + 1] = barwa.green() * a // 255
+                bufor[i4 + 2] = barwa.red() * a // 255
+                bufor[i4 + 3] = a
+        dane = bytes(bufor)
+        obraz = QImage(dane, nx, ny, nx * 4, QImage.Format.Format_ARGB32_Premultiplied)
+        return QPixmap.fromImage(obraz.copy())  # copy(): patrz _cieniowanie
 
     # marching squares: dla każdego z 16 układów narożników — które krawędzie
     # (0 góra, 1 prawa, 2 dół, 3 lewa) łączy odcinek poziomicy
@@ -2742,14 +2954,16 @@ class MapaDnia(QWidget):
 
     def _rysuj_cieniowanie(self, p, rzut, r, y_hor_px):
         """Gładka rzeźba i poziomice na wierzchu działek."""
-        pix, pole, poziomice = self._cieniowanie(rzut, r, y_hor_px)
+        pix, szczyty, pole, poziomice = self._cieniowanie(rzut, r, y_hor_px)
         if pix is None:
             return
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        if szczyty is not None:                       # skała i śnieg POD cieniem
+            p.drawPixmap(pole, szczyty, QRectF(szczyty.rect()))
         p.drawPixmap(pole, pix, QRectF(pix.rect()))
         if poziomice is not None:
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(st.z_alfa(st.POZIOMICA, 58), 0.9))
+            p.setPen(QPen(st.z_alfa(st.POZIOMICA, 52), 0.9))
             p.drawPath(poziomice)
             p.setPen(Qt.PenStyle.NoPen)
 
@@ -2852,21 +3066,28 @@ class MapaDnia(QWidget):
             return
         z = self._ziarno
         dol = r.bottom() - y_hor_px
+        p.setPen(Qt.PenStyle.NoPen)
         for (cx, cy, rozmiar, k) in self._chmury(r, y_hor_px):
             gy = y_hor_px + dol * (0.18 + 0.66 * _hasz(z, "cien_chmury", k))
-            rx = r.width() * (0.05 + 0.05 * _hasz(z, "cien_chmury", k, 2))
-            ry = rx * 0.42
-            rg = QRadialGradient(QPointF(cx, gy), 1.0)
-            rg.setColorAt(0.0, QColor(10, 12, 30, 30))
-            rg.setColorAt(0.6, QColor(10, 12, 30, 14))
-            rg.setColorAt(1.0, QColor(10, 12, 30, 0))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.save()
-            p.translate(cx, gy)
-            p.scale(rx, ry)
-            p.setBrush(QBrush(rg))
-            p.drawEllipse(QPointF(0.0, 0.0), 1.0, 1.0)
-            p.restore()
+            rx = r.width() * (0.040 + 0.040 * _hasz(z, "cien_chmury", k, 2))
+            # cień idzie za kształtem chmury: kilka kłębów obok siebie, każdy
+            # ledwo widoczny — czarna plama nie czyta się jako chmura, a
+            # jasna, rozlana smuga tak
+            klebow = 2 + int(_hasz(z, "chmura", k, 4) * 1.99)
+            for m in range(klebow):
+                ex = cx + (m - (klebow - 1) * 0.5) * rx * 1.05
+                ey = gy + (_hasz(z, "chmura", k, 10 + m) - 0.5) * rx * 0.25
+                rk = rx * (0.55 + 0.30 * _hasz(z, "chmura", k, 20 + m))
+                rg = QRadialGradient(QPointF(0.0, 0.0), 1.0)
+                rg.setColorAt(0.0, st.z_alfa(st.CIEN_CHMURY, 22))
+                rg.setColorAt(0.55, st.z_alfa(st.CIEN_CHMURY, 11))
+                rg.setColorAt(1.0, st.z_alfa(st.CIEN_CHMURY, 0))
+                p.save()
+                p.translate(ex, ey)
+                p.scale(rk, rk * 0.40)
+                p.setBrush(QBrush(rg))
+                p.drawEllipse(QPointF(0.0, 0.0), 1.0, 1.0)
+                p.restore()
 
     def _rysuj_grunt(self, p, rzut, r, y_hor_px=None):
         """Ziemia pod polami, od horyzontu w dół — widać ją w szczelinach i tam,
@@ -2953,12 +3174,21 @@ class MapaDnia(QWidget):
         p.fillPath(koryto, pion(woda))
         if not zima:
             p.fillPath(glebia, pion(st.z_alfa(st.WODA_GLEBOKA, 150)))
-        # blask: wąski pas przesunięty ku słońcu; niskie słońce błyszczy mocniej
+        # blask: wąski pas przesunięty ku słońcu; niskie słońce błyszczy mocniej,
+        # a w jego środku iskra — najjaśniejsza nitka tafli; od strony cienia
+        # brzeg koryta jest ciemniejszy, więc woda ma głębię, nie sam kolor
         lx, ly, _lz = sw.wektor
         bok = [(x + lx * szer * 0.28, y + ly * szer * 0.28) for (x, y) in self._rzeka]
-        polysk = _wstega(rzut, bok, szer * 0.22, self._wysokosc, wznios=0.2)
+        polysk, iskra = _wstegi(rzut, bok, (szer * 0.24, szer * 0.09), self._wysokosc,
+                                wzniosy=(0.2, 0.22))
+        mocno = sw.pora != "poludnie"
         p.fillPath(polysk, pion(st.z_alfa(st.WODA_BLASK,
-                                          70 if zima else (150 if sw.pora != "poludnie" else 110))))
+                                          70 if zima else (150 if mocno else 110))))
+        p.fillPath(iskra, pion(st.z_alfa(st.WODA_ISKRA,
+                                         90 if zima else (215 if mocno else 165))))
+        cien_bok = [(x - lx * szer * 0.40, y - ly * szer * 0.40) for (x, y) in self._rzeka]
+        p.fillPath(_wstega(rzut, cien_bok, szer * 0.16, self._wysokosc, wznios=0.18),
+                   pion(st.z_alfa(BARWA_CIENIA, 40 if zima else 70)))
 
     # — drogi —
     def _zbuduj_siec(self):
@@ -3119,17 +3349,29 @@ class MapaDnia(QWidget):
         posortowane.sort(key=lambda z: z[0])
         for _gleb, sr_y, punkty, szybka in posortowane:
             mgla = rzut.mgla(rzut.glebokosc(0.0, sr_y, 0.0))
+            if mgla > 0.93:                     # taka droga tonie w mgle w całości
+                continue
             szer = self._miara * UDZIAL_DROGI * (1.7 if szybka else 1.0)
+            # obrzeże jest półprzezroczyste i szersze od pasa — jego schodków
+            # pod wygładzonym pasem nie widać, a wygładzanie kosztowało trzecią
+            # część wypieku dróg
             if szybka:
                 obrzeze, pas, linia = _wstegi(rzut, punkty, (szer * 1.35, szer, szer * 0.16),
                                               wys, wzniosy=(0.08, 0.14, 0.22))
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
                 p.fillPath(obrzeze, st.z_alfa(rzut.zamgl(st.DROGA_OBRZEZE, mgla), int(150 - 70 * mgla)))
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
                 p.fillPath(pas, rzut.zamgl(st.DROGA_SZYBKA, mgla))
                 p.fillPath(linia, st.z_alfa(rzut.zamgl(st.DROGA_PAS, mgla), int(210 - 90 * mgla)))
-            else:
+            elif szer * 1.25 * rzut.skala(0.0, sr_y, 0.0) >= 1.5:
                 obrzeze, pas = _wstegi(rzut, punkty, (szer * 1.25, szer * 0.62), wys,
                                        wzniosy=(0.08, 0.14))
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
                 p.fillPath(obrzeze, st.z_alfa(rzut.zamgl(st.DROGA_OBRZEZE, mgla), int(48 - 24 * mgla)))
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                p.fillPath(pas, st.z_alfa(rzut.zamgl(lokalna, mgla), int(224 - 80 * mgla)))
+            else:                               # daleka droga: obrzeże cieńsze niż piksel
+                pas = _wstega(rzut, punkty, szer * 0.62, wys, wznios=0.14)
                 p.fillPath(pas, st.z_alfa(rzut.zamgl(lokalna, mgla), int(224 - 80 * mgla)))
 
     # — mosty —
@@ -3428,7 +3670,7 @@ class MapaDnia(QWidget):
                               "odcien": b["odcien"], "wysoka": b["wysoka"],
                               "dachowka": b["dachowka"]})
             bryly.sort(key=lambda z: -rzut.glebokosc(z["x"], z["y"], 0.0))
-            if szer_pix > 7.0:
+            if szer_pix > 12.0:
                 for b in bryly:
                     self._cien_bryly(p, rzut, b, mgla, skala)
             for b in bryly:
@@ -3441,19 +3683,26 @@ class MapaDnia(QWidget):
                 self._rysuj_wieze(p, rzut, roz(*m["wieza"]), promien, mgla, skala)
 
         # d) domy: drobne dachy na plamie z kropką cienia; po zmierzchu część świeci
-        if szer_pix > 5.0:
+        #    (od dziewięciu pikseli znaku — niżej to kropki, których nie widać,
+        #    a kosztują dwa wygładzane koła każda)
+        if szer_pix > 9.0:
             r = max(0.75, min(2.6, promien * skala * 0.16))
             lx, ly = rzut.swiatlo_ekran
             dach = rzut.zamgl(sw.oswietl(st.DACH_DACHOWKA, sw.plasko), mgla, 0.6)
             cien = st.z_alfa(BARWA_CIENIA, int(90 * (1.0 - mgla)))
             okno = st.z_alfa(st.OKNO_WIECZOR, int(235 * (1.0 - mgla)))
+            # dom to prostokąt paru pikseli: bez wygładzania wygląda jak dach
+            # widziany z góry, a kosztuje ułamek wygładzanego koła
+            z_cieniem = r >= 1.3
             for (dx, dy, swieci) in m["domy"]:
                 x, y = roz(dx, dy)
                 pt = rzut.ekran(x, y, wysokosc(x, y) + wys * 0.92)
-                p.setBrush(QBrush(cien))
-                p.drawEllipse(QPointF(pt.x() - lx * r * 0.9, pt.y() - ly * r * 0.6), r, r * 0.7)
-                p.setBrush(QBrush(okno if (swieci and sw.okna) else dach))
-                p.drawEllipse(pt, r * (1.15 if swieci else 1.0), r * 0.8)
+                rr = r * (1.15 if swieci else 1.0)
+                if z_cieniem:
+                    p.fillRect(QRectF(pt.x() - lx * r * 0.9 - r, pt.y() - ly * r * 0.6 - r * 0.7,
+                                      2.0 * r, 1.4 * r), cien)
+                p.fillRect(QRectF(pt.x() - rr, pt.y() - rr * 0.8, 2.0 * rr, 1.6 * rr),
+                           okno if (swieci and sw.okna) else dach)
             p.setBrush(Qt.BrushStyle.NoBrush)
 
         # e) krawędź plamy od strony słońca — domyka miejscowość
@@ -3473,7 +3722,7 @@ class MapaDnia(QWidget):
     def _cien_bryly(self, p, rzut, b, mgla, skala):
         """Cień bryły na gruncie: otoczka stopy i stopy przesuniętej wzdłuż światła."""
         x, y, bok, glab, wys = b["x"], b["y"], b["bok"], b["glab"], b["wys"]
-        if bok * 2.0 * skala < 2.4:
+        if bok * 2.0 * skala < 3.5:
             return
         px, py = rzut.cien_x * wys, rzut.cien_y * wys
         stopa = [(x - bok, y - glab), (x + bok, y - glab), (x + bok, y + glab), (x - bok, y + glab)]
@@ -3499,7 +3748,12 @@ class MapaDnia(QWidget):
         if b.get("wysoka"):
             dach, sciana = st.DACH_BAZY, st.SCIANA_OSADY.darker(106)
         else:
-            dach = st.DACH_DACHOWKA if b.get("dachowka") else st.DACH_SZARY
+            if b.get("dachowka"):
+                dach = st.DACH_DACHOWKA
+            elif b["odcien"] > 0.55:
+                dach = st.DACH_CIEMNY
+            else:
+                dach = st.DACH_SZARY
             sciana = st.SCIANA_OSADY
         # kamera stoi na południe i patrzy w dół: zawsze widać dach i ścianę
         # południową, a z boków ten, który jest odwrócony od osi kamery
@@ -3534,7 +3788,7 @@ class MapaDnia(QWidget):
         """Wieża kościelna: smukła bryła z ciemną iglicą — punkt orientacyjny."""
         x, y = poz
         bok = promien * 0.075
-        wys = promien * 0.58
+        wys = promien * 0.74
         self._cien_bryly(p, rzut, {"x": x, "y": y, "bok": bok, "glab": bok, "wys": wys},
                          mgla, skala)
         sw = self._swiatlo
@@ -3562,7 +3816,7 @@ class MapaDnia(QWidget):
     def _rysuj_komin(self, p, rzut, poz, promien, mgla, skala):
         """Komin: cienka, wysoka kreska z cieniem położonym na gruncie."""
         x, y = poz
-        wys = promien * 0.66
+        wys = promien * 0.82
         h = self._wysokosc(x, y)
         dol = rzut.ekran(x, y, h)
         gora = rzut.ekran(x, y, h + wys)
@@ -3679,12 +3933,18 @@ class MapaDnia(QWidget):
         dol, gora = self._warstwy(geo, gotowa)
 
         zycie = self._anim and not self._ciche
-        p.drawPixmap(0, 0, dol)                        # a) scena 3D bez trasy
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        p.drawPixmap(0, 0, dol)                        # a) scena 3D bez trasy (nieprzezroczysta)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         if zycie:
             self._rysuj_polysk_rzeki(p)                # a1) rzeka odbija światło
             self._rysuj_swiatla_drog(p)                # a2) ruch na drogach rejonu
         if self._trasa_pix is not None and gotowa:
-            p.drawPixmap(0, 0, self._trasa_pix)        # a3) trasa nad życiem
+            pole = self._trasa_pole                    # a3) trasa nad życiem
+            if pole is None:
+                p.drawPixmap(0, 0, self._trasa_pix)
+            else:
+                p.drawPixmap(pole, self._trasa_pix, pole)
         if geo is not None:
             if gotowa:
                 self._rysuj_powrot(p, geo)             # b) kreskowany powrót
@@ -3702,8 +3962,7 @@ class MapaDnia(QWidget):
             if gotowa:
                 self._rysuj_nitke(p, geo)              # f) nitka do kartki
         self._poloz_cien_kartki(p)                     # g) kartka kładzie cień
-        p.drawPixmap(0, 0, self._wykonczenie())        # h) winieta i ziarno
-        p.end()
+        p.end()                                        # (winieta i ziarno siedzą w „dol”)
         self.odnotuj_klatke((time.perf_counter() - zegar) * 1000.0)
 
     # — efekty ściszają się same, kiedy klatka przestaje się mieścić —
@@ -3768,19 +4027,25 @@ class MapaDnia(QWidget):
         bryly = self._pixmapa_bryl()                       # ...więc bryły idą po nim
         q.drawPixmap(cel, bryly, QRectF(bryly.rect()))
         self._rysuj_mgle_rejonu(q, rzut, geo)              # białe plamy: mgła POD trasą
+        # winieta i ziarno leżą na scenie, pod trasą i tabliczkami: jeden
+        # blit mniej na klatkę, a trasa przy brzegu kadru nie ciemnieje
+        q.drawPixmap(0, 0, self._wykonczenie())
         q.end()
 
         # Trasa idzie do OSOBNEJ pixmapy, bo między terenem a trasą żyje
         # rejon: połysk na rzece i światła na drogach leżą NA ZIEMI, więc
         # trasa ma je przykrywać, a nie odwrotnie.
-        trasa = None
+        trasa, blask, pole_trasy = None, None, None
         if w_warstwie is not None:
             trasa = self._nowa_pixmapa()
             q = QPainter(trasa)
             q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._rysuj_trase(q, w_warstwie)
+            self._rysuj_poswiate_powrotu(q, w_warstwie)
             q.end()
-        self._trasa_pix = trasa
+            blask = self._upiecz_blask(w_warstwie)
+            pole_trasy = self._obrys_trasy(w_warstwie, cel)
+        self._trasa_pix, self._blask_pix, self._trasa_pole = trasa, blask, pole_trasy
 
         gora = self._nowa_pixmapa()
         q = QPainter(gora)
@@ -4141,6 +4406,91 @@ class MapaDnia(QWidget):
         _poswiata_zmienna(p, geo["pkt_glowna"], geo["ska_glowna"],
                           QColor(232, 255, 255), ((0.36, 185, 1),))
 
+    def _obrys_trasy(self, geo, cel):
+        """Prostokąt ekranu, w którym leży cokolwiek z pixmapy trasy.
+
+        Pixmapa trasy jest wielkości widżetu, ale sama linia zajmuje jego
+        część — blit tylko tego prostokąta kosztuje tyle, ile trasy jest.
+        """
+        ramka = QRectF(geo["glowna"].boundingRect())
+        if len(geo["pkt_powrot"]) >= 2:
+            ramka = ramka.united(geo["powrot"].boundingRect())
+        ska = max([1.0] + list(geo["ska_glowna"]) + list(geo["ska_powrot"]))
+        zapas = 8.0 * ska + 8.0
+        ramka = ramka.adjusted(-zapas, -zapas, zapas, zapas).intersected(cel)
+        if ramka.isEmpty():
+            return None
+        return QRectF(ramka.toAlignedRect())
+
+    WARSTWY_POSWIATY_POWROTU = ((4.2, 30), (2.0, 76))
+
+    def _rysuj_poswiate_powrotu(self, p, geo):
+        """Miękka poświata powrotu — ciągła, więc leży w pixmapie trasy.
+
+        Same kreski płyną (:meth:`_rysuj_powrot`); ich szerokie, wygładzane
+        warstwy kosztowały pięć milisekund co trzecią klatkę. Poświata pod
+        kreskami nie musi być kreskowana, żeby linia czytała się jako
+        przerywana — to robi jasny rdzeń.
+        """
+        punkty = geo["pkt_powrot"]
+        if len(punkty) < 2:
+            return
+        ska = geo["ska_powrot"]
+        sr = sum(ska) / max(1, len(ska))
+        sciezka = _lamana(punkty)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for szer, alfa in self.WARSTWY_POSWIATY_POWROTU:
+            pen = QPen(st.z_alfa(st.ZIELEN, alfa), max(0.8, szer * sr))
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            p.drawPath(sciezka)
+        p.setPen(Qt.PenStyle.NoPen)
+
+    PROBEK_NA_KAWALEK = 12     # tyle próbek trasy dostaje jedną szerokość pióra poświaty
+
+    def _upiecz_blask(self, geo):
+        """Poświata CAŁEJ trasy z pełną siłą — raz na układ, do pixmapy.
+
+        Klatka nie kreśli już czterech szerokich piór gradientowych wzdłuż
+        okna blasku; wycina z tego obrazu okno wokół czoła
+        (:meth:`_rysuj_blask`). Pióro ma jedną szerokość na całą ścieżkę,
+        więc trasa idzie kawałkami po kilkanaście próbek, każdy z szerokością
+        ze swojej głębi — poświata zwęża się w głębi sceny tak samo, jak
+        zwężała się w oknie.
+        """
+        probki = geo["probki"]
+        skale = geo["skale"]
+        n = len(probki)
+        if n < 3:
+            return None
+        kolor = self._kolor_trasy()
+        pix = self._nowa_pixmapa()
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        q.setBrush(Qt.BrushStyle.NoBrush)
+        krok = self.PROBEK_NA_KAWALEK
+        kawalki = []
+        i = 0
+        while i < n - 1:
+            j = min(n - 1, i + krok)
+            sciezka = QPainterPath(probki[i])
+            for k in range(i + 1, j + 1):
+                sciezka.lineTo(probki[k])
+            kawalki.append((sciezka, sum(skale[i:j + 1]) / float(j - i + 1)))
+            i = j
+        for szer, sila, barwa in self.WARSTWY_BLASKU:
+            barwa = kolor if barwa is None else barwa
+            pen = QPen(st.z_alfa(barwa, sila), 1.0)
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            for sciezka, s in kawalki:
+                pen.setWidthF(max(0.8, szer * s))
+                q.setPen(pen)
+                q.drawPath(sciezka)
+        q.end()
+        return pix
+
     def _rysuj_powrot(self, p, geo):
         """Powrót do bazy: kreski wolno płyną w stronę domu.
 
@@ -4172,8 +4522,8 @@ class MapaDnia(QWidget):
             q = QPainter(pix)
             q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             q.translate(-x0, -y0)
-            _kreskowana(q, punkty, st.ZIELEN,
-                        warstwy=((4.2 * sr, 30), (2.0 * sr, 76), (0.80 * sr, 235)),
+            # sama kreska: poświata pod nią leży w pixmapie trasy
+            _kreskowana(q, punkty, st.ZIELEN, warstwy=((0.80 * sr, 235),),
                         kreska=11.0 * k, przerwa=8.0 * k, przesuniecie=float(krok))
             q.end()
             self._powrot_pix, self._powrot_poz, self._powrot_klucz = pix, QPointF(x0, y0), klucz
@@ -4187,9 +4537,12 @@ class MapaDnia(QWidget):
     def _rysuj_blask(self, p, geo):
         """Powoli płynący jaśniejszy odcinek wzdłuż trasy.
 
-        Jedno pociągnięcie na warstwę: pióro ma gradient od ogona do czoła,
-        alfa rośnie kwadratowo — tak samo, jak dawniej rosła po 24 kawałkach,
-        tylko bez 96 szerokich linii na klatkę.
+        Poświata całej trasy leży gotowa w ``_blask_pix``
+        (:meth:`_upiecz_blask`). Klatka buduje wstęgę wokół próbek okna
+        z rampą alfy — ogon 0, czoło 1, alfa rośnie kwadratowo jak dawniej
+        w gradiencie pióra — i wpuszcza w nią gotową poświatę przez
+        SourceIn. Jedna mała pixmapa na klatkę zamiast czterech szerokich
+        pociągnięć gradientowym piórem.
         """
         probki = geo["probki"]
         skale = geo["skale"]
@@ -4201,35 +4554,16 @@ class MapaDnia(QWidget):
         # czoło wchodzi na trasę i schodzi z niej — bez skoku na zapętleniu
         czolo = -dlugosc + self._faza * (1.0 + dlugosc)
         t0, t1 = max(0.0, czolo - dlugosc), min(1.0, czolo)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        if t1 > 0.0 and t0 < 1.0:
+        if t1 > 0.0 and t0 < 1.0 and self._blask_pix is not None:
             i0 = max(0, min(n, int(round(t0 * n))))
             i1 = max(0, min(n, int(round(t1 * n))))
             if i1 > i0:
-                sciezka = QPainterPath(probki[i0])
-                for i in range(i0 + 1, i1 + 1):
-                    sciezka.lineTo(probki[i])
                 s = sum(skale[i0:i1 + 1]) / float(i1 - i0 + 1)
+                pol = max(2.0, self.WARSTWY_BLASKU[0][0] * s * 0.5 + 2.0)
                 # jasność w punkcie: kwadrat odległości od ogona (0) do czoła (1)
                 ua = (t0 - (czolo - dlugosc)) / dlugosc
                 ub = (t1 - (czolo - dlugosc)) / dlugosc
-                a, b = probki[i0], probki[i1]
-                prosto = math.hypot(b.x() - a.x(), b.y() - a.y()) >= 6.0
-                for szer, sila, barwa in self.WARSTWY_BLASKU:
-                    barwa = kolor if barwa is None else barwa
-                    if prosto:
-                        g = QLinearGradient(a, b)
-                        for k in range(5):
-                            u = ua + (ub - ua) * k / 4.0
-                            g.setColorAt(k / 4.0, st.z_alfa(barwa, sila * u * u))
-                        pen = QPen(QBrush(g), max(0.8, szer * s))
-                    else:                    # trasa zawraca: gradient nie ma kierunku
-                        u = (ua + ub) * 0.5
-                        pen = QPen(st.z_alfa(barwa, sila * u * u), max(0.8, szer * s))
-                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                    p.setPen(pen)
-                    p.drawPath(sciezka)
+                self._odslon_blask(p, probki[i0:i1 + 1], pol, ua, ub)
         # czubek blasku
         if 0.0 <= czolo <= 1.0:
             ic = max(0, min(n, int(round(czolo * n))))
@@ -4237,6 +4571,91 @@ class MapaDnia(QWidget):
             _punkt_swiatla(p, glowa, 13.0 * skale[ic], kolor, 62)
             _punkt_swiatla(p, glowa, 5.0 * skale[ic], QColor(235, 255, 255), 96)
         p.setPen(Qt.PenStyle.NoPen)
+
+    KAWALKOW_BLASKU = 3       # okno blasku idzie w tylu pixmapach: mniejsze prostokąty
+
+    def _odslon_blask(self, p, okno, pol, ua, ub):
+        """Okno blasku: wstęga o połowie szerokości ``pol`` wokół próbek
+        ``okno``, z alfą od ``ua``² przy ogonie do ``ub``² przy czole i
+        gasnącą za czołem; przez nią wchodzi gotowa poświata (SourceIn).
+
+        Wstęga idzie w kilku kawałkach, każdy w pixmapie swojego prostokąta:
+        skośne okno w jednym prostokącie płaciło za pustkę w rogach. Kawałki
+        stykają się na wspólnym punkcie ze wspólną normalną, więc nie ma
+        między nimi ani szczeliny, ani podwójnie odsłoniętego klina.
+        """
+        n = len(okno)
+        lewa, prawa, udzialy = [], [], []
+        for i in range(n):
+            if i == 0:
+                dx, dy = okno[1].x() - okno[0].x(), okno[1].y() - okno[0].y()
+            elif i == n - 1:
+                dx, dy = okno[i].x() - okno[i - 1].x(), okno[i].y() - okno[i - 1].y()
+            else:
+                dx, dy = okno[i + 1].x() - okno[i - 1].x(), okno[i + 1].y() - okno[i - 1].y()
+            dl = math.hypot(dx, dy) or 1.0
+            tx, ty = dx / dl, dy / dl
+            x, y = okno[i].x(), okno[i].y()
+            if i == 0:                        # ogon i czoło przedłużone o pół szerokości
+                x, y = x - tx * pol, y - ty * pol
+            elif i == n - 1:
+                x, y = x + tx * pol, y + ty * pol
+            lewa.append(QPointF(x - ty * pol, y + tx * pol))
+            prawa.append(QPointF(x + ty * pol, y - tx * pol))
+            udzialy.append(ua + (ub - ua) * i / float(n - 1))
+        cel = QRectF(self.rect())
+        dpr = self.devicePixelRatioF()
+        kawalkow = max(1, min(self.KAWALKOW_BLASKU, (n - 1) // 3))
+        granice = [int(round((n - 1) * c / float(kawalkow))) for c in range(kawalkow + 1)]
+        for c in range(kawalkow):
+            a, b = granice[c], granice[c + 1]
+            if b <= a:
+                continue
+            wielokat = QPolygonF(lewa[a:b + 1] + prawa[a:b + 1][::-1])
+            ramka = wielokat.boundingRect().adjusted(-1.0, -1.0, 1.0, 1.0).intersected(cel)
+            if ramka.isEmpty():
+                continue
+            x0, y0 = int(math.floor(ramka.x())), int(math.floor(ramka.y()))
+            szer = int(math.ceil(ramka.right())) - x0 + 1
+            wys = int(math.ceil(ramka.bottom())) - y0 + 1
+            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
+            pix.setDevicePixelRatio(dpr)
+            pix.fill(Qt.GlobalColor.transparent)
+            q = QPainter(pix)
+            # wstęga jest MASKĄ dla miękkiej poświaty i jest od niej szersza o
+            # dwa piksele, gdzie poświata ma alfę bliską zera — schodków
+            # niewygładzonej krawędzi nie widać, a wygładzany wielokąt
+            # kosztował dziesięć razy więcej niż cała reszta kawałka
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            q.translate(-x0, -y0)
+            q.setPen(Qt.PenStyle.NoPen)
+            # gradient po prostej od początku do końca kawałka; ostatni gaśnie
+            # jeszcze za czołem, na przedłużeniu wstęgi
+            pa = okno[a] if a > 0 else QPointF((lewa[0].x() + prawa[0].x()) * 0.5,
+                                               (lewa[0].y() + prawa[0].y()) * 0.5)
+            pb = okno[b]
+            koniec = pb if b < n - 1 else QPointF((lewa[-1].x() + prawa[-1].x()) * 0.5,
+                                                   (lewa[-1].y() + prawa[-1].y()) * 0.5)
+            u_a, u_b = udzialy[a], udzialy[b]
+            dl_ab = math.hypot(pb.x() - pa.x(), pb.y() - pa.y())
+            dl_ak = math.hypot(koniec.x() - pa.x(), koniec.y() - pa.y())
+            if dl_ab >= 6.0 and dl_ak >= dl_ab:
+                g = QLinearGradient(pa, koniec)
+                poz_b = dl_ab / max(1e-6, dl_ak)
+                for k in range(3):
+                    u = u_a + (u_b - u_a) * k / 2.0
+                    g.setColorAt(poz_b * k / 2.0, QColor(0, 0, 0, int(255 * u * u)))
+                if poz_b < 0.999:
+                    g.setColorAt(1.0, QColor(0, 0, 0, 0))
+                q.setBrush(QBrush(g))
+            else:                             # kawałek zawraca: gradient nie ma kierunku
+                u = (u_a + u_b) * 0.5
+                q.setBrush(QBrush(QColor(0, 0, 0, int(255 * u * u))))
+            q.drawPolygon(wielokat)
+            q.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+            q.drawPixmap(QRectF(x0, y0, szer, wys), self._blask_pix, QRectF(x0, y0, szer, wys))
+            q.end()
+            p.drawPixmap(QPointF(x0, y0), pix)
 
     # — słupy przystanków —
     ZAPALANIE = 0.07        # jaka część rysowania trasy zajmuje rozbłysk słupa
@@ -4381,8 +4800,9 @@ class MapaDnia(QWidget):
             return
         # gaśnie na początku i na końcu biegu, żeby nie wskakiwał znikąd
         brzeg = min(1.0, min(t, 1.0 - t) / 0.10)
-        for szerokosc, alfa in ((0.62, 26), (0.30, 58)):
-            pas = _wstega(rzut, kawalek, szer * szerokosc, self._wysokosc, wznios=0.22)
+        pasy = _wstegi(rzut, kawalek, (szer * 0.62, szer * 0.30), self._wysokosc,
+                       wzniosy=(0.22, 0.22))
+        for pas, alfa in zip(pasy, (26, 58)):
             p.fillPath(pas, st.z_alfa(st.MIETA, int(alfa * brzeg)))
 
     # blask płynie po trasie i po drodze ZAPALA przystanki — szerokość
@@ -4410,7 +4830,9 @@ class MapaDnia(QWidget):
             if odleglosc >= self.SZEROKOSC_ZAPALU:
                 continue
             moc = (1.0 - odleglosc / self.SZEROKOSC_ZAPALU) ** 2.0
-            r = max(2.4, sl["skala_g"] * 9.0)
+            # sufit jak przy oddechu bazy: przy szerokim kadrze halo sięgało
+            # trzystu pikseli i kosztowało trzy milisekundy klatki
+            r = max(2.4, min(sl["skala_g"] * 9.0, min(self.width(), self.height()) * 0.028))
             _punkt_swiatla(p, sl["gora"], r * (1.6 + 2.4 * moc), kolor,
                            int(18 + 132 * moc))
             # ślad na gruncie rozchodzi się jak fala po wodzie — po tym widać,
@@ -4431,7 +4853,10 @@ class MapaDnia(QWidget):
         x, y = self._miasta.get(self._baza, (0.0, 0.0))
         rzut = self.rzut()
         dol, ska = rzut.rzutuj(x, y, self._wysokosc(x, y))
-        r = max(3.4, ska * self._odniesienie() * 4.4)
+        # sufit: przy szerokim kadrze halo sięgało ćwierci ekranu i kosztowało
+        # dwie milisekundy klatki — oddech ma być widoczny, nie wielki
+        r = max(3.4, min(ska * self._odniesienie() * 4.4,
+                         min(self.width(), self.height()) * 0.018))
         _punkt_swiatla(p, dol, r * (6.0 + 1.6 * puls), st.ZIELEN, int(26 + 26 * puls))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(st.z_alfa(st.ZIELEN, int(58 - 34 * puls)), 1.2))
@@ -4688,10 +5113,49 @@ class MapaDnia(QWidget):
         return sciezka
 
     def _rysuj_nitke(self, p, geo):
-        """Nitka łączy trasę z kartką — jest jej dokładnie tyle, ile kartki."""
+        """Nitka łączy trasę z kartką — jest jej dokładnie tyle, ile kartki.
+
+        Kreski płyną o ułamek piksela na klatkę, więc trzy warstwy kreskowane
+        rysują się tylko wtedy, gdy wzór przesunie się o cały piksel; między
+        tymi chwilami klatka kładzie gotową pixmapę wielkości samej nitki.
+        """
         sciezka = geo["nitka"]
         if sciezka is None or self._obecnosc_kar <= 0.02:
             return
+        k = self._grubosc()
+        kolor = self._kolor_trasy()
+        przesun = -self._faza * 36.0 * k if self._anim else 0.0
+        krok = int(round(przesun))
+        klucz = (self._geo_klucz, krok, round(k, 4), kolor.rgb())
+        if self._nitka_klucz != klucz or self._nitka_pix is None:
+            zapas = 14.0 * k + 22.0
+            ramka = sciezka.boundingRect().adjusted(-zapas, -zapas, zapas, zapas)
+            x0, y0 = int(math.floor(ramka.x())), int(math.floor(ramka.y()))
+            szer = int(math.ceil(ramka.right())) - x0 + 1
+            wys = int(math.ceil(ramka.bottom())) - y0 + 1
+            dpr = self.devicePixelRatioF()
+            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
+            pix.setDevicePixelRatio(dpr)
+            pix.fill(Qt.GlobalColor.transparent)
+            q = QPainter(pix)
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            q.translate(-x0, -y0)
+            dokad = sciezka.pointAtPercent(1.0)
+            # szerokie, miękkie warstwy bez wygładzania (przy alfie 16 i 44
+            # schodków nie widać, a wygładzany szeroki pędzel kosztował trzy
+            # razy tyle), rdzeń wygładzony
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            _kreskowana(q, sciezka, kolor, warstwy=((14 * k, 16), (6 * k, 44)),
+                        kreska=10.0 * k, przerwa=7.5 * k, przesuniecie=float(krok))
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            _kreskowana(q, sciezka, kolor, warstwy=((2.0 * k, 175),),
+                        kreska=10.0 * k, przerwa=7.5 * k, przesuniecie=float(krok))
+            st.punkt_swiatla(q, dokad, 18, kolor, 120)
+            q.setPen(QPen(st.z_alfa(kolor, 230), 1.6))
+            q.setBrush(QBrush(QColor(4, 12, 22, 200)))
+            q.drawEllipse(dokad, 4.6, 4.6)
+            q.end()
+            self._nitka_pix, self._nitka_poz, self._nitka_klucz = pix, QPointF(x0, y0), klucz
         p.save()
         kar = self._pole_kartki()
         if kar is not None:
@@ -4700,18 +5164,7 @@ class MapaDnia(QWidget):
             p.setClipRegion(QRegion(self.rect()).subtracted(
                 QRegion(kar.toAlignedRect())))
         p.setOpacity(self._obecnosc_kar)
-        dokad = sciezka.pointAtPercent(1.0)
-        k = self._grubosc()
-        kolor = self._kolor_trasy()
-        przesun = -self._faza * 36.0 * k if self._anim else 0.0
-        _kreskowana(p, sciezka, kolor,
-                    warstwy=((14 * k, 16), (6 * k, 44), (2.0 * k, 175)),
-                    kreska=10.0 * k, przerwa=7.5 * k, przesuniecie=przesun)
-        st.punkt_swiatla(p, dokad, 18, kolor, 120)
-        p.setPen(QPen(st.z_alfa(kolor, 230), 1.6))
-        p.setBrush(QBrush(QColor(4, 12, 22, 200)))
-        p.drawEllipse(dokad, 4.6, 4.6)
-        p.setOpacity(1.0)
+        p.drawPixmap(self._nitka_poz, self._nitka_pix)
         p.restore()
 
     # — cień kartki —
@@ -4765,15 +5218,28 @@ class MapaDnia(QWidget):
                  round(self.devicePixelRatioF(), 3), self._klucz_kadru())
         if self._cien_klucz == klucz:
             return self._cien_pix
-        pix = None
+        pix, poz = None, QPointF(0.0, 0.0)
         if kar is not None:
-            pix = self._nowa_pixmapa()
+            # pixmapa obejmuje sam cień z rozlewem, nie cały widżet — blit
+            # pełnego ekranu na klatkę kosztował tyle, co trzy efekty życia
+            odl = max(14.0, min(self.width(), self.height()) * 0.055)
+            zapas = odl * 6.0 * 0.26 + odl + 4.0
+            ramka = kar.adjusted(-zapas, -zapas, zapas, zapas).intersected(QRectF(self.rect()))
+            x0, y0 = int(math.floor(ramka.x())), int(math.floor(ramka.y()))
+            szer = int(math.ceil(ramka.right())) - x0 + 1
+            wys = int(math.ceil(ramka.bottom())) - y0 + 1
+            dpr = self.devicePixelRatioF()
+            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
+            pix.setDevicePixelRatio(dpr)
+            pix.fill(Qt.GlobalColor.transparent)
             q = QPainter(pix)
             q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            q.translate(-x0, -y0)
             self._rysuj_cien_kartki(q, kar)
             q.end()
-        self._cien_pix, self._cien_klucz = pix, klucz
-        return pix
+            poz = QPointF(x0, y0)
+        self._cien_pix, self._cien_poz, self._cien_klucz = pix, poz, klucz
+        return self._cien_pix
 
     def _poloz_cien_kartki(self, p):
         """Gotowy cień kładziony z przezroczystością — kartka może ustępować."""
@@ -4785,10 +5251,10 @@ class MapaDnia(QWidget):
             return
         if ile < 0.999:
             p.setOpacity(ile)
-            p.drawPixmap(0, 0, pix)
+            p.drawPixmap(self._cien_poz, pix)
             p.setOpacity(1.0)
         else:
-            p.drawPixmap(0, 0, pix)
+            p.drawPixmap(self._cien_poz, pix)
 
     def _wykonczenie(self):
         """Winieta i ziarno: dwie rzeczy zupełnie nieruchome, więc w pixmapie."""

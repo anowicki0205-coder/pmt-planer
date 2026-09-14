@@ -7390,12 +7390,23 @@ try:
             _NW25.OknoNowegoWygladu.INTRO_GENEROWANIA is _NW25.przelot_generowania)
     _klatki25 = []
     _paint25 = _PM25.PrzelotRejonu.paintEvent
+    # Od sekcji 28 zaczep stawia spektakl (proto_spektakl.SpektaklMiesiaca,
+    # podklasa przelotu z WŁASNYM paintEvent) — pomiar klatki musi objąć
+    # klasę, która naprawdę rysuje, inaczej liczy zero klatek.
+    import proto_spektakl as _SP25
+    _paint_sp25 = _SP25.SpektaklMiesiaca.paintEvent
 
     def _paint_mierz25(self, zdarzenie):
         _t = time.perf_counter()
         _paint25(self, zdarzenie)
         _klatki25.append((time.perf_counter() - _t) * 1000.0)
+
+    def _paint_mierz_sp25(self, zdarzenie):
+        _t = time.perf_counter()
+        _paint_sp25(self, zdarzenie)
+        _klatki25.append((time.perf_counter() - _t) * 1000.0)
     _PM25.PrzelotRejonu.paintEvent = _paint_mierz25
+    _SP25.SpektaklMiesiaca.paintEvent = _paint_mierz_sp25
     _stare_akt25 = P.OknoAktualizacji
 
     class _AtrapaAkt25:
@@ -7617,6 +7628,7 @@ try:
         _okno25.ustaw_animacje(False)
     finally:
         _PM25.PrzelotRejonu.paintEvent = _paint25
+        _SP25.SpektaklMiesiaca.paintEvent = _paint_sp25
         P.OknoAktualizacji = _stare_akt25
     _okno25.close()
 except Exception as _e25:
@@ -8066,6 +8078,583 @@ except Exception as _e26:
     sprawdz("pięć usterek z testu właściciela", False, repr(_e26))
     import traceback as _tb26
     _tb26.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("27. Mapa 3D dokończona: rzeźba gór, lasy, woda, osady, trasa najjaśniejsza i budżet klatki")
+
+# Mapa dnia ma być realistyczna i trójwymiarowa, a przy tym mieścić się
+# w budżecie: przy 1920×1080 mediana klatki poniżej 10 ms i 90. centyl
+# poniżej 16 ms (z kartką i bez), wypiek statyki poniżej 400 ms, a przy
+# wyłączonych animacjach obraz powtarzalny co do bajta. Rzeźba w rejonie
+# górskim (szerokość Zakopanego) jest wyraźniejsza niż na nizinie (Warszawa)
+# i tylko w górach dostaje skałę, śnieg i poziomice; lasy kładą cień po
+# stronie odwróconej od słońca, a bliskie płaty mają kępy koron; osady nie
+# zlewają się; trasa dnia zostaje najjaśniejszą rzeczą na terenie; pomiary
+# to najlepszy z dwóch przebiegów, żeby obciążona maszyna nie udawała
+# wolnej mapy.
+try:
+    import statistics as _stat27
+    from PyQt6.QtWidgets import QApplication as _QA27, QWidget as _QW27
+    from PyQt6.QtGui import QPixmap as _QPX27, QImage as _QI27, QPainter as _QPT27, QColor as _QC27
+    from PyQt6.QtCore import QPointF as _QP27, QRectF as _QR27
+    import nowy_wyglad as _NW27          # dokłada katalog prototypu do ścieżki
+    import proto_mapa as _PM27
+    import proto_styl as _ST27
+    _app27 = _QA27.instance() or _QA27(sys.argv)
+
+    def _spis27(baza, lat0, lng0, ziarno):
+        """Baza, miasta powiatowe i wsie w lekko zaburzonej kratce co 30 km —
+        powtarzalny układ o liczności spisu z programu (MIAST_PODGLADU ≈ 96)."""
+        miasta = {baza: (lat0, lng0, _PM27.RANGA_BAZA)}
+        nr = 0
+        for i in range(-6, 7):
+            for j in range(-6, 7):
+                kmx = (i + (0.5 if j % 2 else 0.0)) * 30.0 + 5.0 * math.sin(i * 1.7 + j * 0.9 + ziarno)
+                kmy = j * 30.0 + 5.0 * math.cos(i * 0.8 - j * 1.3 + ziarno)
+                odl = math.hypot(kmx, kmy)
+                if odl < 14.0 or odl > 158.0:
+                    continue
+                nr += 1
+                la = lat0 + kmy / 110.57
+                lg = lng0 + kmx / (111.32 * math.cos(math.radians(lat0)))
+                ranga = _PM27.RANGA_MIASTO if nr % 4 == 0 else _PM27.RANGA_WIES
+                miasta["%s %02d" % ("Miasto" if ranga == _PM27.RANGA_MIASTO else "Wieś", nr)] = (la, lg, ranga)
+        return miasta
+
+    def _przystanki27(miasta, baza, ile, od_km, do_km):
+        """Nazwy w pasie odległości od bazy, po jednej z każdego kierunku."""
+        la0, lg0 = miasta[baza][0], miasta[baza][1]
+        kand = []
+        for n, (la, lg, _r) in miasta.items():
+            if n == baza:
+                continue
+            kmx = (lg - lg0) * 111.32 * math.cos(math.radians(la0))
+            kmy = (la - la0) * 110.57
+            d = math.hypot(kmx, kmy)
+            if od_km <= d <= do_km:
+                kand.append((math.atan2(kmy, kmx), d, n))
+        kand.sort()
+        krok = max(1, len(kand) // ile)
+        return [n for (_a, _d, n) in kand[::krok]][:ile]
+
+    class _Dzien27:
+        """Dzień w postaci, jaką czyta mapa: data (pora roku), godziny (pora dnia), trasa."""
+
+        def __init__(self, baza, data, przystanki, start="07:20", koniec="15:40"):
+            self.baza, self.data, self.przystanki = baza, data, list(przystanki)
+            self.start, self.koniec = start, koniec
+            self.wolny, self.wylaczony = False, False
+
+        @property
+        def trasa(self):
+            return [self.baza] + list(self.przystanki) + [self.baza]
+
+    def _scena27(baza, miasta, dzien, szer, wys, kartka):
+        """Mapa w widżecie-oknie, z kartką ustawioną jak w oknie programu."""
+        okno = _QW27()
+        okno.resize(szer, wys)
+        m = _PM27.MapaDnia(okno)
+        m.setGeometry(0, 0, szer, wys)
+        m.ustaw_animacje(False)
+        m.ustaw_miasta(miasta, baza=baza)
+        if kartka:
+            szer_k = int(max(176, min(360, szer * 0.36)))
+            kar = _QR27(szer - 18 - szer_k, 42, szer_k, min(500, wys - 120))
+            m.ustaw_kotwice_kartki(_QP27(kar.x() + 8.0, kar.y() + 26.0), kar)
+        m.ustaw_dzien(dzien)
+        okno.show()
+        for _ in range(4):
+            _app27.processEvents()
+        m.ustaw_animacje(False)
+        _app27.processEvents()
+        return okno, m
+
+    def _bajty27(widzet):
+        return same_piksele(widzet.grab().toImage().convertToFormat(_QI27.Format.Format_RGB888))
+
+    def _szarosc27(pix):
+        """Jasność (0..255) każdego piksela pixmapy — Qt liczy luminancję w C."""
+        im = pix.toImage().convertToFormat(_QI27.Format.Format_Grayscale8)
+        b = im.constBits().asstring(im.sizeInBytes())
+        bpl = im.bytesPerLine()
+        return im.width(), im.height(), [b[y * bpl:y * bpl + im.width()] for y in range(im.height())]
+
+    def _klatki27(m, ile=40):
+        """(mediana, p90) klatki paintEvent z życiem mapy — jak w sekcji 18d."""
+        px = _QPX27(m.size())
+        m.ustaw_animacje(True)
+        m.odnotuj_klatke = lambda _ms: None
+        try:
+            for _ in range(5):
+                m.render(px)
+            czasy = []
+            for _ in range(ile):
+                m._tik()
+                t0 = time.perf_counter()
+                m.render(px)
+                czasy.append((time.perf_counter() - t0) * 1000.0)
+        finally:
+            del m.odnotuj_klatke
+            m.ustaw_animacje(False)
+        czasy.sort()
+        return czasy[len(czasy) // 2], czasy[int(len(czasy) * 0.9)]
+
+    def _wypiek27(m):
+        """Koszt wypieku statyki od zera, w milisekundach."""
+        m._statyk, m._statyk_klucz, m._pola = None, None, None
+        t0 = time.perf_counter()
+        m._statyka()
+        return (time.perf_counter() - t0) * 1000.0
+
+    _BAZA_G27, _BAZA_N27 = "Zakopane", "Warszawa"
+    _M_GORY27 = _spis27(_BAZA_G27, 49.30, 19.95, 3)
+    _M_NIZ27 = _spis27(_BAZA_N27, 52.23, 21.01, 5)
+    _DZ_GORY27 = _Dzien27(_BAZA_G27, datetime.date(2026, 6, 16),
+                          _przystanki27(_M_GORY27, _BAZA_G27, 6, 14.0, 52.0))
+    _DZ_NIZ27 = _Dzien27(_BAZA_N27, datetime.date(2026, 5, 12),
+                         _przystanki27(_M_NIZ27, _BAZA_N27, 7, 14.0, 52.0))
+    _DZ_DALEKI27 = _Dzien27(_BAZA_N27, datetime.date(2026, 7, 21),
+                            _przystanki27(_M_NIZ27, _BAZA_N27, 5, 95.0, 150.0), "06:30", "20:10")
+    sprawdz("układy do badania mają bazę, miasta i wsie, a dni po kilka przystanków",
+            60 <= len(_M_GORY27) <= 120 and len(_DZ_GORY27.przystanki) >= 5
+            and len(_DZ_NIZ27.przystanki) >= 6 and len(_DZ_DALEKI27.przystanki) >= 4,
+            "%d miejscowości, przystanki %d / %d / %d" % (
+                len(_M_GORY27), len(_DZ_GORY27.przystanki), len(_DZ_NIZ27.przystanki),
+                len(_DZ_DALEKI27.przystanki)))
+
+    # ── 27a. powtarzalność co do bajta przy wyłączonych animacjach ────
+    _okno_g27, _m_g27 = _scena27(_BAZA_G27, _M_GORY27, _DZ_GORY27, 1040, 660, True)
+    _a27 = _bajty27(_okno_g27)
+    for _ in range(3):
+        _app27.processEvents()
+    _b27 = _bajty27(_okno_g27)
+    _okno_g2_27, _m_g2_27 = _scena27(_BAZA_G27, _M_GORY27, _DZ_GORY27, 1040, 660, True)
+    _c27 = _bajty27(_okno_g2_27)
+    sprawdz("górska mapa z kartką: dwa zrzuty tego samego widżetu i zrzut nowego widżetu z tym samym dniem są identyczne co do bajta",
+            _a27 == _b27 and _a27 == _c27 and len(_a27) == 1040 * 660 * 3,
+            "ten sam widżet: %s, nowy widżet: %s" % (_a27 == _b27, _a27 == _c27))
+    sprawdz("po ustaw_animacje(False) zegar życia stoi, a rzeźba stoi na tym samym ziarnie co obraz",
+            not _m_g27._zegar.isActive() and _m_g27._czas_zycia == 0.0
+            and _m_g27._ziarno_terenu == _m_g27._ziarno and not _m_g27._zegar_terenu.isActive())
+    _okno_g2_27.close()
+
+    # ── 27b. rzeźba: góry czytelne, nizina spokojna ─────────────────
+    _okno_n27, _m_n27 = _scena27(_BAZA_N27, _M_NIZ27, _DZ_NIZ27, 1040, 660, True)
+    sprawdz("rzeźba rejonu idzie za szerokością geograficzną bazy: Zakopane to góry, Warszawa nizina",
+            _m_g27._rzezba >= _PM27.RZEZBA_GOR and _m_n27._rzezba < 1.0,
+            "góry %.2f, nizina %.2f" % (_m_g27._rzezba, _m_n27._rzezba))
+
+    def _rzezba27(m):
+        """(rozrzut jasności cieniowania na szarym tle, czy jest skała/śnieg, czy są poziomice)."""
+        rzut = m.rzut()
+        r = _QR27(m.rect())
+        y_hor = m._horyzont(rzut, r)[0]
+        pix, szczyty, pole, poziomice = m._cieniowanie(rzut, r, y_hor)
+        out = _QPX27(m.width(), m.height())
+        out.fill(_QC27(128, 128, 128))
+        q = _QPT27(out)
+        q.setRenderHint(_QPT27.RenderHint.SmoothPixmapTransform, True)
+        q.drawPixmap(pole, pix, _QR27(pix.rect()))
+        q.end()
+        _w, _h, wiersze = _szarosc27(out)
+        probki = [wiersze[y][x] for y in range(int(y_hor) + 8, _h, 6) for x in range(0, _w, 6)]
+        return _stat27.pstdev(probki), szczyty is not None, poziomice is not None
+
+    _roz_g27, _szczyty_g27, _poz_g27 = _rzezba27(_m_g27)
+    _roz_n27, _szczyty_n27, _poz_n27 = _rzezba27(_m_n27)
+    sprawdz("cieniowanie rzeźby w górach ma co najmniej 1,6 raza większy rozrzut jasności niż na nizinie (i sam w sobie wyraźny)",
+            _roz_g27 >= 1.6 * _roz_n27 and _roz_g27 > 25.0,
+            "góry %.1f, nizina %.1f" % (_roz_g27, _roz_n27))
+    sprawdz("skała ze śniegiem i poziomice rysują się tylko w górach",
+            _szczyty_g27 and _poz_g27 and not _szczyty_n27 and not _poz_n27)
+
+    # ── 27c. lasy: cień za światłem, kępy koron w bliskich płatach ──
+    _rzut_n27 = _m_n27.rzut()
+    _lx27, _ly27 = _rzut_n27.swiatlo_ekran
+    _z_cieniem27, _za_swiatlem27, _z_kepami27 = 0, 0, 0
+    for (_gl, _cien, _dol, _gora, _slonce, _barwy) in _m_n27._pola["lasy"]:
+        if _cien is None or _dol is None:
+            continue
+        _z_cieniem27 += 1
+        _sc = _cien.boundingRect().center()
+        _sd = _dol.boundingRect().center()
+        if (_sc.x() - _sd.x()) * _lx27 + (_sc.y() - _sd.y()) * _ly27 < 0.0:
+            _za_swiatlem27 += 1
+        if _slonce is not None and _slonce[2]:
+            _z_kepami27 += 1
+    sprawdz("każdy płat lasu kładzie cień po stronie odwróconej od słońca, a bliskie płaty mają kępy koron",
+            _z_cieniem27 >= 20 and _za_swiatlem27 == _z_cieniem27 and _z_kepami27 >= 5,
+            "płatów z cieniem %d, za światłem %d, z kępami %d" % (_z_cieniem27, _za_swiatlem27, _z_kepami27))
+
+    # ── 27d. osady osobno ───────────────────────────────────────────
+    _znaki27 = _m_n27._znaki_miejscowosci(_rzut_n27)
+    _obrysy27 = {mm["nazwa"]: max(math.hypot(x - mm["x"], y - mm["y"]) for (x, y) in mm["obrys"])
+                 for mm in _m_n27._miejscowosci}
+    _zlane27 = []
+    for _n27, _sasiedzi27 in _m_n27._sasiedztwo.items():
+        for (_d27, _s27) in _sasiedzi27:
+            if (_obrysy27[_n27] * _znaki27.get(_n27, 1.0)
+                    + _obrysy27[_s27] * _znaki27.get(_s27, 1.0)) >= _d27:
+                _zlane27.append((_n27, _s27))
+    sprawdz("żadne dwie sąsiadki nie zlewają się w jedną plamę zabudowy (baza, miasta i wsie)",
+            not _zlane27 and len(_m_n27._sasiedztwo) >= 60, str(_zlane27[:4]))
+
+    # ── 27e. trasa najjaśniejsza rzecz na terenie (1920×1080) ───────
+    _okno_d27, _m_d27 = _scena27(_BAZA_N27, _M_NIZ27, _DZ_DALEKI27, 1920, 1080, False)
+    _geo27 = _m_d27._geometria()
+    _w27, _h27, _klatka27 = _szarosc27(_okno_d27.grab())
+    _na_trasie27 = 0
+    for _pt27 in _geo27["probki"]:
+        _x27, _y27 = int(_pt27.x()), int(_pt27.y())
+        for _dx27 in (-1, 0, 1):
+            for _dy27 in (-1, 0, 1):
+                if 0 <= _x27 + _dx27 < _w27 and 0 <= _y27 + _dy27 < _h27:
+                    _na_trasie27 = max(_na_trasie27, _klatka27[_y27 + _dy27][_x27 + _dx27])
+    _y_hor27 = int(_m_d27._horyzont(_m_d27.rzut(), _QR27(_m_d27.rect()))[0])
+    _w2, _h2, _dol27 = _szarosc27(_m_d27._dol)
+    _teren27 = max(max(_dol27[y]) for y in range(_y_hor27 + 12, _h2))
+    sprawdz("trasa dnia jest jaśniejsza od najjaśniejszego piksela terenu pod horyzontem",
+            _na_trasie27 > _teren27, "trasa %d, teren %d" % (_na_trasie27, _teren27))
+    sprawdz("słupy przystanków i tabliczki leżą w warstwie górnej, a trasa ma własną pixmapę i obrys blitu",
+            _m_d27._trasa_pix is not None and _m_d27._trasa_pole is not None
+            and _m_d27._blask_pix is not None and _m_d27._gora is not None)
+
+    # ── 27f. budżet klatki i wypieku przy 1920×1080 ─────────────────
+    _okno_b27, _m_b27 = _scena27(_BAZA_N27, _M_NIZ27, _DZ_NIZ27, 1920, 1080, True)
+    _wyniki27 = {}
+    for _nazwa27, _m27 in (("bliski z kartką", _m_b27), ("daleki bez kartki", _m_d27)):
+        _pomiary27 = [_klatki27(_m27) for _ in range(2)]
+        _wyp27 = min(_wypiek27(_m27) for _ in range(2))
+        _wyniki27[_nazwa27] = (min(p[0] for p in _pomiary27), min(p[1] for p in _pomiary27), _wyp27)
+        print("      %s: mediana %.2f ms, p90 %.2f ms, wypiek statyki %.0f ms"
+              % ((_nazwa27,) + _wyniki27[_nazwa27]))
+    sprawdz("klatka mapy przy 1920×1080 (dzień bliski z kartką i daleki bez): mediana poniżej 10 ms",
+            all(w[0] < 10.0 for w in _wyniki27.values()),
+            ", ".join("%s %.2f" % (k, w[0]) for k, w in _wyniki27.items()))
+    sprawdz("...i 90. centyl poniżej 16 ms",
+            all(w[1] < 16.0 for w in _wyniki27.values()),
+            ", ".join("%s %.2f" % (k, w[1]) for k, w in _wyniki27.items()))
+    sprawdz("wypiek statyki (niebo, rzeźba, pola, lasy, woda, drogi, osady) przy 1920×1080 poniżej 400 ms",
+            all(w[2] < 400.0 for w in _wyniki27.values()),
+            ", ".join("%s %.0f" % (k, w[2]) for k, w in _wyniki27.items()))
+    _pod27 = _m_b27._pola["lasy"]
+    sprawdz("po pomiarach mapa wraca do stanu zrzutu: animacje zgaszone, ta sama statyka co przed pomiarem",
+            not _m_b27.animacje_wlaczone() and _m_b27._statyk is not None
+            and _bajty27(_okno_b27) == _bajty27(_okno_b27))
+
+    # ── 27g. nowe barwy mieszkają w proto_styl ───────────────────────
+    _zrodlo27 = open(os.path.join(KATALOG, "prototyp", "proto_mapa.py"), encoding="utf-8").read()
+    sprawdz("skała, śnieg, iskra wody, cień chmury i trzeci dach to barwy z proto_styl, a mapa ich nie wymyśla",
+            all(hasattr(_ST27, n) for n in ("SKALA", "SNIEG", "WODA_ISKRA", "CIEN_CHMURY", "DACH_CIEMNY"))
+            and all(("st.%s" % n) in _zrodlo27 for n in ("SKALA", "SNIEG", "WODA_ISKRA", "CIEN_CHMURY", "DACH_CIEMNY")))
+    sprawdz("pixmapa cieniowania jest KOPIĄ bufora Pythona (fromImage dzieli pamięć z QImage)",
+            "QPixmap.fromImage(obraz.copy())" in _zrodlo27)
+    for _o27 in (_okno_g27, _okno_n27, _okno_d27, _okno_b27):
+        _o27.close()
+except Exception as _e27:
+    sprawdz("mapa 3D dokończona: rzeźba, lasy, osady, trasa i budżet klatki", False, repr(_e27))
+    import traceback as _tb27
+    _tb27.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("28. Spektakl przy generowaniu: noc, nitki po drogach, kartki, lądowanie")
+
+# Zaczep INTRO_GENEROWANIA stawia proto_spektakl.SpektaklMiesiaca — podklasę
+# przelotu (sekcja 25 dalej obowiązuje): rejon w wieczornym świetle i noc na
+# filmie (świecą tylko osady), nitki światła biegnące PO DROGACH rejonu w rytm
+# ułożonych dni (najwyżej NITEK_NARAZ naraz, reszta czeka w kolejce), rozbłysk
+# miejscowości, kartka dokumentu z trasy na stos przy każdym napisanym pliku
+# (uderzenie pieczęci rozpędza kompas), lądowanie z domykaniem w czasie
+# CZAS_LADOWANIA_MS. Pokaz czyta postęp silnika: nie kończy się przed nim
+# i domyka po nim; Esc przerywa, kliknięcie pomija; zgaszone animacje —
+# sam kompas i zero przerysowań mapy; zamrożony zegar — zrzuty co do bajta.
+try:
+    import statistics as _stat28
+    import nowy_wyglad as _NW28
+    import proto_mapa as _PM28
+    import proto_spektakl as _SP28
+    import proto_kompas as _KM28
+    from PyQt6.QtWidgets import QApplication as _QA28
+    from PyQt6.QtCore import Qt as _Qt28, QPointF as _QP28, QEvent as _QE28
+    from PyQt6.QtGui import QKeyEvent as _QKE28, QMouseEvent as _QME28, QColor as _QC28
+    _app28 = _QA28.instance() or _QA28(sys.argv)
+    _app28.setStyleSheet(_NW28.arkusz())
+
+    def _miel28(ile=6):
+        for _ in range(ile):
+            _app28.processEvents()
+
+    def _czekaj28(sekundy):
+        _k = time.monotonic() + sekundy
+        while time.monotonic() < _k:
+            _app28.processEvents()
+
+    _okno28 = _NW28.OknoNowegoWygladu(
+        profil=_NW28.ProfilWidoku("Jan Testowy", "85010112345", "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=6)
+    _okno28.showNormal()
+    _okno28.resize(1920, 1080)
+    _okno28.ustaw_animacje(True)
+    _miel28(12)
+    _okno28.k_parametry.kwota.ustaw_tekst("1200")
+    _okno28._przelicz_teraz()
+    _miel28(12)
+    _geo28, _baza28 = _okno28.geo, _okno28.baza_miasto
+    _inne28 = sorted(n for n in _geo28 if n != _baza28)
+
+    def _trasa28(*nazwy):
+        return [(_baza28,) + tuple(_geo28[_baza28])] + [(n,) + tuple(_geo28[n]) for n in nazwy] \
+            + [(_baza28,) + tuple(_geo28[_baza28])]
+
+    class _WatekAtrapa28:
+        anulowano_razy = 0
+
+        def anuluj(self):
+            _WatekAtrapa28.anulowano_razy += 1
+
+    # ── 28a. zaczep stawia spektakl: podklasa przelotu, noc na filmie ──
+    _okno28._zacznij_intro_generowania()
+    _f28 = _okno28._intro_generowania
+    sprawdz("INTRO_GENEROWANIA (przelot_generowania) stawia SpektaklMiesiaca — podklasę PrzelotRejonu, dokładnie na mapie",
+            isinstance(_f28, _SP28.SpektaklMiesiaca) and isinstance(_f28, _PM28.PrzelotRejonu)
+            and _f28.geometry() == _okno28.mapa.geometry() and _f28.isVisible(), str(type(_f28)))
+    sprawdz("rejon spektaklu stoi w wieczornym świetle (okna świecą), a mapa pod nim zostaje przy swojej porze dnia",
+            _f28._rejon._swiatlo.pora == "wieczor" and _f28._rejon._swiatlo.okna
+            and _okno28.mapa._swiatlo.pora != "wieczor",
+            str((_f28._rejon._swiatlo.pora, _okno28.mapa._swiatlo.pora)))
+    _f28._tik()                                      # wypiek filmu + noc
+    _obraz28 = _f28.scena().toImage()
+    _jasnosci28 = []
+    for _y in range(int(_obraz28.height() * 0.3), _obraz28.height(), 24):
+        for _x in range(0, _obraz28.width(), 24):
+            _c = _QC28(_obraz28.pixel(_x, _y))
+            _jasnosci28.append((_c.red() + _c.green() + _c.blue()) / 3.0)
+    _dzien28 = _PM28.PrzelotRejonu.nad_mapa(_okno28.mapa, _NW28.miasta_dla_mapy(_geo28, _baza28),
+                                            baza=_baza28, rodzic=None)
+    _dzien28._tik()
+    _obraz_d28 = _dzien28.scena().toImage()
+    _jasnosci_d28 = []
+    for _y in range(int(_obraz_d28.height() * 0.3), _obraz_d28.height(), 24):
+        for _x in range(0, _obraz_d28.width(), 24):
+            _c = _QC28(_obraz_d28.pixel(_x, _y))
+            _jasnosci_d28.append((_c.red() + _c.green() + _c.blue()) / 3.0)
+    _dzien28.przerwij()
+    sprawdz("noc: film spektaklu jest wyraźnie ciemniejszy od filmu przelotu dziennego (średnia jasność gruntu poniżej połowy), ale nie czarny — świecą osady",
+            _stat28.mean(_jasnosci28) < 0.5 * _stat28.mean(_jasnosci_d28) and max(_jasnosci28) > 150,
+            "noc %.1f dzień %.1f max %.1f" % (_stat28.mean(_jasnosci28), _stat28.mean(_jasnosci_d28), max(_jasnosci28)))
+
+    # ── 28b. nitki po drogach; zamrożony zegar = od razu na miejscu i co do bajta ──
+    _f28.ustaw_chwile(2.0)
+    _rejon28 = _f28._rejon
+    _a28, _b28 = _inne28[3], _inne28[10]
+    _ok28 = _f28.dodaj_trase(_trasa28(_a28, _b28), data=datetime.date(2026, 6, 1))
+    _t28 = _f28._trasy[-1]
+    _po28 = _rejon28._po_drogach(_baza28, _a28)
+    _wezly28 = {tuple(_rejon28._miasta[n]) for n in _po28}
+    sprawdz("dodaj_trase kładzie nitkę PO DROGACH rejonu: przebieg dłuższy niż same przystanki, zaczyna i kończy w bazie, przechodzi przez węzły drogi mapy",
+            _ok28 and len(_t28["droga"]) > len(_t28["swiat"]) + 4
+            and _t28["droga"][0] == _t28["swiat"][0] and _t28["droga"][-1] == _t28["swiat"][-1]
+            and all(w in {tuple(p) for p in _t28["droga"]} or w == tuple(_t28["swiat"][0]) for w in _wezly28),
+            str((len(_t28["droga"]), len(_t28["swiat"]), _po28)))
+    sprawdz("miary nitki: skumulowana długość 0…1 i przystanki z ułamkiem, w którym nitka do nich dobiega (rosnąco, ostatni to powrót do bazy = 1)",
+            _t28["dlug"][0] == 0.0 and abs(_t28["dlug"][-1] - 1.0) < 1e-9
+            and [m[0] for m in _t28["przystanki"]] == sorted(m[0] for m in _t28["przystanki"])
+            and _t28["przystanki"][-1][0] == 1.0 and len(_t28["przystanki"]) == 3,
+            str([round(m[0], 3) for m in _t28["przystanki"]]))
+    sprawdz("przy zamrożonym zegarze nitka jest od razu scalona (bez kolejki i bez rozbłysków), jak trasa przelotu",
+            _t28["zapal"] is None and _t28["punkty"] is not None and _f28.czeka_w_kolejce() == 0
+            and _f28.nitki_w_biegu() == 0 and _f28.rozblyski() == 0 and _f28._trasy_pix is not None)
+    _f28.dodaj_trase(_trasa28(_inne28[5], _inne28[6], _inne28[7]), data=datetime.date(2026, 6, 2))
+    _nowe28 = _f28.ustaw_dokumenty(1, 2)
+    sprawdz("dokument 1/2 stempluje pierwszy dzień i wypuszcza kartkę; przy zamrożonym zegarze kartka leży od razu na stosie (bez uderzenia)",
+            _nowe28 == 1 and _f28.kartki() == 1 and _f28.kartki_na_stosie() == 1
+            and _f28._kartki[0]["pieczec"] is False, str((_nowe28, _f28.kartki(), _f28.kartki_na_stosie())))
+    _z1_28 = same_piksele(_f28.grab().toImage())
+    _miel28(3)
+    _z2_28 = same_piksele(_f28.grab().toImage())
+    _f28.ustaw_chwile(7.0)
+    _z3_28 = same_piksele(_f28.grab().toImage())
+    sprawdz("ta sama chwila z nitkami i kartką daje ten sam obraz co do bajta; inna chwila — inny obraz",
+            _z1_28 == _z2_28 and _z1_28 != _z3_28)
+    _f28.przerwij()
+    _miel28(3)
+    _okno28._intro_generowania = None
+
+    # ── 28c. synchronizacja z postępem: kolejka nitek, brak końca przed silnikiem, domknięcie po nim ──
+    _okno28._zacznij_intro_generowania()
+    _g28 = _okno28._intro_generowania
+    _okno28.k_kompas.kompas.ustaw_stan("praca")
+    _okno28._etap_silnika = "trasy"
+    _g28._tik()
+    _miel28(2)
+    for _i in range(4):
+        _okno28._dzien_gotowy_generacji((datetime.date(2026, 6, 3 + _i),
+                                         tuple(_trasa28(_inne28[8 + _i], _inne28[20 + _i]))))
+        _okno28._postep_generacji("Klastrowanie GPS (Dzień %d/4)..." % (_i + 1), 0.35 + 0.1 * _i)
+    _miel28(2)
+    _w_biegu28 = (_g28.nitki_w_biegu(), _g28.czeka_w_kolejce(), _g28.trasy())
+    sprawdz("cztery dni naraz: nitki biegną najwyżej po NITEK_NARAZ, reszta czeka w kolejce — pokaz nie strzela ośmioma efektami naraz",
+            _w_biegu28[2] == 4 and 1 <= _w_biegu28[0] <= _SP28.NITEK_NARAZ
+            and _w_biegu28[0] + _w_biegu28[1] == 4, str(_w_biegu28))
+    _fazy28 = set()
+    _rozblysk_byl28 = False
+    _t0_28 = time.monotonic()
+    while time.monotonic() - _t0_28 < 2.6:
+        _app28.processEvents()
+        _fazy28.add(_g28.faza())
+        _rozblysk_byl28 = _rozblysk_byl28 or _g28.rozblyski() > 0
+    _okno28._postep_generacji("Renderowanie pliku PDF (1/2)...", 0.85)
+    _okno28._postep_generacji("Renderowanie pliku PDF (2/2)...", 0.90)
+    _miel28(2)
+    _kartek28 = (_g28.kartki(), _g28.kartki_na_stosie(), _g28.stemple())
+    sprawdz("przez 2,6 s bez końca silnika pokaz zostaje w locie (nigdy nie ląduje przed silnikiem), nitki dobiegły i miejscowości rozbłysły",
+            _fazy28 == {"lot"} and _g28.nitki_w_biegu() == 0 and _g28.czeka_w_kolejce() == 0
+            and _rozblysk_byl28, str((_fazy28, _g28.nitki_w_biegu(), _g28.czeka_w_kolejce(), _rozblysk_byl28)))
+    sprawdz("dwa dokumenty to dwie kartki w locie z trasy, a trasy dostają stemple",
+            _kartek28[0] == 2 and _kartek28[1] < 2 and _kartek28[2] == 4, str(_kartek28))
+    _impulsy28 = []
+    _stary_impuls28 = _KM28.Kompas.impuls
+    _KM28.Kompas.impuls = lambda self, sila=_KM28.OBROT_MAX: (_impulsy28.append(sila), _stary_impuls28(self, sila))[1]
+    try:
+        _t_kon28 = time.monotonic()
+        _okno28._etap_silnika = ""
+        _okno28._koniec_sekwencji()                  # silnik skończył
+        _miel28(3)
+        _po_koncu28 = (_g28.faza(), _okno28._intro_generowania, _g28.isVisible())
+        _domkniete28 = all(k["czas"] <= _SP28.CZAS_DOMYKANIA_MS + 1e-6 or _g28._lot_kartki(k, _g28._czas()) >= 1.0
+                           for k in _g28._kartki)
+        while time.monotonic() - _t_kon28 < 3.0 and _okno28.findChildren(_SP28.SpektaklMiesiaca):
+            _app28.processEvents()
+        _czas_domkniecia28 = time.monotonic() - _t_kon28
+    finally:
+        _KM28.Kompas.impuls = _stary_impuls28
+    sprawdz("koniec silnika: pokaz od razu ląduje (faza „ladowanie”), okno o nim zapomina, kartki w locie dolatują w czasie domykania",
+            _po_koncu28[0] == "ladowanie" and _po_koncu28[1] is None and _po_koncu28[2] and _domkniete28,
+            str(_po_koncu28))
+    sprawdz("po końcu silnika pokaz domyka się i schodzi z okna w mniej niż 1,3 s (lądowanie CZAS_LADOWANIA_MS), stemple kartek rozpędziły kompas",
+            _czas_domkniecia28 < 1.3 and not _okno28.findChildren(_SP28.SpektaklMiesiaca)
+            and len(_impulsy28) >= 1 and _g28.faza() == "koniec",
+            "domknięcie %.2f s, impulsów %d, faza %s" % (_czas_domkniecia28, len(_impulsy28), _g28.faza()))
+    _miel28(4)
+
+    # ── 28d. Esc przerywa, kliknięcie pomija ──────────────────────
+    _okno28._zacznij_intro_generowania()
+    _h28 = _okno28._intro_generowania
+    _h28._tik()
+    _okno28._watek = _WatekAtrapa28()
+    _okno28.k_kompas.kompas.ustaw_stan("praca")
+    _okno28.keyPressEvent(_QKE28(_QE28.Type.KeyPress, _Qt28.Key.Key_Escape, _Qt28.KeyboardModifier.NoModifier))
+    _miel28(3)
+    sprawdz("Esc w czasie spektaklu przerywa go natychmiast (bez lądowania) i każe wątkowi się zatrzymać",
+            _WatekAtrapa28.anulowano_razy == 1 and _h28.faza() == "koniec" and not _h28.isVisible()
+            and not _h28.pominiety() and _okno28._intro_generowania is None
+            and not _okno28.findChildren(_SP28.SpektaklMiesiaca), str((_h28.faza(), _h28.isVisible())))
+    _okno28._watek = None
+    _okno28._anulowano_generacji()
+    _miel28(3)
+    _okno28._zacznij_intro_generowania()
+    _k28 = _okno28._intro_generowania
+    _k28._tik()
+    _okno28._watek = _WatekAtrapa28()
+    _okno28.k_kompas.kompas.ustaw_stan("praca")
+    _srodek28 = _QP28(_k28.width() * 0.5, _k28.height() * 0.5)
+    _k28.mousePressEvent(_QME28(_QE28.Type.MouseButtonPress, _srodek28, _k28.mapToGlobal(_srodek28.toPoint()).toPointF(),
+                                _Qt28.MouseButton.LeftButton, _Qt28.MouseButton.LeftButton,
+                                _Qt28.KeyboardModifier.NoModifier))
+    _miel28(3)
+    _okno28._postep_generacji("Klastrowanie GPS (Dzień 2/4)...", 0.55)
+    _okno28._dzien_gotowy_generacji((datetime.date(2026, 6, 9), tuple(_trasa28(_inne28[1]))))
+    _miel28(2)
+    sprawdz("kliknięcie POMIJA pokaz: nakładka schodzi, okno o niej zapomina, a silnik pracuje dalej (wątek nie przerwany, kompas w pracy z postępem z meldunku)",
+            _k28.pominiety() and _k28.faza() == "koniec" and not _k28.isVisible()
+            and _okno28._intro_generowania is None and _WatekAtrapa28.anulowano_razy == 1
+            and _okno28.k_kompas.kompas.stan() == "praca" and abs(_okno28.k_kompas.kompas.postep() - 0.55) < 1e-6
+            and _k28.dodaj_trase(_trasa28(_inne28[2])) is False,
+            str((_k28.pominiety(), _k28.faza(), _okno28.k_kompas.kompas.postep())))
+    _okno28._watek = None
+    _okno28._anulowano_generacji()
+    _miel28(3)
+
+    # ── 28e. budżet klatki z nitkami, rozbłyskami i kartkami w locie ──
+    _okno28._zacznij_intro_generowania()
+    _m28 = _okno28._intro_generowania
+    _m28._tik()
+    _czekaj28(_PM28.CZAS_STARTU_MS / 1000.0 + 0.1)      # wejście (mapa dnia odchodzi) już za nami
+    for _i in range(4):
+        _m28.dodaj_trase(_trasa28(_inne28[12 + _i], _inne28[30 + _i], _inne28[40 + _i]), data=datetime.date(2026, 6, 10 + _i))
+    _m28.ustaw_dokumenty(1, 3)
+    _m28.ustaw_dokumenty(2, 3)
+    _pomiar28 = []
+    _t0_28 = time.monotonic()
+    _zycie28 = {"nitki": 0, "rozblyski": 0, "kartki": 0}
+    while len(_pomiar28) < 40 and time.monotonic() - _t0_28 < 4.0:
+        _app28.processEvents()
+        _zycie28["nitki"] = max(_zycie28["nitki"], _m28.nitki_w_biegu())
+        _zycie28["rozblyski"] = max(_zycie28["rozblyski"], _m28.rozblyski())
+        _zycie28["kartki"] = max(_zycie28["kartki"], _m28.kartki() - _m28.kartki_na_stosie())
+        _t = time.perf_counter()
+        _m28.repaint()
+        _pomiar28.append((time.perf_counter() - _t) * 1000.0)
+    _pm28 = sorted(_pomiar28)
+    sprawdz("budżet klatki spektaklu przy 1920×1080 z nitkami, rozbłyskami i kartkami w locie: mediana i p90 poniżej 16 ms",
+            len(_pm28) == 40 and _stat28.median(_pm28) < 16.0 and _pm28[int(0.9 * 39)] < 16.0
+            and _zycie28["nitki"] >= 1 and _zycie28["kartki"] >= 1,
+            "mediana %.2f p90 %.2f max %.2f, w locie %s" % (_stat28.median(_pm28), _pm28[int(0.9 * 39)], _pm28[-1], _zycie28))
+    _m28.przerwij()
+    _miel28(3)
+    _okno28._intro_generowania = None
+
+    # ── 28f. zgaszone animacje: sam kompas, zero przerysowań mapy, zrzuty co do bajta ──
+    _okno28.ustaw_animacje(False)
+    _miel28(4)
+    _licznik28 = {"mapa": 0}
+    _paint_mapy28 = _PM28.MapaDnia.paintEvent
+
+    def _paint_licz28(self, zdarzenie):
+        if self is _okno28.mapa:
+            _licznik28["mapa"] += 1
+        _paint_mapy28(self, zdarzenie)
+    _PM28.MapaDnia.paintEvent = _paint_licz28
+    try:
+        _mapa_przed28 = same_piksele(_okno28.grab(_okno28.mapa.geometry()).toImage())
+        _licznik28["mapa"] = 0                      # grab sam woła paintEvent — liczymy od teraz
+        _okno28._zacznij_intro_generowania()
+        _bez28 = _okno28._intro_generowania
+        _okno28._etap_silnika = "trasy"
+        for _i in range(3):
+            _okno28._dzien_gotowy_generacji((datetime.date(2026, 6, 15 + _i), tuple(_trasa28(_inne28[50 + _i]))))
+            _okno28._postep_generacji("Klastrowanie GPS (Dzień %d/3)..." % (_i + 1), 0.4 + 0.1 * _i)
+            _miel28(3)
+        _okno28._etap_silnika = "PDF"
+        _okno28._postep_generacji("Renderowanie pliku PDF (1/1)...", 0.9)
+        _miel28(6)
+        _przerysowan28 = _licznik28["mapa"]         # ...do tego miejsca; poniższy grab znów rysuje
+        _mapa_po28 = same_piksele(_okno28.grab(_okno28.mapa.geometry()).toImage())
+    finally:
+        _PM28.MapaDnia.paintEvent = _paint_mapy28
+    sprawdz("przy zgaszonych animacjach spektaklu nie ma: meldunki idą na kompas, mapa nie przerysowuje się ani razu, a jej zrzut przed i po jest ten sam co do bajta",
+            _bez28 is None and not _okno28.findChildren(_SP28.SpektaklMiesiaca)
+            and _przerysowan28 == 0 and _mapa_przed28 == _mapa_po28
+            and abs(_okno28.k_kompas.kompas.postep() - 0.9) < 1e-6,
+            str((_bez28, _przerysowan28, _mapa_przed28 == _mapa_po28)))
+    _okno28._etap_silnika = ""
+    _okno28._koniec_sekwencji()
+
+    # ── 28g. rozpęd kompasu z zewnątrz ────────────────────────────
+    _kp28 = _KM28.Kompas()
+    _kp28.ustaw_stan("gotowy")
+    _bez_pracy28 = (_kp28.impuls(), _kp28._obrot_cel)
+    _kp28.ustaw_stan("praca")
+    _kp28._obrot_cel = 30.0
+    _w_pracy28 = (_kp28.impuls(), _kp28._obrot_cel)
+    sprawdz("Kompas.impuls: poza pracą nic nie robi, w pracy podnosi rozpęd igły do OBROT_MAX (opada sam, jak po meldunku)",
+            _bez_pracy28 == (False, 0.0) and _w_pracy28 == (True, _KM28.OBROT_MAX), str((_bez_pracy28, _w_pracy28)))
+    _kp28.zatrzymaj_animacje()
+    _okno28.close()
+except Exception as _e28:
+    sprawdz("spektakl przy generowaniu", False, repr(_e28))
+    import traceback as _tb28
+    _tb28.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

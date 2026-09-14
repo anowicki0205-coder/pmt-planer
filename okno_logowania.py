@@ -71,7 +71,11 @@ ZYCIE_KURTYNY = 8000           # ms: bezpiecznik — scena nie zostaje na wieki
 
 # Budżety rysowania. Pierwsza klatka mapy liczona jest przy dołączaniu tła;
 # przekroczona oznacza sprzęt, na którym żywe tło tylko przeszkadza.
-BUDZET_PIERWSZEJ_KLATKI = 450.0   # ms
+# Pierwsza klatka zawiera jednorazowy wypiek krajobrazu 3D (relief, lasy,
+# bryły osad — ok. 250 ms na zwykłym laptopie, do 450 ms w rozgrzanym
+# procesie), więc próg jest luźny; o płynności decyduje dalej straż
+# klatka po klatce (BUDZET_KLATKI / BUDZET_KRYTYCZNY).
+BUDZET_PIERWSZEJ_KLATKI = 800.0   # ms
 BUDZET_KLATKI = 42.0              # ms — powyżej gaśnie animacja blasku
 BUDZET_KRYTYCZNY = 180.0          # ms — powyżej znika cała mapa
 KLATEK_DO_OCENY = 5               # tyle klatek mierzymy, zanim wydamy wyrok

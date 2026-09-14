@@ -32,7 +32,7 @@ LOG = os.path.join(KATALOG, "BUDOWANIE_log.txt")
 # Leżą w podfolderze prototyp\ — PyInstaller znajduje je dzięki --paths
 # (patrz buduj()), a do paczki wchodzą jako zwykłe moduły.
 PROTOTYP = ["proto_styl", "proto_dane", "proto_mapa", "proto_tasma",
-            "proto_kompas", "proto_taca", "proto_okno"]
+            "proto_kompas", "proto_taca", "proto_okno", "proto_spektakl"]
 WYMAGANE = ["PMT_Delegacje.py", "karta_testera.py",
             "wyglad_3d.py", "pmt_dokumenty.py", "pmt_podpis.py",
             "pmt_wysylka.py", "nowy_wyglad.py",

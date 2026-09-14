@@ -246,6 +246,16 @@ class Kompas(QAbstractButton):
         tempo = przyrost / odstep                  # ułamek postępu na sekundę
         self._obrot_cel = max(OBROT_MIN, min(OBROT_MAX, tempo * OBROT_NA_TEMPO))
 
+    def impuls(self, sila=OBROT_MAX):
+        """Rozpęd z zewnątrz: uderzenie pieczęci na pokazie generowania.
+
+        Tylko w pracy — igła skacze do ``sila`` stopni na sekundę i opada
+        jak po meldunku (OBROT_OPADANIE), więc bez pokazu nic się nie zmienia."""
+        if self._stan != "praca":
+            return False
+        self._obrot_cel = max(self._obrot_cel, max(OBROT_MIN, min(OBROT_MAX, float(sila))))
+        return True
+
     def etap(self):
         return self._etap
 

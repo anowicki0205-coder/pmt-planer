@@ -102,7 +102,14 @@ WZGORZA_DALEKIE = QColor(108, 128, 158)  # pasma na horyzoncie, dalsze i bliższ
 WZGORZA_BLISKIE = QColor(90, 108, 138)
 CHMURA          = QColor(224, 228, 232)
 CHMURA_CIEN     = QColor(168, 178, 194)
+CIEN_CHMURY     = QColor(12, 14, 34)      # cień chmury na ziemi (z małą alfą)
 POZIOMICA       = QColor(70, 58, 40)
+# Góry: ponad granicą lasu skała, na szczytach śnieg (zimą śnieg schodzi niżej).
+SKALA           = QColor(146, 134, 120)
+SNIEG           = QColor(238, 241, 244)
+# Iskra słońca na wodzie — jaśniejsza od blasku, w wąskim pasie.
+WODA_ISKRA      = QColor(244, 249, 253)
+DACH_CIEMNY     = QColor(110, 94, 86)     # trzeci odcień dachu: łupek
 
 # ── miary ────────────────────────────────────────────────────────────
 PROMIEN       = 18.0     # domyślne zaokrąglenie narożnika

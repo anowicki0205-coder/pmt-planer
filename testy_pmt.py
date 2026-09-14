@@ -2882,6 +2882,52 @@ try:
     sprawdz("dni bez pracy zapisują się na dysk od razu po wyborze",
             P.ustawienie(_NW11.OknoNowegoWygladu.USTAWIENIE_WOLNYCH, {}).get("2026-10")
             == [5, 6, 7, 12, 13])
+    # ── kwota poniżej najtańszego prawdziwego wyjazdu ─────────────
+    # Decyzja właściciela: OSTRZEGAMY liczbą i generujemy mimo to.
+    _min11 = _NW11.min_kwota_wyjazdu(_okno11.geo, _okno11.baza_miasto,
+                                     _okno11.profil.stawka)
+    sprawdz("program zna najtańszy prawdziwy wyjazd z bazy",
+            _min11 > 0.0 and _min11 < 5000.0, "%.2f zł" % _min11)
+    # szacunek nie może ZAWYŻAĆ — inaczej odstraszałby od kwot, które przejdą
+    _dni11_min = P.generuj_trasy(max(P.MIN_KWOTA, _min11), _okno11.baza_miasto,
+                                 _okno11.baza_lat, _okno11.baza_lng,
+                                 _okno11.wojewodztwo,
+                                 _NW11.dni_robocze_realne(2026, 10, "Tydzień"),
+                                 "90010112345", stawka=_okno11.profil.stawka)
+    _suma11_min = sum(d.suma for d in _dni11_min)
+    sprawdz("szacunek minimum nie zawyża — silnik rozpisuje tyle albo więcej",
+            _suma11_min >= _min11 - 0.01, "%.2f zł wobec %.2f zł" % (_suma11_min, _min11))
+
+    # W rejonie o rzadkiej siatce miast minimum idzie w setki złotych —
+    # tam właśnie ostrzeżenie ma sens. Liczymy je na prawdziwej puli.
+    _geo_gory = _NW11.miasta_wokol_bazy("Zakopane", 49.2992, 19.9496,
+                                        "małopolskie", _NW11.MIAST_PODGLADU)
+    _geo_gory.setdefault("Zakopane", (49.2992, 19.9496))
+    _min_gory = _NW11.min_kwota_wyjazdu(_geo_gory, "Zakopane", 1.15)
+    sprawdz("w rejonie o rzadkiej siatce miast minimum jest wielokrotnie wyższe",
+            _min_gory > 3 * _min11, "%.2f zł wobec %.2f zł" % (_min_gory, _min11))
+
+    _kp11.kwota.ustaw_tekst("200")
+    _okno11._przelicz_teraz()
+    _app11.processEvents()
+    _okno11._min_kwota = 400.0          # tak wyszłoby w górach
+    _okno11._za_malo = True
+    _okno11._odswiez_liczby()
+    _app11.processEvents()
+    sprawdz("kwota poniżej minimum zapala ostrzeżenie z LICZBĄ, bez zdania objaśniającego",
+            _kp11.kwota.l_nota.text().startswith("min.")
+            and "zł" in _kp11.kwota.l_nota.text(),
+            repr(_kp11.kwota.l_nota.text()))
+    sprawdz("ostrzeżenie nie blokuje generowania — właściciel wybrał ostrzeganie, nie odmowę",
+            "min." not in (_okno11._dane_do_generacji()[1] or ""),
+            str(_okno11._dane_do_generacji()[1]))
+    _kp11.kwota.ustaw_tekst("1 850")
+    _okno11._przelicz_teraz()
+    _app11.processEvents()
+    sprawdz("zwykła kwota nie pokazuje ostrzeżenia o minimum",
+            not _okno11._za_malo and not _kp11.kwota.l_nota.text().startswith("min."),
+            repr(_kp11.kwota.l_nota.text()))
+
     # licznik w nagłówku taśmy liczy dni DO WYKORZYSTANIA — dzień wyłączony
     # przez użytkownika nie jest już dniem, w którym można jechać
     _kafle11 = list(_okno11.tasma._dni)

@@ -1039,6 +1039,37 @@ def podglad_miesiaca(kwota, rok, miesiac, tryb, wylaczone, stawka, geo,
     return lista
 
 
+def min_kwota_wyjazdu(geo, baza_nazwa, stawka=None):
+    """Najtańszy PRAWDZIWY wyjazd z tej bazy — dolna granica kwoty.
+
+    Najkrótsza możliwa pętla to baza → dwie najbliższe miejscowości → baza,
+    a każdy odcinek ma fizyczną podłogę: linia prosta × PMT.MNOZNIK_MIN.
+    Poniżej tej kwoty program nie narysuje przejazdu, który dałoby się odbyć —
+    w rejonach o rzadkiej siatce miast (góry, wybrzeże) wychodzi z tego nawet
+    kilkaset złotych. Zwraca 0.0, gdy nie ma z czego policzyć."""
+    stawka = float(stawka or PMT.STAWKA_ZA_KM)
+    if not geo or baza_nazwa not in geo or stawka <= 0:
+        return 0.0
+    b_lat, b_lng = geo[baza_nazwa]
+    inne = sorted(((PMT.oblicz_dystans(b_lat, b_lng, la, lg), n, la, lg)
+                   for n, (la, lg) in geo.items() if n != baza_nazwa),
+                  key=lambda x: (x[0], x[1]))
+    inne = [x for x in inne if x[0] > 3.0][:8]
+    if not inne:
+        return 0.0
+    if len(inne) == 1:
+        linia = 2.0 * inne[0][0]
+    else:
+        linia = min(
+            a[0] + PMT.oblicz_dystans(a[2], a[3], b[2], b[3]) + b[0]
+            for i, a in enumerate(inne) for b in inne[i + 1:])
+    # Odcinek liczy się drogą, nie w linii prostej — nawet bez sieci program
+    # bierze linię prostą × krętość dróg. To wciąż DOLNA granica: silnik
+    # zwykle wychodzi wyżej, bo nie zawsze może wziąć dwie najbliższe
+    # miejscowości. Dokładną liczbę podaje dopiero po wygenerowaniu.
+    return round(linia * max(PMT.MNOZNIK_MIN, PMT.TEST_MNOZNIK_TRASY) * stawka, 2)
+
+
 def maks_kwota_miesiaca(rok, miesiac, tryb, wylaczone, limit_dnia, stawka=None):
     """Górna granica kwoty — walidacja z programu (App.proces).
 
@@ -2519,6 +2550,11 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._maks_kwota = self._maks_miesiaca(tryb)
         self._za_duzo = bool(self._maks_kwota
                              and self._kwota() > self._maks_kwota + 0.005)
+        # dolna granica: najtańszy prawdziwy wyjazd z TEJ bazy
+        self._min_kwota = min_kwota_wyjazdu(getattr(self, "geo", None),
+                                            self.baza_miasto, self.profil.stawka)
+        self._za_malo = bool(self._min_kwota
+                             and self._kwota() < self._min_kwota - 0.005)
 
         pasuje = self._wynik_pasuje()
         if pasuje:
@@ -2605,6 +2641,13 @@ class OknoNowegoWygladu(OknoPrototypu):
     def _odswiez_liczby(self):
         super()._odswiez_liczby()
         if self._za_duzo:
+            return
+        if getattr(self, "_za_malo", False):
+            # Kwota niższa niż najtańszy prawdziwy wyjazd z tej bazy.
+            # Ostrzegamy liczbą i pozwalamy generować — dokumenty wyjdą
+            # wtedy na tę właśnie kwotę minimalną, nie na wpisaną.
+            self.k_parametry.kwota.ustaw_note(
+                "min. %s zł" % D.zl(self._min_kwota, grosze=False), True)
             return
         if self._powod_bledu:
             self.k_parametry.kwota.ustaw_note(self._powod_bledu, True)
@@ -2885,6 +2928,12 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._osiagnieto = round(sum(d.suma for d in finalne_dni), 2)
         self._niepelna = bool(getattr(watek, "_kwota_niepelna", False)) \
             or abs(self._osiagnieto - self._kwota_zamowiona) >= 0.01
+        # Silnik potrafi policzyć minimum dokładniej niż szacunek z puli miast
+        # — jeśli je podał, to ono jest prawdą i ono ma stać przy kwocie.
+        _min_silnika = float(getattr(watek, "_kwota_min_realna", 0.0) or 0.0)
+        if _min_silnika > 0:
+            self._min_kwota = round(_min_silnika, 2)
+            self._za_malo = self._kwota_zamowiona < self._min_kwota - 0.005
 
         self.baza_miasto = pracownik.baza_miasto
         self.baza_lat, self.baza_lng = pracownik.baza_lat, pracownik.baza_lng

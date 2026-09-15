@@ -7024,7 +7024,7 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
         _geo_cache[klucz] = _geo_cache[stary]
         return tuple(_geo_cache[klucz])
     if _geo_brak_znany(klucz):
-        return STOLICE.get(woj, (52.23, 21.01))
+        return _wspolrzedne_zastepcze(miasto, woj)
     odpowiedz_serwera = False
     for zapytanie in _warianty_geo(adres_caly, miasto):
         try:
@@ -7048,6 +7048,22 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
     _geo_pytane.add(klucz)
     if odpowiedz_serwera:
         _zapamietaj_geo_brak(klucz)
+    return _wspolrzedne_zastepcze(miasto, woj)
+
+
+def _wspolrzedne_zastepcze(miasto: str, woj: str) -> Tuple[float, float]:
+    """Gdy geokodowanie zawiodło: najpierw miasto z bazy offline programu,
+    dopiero potem stolica województwa. Wcześniej brak internetu (albo
+    adres, którego serwer nie zna) cofał bazę prosto do stolicy — pracownik
+    z Radomia dostawał dokumenty z trasami liczonymi z Warszawy, choć Radom
+    leży w bazie miast programu. Ta sama kolejność, co w podglądzie
+    (nowy_wyglad.wspolrzedne_bazy)."""
+    try:
+        z_bazy = coords_z_miasta(miasto)
+    except Exception:
+        z_bazy = None
+    if z_bazy:
+        return float(z_bazy[0]), float(z_bazy[1])
     return STOLICE.get(woj, (52.23, 21.01))
 
 

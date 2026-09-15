@@ -87,7 +87,9 @@ współrzędnych z proto_dane, dokładnie jak dotąd.
 """
 import copy
 import math
+import sys
 import time
+import traceback
 import unicodedata
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QLineF, QSize, QTimer, QEvent, pyqtSignal
@@ -381,6 +383,18 @@ OKRES_RZEKI_MS = 19000.0      # połysk przepływa wzdłuż rzeki
 PROMIEN_LINII = 4.2           # połowa najszerszej warstwy samej linii
 PROMIEN_BLASKU = 13.0         # promień świecącej głowy płynącej po trasie
 CZAS_ODSLONY_MS = 1500        # ile trwa rysowanie trasy od bazy z powrotem do bazy
+
+# ── tło miesiąca ─────────────────────────────────────────────────────
+# W widoku „wszystkie dni” trasy pozostałych dni miesiąca leżą pod trasą
+# wybranego dnia jako cienkie, przygaszone wstęgi: ten sam materiał, ta sama
+# wysokość nad terenem i ten sam przebieg po drogach, ale bez poświaty,
+# głowy, słupów i tabliczek. Pieczone raz na miesiąc i kadr — zmiana
+# wybranego dnia ich nie przelicza. Warstwy jak w _poswiata_zmienna:
+# (szerokość w jednostkach odniesienia, alfa, co ile punktów). Rdzeń kryje
+# w ~39 %, zielony powrót w ~36 % — dość, żeby wstęgi i powroty dało się
+# odczytać, a za mało, żeby konkurowały ze świecącą trasą dnia.
+WARSTWY_TLA_TRASY = ((2.0, 16, 3), (0.84, 100, 1))
+WARSTWY_TLA_POWROTU = ((0.84, 92, 1),)
 
 # Ranga miejscowości → wielkość plamy zabudowy. Kolejno: promień plamy w km,
 # ile niskich brył, najmniejszy i największy bok bryły w km, ile domów.
@@ -1405,6 +1419,15 @@ class MapaDnia(QWidget):
         self._obszar_klucz = None
         self._probki_pam = None
         self._probki_klucz = None
+        # tło miesiąca: trasy pozostałych dni (widok „wszystkie dni”)
+        self._tla_klucz = None          # krotka tras tła; None = tła nie ma
+        self._tla_ziarno = None         # ziarno terenu z całego miesiąca...
+        self._tla_pora_roku = "lato"    # ...i jego pora roku: zmiana dnia nie rusza terenu
+        self._tla_sciezki = None        # przebiegi tras tła po drogach
+        self._tla_sciezki_klucz = None
+        self._tlo_pix = None            # wstęgi tła upieczone raz na kadr
+        self._tlo_klucz = None
+        self._zgloszone_bledy = set()   # klucze błędów rysowania już zapisanych w dzienniku
 
         # geometria świata liczona raz, niezależna od rozmiaru okna
         self._baza = dn.BAZA
@@ -1485,12 +1508,69 @@ class MapaDnia(QWidget):
         poprzednia = self._klucz_trasy()
         self._dzien = dzien
         self._geo_klucz = None
-        self._ustaw_swiatlo(dzien)
-        self._ustaw_ziarno(_ziarno_dnia(dzien))
+        self._ustaw_scene()
         if self._klucz_trasy() != poprzednia:
             self._zacznij_odslone()
         self._rozsadz_zegar()
         self.update()
+
+    def ustaw_dni_tla(self, dni):
+        """Trasy pozostałych dni miesiąca jako tło — widok „wszystkie dni”.
+
+        ``dni`` to lista dni (proto_dane.Dzien) albo None, gdy tła ma nie być;
+        dni wolne i wyłączone są pomijane. Z tłem kadr obejmuje przystanki
+        WSZYSTKICH dni miesiąca, a ziarno terenu i światło biorą się z całego
+        miesiąca, nie z wybranego dnia — kamera i krajobraz stoją w miejscu,
+        a po dniach zmienia się tylko podświetlona trasa na wierzchu. Wstęgi
+        tła piecze się raz na miesiąc i kadr (:meth:`_pixmapa_tla`).
+        """
+        dni = list(dni or ())
+        trasy, daty = [], []
+        for d in dni:
+            if d is None or getattr(d, "wolny", False) or getattr(d, "wylaczony", False):
+                continue
+            trasa = tuple(d.trasa)
+            if len(trasa) < 3:
+                continue
+            daty.append(str(getattr(d, "data", "")))
+            if trasa not in trasy:
+                trasy.append(trasa)
+        klucz = tuple(trasy) or None    # miesiąc bez tras = tła nie ma
+        if klucz == self._tla_klucz:
+            return
+        self._tla_klucz = klucz
+        if klucz is not None:
+            self._tla_ziarno = _hasz_calk("mapa", "miesiac", *daty,
+                                          *[n for t in trasy for n in t])
+            pierwszy = next((d for d in dni if d is not None
+                             and not getattr(d, "wolny", False)
+                             and not getattr(d, "wylaczony", False)), None)
+            self._tla_pora_roku = pora_roku(pierwszy)
+        self._tla_sciezki = None
+        self._tla_sciezki_klucz = None
+        self._tlo_pix = None
+        self._tlo_klucz = None
+        self._obszar_klucz = None       # kadr należy teraz do całego miesiąca
+        self._probki_klucz = None
+        self._rzut_klucz = None
+        self._geo_klucz = None
+        self._warstwy_klucz = None
+        self._ustaw_scene()
+        self._rozsadz_zegar()
+        self.update()
+
+    def _ustaw_scene(self):
+        """Światło i ziarno terenu: z wybranego dnia, a z tłem — z miesiąca.
+
+        Z tłem obie rzeczy muszą stać w miejscu między dniami: inaczej każdy
+        klik w taśmę piekłby od nowa teren i wstęgi całego miesiąca.
+        """
+        if self._tla_klucz is not None:
+            self._zastosuj_swiatlo(Swiatlo(GODZINA_DOMYSLNA, self._tla_pora_roku))
+            self._ustaw_ziarno(self._tla_ziarno)
+        else:
+            self._ustaw_swiatlo(self._dzien)
+            self._ustaw_ziarno(_ziarno_dnia(self._dzien))
 
     def _klucz_trasy(self):
         """Trasa dnia jako niezmienna krotka; dzień wolny i brak dnia to ()."""
@@ -1661,6 +1741,7 @@ class MapaDnia(QWidget):
         """
         self._wersja_swiata = getattr(self, "_wersja_swiata", 0) + 1
         self._sciezka_klucz = None
+        self._tla_sciezki_klucz = None
         self._obszar_klucz = None
         self._probki_klucz = None
         self._siec = self._zbuduj_siec()
@@ -2106,6 +2187,17 @@ class MapaDnia(QWidget):
         klucz = (trasa, self._wersja_swiata)
         if self._sciezka_klucz == klucz and self._sciezka_pam is not None:
             return self._sciezka_pam
+        self._sciezka_pam = self._sciezka_trasy(trasa)
+        self._sciezka_klucz = klucz
+        return self._sciezka_pam
+
+    def _sciezka_trasy(self, trasa):
+        """Przebieg JEDNEJ trasy po drogach — ten sam dla dnia i dla tła.
+
+        Zwraca {"odcinki", "dodatkowe", "glowna", "powrot"}: łamane każdego
+        odcinka, drogi dołożone tam, gdzie sieć ich nie ma, droga tam i osobno
+        powrót do bazy.
+        """
         odcinki, dodatkowe = [], []
         if len(trasa) >= 2 and getattr(self, "_drogi", None) is not None:
             for i in range(len(trasa) - 1):
@@ -2124,19 +2216,32 @@ class MapaDnia(QWidget):
         glowna = []
         for punkty in odcinki[:-1]:
             glowna.extend(punkty if not glowna else punkty[1:])
-        self._sciezka_pam = {"odcinki": odcinki, "dodatkowe": dodatkowe,
-                             "glowna": glowna,
-                             "powrot": odcinki[-1] if odcinki else []}
-        self._sciezka_klucz = klucz
-        return self._sciezka_pam
+        return {"odcinki": odcinki, "dodatkowe": dodatkowe, "glowna": glowna,
+                "powrot": odcinki[-1] if odcinki else []}
+
+    def _sciezki_tla(self):
+        """Przebiegi tras tła po drogach — liczone raz na miesiąc i układ miast."""
+        klucz = (self._tla_klucz, self._wersja_swiata)
+        if self._tla_sciezki_klucz == klucz and self._tla_sciezki is not None:
+            return self._tla_sciezki
+        self._tla_sciezki = [self._sciezka_trasy(t) for t in (self._tla_klucz or ())]
+        self._tla_sciezki_klucz = klucz
+        return self._tla_sciezki
+
+    def _punkty_tla(self):
+        """Wszystkie punkty świata rysowanych wstęg tła; bez tła pusta lista."""
+        return [p for s in self._sciezki_tla() for odcinek in s["odcinki"] for p in odcinek]
 
     def _punkty_kadru(self):
         """Punkty świata, które kadr ma objąć: cała RYSOWANA trasa dnia i baza.
 
-        Dzień bez trasy — i mapa, której dnia jeszcze nie podano — oddaje kadr
-        całemu układowi miast, dokładnie jak dotąd.
+        Z tłem miesiąca dochodzą przebiegi WSZYSTKICH dni — kadr jest wtedy
+        wspólny dla całego miesiąca i nie skacze między dniami. Dzień bez
+        trasy — i mapa, której dnia jeszcze nie podano — oddaje kadr całemu
+        układowi miast, dokładnie jak dotąd.
         """
         punkty = [p for odcinek in self._sciezka_swiata()["odcinki"] for p in odcinek]
+        punkty.extend(self._punkty_tla())
         if not punkty:
             return list(self._miasta.values())
         if self._baza in self._miasta:
@@ -2154,7 +2259,7 @@ class MapaDnia(QWidget):
         przystankami w promieniu pięciu kilometrów nie dał absurdalnego
         zbliżenia, na którym widać już tylko dwie ulice.
         """
-        klucz = (self._klucz_trasy(), self._wersja_swiata)
+        klucz = (self._klucz_trasy(), self._tla_klucz, self._wersja_swiata)
         if self._obszar_klucz == klucz and self._obszar_pam is not None:
             return self._obszar_pam
         punkty = self._punkty_kadru()
@@ -2191,11 +2296,13 @@ class MapaDnia(QWidget):
         podejściach, a przeglądanie wzniesień jest najdroższą częścią tej pracy.
         """
         sciezka = self._sciezka_swiata()        # najpierw trasa, potem jej klucz
-        klucz = (self._sciezka_klucz, self._ziarno_terenu,
+        tlo = self._sciezki_tla()
+        klucz = (self._sciezka_klucz, self._tla_sciezki_klucz, self._ziarno_terenu,
                  round(self._wznios_trasy, 4))
         if self._probki_klucz == klucz and self._probki_pam is not None:
             return self._probki_pam
         punkty = [p for odcinek in sciezka["odcinki"] for p in odcinek]
+        punkty.extend(p for s in tlo for odcinek in s["odcinki"] for p in odcinek)
         wznios = self._wznios_trasy
         self._probki_pam = tuple((x, y, self._wysokosc(x, y) + wznios)
                                  for (x, y) in punkty)
@@ -2243,7 +2350,9 @@ class MapaDnia(QWidget):
         pole = self._pole()
         obszar = self._obszar_swiata()
         rzut = self._nowy_rzut(pole, obszar)
-        if not self._czynny() or not self._probki_kadru():
+        # bez tła kamera dopasowuje się tylko do prawdziwej trasy dnia;
+        # z tłem — do wstęg całego miesiąca, także w dzień wolny
+        if (self._tla_klucz is None and not self._czynny()) or not self._probki_kadru():
             return rzut
         blask = self._pole_blasku()
         odn = self._miara / POLE_SWIATA_X
@@ -2271,7 +2380,10 @@ class MapaDnia(QWidget):
 
     def _ustaw_swiatlo(self, dzien):
         """Pora dnia i pora roku z dnia; zmiana przestawia całą scenę."""
-        swiatlo = Swiatlo(godzina_dnia(dzien), pora_roku(dzien))
+        self._zastosuj_swiatlo(Swiatlo(godzina_dnia(dzien), pora_roku(dzien)))
+
+    def _zastosuj_swiatlo(self, swiatlo):
+        """Nowe światło unieważnia kamerę i wszystkie gotowe warstwy."""
         if swiatlo.klucz() == self._swiatlo.klucz():
             return
         self._swiatlo = swiatlo
@@ -4377,9 +4489,99 @@ class MapaDnia(QWidget):
 
     # — rysowanie —
     def paintEvent(self, _zdarzenie):
-        """Klatka składa się z dwóch gotowych warstw i tego, co się rusza."""
+        """Klatka składa się z dwóch gotowych warstw i tego, co się rusza.
+
+        Wyjątek w rysowaniu Qt połyka po cichu i zostawia na ekranie starą
+        klatkę — bez śladu w dzienniku. Dlatego klatka idzie w try: błąd
+        trafia do dziennika RAZ na klucz (nie co klatkę), w oknie zostaje
+        choć teren, a zegar życia mapy bije dalej.
+        """
         zegar = time.perf_counter()
         p = QPainter(self)
+        try:
+            self._rysuj_klatke(p)
+        except Exception as blad:            # noqa: BLE001 — każdy błąd rysowania
+            self._domknij_malarzy(blad, p)
+            self._zglos_blad("klatka", blad)
+            self._odnow_malarza(p)
+            try:
+                self._rysuj_awaryjnie(p)
+            except Exception as blad2:       # noqa: BLE001
+                self._domknij_malarzy(blad2, p)
+                self._zglos_blad("awaryjnie", blad2)
+        finally:
+            if p.isActive():
+                p.end()
+        self.odnotuj_klatke((time.perf_counter() - zegar) * 1000.0)
+
+    @staticmethod
+    def _domknij_malarzy(blad, oprocz):
+        """Po wyjątku w środku wypieku: kończy malarzy otwartych na pixmapach.
+
+        Warstwy piecze się malarzem na lokalnej pixmapie; wyjątek w połowie
+        zostawia go otwartego, a Qt niszczy wtedy malowaną pixmapę
+        („Cannot destroy paint device that is being painted”) i program pada
+        przy sprzątaniu. Malarze siedzą w ramkach błędu — stąd ich bierzemy.
+        Malarz widżetu (``oprocz``) zostaje: na nim idzie klatka awaryjna.
+        """
+        ramka = getattr(blad, "__traceback__", None)
+        while ramka is not None:
+            for wartosc in list(ramka.tb_frame.f_locals.values()):
+                if (isinstance(wartosc, QPainter) and wartosc is not oprocz
+                        and wartosc.isActive()):
+                    wartosc.end()
+            ramka = ramka.tb_next
+
+    def _odnow_malarza(self, p):
+        """Malarz widżetu od nowa po nieudanej klatce.
+
+        Błąd zostawia malarza w takim stanie, w jakim go zastał: z obniżonym
+        kryciem, przycięciem, przesunięciem albo niezamkniętym ``save()``.
+        Klatka awaryjna na takim malarzu wyszłaby wyblakła lub obcięta —
+        więc kończymy go i zaczynamy na widżecie od zera.
+        """
+        if p.isActive():
+            p.end()
+        p.begin(self)
+
+    def _zglos_blad(self, gdzie, blad):
+        """Błąd rysowania do dziennika silnika — raz na klucz, nie co klatkę.
+
+        Silnik (PMT_Delegacje.log_error) bierzemy z już załadowanych modułów:
+        program ładuje go przed oknem, a w prototypie, gdzie silnika nie ma,
+        ślad idzie na stderr. Importu w środku klatki nie robimy — pierwszy
+        błąd rysowania nie ma wczytywać całego silnika.
+        """
+        klucz = (gdzie, type(blad).__name__, str(blad)[:160])
+        if klucz in self._zgloszone_bledy:
+            return
+        self._zgloszone_bledy.add(klucz)
+        do_dziennika = getattr(sys.modules.get("PMT_Delegacje"), "log_error", None)
+        try:
+            if do_dziennika is None:
+                raise LookupError("brak silnika")
+            do_dziennika(blad)
+        except Exception:                    # noqa: BLE001 — bez silnika: na stderr
+            traceback.print_exception(type(blad), blad, blad.__traceback__)
+
+    def _rysuj_awaryjnie(self, p):
+        """Po błędzie klatki: choć grunt (albo ostatnia gotowa scena) i cień kartki.
+
+        Malarz jest świeży (:meth:`_odnow_malarza`) — bez śladów po błędzie.
+        """
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        scena = self._dol
+        if scena is None and self._statyk is not None:
+            scena = self._statyk[0]
+        if scena is not None:
+            p.drawPixmap(0, 0, scena)
+        else:
+            p.fillRect(self.rect(), self._swiatlo.niebo_horyzont)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        self._poloz_cien_kartki(p)
+
+    def _rysuj_klatke(self, p):
+        """Właściwa klatka — wszystko, co paintEvent kładzie na ekran."""
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         r = QRectF(self.rect())
@@ -4420,8 +4622,7 @@ class MapaDnia(QWidget):
             if gotowa:
                 self._rysuj_nitke(p, geo)              # f) nitka do kartki
         self._poloz_cien_kartki(p)                     # g) kartka kładzie cień
-        p.end()                                        # (winieta i ziarno siedzą w „dol”)
-        self.odnotuj_klatke((time.perf_counter() - zegar) * 1000.0)
+        # (winieta i ziarno siedzą w „dol”)
 
     # — efekty ściszają się same, kiedy klatka przestaje się mieścić —
     def odnotuj_klatke(self, ms):
@@ -4465,7 +4666,7 @@ class MapaDnia(QWidget):
         rzut = self.rzut()
         klucz = (self._klucz_kadru(), round(self.devicePixelRatioF(), 3),
                  self._geo_klucz, self._stan, bool(gotowa), self._wersja_odkrytych,
-                 self._swiatlo.klucz())
+                 self._swiatlo.klucz(), self._tla_klucz)
         if self._warstwy_klucz == klucz and self._dol is not None:
             return self._dol, self._gora
         # trasa wchodzi do warstw dopiero, gdy skończy się rysować
@@ -4478,13 +4679,20 @@ class MapaDnia(QWidget):
         q.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         grunt = self._pixmapa_gruntu()
         q.drawPixmap(cel, grunt, QRectF(grunt.rect()))
-        if geo is not None:
-            self._rysuj_drogi(q, rzut, geo["dodatkowe"])   # dojazdy spoza sieci
+        dodatkowe = list(geo["dodatkowe"]) if geo is not None else []
+        if self._tla_klucz is not None:                    # ...także dla dni tła,
+            dodatkowe.extend(k for s in self._sciezki_tla()  # raz, gdy dzień jest w tle
+                             for k in s["dodatkowe"] if k not in dodatkowe)
+        if dodatkowe:
+            self._rysuj_drogi(q, rzut, dodatkowe)          # dojazdy spoza sieci: na gruncie
         if w_warstwie is not None:
             self._rysuj_cien_trasy(q, w_warstwie)          # cień trasy leży na gruncie
         bryly = self._pixmapa_bryl()                       # ...więc bryły idą po nim
         q.drawPixmap(cel, bryly, QRectF(bryly.rect()))
         self._rysuj_mgle_rejonu(q, rzut, geo)              # białe plamy: mgła POD trasą
+        tlo = self._pixmapa_tla()
+        if tlo is not None:
+            q.drawPixmap(0, 0, tlo)                        # trasy pozostałych dni: nad mgłą, pod dniem
         # winieta i ziarno leżą na scenie, pod trasą i tabliczkami: jeden
         # blit mniej na klatkę, a trasa przy brzegu kadru nie ciemnieje
         q.drawPixmap(0, 0, self._wykonczenie())
@@ -4563,6 +4771,56 @@ class MapaDnia(QWidget):
 
     def _pixmapa_bryl(self):
         return self._statyka()[1]
+
+    # — tło miesiąca: wstęgi pozostałych dni, upieczone raz na kadr —
+    def _pixmapa_tla(self):
+        """Wstęgi tras tła w pixmapie wielkości widżetu; None, gdy tła nie ma.
+
+        Klucz zależy od tras tła, kadru, terenu i światła — NIE od wybranego
+        dnia. Przeskakiwanie po dniach miesiąca tej pixmapy nie rusza; piecze
+        się od nowa dopiero po zmianie miesiąca, trybu, rozmiaru albo kartki.
+        """
+        if self._tla_klucz is None:
+            return None
+        rzut = self.rzut()
+        sciezki = self._sciezki_tla()
+        klucz = (self._klucz_kadru(), round(self.devicePixelRatioF(), 3),
+                 self._tla_sciezki_klucz, self._ziarno_terenu, self._swiatlo.klucz(),
+                 self._stan, self._wersja_rzutu)
+        if self._tlo_klucz == klucz and self._tlo_pix is not None:
+            return self._tlo_pix
+        pix = self._nowa_pixmapa()
+        q = QPainter(pix)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._rysuj_tlo(q, rzut, sciezki)
+        q.end()
+        self._tlo_pix, self._tlo_klucz = pix, klucz
+        return pix
+
+    def _rysuj_tlo(self, p, rzut, sciezki):
+        """Cienkie, przygaszone wstęgi tras tła nad terenem: bez poświaty i głowy.
+
+        Ta sama wysokość nad gruntem i ta sama geometria co trasa dnia, więc
+        wybrany dzień kładzie się DOKŁADNIE na swojej wstędze z tła. Powrót
+        idzie w zieleni jak kreskowany powrót dnia, tylko ciągły i cieńszy.
+        Drogi dołożone tam, gdzie sieć ich nie ma, leżą na gruncie pod
+        bryłami (:meth:`_warstwy`) — tu są same wstęgi.
+        """
+        kolor = self._kolor_trasy()
+        odn = self._odniesienie()
+        wznios = self._wznios_trasy
+        wys = self._wysokosc
+        for s in sciezki:
+            for punkty, barwa, warstwy in ((s["glowna"], kolor, WARSTWY_TLA_TRASY),
+                                           (s["powrot"], st.ZIELEN, WARSTWY_TLA_POWROTU)):
+                if len(punkty) < 2:
+                    continue
+                pkt, ska = [], []
+                for (x, y) in punkty:
+                    ekran, sk = rzut.rzutuj(x, y, wys(x, y) + wznios)
+                    pkt.append(ekran)
+                    ska.append(sk * odn)
+                _poswiata_zmienna(p, pkt, ska, barwa, warstwy)
 
     # — białe plamy: mgła rejonu z wycięciami —
     def _wyciecia_mgly(self, rzut, geo):

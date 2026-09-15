@@ -2171,22 +2171,6 @@ class OknoPrototypu(QWidget):
     def _dzien_wybrany(self):
         return self._dzien(self._wybrany)
 
-    def _dzien_zbiorczy(self):
-        """Sztuczny dzień z miastami całego miesiąca — widok „wszystkie dni”."""
-        w_trasie = self._dni_w_trasie()
-        if not w_trasie:
-            return None
-        kolejne = []
-        for d in w_trasie:
-            for m in d.przystanki:
-                if m not in kolejne:
-                    kolejne.append(m)
-        z = D.podsumowanie(self.dni_widoczne)
-        zbiorczy = D.Dzien(w_trasie[0].data, przystanki=kolejne[:9],
-                           km=z["km"], kwota=z["kwota"],
-                           start="06:00", koniec="20:00")
-        return zbiorczy
-
     def _odswiez_liczby(self):
         z = D.podsumowanie(self._dni_w_trasie())
         if self._za_duzo:
@@ -2202,7 +2186,13 @@ class OknoPrototypu(QWidget):
         # Inaczej pierwszy kadr liczy się bez zarezerwowanego miejsca i trasa
         # rysuje się przez chwilę na całej mapie, żeby zaraz przeskoczyć w bok.
         self._przelicz_kotwice()
-        self.mapa.ustaw_dzien(self._dzien_zbiorczy() if zbiorczo else d)
+        # Widok „wszystkie dni” to kontekst miesiąca z podświetlonym dniem:
+        # trasy pozostałych dni leżą pod spodem jako tło, a na wierzchu jest
+        # WYBRANY dzień — mapa idzie za taśmą dokładnie tak samo jak kartka.
+        # Tło idzie PRZED dniem: ziarno terenu i światło biorą się wtedy
+        # z miesiąca i teren nie przelicza się dwa razy.
+        self.mapa.ustaw_dni_tla(self._dni_w_trasie() if zbiorczo else None)
+        self.mapa.ustaw_dzien(d)
 
         w_trasie = self._dni_w_trasie()
         numery = [x.data.day for x in w_trasie]

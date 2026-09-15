@@ -903,6 +903,40 @@ _ROAD_ORYG = P.ROAD_CACHE_FILE
 _GEO_ORYG = P.GEO_CACHE
 _BRAKI_ORYG = P.GEO_BRAKI
 _OSRM_ORYG = P._osrm_dostepny
+
+# Baza bez sieci: gdy serwer geokodowania milczy, współrzędne bazy mają
+# wyjść z bazy miast programu, a nie ze stolicy województwa — inaczej
+# pracownik z Radomia dostawał dokumenty z trasami liczonymi z Warszawy.
+_URLOPEN_ORYG = P.urllib.request.urlopen
+def _siec_pada(*_a, **_k):
+    raise OSError("brak sieci (test)")
+P.urllib.request.urlopen = _siec_pada
+try:
+    for _adres5b, _miasto5b, _woj5b in (("ul. Kwiatowa 5, 26-600 Radom", "Radom", "mazowieckie"),
+                                        ("ul. Rynek 1, 27-100 Iłża", "Iłża", "mazowieckie")):
+        _klucz5b = P._klucz_geo(_adres5b)
+        P._geo_cache.pop(_klucz5b, None)
+        P._geo_pytane.discard(_klucz5b)
+        _wynik5b = P.pobierz_coords(_adres5b, _miasto5b, _woj5b, zapisz_cache=False)
+        _z_bazy5b = P.coords_z_miasta(_miasto5b)
+        sprawdz("bez sieci baza %s bierze współrzędne z bazy miast, nie ze stolicy" % _miasto5b,
+                _z_bazy5b is not None and abs(_wynik5b[0] - _z_bazy5b[0]) < 1e-6
+                and abs(_wynik5b[1] - _z_bazy5b[1]) < 1e-6
+                and tuple(_wynik5b) != tuple(P.STOLICE[_woj5b]), str((_wynik5b, _z_bazy5b)))
+    _klucz5b = P._klucz_geo("ul. Krupówki 5, 34-500 Zakopane")
+    P._geo_cache.pop(_klucz5b, None)
+    P._geo_pytane.discard(_klucz5b)
+    sprawdz("bez sieci miasto spoza bazy miast wraca do stolicy województwa (jak dotąd)",
+            tuple(P.pobierz_coords("ul. Krupówki 5, 34-500 Zakopane", "Zakopane", "małopolskie",
+                                   zapisz_cache=False)) == tuple(P.STOLICE["małopolskie"]))
+    # awaria sieci zostaje w pamięci TEJ sesji (_geo_pytane), ale nie w zapisie
+    # trwałym „adres nieznany" — po powrocie sieci program zapyta ponownie
+    sprawdz("awaria sieci nie zapisuje adresu jako nieznanego na stałe",
+            P._klucz_geo("ul. Kwiatowa 5, 26-600 Radom") not in P._wczytaj_geo_braki())
+finally:
+    P.urllib.request.urlopen = _URLOPEN_ORYG
+    for _a5b in ("ul. Kwiatowa 5, 26-600 Radom", "ul. Rynek 1, 27-100 Iłża", "ul. Krupówki 5, 34-500 Zakopane"):
+        P._geo_pytane.discard(P._klucz_geo(_a5b))
 _KAT_CACHE = os.path.join(_TMP_HOME, "cache_odleglosci")
 os.makedirs(_KAT_CACHE, exist_ok=True)
 
@@ -9178,6 +9212,424 @@ except Exception as _e30:
     sprawdz("województwo po kodzie i rzeźba przy ciasnym kadrze", False, repr(_e30))
     import traceback as _tb30
     _tb30.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("31. Widok „wszystkie dni”: kontekst miesiąca z podświetlonym dniem i twarda klatka mapy")
+
+# Zgłoszenie właściciela: zmiana dnia w taśmie miesiąca zmieniała podgląd
+# polecenia wyjazdu, ale nie trasę na mapie. W widoku „wszystkie dni” mapa
+# dostawała sztuczny dzień zbiorczy i na taśmę nie reagowała. Teraz trasy
+# pozostałych dni leżą pod spodem jako przygaszone wstęgi (tło pieczone raz
+# na miesiąc i kadr), kadr obejmuje przystanki całego miesiąca i stoi
+# w miejscu, a WYBRANY dzień rysuje się na wierzchu jak w widoku „ten dzień”.
+# Do tego klatka mapy jest twarda: wyjątek w warstwie trafia do dziennika
+# raz (nie co klatkę), na ekranie zostaje choć teren, a następna klatka bez
+# wyjątku rysuje się normalnie — Qt sam połknąłby błąd i zostawił stary obraz.
+try:
+    import io as _io31
+    import contextlib as _ctx31
+    from PyQt6.QtWidgets import QApplication as _QA31
+    from PyQt6.QtGui import QPixmap as _QPX31, QImage as _QI31
+    from PyQt6.QtCore import QRectF as _QR31, Qt as _Qt31
+    import nowy_wyglad as _NW31
+    import proto_okno as _OK31
+    import proto_mapa as _PM31
+    _app31 = _QA31.instance() or _QA31(sys.argv)
+    _app31.setStyleSheet(_NW31.arkusz())
+
+    _okno31 = _NW31.OknoNowegoWygladu(
+        profil=_NW31.ProfilWidoku("Jan Testowy", "85010112345",
+                                  "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=10)
+    _okno31.showNormal()
+    _okno31.setMinimumSize(min(_OK31.ROZMIAR_MIN[0], 1920), min(_OK31.ROZMIAR_MIN[1], 1080))
+    _okno31.resize(1920, 1080)
+
+    def _miel31(ile=6):
+        for _ in range(ile):
+            _app31.processEvents()
+
+    _miel31(12)
+    _okno31.ustaw_animacje(False)
+    _miel31(4)
+
+    def _bajty31(widzet):
+        return same_piksele(widzet.grab().toImage().convertToFormat(_QI31.Format.Format_RGB888))
+
+    def _wybierz31(tryb, numer):
+        """Jak użytkownik: przełącznik nad mapą, potem kafel taśmy."""
+        _okno31.zakres.ustaw_aktywna(tryb)
+        _okno31._wybierz_dzien(numer)
+        _okno31.ustaw_animacje(False)
+        _miel31(8)
+
+    def _kartka31():
+        k, m = _okno31.kartka.geometry(), _okno31.mapa.geometry()
+        return _QR31(k.x() - m.x(), k.y() - m.y(), k.width(), k.height())
+
+    _w_trasie31 = _okno31._dni_w_trasie()
+    _numery31 = [d.data.day for d in _w_trasie31]
+    _wolne31 = [d.data.day for d in _okno31.dni_widoczne if d.wolny or d.wylaczony]
+    sprawdz("miesiąc ma co najmniej cztery dni w trasie i dzień bez trasy — jest co przełączać",
+            len(_numery31) >= 4 and bool(_wolne31), "%s / %s" % (_numery31, _wolne31[:3]))
+    _a31, _b31 = _numery31[1], _numery31[3]
+    _m31 = _okno31.mapa
+
+    # ── 31a. w widoku „wszystkie dni” mapa idzie za taśmą ─────────
+    _wybierz31("wszystkie dni", _a31)
+    _obraz_a31 = _bajty31(_m31)
+
+    def _stan31():
+        """Wszystko, co przy zmianie dnia w widoku miesiąca ma stać w miejscu."""
+        return (_m31._ziarno, _m31._swiatlo.klucz(), _m31._wersja_rzutu,
+                _m31._obszar_swiata(), id(_m31._statyk), id(_m31._tlo_pix),
+                _m31._statyk_klucz, _m31._tlo_klucz)
+
+    _stan_a31 = _stan31()
+    _wybierz31("wszystkie dni", _b31)
+    _obraz_b31 = _bajty31(_m31)
+    sprawdz("„wszystkie dni”: wybór dnia w taśmie zmienia dzień mapy i jej obraz — tak jak kartkę",
+            _m31._dzien is not None and _m31._dzien.data.day == _b31
+            and _okno31.kartka._dzien.data.day == _b31 and _obraz_a31 != _obraz_b31,
+            "mapa %s, kartka %s" % (getattr(_m31._dzien, "data", None),
+                                    getattr(_okno31.kartka._dzien, "data", None)))
+    sprawdz("...a kamera, teren, światło, statyka i pieczone tło stoją w miejscu — zmienia się tylko podświetlony dzień",
+            _stan31() == _stan_a31,
+            "\n      przed %s\n      po    %s" % (_stan_a31, _stan31()))
+    _wybierz31("wszystkie dni", _a31)
+    sprawdz("powrót do dnia daje obraz identyczny co do bajta (animacje zgaszone)",
+            _bajty31(_m31) == _obraz_a31)
+    _klatki_same31 = []
+    _stary_paint31 = _PM31.MapaDnia.paintEvent
+
+    def _paint31(self, zdarzenie):
+        _klatki_same31.append(1)
+        return _stary_paint31(self, zdarzenie)
+
+    _PM31.MapaDnia.paintEvent = _paint31
+    try:
+        _t31 = time.time()
+        while time.time() - _t31 < 0.6:
+            _app31.processEvents()
+            time.sleep(0.01)
+    finally:
+        _PM31.MapaDnia.paintEvent = _stary_paint31
+    sprawdz("przy zgaszonych animacjach mapa w widoku miesiąca nie przerysowuje się sama",
+            not _klatki_same31, "%d klatek w 0,6 s" % len(_klatki_same31))
+
+    # ── 31b. tło widoczne przy przystankach INNYCH dni ─────────────
+    # Próbka leży w punkcie UNIESIONYM nad przystankiem (wstęga biegnie na
+    # wysokości trasy, nie na gruncie). A/B: ta sama kamera z prawdziwą
+    # i z pustą pixmapą tła — piksele w barwie trasy mają się brać z tła.
+    def _obraz31():
+        im = _m31.grab().toImage().convertToFormat(_QI31.Format.Format_RGB888)
+        return im.width(), im.height(), im.bytesPerLine(), im.constBits().asstring(im.sizeInBytes())
+
+    def _uniesiony31(nazwa):
+        x, y = _m31._miasta[nazwa]
+        return _m31.rzut().ekran(x, y, _m31._wysokosc(x, y) + _m31._wznios_trasy)
+
+    def _cyjan31(ob, pkt, r=4):
+        """Największa przewaga zieleni I błękitu nad czerwienią w oknie 9×9:
+        krajobraz jest ciepły albo szary, tylko trasa i jej wstęgi są cyjanowe."""
+        w, h, bpl, ba = ob
+        x, y = int(pkt.x()), int(pkt.y())
+        naj = 0
+        for yy in range(max(0, y - r), min(h, y + r + 1)):
+            for xx in range(max(0, x - r), min(w, x + r + 1)):
+                i = yy * bpl + xx * 3
+                naj = max(naj, min(ba[i + 1] - ba[i], ba[i + 2] - ba[i]))
+        return naj
+
+    _trasa_a31 = set(_okno31._dzien(_a31).trasa)
+    _inne31 = sorted({n for d in _w_trasie31 if d.data.day != _a31
+                      for n in d.przystanki if n not in _trasa_a31 and n in _m31._miasta})
+    _pkt31 = {n: _uniesiony31(n) for n in _inne31}
+    _ob31 = _obraz31()
+    _z_tlem31 = [_cyjan31(_ob31, _pkt31[n]) for n in _inne31]
+    _pusta31 = _QPX31(_m31._tlo_pix.size())
+    _pusta31.setDevicePixelRatio(_m31._tlo_pix.devicePixelRatio())
+    _pusta31.fill(_Qt31.GlobalColor.transparent)
+    _prawdziwa31 = _m31._tlo_pix
+    _m31._tlo_pix, _m31._warstwy_klucz = _pusta31, None
+    _ob31 = _obraz31()
+    _bez31 = [_cyjan31(_ob31, _pkt31[n]) for n in _inne31]
+    _m31._tlo_pix, _m31._warstwy_klucz = _prawdziwa31, None
+    _widac31 = sum(1 for v in _z_tlem31 if v >= 40)
+    _wiecej31 = sum(1 for x, y in zip(_z_tlem31, _bez31) if x > y + 15)
+    sprawdz("tło widoczne: przy co najmniej 80 % przystanków innych dni leżą piksele w barwie trasy, których bez tła nie ma",
+            len(_inne31) >= 8 and _widac31 >= 0.8 * len(_inne31) and _wiecej31 >= 0.8 * len(_inne31),
+            "%d przystanków, widać %d, z tłem więcej %d; z tłem %s, bez %s" % (
+                len(_inne31), _widac31, _wiecej31, _z_tlem31, _bez31))
+    sprawdz("po próbie A/B obraz miesiąca wraca co do bajta", _bajty31(_m31) == _obraz_a31)
+
+    # ── 31c. kadr należy do całego miesiąca ────────────────────────
+    _pole31 = _m31._pole()
+    _kar31 = _kartka31()
+    _poza31 = [(d.data.day, n) for d in _w_trasie31 for n in d.trasa
+               if n in _m31._miasta and not _pole31.contains(_m31._punkt(n))]
+    _rzut31 = _m31.rzut()
+    _pod_kartka31 = []
+    for _s31 in _m31._sciezki_tla():
+        for _o31 in _s31["odcinki"]:
+            for (_x31, _y31) in _o31:
+                _q31 = _rzut31.ekran(_x31, _y31, _m31._wysokosc(_x31, _y31) + _m31._wznios_trasy)
+                if _kar31.contains(_q31):
+                    _pod_kartka31.append((round(_q31.x()), round(_q31.y())))
+    sprawdz("kadr obejmuje przystanki WSZYSTKICH dni miesiąca (z kartką na mapie)",
+            not _poza31, str(_poza31[:4]))
+    sprawdz("żaden punkt wstęgi tła nie leży pod kartką delegacji",
+            not _pod_kartka31, "%d punktów, np. %s" % (len(_pod_kartka31), _pod_kartka31[:3]))
+
+    # ── 31d. dzień bez trasy: tło zostaje, trasy dnia nie ma ───────
+    _wybierz31("wszystkie dni", _wolne31[0])
+    _obraz_w31 = _bajty31(_m31)
+    sprawdz("dzień bez trasy w widoku miesiąca: wstęgi tła zostają, trasa dnia znika, kadr stoi",
+            not _m31._czynny() and _m31._tla_klucz is not None and _m31._pixmapa_tla() is not None
+            and _m31._trasa_pix is None and _m31._obszar_swiata() == _stan_a31[3]
+            and _obraz_w31 != _obraz_a31 and _bajty31(_m31) == _obraz_w31)
+
+    # ── 31e. „ten dzień” bez tła; tryb tam i z powrotem ─────────────
+    _wybierz31("ten dzień", _a31)
+    _obraz_ten31 = _bajty31(_m31)
+    sprawdz("„ten dzień”: tła nie ma, a kadr i teren należą do wybranego dnia jak dotąd",
+            _m31._tla_klucz is None and _m31._pixmapa_tla() is None
+            and _m31._ziarno == _PM31._ziarno_dnia(_m31._dzien) and _obraz_ten31 != _obraz_a31)
+    _wybierz31("wszystkie dni", _a31)
+    sprawdz("przełączenie „ten dzień” → „wszystkie dni” daje obraz miesiąca identyczny co do bajta",
+            _bajty31(_m31) == _obraz_a31)
+    _wybierz31("ten dzień", _a31)
+    sprawdz("...i z powrotem obraz dnia identyczny co do bajta", _bajty31(_m31) == _obraz_ten31)
+
+    # ── 31f. budżet klatki i wypieku w widoku miesiąca (1920×1080) ──
+    _wybierz31("wszystkie dni", _a31)
+
+    def _klatki31(m, ile=40):
+        """(mediana, p90) klatki paintEvent z życiem mapy — jak w sekcji 27."""
+        px = _QPX31(m.size())
+        m.ustaw_animacje(True)
+        m.odnotuj_klatke = lambda _ms: None
+        try:
+            for _ in range(5):
+                m.render(px)
+            czasy = []
+            for _ in range(ile):
+                m._tik()
+                t0 = time.perf_counter()
+                m.render(px)
+                czasy.append((time.perf_counter() - t0) * 1000.0)
+        finally:
+            del m.odnotuj_klatke
+            m.ustaw_animacje(False)
+        czasy.sort()
+        return czasy[len(czasy) // 2], czasy[int(len(czasy) * 0.9)]
+
+    def _wypiek31(m):
+        """Koszt wypieku statyki RAZEM ze wstęgami tła, od zera, w milisekundach."""
+        m._statyk, m._statyk_klucz, m._pola = None, None, None
+        m._tlo_pix, m._tlo_klucz = None, None
+        t0 = time.perf_counter()
+        m._statyka()
+        m._pixmapa_tla()
+        return (time.perf_counter() - t0) * 1000.0
+
+    _pom31 = [_klatki31(_m31) for _ in range(2)]
+    _wyp31 = min(_wypiek31(_m31) for _ in range(2))
+    _med31, _p9031 = min(p[0] for p in _pom31), min(p[1] for p in _pom31)
+    print("      wszystkie dni: mediana %.2f ms, p90 %.2f ms, wypiek statyki z tłem %.0f ms"
+          % (_med31, _p9031, _wyp31))
+    sprawdz("klatka mapy w widoku „wszystkie dni” przy 1920×1080: mediana poniżej 10 ms",
+            _med31 < 10.0, "%.2f ms" % _med31)
+    sprawdz("...i 90. centyl poniżej 16 ms", _p9031 < 16.0, "%.2f ms" % _p9031)
+    sprawdz("wypiek statyki razem ze wstęgami tła poniżej 400 ms", _wyp31 < 400.0, "%.0f ms" % _wyp31)
+    _okno31.ustaw_animacje(False)
+    _miel31(4)
+    sprawdz("po pomiarach obraz miesiąca wraca co do bajta", _bajty31(_m31) == _obraz_a31)
+
+    # ── 31g. twarda klatka: wyjątek w warstwie nie zostawia starej klatki po cichu ──
+    _logi31 = []
+    _stary_log31 = P.log_error
+    _stara_trasa31 = _PM31.MapaDnia._rysuj_trase
+
+    def _zepsuta31(self, p, geo):
+        raise RuntimeError("podstawiony błąd warstwy")
+
+    P.log_error = lambda exc: _logi31.append(repr(exc))
+    _PM31.MapaDnia._rysuj_trase = _zepsuta31
+    _m31._warstwy_klucz = None
+    _err31 = _io31.StringIO()
+    try:
+        with _ctx31.redirect_stderr(_err31):
+            _awaria1_31 = _bajty31(_m31)
+            _awaria2_31 = _bajty31(_m31)
+    finally:
+        _PM31.MapaDnia._rysuj_trase = _stara_trasa31
+        P.log_error = _stary_log31
+    sprawdz("wyjątek w warstwie: widżet żyje, klatka awaryjna (sam teren) jest powtarzalna i różni się od pełnej",
+            _awaria1_31 == _awaria2_31 and _awaria1_31 != _obraz_a31
+            and any(b != 0 for b in _awaria1_31[:60000]))
+    sprawdz("...błąd idzie do dziennika silnika (PMT.log_error) RAZ, nie co klatkę, i nie na stderr",
+            len(_logi31) == 1 and "podstawiony" in _logi31[0]
+            and len(_m31._zgloszone_bledy) == 1 and not _err31.getvalue().strip(),
+            "logi %s, stderr %r" % (_logi31, _err31.getvalue()[-200:]))
+    _m31._warstwy_klucz = None
+    sprawdz("...a następna klatka bez wyjątku rysuje się normalnie — obraz jak przed awarią, co do bajta",
+            _bajty31(_m31) == _obraz_a31)
+    _zr_mapa31 = open(os.path.join(KATALOG, "prototyp", "proto_mapa.py"), encoding="utf-8").read()
+    _awaryjnie31 = _zr_mapa31.split("def _rysuj_awaryjnie(")[1].split("\n    def ")[0]
+    sprawdz("klatka awaryjna nie pisze na mapie żadnego komunikatu — tylko teren i cień kartki",
+            "_napis(" not in _awaryjnie31 and "drawText" not in _awaryjnie31)
+
+    # ── 31g′. błąd po zmianie stanu malarza: klatka awaryjna na ŚWIEŻYM malarzu ──
+    # Wyjątek między setOpacity a powrotem do 1.0, w przycięciu albo po
+    # przesunięciu zostawia malarza widżetu w tym stanie — klatka awaryjna
+    # wyszłaby wyblakła, obcięta albo przesunięta. Ma być identyczna
+    # z klatką awaryjną po błędzie w warstwie trasy (tam malarz był czysty).
+    _stara_nitka31 = _PM31.MapaDnia._rysuj_nitke
+
+    def _zla_nitka31(self, p, geo):
+        p.setOpacity(0.3)
+        p.setClipRect(_QR31(0, 0, 60, 60))
+        p.translate(300, 200)
+        raise RuntimeError("podstawiony błąd po zmianie stanu malarza")
+
+    P.log_error = lambda exc: _logi31.append(repr(exc))
+    _PM31.MapaDnia._rysuj_nitke = _zla_nitka31
+    _err_n31 = _io31.StringIO()
+    try:
+        with _ctx31.redirect_stderr(_err_n31):
+            _awaria3_31 = _bajty31(_m31)
+            _awaria4_31 = _bajty31(_m31)
+    finally:
+        _PM31.MapaDnia._rysuj_nitke = _stara_nitka31
+        P.log_error = _stary_log31
+    sprawdz("błąd po obniżeniu krycia, przycięciu i przesunięciu malarza: klatka awaryjna idzie na świeżym malarzu — identyczna z tą po błędzie w warstwie, powtarzalna, jeden nowy wpis w dzienniku",
+            _awaria3_31 == _awaria1_31 and _awaria4_31 == _awaria1_31
+            and len(_logi31) == 2 and not _err_n31.getvalue().strip(),
+            "logi %d, stderr %r" % (len(_logi31), _err_n31.getvalue()[-200:]))
+    sprawdz("...i po naprawie obraz jak przed awarią, co do bajta", _bajty31(_m31) == _obraz_a31)
+
+    # ── 31g″. bez silnika: ślad na stderr, silnika nie wczytujemy w środku klatki ──
+    def _zepsuta_bez31(self, p, geo):
+        raise RuntimeError("podstawiony błąd bez silnika")
+
+    _silnik31 = sys.modules.pop("PMT_Delegacje")
+    _PM31.MapaDnia._rysuj_trase = _zepsuta_bez31
+    _m31._warstwy_klucz = None
+    _err_s31 = _io31.StringIO()
+    try:
+        with _ctx31.redirect_stderr(_err_s31):
+            _bajty31(_m31)
+        _wczytany31 = "PMT_Delegacje" in sys.modules
+    finally:
+        sys.modules["PMT_Delegacje"] = _silnik31
+        _PM31.MapaDnia._rysuj_trase = _stara_trasa31
+    _m31._warstwy_klucz = None
+    sprawdz("bez silnika wśród załadowanych modułów ślad błędu idzie na stderr, a silnik NIE jest importowany w środku klatki",
+            "podstawiony błąd bez silnika" in _err_s31.getvalue() and not _wczytany31
+            and _bajty31(_m31) == _obraz_a31,
+            "wczytany %s, stderr %r" % (_wczytany31, _err_s31.getvalue()[-200:]))
+
+    # ── 31i. błąd w środku wypieku statyki na świeżym widżecie ─────
+    # Wyjątek w połowie wypieku zostawiał otwartego malarza na lokalnej
+    # pixmapie („Cannot destroy paint device that is being painted”) i proces
+    # padał przy sprzątaniu. Świeży widżet bez żadnej gotowej sceny ma przeżyć,
+    # pokazać jednolity horyzont bez napisu i po naprawie narysować się normalnie.
+    _logi_g31 = []
+    _stary_grunt31 = _PM31.MapaDnia._rysuj_scene_gruntu
+
+    def _zepsuty_grunt31(self, *a, **k):
+        raise ValueError("podstawiony błąd gruntu")
+
+    P.log_error = lambda exc: _logi_g31.append(repr(exc))
+    _PM31.MapaDnia._rysuj_scene_gruntu = _zepsuty_grunt31
+    _swiezy31 = _PM31.MapaDnia()
+    _swiezy31.resize(900, 560)
+    _swiezy31.ustaw_animacje(False)
+    _swiezy31.ustaw_dzien(_w_trasie31[0])
+    _err_g31 = _io31.StringIO()
+    try:
+        with _ctx31.redirect_stderr(_err_g31):
+            _plaski1_31 = _bajty31(_swiezy31)
+            _plaski2_31 = _bajty31(_swiezy31)
+    finally:
+        _PM31.MapaDnia._rysuj_scene_gruntu = _stary_grunt31
+        P.log_error = _stary_log31
+    _po_naprawie31 = _bajty31(_swiezy31)
+    _probki_g31 = {_plaski1_31[i:i + 3] for i in range(0, len(_plaski1_31) - 3, 3 * 997)}
+    sprawdz("błąd w środku wypieku statyki na świeżym widżecie: proces żyje, malarze pixmap domknięci, klatka to jednolity horyzont, jeden wpis w dzienniku",
+            _plaski1_31 == _plaski2_31 and len(_probki_g31) == 1 and len(_logi_g31) == 1
+            and not _err_g31.getvalue().strip(),
+            "próbek barw %d, logi %s, stderr %r" % (len(_probki_g31), _logi_g31, _err_g31.getvalue()[-200:]))
+    sprawdz("...a po naprawie następna klatka rysuje pełną scenę i jest powtarzalna co do bajta",
+            _po_naprawie31 != _plaski1_31 and _po_naprawie31 == _bajty31(_swiezy31)
+            and _swiezy31._statyk is not None)
+    _swiezy31.close()
+
+    # ── 31j. droga dołożona dla przystanku dnia TŁA leży na gruncie, pod bryłami ──
+    # Dojazd spoza sieci dróg rysuje się dla dnia na gruncie, zanim położą
+    # się bryły. Taki sam dojazd dnia tła nie może iść do pixmapy wstęg
+    # (nad bryłami i mgłą) — ma trafić na grunt razem z dojazdami dnia.
+    # Profil Radom takich dróg nie ma, więc jedną podstawiamy.
+    _dol_baza31 = same_piksele(_m31._dol.toImage().convertToFormat(_QI31.Format.Format_RGB888))
+    _tlo_baza31 = same_piksele(_m31._tlo_pix.toImage().convertToFormat(_QI31.Format.Format_ARGB32))
+    _a_j31, _b_j31 = _inne31[0], _inne31[-1]
+    _falszywa31 = _PM31._gladko_2d([_m31._polozenie(_a_j31), _m31._polozenie(_b_j31)], na_odcinek=4)
+    _prawdziwe_sciezki31 = _m31._sciezki_tla()
+    _podstawione31 = [dict(s) for s in _prawdziwe_sciezki31]
+    _podstawione31[0]["dodatkowe"] = list(_podstawione31[0]["dodatkowe"]) + [_falszywa31]
+    _m31._sciezki_tla = lambda: _podstawione31
+    _kolejnosc31 = []
+    _w_tle31 = [False]
+    _stare_drogi31 = _PM31.MapaDnia._rysuj_drogi
+    _stare_tlo31 = _PM31.MapaDnia._rysuj_tlo
+    _stare_bryly31 = _PM31.MapaDnia._pixmapa_bryl
+
+    def _drogi31(self, p, rzut, odcinki, r=None):
+        _kolejnosc31.append(("drogi", any(o is _falszywa31 for o in odcinki), _w_tle31[0]))
+        return _stare_drogi31(self, p, rzut, odcinki, r)
+
+    def _tlo31(self, p, rzut, sciezki):
+        _w_tle31[0] = True
+        try:
+            return _stare_tlo31(self, p, rzut, sciezki)
+        finally:
+            _w_tle31[0] = False
+
+    def _bryly31(self):
+        _kolejnosc31.append(("bryly", False, False))
+        return _stare_bryly31(self)
+
+    _PM31.MapaDnia._rysuj_drogi, _PM31.MapaDnia._rysuj_tlo, _PM31.MapaDnia._pixmapa_bryl = _drogi31, _tlo31, _bryly31
+    try:
+        _m31._tlo_klucz, _m31._warstwy_klucz = None, None
+        _obraz_j31 = _bajty31(_m31)
+        _dol_j31 = same_piksele(_m31._dol.toImage().convertToFormat(_QI31.Format.Format_RGB888))
+        _tlo_j31 = same_piksele(_m31._tlo_pix.toImage().convertToFormat(_QI31.Format.Format_ARGB32))
+    finally:
+        _PM31.MapaDnia._rysuj_drogi, _PM31.MapaDnia._rysuj_tlo, _PM31.MapaDnia._pixmapa_bryl = _stare_drogi31, _stare_tlo31, _stare_bryly31
+        del _m31._sciezki_tla
+    _z_falszywa31 = [i for i, (co, falsz, w_tle) in enumerate(_kolejnosc31) if co == "drogi" and falsz]
+    _bryly_j31 = [i for i, (co, _f, _w) in enumerate(_kolejnosc31) if co == "bryly"]
+    sprawdz("droga dołożona dla dnia tła rysuje się RAZ, na scenie przed bryłami, a nie w pixmapie wstęg",
+            len(_z_falszywa31) == 1 and len(_bryly_j31) == 1 and _z_falszywa31[0] < _bryly_j31[0]
+            and not any(w_tle for _c, _f, w_tle in _kolejnosc31)
+            and _tlo_j31 == _tlo_baza31 and _dol_j31 != _dol_baza31 and _obraz_j31 != _obraz_a31,
+            "kolejność %s, tło bez zmian %s, scena zmieniona %s" % (
+                _kolejnosc31, _tlo_j31 == _tlo_baza31, _dol_j31 != _dol_baza31))
+    _m31._tlo_klucz, _m31._warstwy_klucz = None, None
+    sprawdz("...a po zdjęciu podstawionej drogi obraz miesiąca wraca co do bajta", _bajty31(_m31) == _obraz_a31)
+
+    # ── 31h. okno nie buduje już sztucznego dnia zbiorczego ─────────
+    _zr_okno31 = open(os.path.join(KATALOG, "prototyp", "proto_okno.py"), encoding="utf-8").read()
+    sprawdz("okno podaje mapie ustaw_dni_tla i WYBRANY dzień; _dzien_zbiorczy zniknął z okna i z programu",
+            "_dzien_zbiorczy" not in _zr_okno31 and "ustaw_dni_tla" in _zr_okno31
+            and "_dzien_zbiorczy" not in open(os.path.join(KATALOG, "nowy_wyglad.py"), encoding="utf-8").read())
+    _okno31.close()
+except Exception as _e31:
+    sprawdz("widok „wszystkie dni” i twarda klatka mapy", False, repr(_e31))
+    import traceback as _tb31
+    _tb31.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

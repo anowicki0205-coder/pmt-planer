@@ -1,8 +1,11 @@
 UWAGA: TEN PLIK JEST NIEAKTUALNY I W JEDNYM MIEJSCU SZKODLIWY.
-Podaje STARY sekret aplikacji (PMT-2026-a7Kq9mZr4tXw) i kaze ustawic
-WYMAGAJ_PODPISU = true dla WSZYSTKICH akcji - to odcieloby aplikacje
-na telefonie (pmt_wizyty.html nie podpisuje zapytan).
-Dla wersji 3.21.0 obowiazuje BACKEND_APPS_SCRIPT.txt.
+Podawal STARY sekret aplikacji z 3.20.x (wartosc usunieta z tego pliku -
+w repozytorium nie ma byc zadnego sekretu; ponizej zostal placeholder)
+i kaze ustawic WYMAGAJ_PODPISU = true dla WSZYSTKICH akcji - to odcieloby
+aplikacje na telefonie (pmt_wizyty.html nie podpisuje zapytan).
+Dla wersji 3.21.0 obowiazuje BACKEND_APPS_SCRIPT.txt; od 3.23.0 sekretu
+nie ma w kodzie programu (plik sekret.txt / zmienna PMT_SEKRET) i trzeba
+go WYMIENIC - patrz OBROT SEKRETU w BACKEND_APPS_SCRIPT.txt.
 Zostaje jako zapis historyczny - opis dziur w backendzie jest nadal trafny.
 
 ZABEZPIECZENIE BACKENDU (Google Apps Script) — instrukcja krok po kroku
@@ -21,7 +24,7 @@ KROK 1 — POSPRZATAJ ARKUSZ
 
 KROK 2 — WKLEJ WERYFIKACJE PODPISU (do pliku Code.gs)
 ------------------------------------------------------------------
-var SEKRET_PMT = 'PMT-2026-a7Kq9mZr4tXw';   // ten sam co w programie
+var SEKRET_PMT = '<STARY_SEKRET_3.20.x>';   // ten sam co w programie 3.20.x
 var WYMAGAJ_PODPISU = false;  // na TRUE po aktualizacji wszystkich do 3.20.24
 
 function weryfikujPodpis(d) {
@@ -63,7 +66,10 @@ KROK 5 (OPCJONALNIE, PELNA HIGIENA)
   Stary adres, jesli krazyl po logach/botach, przestaje dzialac.
 
 Sekret mozesz zmienic na wlasny — musi byc IDENTYCZNY w dwoch miejscach:
-SEKRET_APLIKACJI w PMT_Delegacje.py oraz SEKRET_PMT w Code.gs.
+plik sekret.txt obok programu (wkladany do paczki przez zbuduj.py; do
+3.23.0 byla to stala SEKRET_APLIKACJI w PMT_Delegacje.py - usunieta, bo
+literal w kodzie zostaje w historii repozytorium) oraz lista SEKRETY_PMT
+w Code.gs (w tym pliku: SEKRET_PMT). Procedura: BACKEND_APPS_SCRIPT.txt.
 
 KONTRAKT AKCJI "zmien_haslo" (do sprawdzenia w Twoim doPost)
 ------------------------------------------------------------

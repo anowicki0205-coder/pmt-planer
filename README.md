@@ -1,9 +1,22 @@
-# PMT — komplet systemu (program v3.21.0)
+# PMT — komplet systemu (program v3.23.0)
 
 > **Zaczynasz od zera? Czytaj `START_TUTAJ.txt`.**
 > Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
 > Blokowanie przez Windows: `BEZ_BLOKADY_WINDOWS.txt`
 > Testy przed wydaniem: `python testy_pmt.py`
+
+## Co zmieniła wersja 3.23.0
+
+| Obszar | Zmiana |
+|---|---|
+| Wygląd | nowy ekran programu (`nowy_wyglad.py` na widżetach z `prototyp/`), stare okno App zostaje pod spodem tylko jako pojemnik na panele (przełącznik `--stary` zniknął) |
+| Logowanie | nowe okno logowania (`okno_logowania.py`); dokumenty, podpis i wysyłka w `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py` |
+| Mapa | mapa w skali regionu, kadr trasy dnia, podziałka mierząca prawdę |
+| Silnik | sufit rozciągania odcinków, nieprzekraczalna podłoga linii prostej, ostrzeżenie liczbą przy zbyt niskiej kwocie |
+| Budowanie | `build.yml` uruchamia `python zbuduj.py --folder` — jedno źródło prawdy dla CI i komputera; zbuduj.py sprawdza po budowie zawartość paczki i uzgadnia `wersja_exe.txt` ze źródłem |
+| Backend | `apps_script_POPRAWIONY_v2.gs`: telefon ustawia hasło tylko na koncie bez hasła, limit prób resetu z dziennikiem, puls oddaje tylko własne nieobecności (wdrożyć na nowo) |
+| Sekret aplikacji | klucz HMAC podpisu zapytań poza kodem — plik `sekret.txt` obok programu (sekret `PMT_SEKRET` przy budowaniu), jak `menedzer.txt`; bez niego puls, sesja i reset hasła dostają „odmowa”; ujawniony sekret wymienić — OBRÓT SEKRETU w `BACKEND_APPS_SCRIPT.txt` |
+| Testy | `testy_pmt.py` — pełny zestaw i `--szybko` (wcześniej wisiał na modalnym zaproszeniu testera) |
 
 ## Co zmieniła wersja 3.21.0
 
@@ -35,7 +48,7 @@ DOKĄD go wgrać.
 | `1_program_desktop` | `updater.bat`, `updater.sh` | repozytorium GitHub (katalog główny) |
 | `2_ikony` | `pmt_logo.ico`, `.icns`, `.png` | repozytorium GitHub (katalog główny) |
 | `3_budowanie_github` | `build.yml` | repozytorium → `.github/workflows/build.yml` |
-| `4_backend_arkusz` | `apps_script.gs` | Arkusz Google → Rozszerzenia → Apps Script |
+| `4_backend_arkusz` | `apps_script_POPRAWIONY_v2.gs` | Arkusz Google → Rozszerzenia → Apps Script |
 | `5_program_desktop_online` | `pmt_online.py` | źródło modułu online (jest już wklejony w programie) |
 | `6_aplikacja_wizyty` | `pmt_wizyty.html`, `manifest.webmanifest`, `sw.js`, `pwa_192.png`, `pwa_512.png` | repozytorium GitHub (katalog główny) |
 | `7_dane_do_arkusza` | pliki `.csv` | import do Arkusza Google — **NIGDY do repozytorium** (dane osobowe) |
@@ -45,7 +58,7 @@ DOKĄD go wgrać.
 
 ## Kolejność wdrożenia (gdyby trzeba było odtworzyć wszystko od zera)
 
-1. **Arkusz**: wklej `apps_script.gs` → zapisz → uruchom `inicjalizuj_v2`
+1. **Arkusz**: wklej `apps_script_POPRAWIONY_v2.gs` → zapisz → uruchom `inicjalizuj_v2`
    (utworzy zakładki i poprosi o zgody) → **Wdróż → Zarządzaj wdrożeniami →
    ołówek → Wersja: Nowa → Wdróż**. Adres `/exec` jest już wklejony w plikach
    klienckich — zmieniaj go tylko, jeśli tworzysz nowe wdrożenie od podstaw.
@@ -81,9 +94,15 @@ DOKĄD go wgrać.
   Windows zablokował niepodpisany `.pyd` z fontTools (3.21.3). Od 3.21.4 fontTools jest
   instalowany czysto pythonowo (`--no-binary fonttools` w requirements.txt), CI tego pilnuje,
   a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: START_TUTAJ.txt, 6b.
-- **Trzy moduły obok programu są obowiązkowe**: `intro_zywa_mapa.py` (intro z kulą
-  ziemską), `karta_testera.py`, `wyglad_3d.py`. Bez nich program działa, ale bez intra,
-  karty i głębi — dokładnie tak wyglądały paczki 3.21.0–3.21.4. Szczegóły: START_TUTAJ 6d.
+- **Moduły obok programu są obowiązkowe** — pełna lista to `WYMAGANE` w `zbuduj.py`:
+  `karta_testera.py`, `wyglad_3d.py`, `nowy_wyglad.py`,
+  `okno_logowania.py`, `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py`,
+  `logo_retro.py` i katalog `prototyp/` z widżetami `proto_*.py`. Bez nich program
+  nie wystartuje albo traci kartę testera i głębię —
+  tak wyglądała paczka 3.22.0 z GitHuba (bez nowego wyglądu). Animacja startowa
+  (`intro_zywa_mapa.py`) zniknęła z programu w 3.23.0 — start idzie prosto do okna.
+  Od 3.23.0 zbuduj.py zatrzymuje budowanie, gdy któregoś modułu nie ma w paczce.
+  Szczegóły: START_TUTAJ 6d i 6e.
 - **Buildy na Pythonie 3.13**, nie 3.14 (błąd `python314.dll` u użytkowników).
 - **Po każdej zmianie skryptu w arkuszu** trzeba wydać **nową wersję wdrożenia**,
   inaczej pod adresem `/exec` działa stary kod.

@@ -1,4 +1,4 @@
-3.22.0
-Intro z kulą ziemską, naprawa danych po aktualizacji, logowanie bez sieci, realne kilometry
+3.23.0
+Nowy wygląd programu i nowe okno logowania, mapa w skali regionu, sufit kilometrów
 min=3.21.4
 blokada=2026-09-24

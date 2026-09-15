@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.22.0 — WERSJA STABILNA
+  PMT PLANER 3.23.0 — WERSJA STABILNA
   baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
 ═══════════════════════════════════════════════════════════════════════
 
@@ -10,8 +10,8 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
   przy przeglądzie i był najpilniejszy: zachowania programu, po których
   Windows uznaje go za podejrzany.
 
-  WYGLĄD I SPOSÓB PRACY PROGRAMU SIĘ NIE ZMIENIŁ. Układ okien, animacja
-  startowa, planer wizyt, mapy, historia, PDF-y — wszystko jak dotąd.
+  WYGLĄD I SPOSÓB PRACY PROGRAMU SIĘ NIE ZMIENIŁ. Układ okien,
+  planer wizyt, mapy, historia, PDF-y — wszystko jak dotąd.
   Przełożony na delegacji podstawia się sam z pliku menedzer.txt
   (dołączanego przy budowaniu z sekretu) — w programie nie ma pola.
 
@@ -35,10 +35,11 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
     to rubryka wychodziła pusta — cofnięte w 3.21.2. Nazwisko drukowane na
     każdej delegacji nie jest tajemnicą; problemem było wyłącznie to, że
     leżało w publicznym repozytorium.
-  · Program szuka pliku po kolei: ustawienia programu (pole w oknie),
-    obok PMT_Planer.exe, w _internal (paczka), w katalogu roboczym,
+  · Program szuka pliku po kolei: obok PMT_Planer.exe, w _internal
+    (paczka), w katalogu ze skryptem, w katalogu roboczym, a na końcu
     w Twoim katalogu użytkownika (C:\Users\TY\menedzer.txt). Czyta UTF-8,
     UTF-8 z BOM, ANSI (cp1250) i UTF-16 — każdy zapis z Notatnika.
+    W oknie programu NIE MA pola na nazwisko — plik jest jedyną drogą.
   · Plik .gitignore pilnuje, żeby menedzer.txt nigdy nie trafił na GitHub.
   · Tak samo działa pmt_kontakt.txt (jedna linia z adresem e-mail): to
     adres, na który trafia przycisk „Zgłoś błąd". Bez pliku program używa
@@ -129,7 +130,7 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
     Wysyłanie do przeglądarki zostało planem awaryjnym (na wypadek, gdyby
     pobieranie zawiodło) — bo to właśnie tam SmartScreen straszy najmocniej.
 
-  NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script.gs
+  NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script_POPRAWIONY_v2.gs
   jest już gotowa kontrola wersji przy logowaniu:
         var MINIMALNA_WERSJA = "3.16.0";
   Podniesienie jej do "3.21.0" (po 14 dniach) odetnie stare wersje
@@ -151,11 +152,10 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
   aplikacji" i firmowe zabezpieczenia. Program robił rzeczy, które
   wyglądają dokładnie jak zachowanie złośliwego oprogramowania:
 
-  · BEZPIECZNIK PO INTRO (3.21.2): gdyby animacja startowa — klasyczna
-    albo wideo — z jakiegokolwiek powodu nie zgłosiła końca, po 50 s
-    program sam zdejmuje nakładkę i pokazuje ekran powitalny. Ciemny
-    ekran po intro nie ma prawa zostać. Co się działo, zapisuje
-    PMT_diagnostyka_animacji.txt w katalogu użytkownika.
+  · BEZPIECZNIK PO INTRO (3.21.2) — nieaktualny od 3.23.0: animacji
+    startowej nie ma w programie, po zalogowaniu od razu wstaje okno.
+    Dziennik PMT_diagnostyka_animacji.txt w katalogu użytkownika został
+    (nazwa historyczna) — zapisuje start, werdykt sesji i błędy modułów.
   · przy KAŻDYM starcie przeszukiwał pulpit, Pobrane, Dokumenty, OneDrive
     i kasował znalezione pliki .exe oraz foldery — bez pytania. Masowe
     czytanie profilu użytkownika plus kasowanie plików wykonywalnych to
@@ -191,7 +191,7 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
 
   CZEGO KOD NIE ZAŁATWI — powtórzone, bo to nadal prawda:
   „Inteligentna kontrola aplikacji" blokuje KAŻDY program bez podpisu
-  cyfrowego. Szczegóły i trzy możliwe drogi: BEZ_BLOKADY_WINDOWS.txt.
+  cyfrowego. Jak to poznać i możliwe drogi: BEZ_BLOKADY_WINDOWS.txt.
 
 ───────────────────────────────────────────────────────────────────────
 6. TESTY — URUCHOM PRZED KAŻDYM WYDANIEM
@@ -210,14 +210,14 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
   12 scenariuszy generowania tras (4 bazy × 3 kwoty), sufity dokumentów,
   jednostronicowość PDF-ów i zbudowanie głównego okna programu.
 
-  Stan na dziś: 91/91 testów przechodzi.
+  Stan na dziś: przechodzą wszystkie — ponad 200 kontroli w pełnym
+  przebiegu i ponad 100 w wariancie --szybko.
 
 ───────────────────────────────────────────────────────────────────────
 KROK PO KROKU — WYDANIE 3.21.0
 ───────────────────────────────────────────────────────────────────────
   1. PRZYGOTUJ FOLDER
      Nowy, pusty folder (np. C:\PMT_3.21.0), rozpakuj do niego całość.
-     Skopiuj ze starego katalogu ciemny.png i jasny.png, jeśli ich nie ma.
 
   2. SPRAWDŹ WERSJE
      Dwuklik SPRAWDZ_WERSJE.bat — w źródle (PMT_Delegacje.py, wersja_exe.txt)
@@ -225,7 +225,7 @@ KROK PO KROKU — WYDANIE 3.21.0
      normalne, podbije się samo po zbudowaniu wydania (krok 6c).
 
   3. PRZETESTUJ
-     python testy_pmt.py — wszystkie testy mają przejść (ponad 140).
+     python testy_pmt.py — wszystkie testy mają przejść (ponad 200).
 
   4. ZBUDUJ
      Dwuklik ZBUDUJ_EXE_FOLDER.bat. Wynik: dist\PMT_Planer\
@@ -345,18 +345,15 @@ KROK PO KROKU — WYDANIE 3.21.0
      PMT_NOWY — dlatego paczki 3.21.0–3.21.4 z GitHuba miały stare intro.
      Od 3.22.0 obok PMT_Delegacje.py MUSZĄ leżeć (zbuduj.py i CI tego
      pilnują):
-       · intro_zywa_mapa.py — intro „z orbity do trasy”: kula ziemska →
-         Polska → miasto użytkownika → żywa mapa z logotypami sieci
-         (logotypy i kontury są wtopione w moduł, żadnych PNG/MP3),
-       · karta_testera.py — karta testera (gwiazdka ★ w pasku, zaproszenie
-         po intrze najwyżej 3 razy, co 7 dni),
+       · intro_zywa_mapa.py — intro „z orbity do trasy” (USUNIĘTE w 3.23.0
+         razem z klasą AnimacjaStartowa, przełącznikiem INTRO_NA_STARCIE,
+         ustawieniem bez_intra i plikiem BEZ_INTRA.txt — patrz 6e),
+       · karta_testera.py — karta testera (menu awatara, zaproszenie
+         chwilę po starcie najwyżej 3 razy, co 7 dni),
        · wyglad_3d.py — głębia interfejsu (cienie, wypukłe krawędzie);
          limit 260 efektów i bez cieni na wielkich panelach — w 3.21.0
          było ich 991 i to spowalniało intro.
-     Intro gra jako NAKŁADKA w oknie programu (jak dotąd klasyczne), więc
-     strażnik po 50 s i zdejmowanie nakładek działają na nie tak samo.
-     Klik lub klawisz pomija. Wyłączenie: pusty plik BEZ_INTRA.txt obok
-     programu (albo w katalogu użytkownika); głębia 3D: BEZ_3D.txt.
+     Głębia 3D wyłącza się plikiem BEZ_3D.txt.
      Nowe w pasku: 🔑 Hasło (zmiana bez wylogowania), ★ karta testera.
      Autologowanie: znane hasło loguje od razu; nieznane — po
      1,3 s przerwy w pisaniu (każda para kod+hasło próbowana raz, hasło
@@ -428,8 +425,68 @@ KROK PO KROKU — WYDANIE 3.21.0
      Logo: jedno i to samo (pmt_logo_retro) w ikonie programu, w intrze
      (także wtopione w moduł) i w oknie po intrze.
 
+  6e. CO DOSZŁO W 3.23.0
+     · NOWY WYGLĄD jako jedyny ekran programu: nowy_wyglad.py na
+       widżetach z podfolderu prototyp\ (proto_styl, proto_dane,
+       proto_mapa, proto_tasma, proto_kompas, proto_taca, proto_okno);
+       stare okno App żyje pod spodem tylko jako pojemnik na panele
+       (przełącznika --stary już nie ma). Do tego pmt_dokumenty.py, pmt_podpis.py, pmt_wysylka.py
+       (dokumenty, podpis, wysyłka) i logo_retro.py.
+     · NOWE OKNO LOGOWANIA: okno_logowania.py (oprawa nowego systemu;
+       bez niego logowanie wraca do poprzedniej oprawy).
+     · MAPA W SKALI REGIONU i podziałka, która mierzy prawdę; kadr należy
+       do trasy dnia.
+     · SUFIT KILOMETRÓW: sufit rozciągania odcinków i nieprzekraczalna
+       podłoga linii prostej; ostrzeżenie liczbą, gdy kwota jest niższa
+       niż najtańszy prawdziwy wyjazd.
+     · BUDOWANIE: build.yml na GitHubie uruchamia „python zbuduj.py
+       --folder" — to samo, co ZBUDUJ_EXE_FOLDER.bat. Listy modułów
+       i plików są TYLKO w zbuduj.py; po budowie skrypt sprawdza
+       w build\PMT_Planer\PYZ-00.toc, czy każdy własny moduł trafił do
+       paczki, a wersja_exe.txt uzgadnia ze źródłem. Paczki 3.22.0
+       z GitHuba NIE zawierały nowego wyglądu ani nowego logowania —
+       build.yml miał własną, krótszą listę modułów.
+     · TESTY: „python testy_pmt.py --szybko" znów kończy się (wisiał na
+       modalnym zaproszeniu testera).
+     · BACKEND (apps_script_POPRAWIONY_v2.gs — trzeba wdrożyć na nowo):
+       telefon ustawia hasło tylko na koncie bez hasła, limit prób resetu
+       hasła z dziennikiem, puls oddaje tylko własne nieobecności.
+     ODCHUDZENIE (3.23.0): aparat animacji startowej poszedł do kosza —
+     intro_zywa_mapa.py (1 798 linii, 617 KB), klasa AnimacjaStartowa,
+     pokaz_animacje_startowa, INTRO_NA_STARCIE, bez_intra, BEZ_INTRA.txt,
+     pozycja „Animacja startowa” w menu. Intro gra teraz PRZY GENEROWANIU
+     (zaczep INTRO_GENEROWANIA w nowy_wyglad → proto_mapa.PrzelotRejonu):
+     mapa zamienia się w przelot nad rejonem z paralaksą, trasy ułożonych
+     dni zapalają się z sygnału dzien_gotowy wątku silnika, dokumenty je
+     stemplują, koniec silnika to lądowanie na widoku dnia; Esc kończy
+     przelot od razu, a wyłącznik animacji gasi go jak resztę efektów.
+     Stare okno App jest POJEMNIKIEM NA PANELE: buduje tylko cztery
+     panele (Planer, Plan Wizyt, Twoja praca, Ustawienia), dymki,
+     centrum powiadomień i sprawdzanie aktualizacji (371 → 219
+     widżetów); formularz, kokpit, druga szyna nawigacji, pasek górny
+     i własny generator tego okna zniknęły, tak samo przełącznik --stary.
+     Dymek „Rozpoznano pracownika” i zaproszenie testera (900 ms po
+     starcie) pokazuje nowy ekran (po_starcie). Dane pracownika dla
+     paneli idą z karty PRACOWNIK, miesiąc planu z paska miesięcy.
+
+
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
-     Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu
-     zostaw na czas PO zaktualizowaniu zespołu (zalecane 14 dni).
+     Podpisy można włączyć od razu. MINIMALNA_WERSJA i usunięcie starego
+     sekretu z listy zostaw na czas PO zaktualizowaniu zespołu (zalecane
+     14 dni). Przy 3.23.0 wdróż na nowo apps_script_POPRAWIONY_v2.gs —
+     trzy poprawki opisane w nagłówku pliku (6e).
+
+     SEKRET APLIKACJI POZA KODEM. Do 3.23.0 klucz podpisu HMAC zapytań
+     do backendu był literałem w PMT_Delegacje.py — czyli w repozytorium
+     i w jego historii, na zawsze. Teraz program czyta go jak nazwisko
+     przełożonego: plik sekret.txt (jedna linia) obok programu, w _internal
+     albo w katalogu domowym, a bez pliku — zmienna środowiskowa
+     PMT_SEKRET. Do paczki wkłada go zbuduj.py (sekret.txt obok zbuduj.py
+     u autora; na GitHubie sekret repozytorium PMT_SEKRET — bez niego
+     budowanie zatrzymuje się, jak bez PMT_MENEDZER). Bez sekretu program
+     loguje, ale puls, sesja i reset hasła dostają „odmowa". Ujawniony
+     sekret WYMIEŃ przed najbliższym wydaniem — OBRÓT SEKRETU
+     w BACKEND_APPS_SCRIPT.txt: nowy do SEKRETY_PMT przed starym →
+     PMT_SEKRET na GitHubie → wydanie → po aktualizacji zespołu usuń stary.
 
 ═══════════════════════════════════════════════════════════════════════

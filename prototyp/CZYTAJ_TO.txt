@@ -1,0 +1,44 @@
+PROTOTYP NOWEGO WYGLĄDU PMT PLANERA
+klikalny, do obejrzenia i ocenienia
+
+CO TO JEST
+  Osobny program, który NIE rusza PMT Planera i nie zmienia żadnych
+  Twoich danych. Pokazuje nowy wygląd w tej samej technologii, w której
+  napisany jest właściwy program, żeby dało się go dotknąć przed
+  podjęciem decyzji o przebudowie.
+  Dane są wymyślone. Dokumenty nie powstają, poczta nie wychodzi.
+
+JAK URUCHOMIĆ (Windows)
+  Potrzebny Python 3.13 i biblioteka PyQt6. Jeśli uruchamiałeś już
+  program ze źródeł, masz jedno i drugie.
+      py -3.13 -m pip install PyQt6
+      py -3.13 uruchom.py
+  Albo dwuklik w PROTOTYP.bat.
+
+CO MOŻNA KLIKAĆ
+  1. Kwota w karcie PARAMETRY — wpisz inną, np. 400 albo 3000.
+     Miesiąc przeliczy się sam po chwili: zmieni się liczba dni,
+     taśma, mapa i kartka.
+  2. Dzień na taśmie — kliknij, żeby zobaczyć jego trasę i dokument.
+  3. Dzień na taśmie prawym przyciskiem — wyłącza go. Trasa przejdzie
+     na inny dzień.
+  4. Miasto na mapie — kliknij, przeskoczysz do dnia z tym miastem.
+  5. Kompas „Generuj dokumenty” — kliknij. Pierścień pokaże postęp,
+     igła obróci się na kolejne miasta, a po zakończeniu od dołu
+     wysunie się taca z gotowymi dokumentami.
+  6. Na tacy: „Podpisz elektronicznie” i „Wyślij e-mailem” otwierają
+     panele, „Zwiń tacę” ją chowa.
+  7. Zmień kwotę po wygenerowaniu — kompas zgłosi, że dane się zmieniły.
+  8. Klawiatura: strzałki zmieniają dzień, Enter uruchamia kompas,
+     Esc zwija tacę.
+
+CZEGO TU NIE MA
+  Zakładki miesięcy, ikony po lewej, dzwonek i zgłoszenie błędu są
+  wyłącznie wizualne. Mapa nie ma powiększania. Dane ma tylko
+  wrzesień 2026.
+
+NA CO PATRZEĆ
+  Czy układ jest czytelny, czy najważniejsze rzeczy rzucają się w oczy,
+  czy taśma miesiąca ma sens, czy kartka na mapie pomaga, czy kompas
+  jest zrozumiały jako przycisk. Uwagi zbierz w punktach — poprawimy je
+  przed właściwą przebudową.

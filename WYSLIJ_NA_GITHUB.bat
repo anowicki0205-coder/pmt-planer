@@ -44,8 +44,6 @@ git add updater.bat updater_folder.bat updater.sh
 git add .github/workflows/build.yml .github/workflows/testy.yml
 if exist "pmt_logo.png" git add pmt_logo.png
 if exist "pmt_logo.ico" git add pmt_logo.ico
-if exist "ciemny.png" git add ciemny.png
-if exist "jasny.png" git add jasny.png
 echo(
 echo UWAGA: wersja.txt NIE jest wysylany - po zbudowaniu wydania GitHub podbije go SAM.
 echo(

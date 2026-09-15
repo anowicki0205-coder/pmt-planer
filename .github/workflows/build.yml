@@ -20,6 +20,14 @@
 #  3. Gdy paczka Windows jest już w wydaniu, ostatni krok (job „wersja")
 #     sam wpisuje numer do wersja.txt — patrz komentarz przy tym jobie.
 #
+#  CZYM BUDUJEMY: na każdym systemie tym samym poleceniem, co na komputerze:
+#     python zbuduj.py --folder
+#  Lista modułów (nowy wygląd, okno logowania, dokumenty, podpis, wysyłka,
+#  widżety z prototyp/), pliki dodatkowe, ikona, --onedir, --noupx
+#  i metadane .exe siedzą TYLKO w zbuduj.py. Ten plik nie ma własnej listy
+#  --hidden-import — do 3.22.0 miał, krótszą, i paczki z GitHuba nie
+#  zawierały nowego wyglądu ani nowego okna logowania.
+#
 #  GDZIE WGRAĆ TEN PLIK: .github/workflows/build.yml
 #
 #  UWAGA: budujemy na Pythonie 3.13 (nie 3.14) — celowo, patrz problem
@@ -95,46 +103,62 @@ jobs:
             exit 1
           fi
 
+      - name: Sekret aplikacji z sekretu repozytorium
+        shell: bash
+        env:
+          PMT_SEKRET: ${{ secrets.PMT_SEKRET }}
+          BEZ_SEKRETU_OK: ${{ vars.PMT_SEKRET_OPCJONALNY }}
+        run: |
+          # Wspolny sekret aplikacji (klucz HMAC, ktorym program podpisuje
+          # zapytania puls/sesja/reset_hasla do backendu) NIE jest w kodzie ani
+          # w repozytorium (.gitignore) - do 3.23.0 byl literalem
+          # w PMT_Delegacje.py. Do paczki trafia z sekretu: Settings -> Secrets
+          # and variables -> Actions -> New repository secret -> nazwa PMT_SEKRET,
+          # wartosc = ten sam napis, co w SEKRETY_PMT w Apps Script
+          # (procedura obrotu: BACKEND_APPS_SCRIPT.txt).
+          if [ -n "$PMT_SEKRET" ]; then
+            printf '%s\n' "$PMT_SEKRET" > sekret.txt
+            echo "sekret.txt: utworzony z sekretu PMT_SEKRET"
+          elif [ "$BEZ_SEKRETU_OK" = "tak" ]; then
+            echo "UWAGA: brak sekretu PMT_SEKRET - program nie podpisze zapytan, backend"
+            echo "       odrzuci puls, sesje i reset hasla (zmienna PMT_SEKRET_OPCJONALNY=tak: buduje mimo to)."
+          else
+            # Paczka bez sekretu loguje, ale kazdy puls i kazdy reset hasla dostaje
+            # od backendu "odmowa" - i nikt tego w logu budowania nie zauwazy.
+            # Dlatego brak sekretu ZATRZYMUJE budowanie, tak jak brak nazwiska.
+            echo "::error::Brak sekretu PMT_SEKRET. Ustaw go: Settings -> Secrets and variables -> Actions -> New repository secret (nazwa PMT_SEKRET, wartosc = sekret aplikacji z listy SEKRETY_PMT w Apps Script; procedura: BACKEND_APPS_SCRIPT.txt), potem uruchom to budowanie ponownie (Re-run jobs). Paczka bez sekretu nie podpisuje zapytan - backend odrzuca puls, sesje i reset hasla. Jesli NAPRAWDE chcesz taka paczke: Settings -> Secrets and variables -> Actions -> Variables -> New repository variable PMT_SEKRET_OPCJONALNY = tak."
+            exit 1
+          fi
+
       - name: Zbuduj program
         shell: bash
+        env:
+          PYTHONUTF8: "1"
         run: |
-          # Dolaczamy KAZDY zasob, ktory jest w repo (tla, czcionki, ikony).
-          # Brak pliku nie przerywa budowania — program ma tlo zastepcze.
-          DODAJ=""
-          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png pmt_logo_retro.ico ciemny.png jasny.png pmt.jpg PMT.jpg menedzer.txt \
-                   DejaVuSans.ttf DejaVuSans-Bold.ttf; do
-            if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z;."; echo "dolaczam: $Z";
-            else echo "POMIJAM (brak w repo): $Z"; fi
-          done
-          # oznacza, ze stara i nowa wersja uzywaja TEGO SAMEGO folderu —
-          # przy aktualizacji obie kopie wchodza sobie w droge i pojawia sie
-          # blad "Failed to load Python DLL". Losowy katalog na kazde
-          # uruchomienie jest tu bezpieczniejszy.
-          # TRYB FOLDEROWY (--onedir). Program NIE rozpakowuje sie przy starcie —
-          # biblioteki leza gotowe obok pliku .exe. To usuwa u zrodla blad
-          # "Failed to load Python DLL": nie ma czego rozpakowywac, wiec nie ma
-          # kolizji z antywirusem, chmura ani druga instancja programu.
-          # Start jest tez znacznie szybszy (brak wypakowywania 48 MB).
-          # --noupx        : bez kompresji UPX. Spakowany UPX-em plik .exe to
-          #                  jedna z najczestszych przyczyn falszywych alarmow
-          #                  antywirusa — a program i tak nie jest podpisany.
-          # --version-file : metadane pliku (producent, opis, numer wersji).
-          #                  EXE bez metadanych wyglada dla SmartScreen jak
-          #                  anonimowy plik z internetu. Do 3.20.57 wydania
-          #                  z CI budowaly sie BEZ tego pliku, mimo ze lezal
-          #                  w repozytorium.
-          # Trzy moduly obok programu (intro z kula ziemska, karta testera,
-          # glebia 3D) importowane sa wewnatrz funkcji - podajemy je wprost,
-          # zeby zadna zmiana w analizie PyInstallera ich nie zgubila.
-          pyinstaller --onedir --windowed --noupx \
-            --name PMT_Planer \
-            --icon pmt_logo_retro.ico \
-            --version-file wersja_exe.txt \
-            --hidden-import intro_zywa_mapa --hidden-import karta_testera \
-            --hidden-import wyglad_3d --hidden-import winsound \
-            --hidden-import PyQt6.QtMultimedia \
-            $DODAJ \
-            PMT_Delegacje.py
+          # JEDNO ZRODLO PRAWDY: buduje zbuduj.py — ten sam skrypt, ktory na
+          # komputerze uruchamia ZBUDUJ_EXE_FOLDER.bat. Tam (i tylko tam) jest:
+          #  · lista modulow importowanych wewnatrz funkcji (karta
+          #    testera, glebia 3D, dokumenty, podpis, wysylka, NOWY WYGLAD,
+          #    okno logowania, logo retro, widzety z prototyp\) — podawana
+          #    wprost, zeby zadna zmiana w analizie PyInstallera ich nie zgubila,
+          #  · pliki dodatkowe (tla, logo, menedzer.txt, sekret.txt; brak pliku nie
+          #    przerywa budowania — program ma tlo zastepcze),
+          #  · --onedir  : program NIE rozpakowuje sie przy starcie, biblioteki
+          #                leza obok .exe — koniec z "Failed to load Python DLL",
+          #  · --noupx   : spakowany UPX-em .exe to najczestsza przyczyna
+          #                falszywych alarmow antywirusa,
+          #  · --version-file wersja_exe.txt : metadane .exe (bez nich plik
+          #                wyglada dla SmartScreen jak anonimowy plik z sieci);
+          #                numer w nich zbuduj.py uzgadnia ze zrodlem.
+          # Po budowie zbuduj.py sprawdza w build/PMT_Planer/PYZ-00.toc, czy
+          # KAZDY wlasny modul trafil do paczki, i doklada do dist/PMT_Planer
+          # URUCHOM_PMT.bat, 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt i pmt_wersja.txt.
+          python zbuduj.py --folder
+
+      - name: Raport budowania (tylko gdy cos padlo)
+        if: failure()
+        shell: bash
+        run: tail -n 120 BUDOWANIE_log.txt || true
 
       - name: Sprawdź, czy program powstał
         shell: bash
@@ -147,21 +171,22 @@ jobs:
         run: |
           # W archiwum ma byc FOLDER "PMT_Planer" z plikiem .exe i katalogiem
           # _internal. Aktualizator rozpoznaje ten uklad i podmienia caly folder.
-          # Do paczki dokladamy skrypt pierwszego uruchomienia — zdejmuje on
-          # znacznik "plik z internetu", ktory blokuje start programu.
-          cp URUCHOM_PMT.bat dist/PMT_Planer/ 2>/dev/null || true
-          # Podpowiedz dla kogos, kto otworzy ZIP w Eksploratorze i kliknie
-          # program W SRODKU archiwum (blad "Failed to load Python DLL ...
-          # python313.dll" - zdjecie od uzytkownika przy 3.21.1). Nazwa
-          # zaczyna sie od "0_", wiec plik stoi na poczatku listy.
+          # zbuduj.py dolozyl juz do folderu (sprawdzamy, nie powtarzamy):
+          #  · URUCHOM_PMT.bat — skrypt pierwszego uruchomienia, zdejmuje
+          #    znacznik "plik z internetu", ktory blokuje start programu;
+          #  · 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt — podpowiedz dla kogos, kto
+          #    otworzy ZIP w Eksploratorze i kliknie program W SRODKU archiwum
+          #    (blad "Failed to load Python DLL ... python313.dll", 3.21.1);
+          #  · pmt_wersja.txt — znacznik wersji W PACZCE; bez niego zadna
+          #    kopia programu nie pozna, ze folder obok jest NOWSZY od niej.
           # UWAGA: korzen archiwum to nadal DOKLADNIE JEDEN folder PMT_Planer.
           # Aktualizator w 3.21.0/3.21.1 wchodzi do srodka tylko wtedy, gdy
           # w korzeniu jest jeden wpis - luzny plik w korzeniu zepsulby im
           # aktualizacje. Dlatego podpowiedz lezy W folderze, nie obok.
-          cp 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt dist/PMT_Planer/
-          # Znacznik wersji W PACZCE. Bez niego zadna kopia programu nie
-          # potrafi rozpoznac, ze znaleziony obok folder jest NOWSZY od niej.
-          python -c "import re,io;t=io.open('PMT_Delegacje.py',encoding='utf-8').read();v=re.search(r'WERSJA_PROGRAMU\s*=\s*\"([^\"]+)\"',t).group(1);io.open('dist/PMT_Planer/pmt_wersja.txt','w',encoding='utf-8').write(v);print('znacznik wersji:',v)"
+          for P in URUCHOM_PMT.bat 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt pmt_wersja.txt; do
+            test -f "dist/PMT_Planer/$P" || { echo "::error::zbuduj.py nie dolozyl $P do dist/PMT_Planer"; exit 1; }
+          done
+          echo "znacznik wersji: $(cat dist/PMT_Planer/pmt_wersja.txt)"
           cd dist
           7z a ../PMT_Planer.Windows.zip PMT_Planer
           cd ..
@@ -183,10 +208,8 @@ jobs:
         include:
           - os: macos-latest
             nazwa: macOS
-            ikona: pmt_logo.icns
           - os: ubuntu-22.04
             nazwa: Linux
-            ikona: pmt_logo_retro.png
 
     runs-on: ${{ matrix.os }}
 
@@ -210,21 +233,48 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3
 
+      - name: Sekret aplikacji z sekretu repozytorium
+        shell: bash
+        env:
+          PMT_SEKRET: ${{ secrets.PMT_SEKRET }}
+          BEZ_SEKRETU_OK: ${{ vars.PMT_SEKRET_OPCJONALNY }}
+        run: |
+          # Ten sam krok, co w jobie windows (paczki macOS/Linux tez podpisuja
+          # zapytania). Wspolny sekret aplikacji (klucz HMAC, ktorym program podpisuje
+          # zapytania puls/sesja/reset_hasla do backendu) NIE jest w kodzie ani
+          # w repozytorium (.gitignore) - do 3.23.0 byl literalem
+          # w PMT_Delegacje.py. Do paczki trafia z sekretu: Settings -> Secrets
+          # and variables -> Actions -> New repository secret -> nazwa PMT_SEKRET,
+          # wartosc = ten sam napis, co w SEKRETY_PMT w Apps Script
+          # (procedura obrotu: BACKEND_APPS_SCRIPT.txt).
+          if [ -n "$PMT_SEKRET" ]; then
+            printf '%s\n' "$PMT_SEKRET" > sekret.txt
+            echo "sekret.txt: utworzony z sekretu PMT_SEKRET"
+          elif [ "$BEZ_SEKRETU_OK" = "tak" ]; then
+            echo "UWAGA: brak sekretu PMT_SEKRET - program nie podpisze zapytan, backend"
+            echo "       odrzuci puls, sesje i reset hasla (zmienna PMT_SEKRET_OPCJONALNY=tak: buduje mimo to)."
+          else
+            # Paczka bez sekretu loguje, ale kazdy puls i kazdy reset hasla dostaje
+            # od backendu "odmowa" - i nikt tego w logu budowania nie zauwazy.
+            # Dlatego brak sekretu ZATRZYMUJE budowanie, tak jak brak nazwiska.
+            echo "::error::Brak sekretu PMT_SEKRET. Ustaw go: Settings -> Secrets and variables -> Actions -> New repository secret (nazwa PMT_SEKRET, wartosc = sekret aplikacji z listy SEKRETY_PMT w Apps Script; procedura: BACKEND_APPS_SCRIPT.txt), potem uruchom to budowanie ponownie (Re-run jobs). Paczka bez sekretu nie podpisuje zapytan - backend odrzuca puls, sesje i reset hasla. Jesli NAPRAWDE chcesz taka paczke: Settings -> Secrets and variables -> Actions -> Variables -> New repository variable PMT_SEKRET_OPCJONALNY = tak."
+            exit 1
+          fi
+
       - name: Zbuduj program
         shell: bash
+        env:
+          PYTHONUTF8: "1"
         run: |
-          DODAJ=""
-          for Z in pmt_logo.png pmt_logo.ico pmt_logo_retro.png pmt_logo_retro.ico ciemny.png jasny.png pmt.jpg PMT.jpg menedzer.txt \
-                   DejaVuSans.ttf DejaVuSans-Bold.ttf; do
-            if [ -f "$Z" ]; then DODAJ="$DODAJ --add-data $Z:."; fi
-          done
-          pyinstaller --onedir --windowed \
-            --name PMT_Planer \
-            --icon "${{ matrix.ikona }}" \
-            --hidden-import intro_zywa_mapa --hidden-import karta_testera \
-            --hidden-import wyglad_3d --hidden-import PyQt6.QtMultimedia \
-            $DODAJ \
-            PMT_Delegacje.py
+          # To samo polecenie, co na Windows i na komputerze — patrz komentarz
+          # przy jobie windows. Ikone zbuduj.py dobiera do systemu
+          # (macOS: pmt_logo.icns; Linux nie ma ikony w pliku programu).
+          python zbuduj.py --folder
+
+      - name: Raport budowania (tylko gdy cos padlo)
+        if: failure()
+        shell: bash
+        run: tail -n 120 BUDOWANIE_log.txt || true
 
       - name: Spakuj do zip
         shell: bash

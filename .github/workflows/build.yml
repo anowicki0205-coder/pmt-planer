@@ -103,6 +103,33 @@ jobs:
             exit 1
           fi
 
+      - name: Sekret aplikacji z sekretu repozytorium
+        shell: bash
+        env:
+          PMT_SEKRET: ${{ secrets.PMT_SEKRET }}
+          BEZ_SEKRETU_OK: ${{ vars.PMT_SEKRET_OPCJONALNY }}
+        run: |
+          # Wspolny sekret aplikacji (klucz HMAC, ktorym program podpisuje
+          # zapytania puls/sesja/reset_hasla do backendu) NIE jest w kodzie ani
+          # w repozytorium (.gitignore) - do 3.23.0 byl literalem
+          # w PMT_Delegacje.py. Do paczki trafia z sekretu: Settings -> Secrets
+          # and variables -> Actions -> New repository secret -> nazwa PMT_SEKRET,
+          # wartosc = ten sam napis, co w SEKRETY_PMT w Apps Script
+          # (procedura obrotu: BACKEND_APPS_SCRIPT.txt).
+          if [ -n "$PMT_SEKRET" ]; then
+            printf '%s\n' "$PMT_SEKRET" > sekret.txt
+            echo "sekret.txt: utworzony z sekretu PMT_SEKRET"
+          elif [ "$BEZ_SEKRETU_OK" = "tak" ]; then
+            echo "UWAGA: brak sekretu PMT_SEKRET - program nie podpisze zapytan, backend"
+            echo "       odrzuci puls, sesje i reset hasla (zmienna PMT_SEKRET_OPCJONALNY=tak: buduje mimo to)."
+          else
+            # Paczka bez sekretu loguje, ale kazdy puls i kazdy reset hasla dostaje
+            # od backendu "odmowa" - i nikt tego w logu budowania nie zauwazy.
+            # Dlatego brak sekretu ZATRZYMUJE budowanie, tak jak brak nazwiska.
+            echo "::error::Brak sekretu PMT_SEKRET. Ustaw go: Settings -> Secrets and variables -> Actions -> New repository secret (nazwa PMT_SEKRET, wartosc = sekret aplikacji z listy SEKRETY_PMT w Apps Script; procedura: BACKEND_APPS_SCRIPT.txt), potem uruchom to budowanie ponownie (Re-run jobs). Paczka bez sekretu nie podpisuje zapytan - backend odrzuca puls, sesje i reset hasla. Jesli NAPRAWDE chcesz taka paczke: Settings -> Secrets and variables -> Actions -> Variables -> New repository variable PMT_SEKRET_OPCJONALNY = tak."
+            exit 1
+          fi
+
       - name: Zbuduj program
         shell: bash
         env:
@@ -114,7 +141,7 @@ jobs:
           #    testera, glebia 3D, dokumenty, podpis, wysylka, NOWY WYGLAD,
           #    okno logowania, logo retro, widzety z prototyp\) — podawana
           #    wprost, zeby zadna zmiana w analizie PyInstallera ich nie zgubila,
-          #  · pliki dodatkowe (tla, logo, menedzer.txt; brak pliku nie
+          #  · pliki dodatkowe (tla, logo, menedzer.txt, sekret.txt; brak pliku nie
           #    przerywa budowania — program ma tlo zastepcze),
           #  · --onedir  : program NIE rozpakowuje sie przy starcie, biblioteki
           #                leza obok .exe — koniec z "Failed to load Python DLL",
@@ -205,6 +232,34 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3
+
+      - name: Sekret aplikacji z sekretu repozytorium
+        shell: bash
+        env:
+          PMT_SEKRET: ${{ secrets.PMT_SEKRET }}
+          BEZ_SEKRETU_OK: ${{ vars.PMT_SEKRET_OPCJONALNY }}
+        run: |
+          # Ten sam krok, co w jobie windows (paczki macOS/Linux tez podpisuja
+          # zapytania). Wspolny sekret aplikacji (klucz HMAC, ktorym program podpisuje
+          # zapytania puls/sesja/reset_hasla do backendu) NIE jest w kodzie ani
+          # w repozytorium (.gitignore) - do 3.23.0 byl literalem
+          # w PMT_Delegacje.py. Do paczki trafia z sekretu: Settings -> Secrets
+          # and variables -> Actions -> New repository secret -> nazwa PMT_SEKRET,
+          # wartosc = ten sam napis, co w SEKRETY_PMT w Apps Script
+          # (procedura obrotu: BACKEND_APPS_SCRIPT.txt).
+          if [ -n "$PMT_SEKRET" ]; then
+            printf '%s\n' "$PMT_SEKRET" > sekret.txt
+            echo "sekret.txt: utworzony z sekretu PMT_SEKRET"
+          elif [ "$BEZ_SEKRETU_OK" = "tak" ]; then
+            echo "UWAGA: brak sekretu PMT_SEKRET - program nie podpisze zapytan, backend"
+            echo "       odrzuci puls, sesje i reset hasla (zmienna PMT_SEKRET_OPCJONALNY=tak: buduje mimo to)."
+          else
+            # Paczka bez sekretu loguje, ale kazdy puls i kazdy reset hasla dostaje
+            # od backendu "odmowa" - i nikt tego w logu budowania nie zauwazy.
+            # Dlatego brak sekretu ZATRZYMUJE budowanie, tak jak brak nazwiska.
+            echo "::error::Brak sekretu PMT_SEKRET. Ustaw go: Settings -> Secrets and variables -> Actions -> New repository secret (nazwa PMT_SEKRET, wartosc = sekret aplikacji z listy SEKRETY_PMT w Apps Script; procedura: BACKEND_APPS_SCRIPT.txt), potem uruchom to budowanie ponownie (Re-run jobs). Paczka bez sekretu nie podpisuje zapytan - backend odrzuca puls, sesje i reset hasla. Jesli NAPRAWDE chcesz taka paczke: Settings -> Secrets and variables -> Actions -> Variables -> New repository variable PMT_SEKRET_OPCJONALNY = tak."
+            exit 1
+          fi
 
       - name: Zbuduj program
         shell: bash

@@ -893,6 +893,184 @@ sprawdz("instrukcja o blokadzie opisuje rozpoznanie, drogi bezpłatne i zaznacza
         all(x in _doc5 for x in ("4551", "URUCHOM_PROGRAM.bat", "WNIOSEK_DO_IT.txt",
                                   "DROGA PŁATNA", "Kontrola aplikacji i przeglądarki")))
 
+# ── Sekret aplikacji POZA kodem (tak jak menedzer.txt) ─────────────
+# Do 3.23.0 wspólny sekret HMAC, którym program podpisuje zapytania
+# puls / sesja / reset_hasla, był literałem SEKRET_APLIKACJI w kodzie —
+# czyli w repozytorium i w jego historii. Teraz: pierwsza linia sekret.txt
+# (katalogi towarzyszące, potem domowy), potem zmienna PMT_SEKRET; bez
+# nich zapytanie idzie BEZ pola „podpis" — backend (weryfikujPodpis
+# porównuje String(d.podpis || '') z HMAC-em) odpowiada „odmowa" na akcje
+# podpisane, a logowanie przechodzi jak z aplikacji na telefonie.
+import hmac as _hmac5
+import hashlib as _hashlib5
+import subprocess as _sp5
+sprawdz("w programie nie ma stałej SEKRET_APLIKACJI — sekret daje funkcja _sekret_aplikacji()",
+        "SEKRET_APLIKACJI" not in _zrodlo and not hasattr(P, "SEKRET_APLIKACJI")
+        and callable(getattr(P, "_sekret_aplikacji", None))
+        and callable(getattr(P, "_sekret_aplikacji_reset", None)))
+# Wzorzec nazwy sekretu sklejony z dwóch części, żeby ten plik sam nie
+# wpadł w sito. Sprawdzamy WSZYSTKIE pliki śledzone przez git (także
+# obrazy — szukamy bajtów), a bez .git — pliki tekstowe z dysku.
+_wzor5 = ("PMT-" + "2026-").encode("ascii")
+_git5 = False
+try:
+    _sledzone5 = [os.path.join(KATALOG, s.decode("utf-8")) for s in
+                  _sp5.run(["git", "-C", KATALOG, "ls-files", "-z"],
+                           capture_output=True, timeout=60).stdout.split(b"\0") if s]
+    _git5 = len(_sledzone5) > 10
+except Exception:
+    _sledzone5 = []
+if not _git5:
+    _sledzone5 = []
+    for _wz5 in ("*.py", "*.txt", "*.md", "*.gs", "*.yml", "*.bat", "*.json", "*.html", "*.js"):
+        _sledzone5 += glob.glob(os.path.join(KATALOG, _wz5)) \
+            + glob.glob(os.path.join(KATALOG, "prototyp", _wz5)) \
+            + glob.glob(os.path.join(KATALOG, ".github", "workflows", _wz5))
+_z_sekretem5 = []
+for _sc5 in _sledzone5:
+    try:
+        with open(_sc5, "rb") as _f5:
+            _b5 = _f5.read()
+    except Exception:
+        continue
+    if _wzor5 in _b5 or re.search(rb"SEKRET_APLIKACJI\s*=\s*[\"']", _b5):
+        _z_sekretem5.append(os.path.relpath(_sc5, KATALOG))
+sprawdz("żaden plik repozytorium (%s) nie niesie sekretu aplikacji: ani wzorca nazwy, ani przypisania SEKRET_APLIKACJI"
+        % ("git ls-files, %d plików" % len(_sledzone5) if _git5 else "pliki tekstowe z dysku"),
+        len(_sledzone5) > 10 and not _z_sekretem5, str(_z_sekretem5[:5]))
+if _git5:
+    sprawdz("sekret.txt i menedzer.txt nie są śledzone przez git",
+            not any(os.path.basename(s) in ("sekret.txt", "menedzer.txt") for s in _sledzone5))
+
+# Źródła sekretu — w udawanej paczce (PMT_Planer.exe + _internal) w katalogu
+# tymczasowym, jak w sekcji 2b; w repozytorium żaden sekret.txt nie powstaje.
+_kat5 = os.path.join(_TMP_HOME, "paczka_sekret5")
+os.makedirs(os.path.join(_kat5, "_internal"), exist_ok=True)
+_bylo_frozen5 = getattr(sys, "frozen", None)
+_bylo_exe5 = sys.executable
+_bylo_meipass5 = getattr(sys, "_MEIPASS", None)
+_bylo_env5 = os.environ.pop("PMT_SEKRET", None)
+_bylo_kat5 = P._katalogi_towarzyszace
+_dziennik5 = os.path.join(_TMP_HOME, "PMT_diagnostyka_animacji.txt")
+_pliki5 = [os.path.join(_kat5, "sekret.txt"), os.path.join(_kat5, "_internal", "sekret.txt"),
+           os.path.join(_TMP_HOME, "sekret.txt")]
+
+
+def _wpisy5():
+    try:
+        with open(_dziennik5, encoding="utf-8") as _f:
+            return [l for l in _f.read().splitlines() if "brak sekretu aplikacji" in l]
+    except Exception:
+        return []
+
+
+try:
+    sys.frozen = True
+    sys.executable = os.path.join(_kat5, "PMT_Planer.exe")
+    sys._MEIPASS = os.path.join(_kat5, "_internal")
+    # Katalogi towarzyszące TYLKO z udawanej paczki. Prawdziwe
+    # _katalogi_towarzyszace() dokłada katalog testów (= katalog
+    # repozytorium, gdzie instrukcja każe autorowi trzymać sekret.txt
+    # obok zbuduj.py) i katalog roboczy — taki plik przesądzałby
+    # o wyniku. Sprawdzamy kolejność źródeł, nie zawartość dysku.
+    P._katalogi_towarzyszace = lambda: [_kat5, os.path.join(_kat5, "_internal")]
+    try:
+        os.remove(_dziennik5)
+    except Exception:
+        pass
+    P._sekret_aplikacji_reset()
+    _s5 = (P._sekret_aplikacji(), P._sekret_aplikacji(), P._sekret_aplikacji())
+    _w5 = _wpisy5()
+    sprawdz("bez sekret.txt i bez PMT_SEKRET sekret jest pusty", _s5 == ("", "", ""), repr(_s5))
+    sprawdz("brak sekretu = JEDEN wpis w dzienniku diagnostycznym (po trzech odczytach) z listą przeszukanych miejsc i zmienną",
+            len(_w5) == 1 and all(p in _w5[0] for p in _pliki5) and "PMT_SEKRET" in _w5[0],
+            repr(_w5)[:300])
+    _d5 = P._podpisz_zadanie({"akcja": "puls", "kod": "12345", "podpis": "stary"})
+    sprawdz("bez sekretu zapytanie idzie BEZ pola „podpis”, ze znacznikiem czasu i wersją (backend: „odmowa” dla puls/sesja/reset_hasla)",
+            "podpis" not in _d5 and str(_d5.get("klucz_czas", "")).isdigit()
+            and _d5.get("wersja") == P.WERSJA_PROGRAMU, str(_d5))
+    # Klik „Zaloguj" zaczyna dziennik OD NOWA (nowy=True), a sekret jest
+    # pamiętany do końca procesu — druga próba logowania kasowała wpis
+    # o braku sekretu i nikt go nie odtwarzał. Klik woła teraz
+    # _sekret_aplikacji_dziennik() zaraz po rozpoczęciu dziennika.
+    P._dziennik_animacji("klik Zaloguj — weryfikacja na serwerze", nowy=True)
+    P._sekret_aplikacji_dziennik()
+    _w5 = _wpisy5()
+    sprawdz("po rozpoczęciu dziennika od nowa (klik Zaloguj) _sekret_aplikacji_dziennik() odtwarza JEDEN wpis o braku sekretu z tą samą listą miejsc",
+            len(_w5) == 1 and all(p in _w5[0] for p in _pliki5) and "PMT_SEKRET" in _w5[0],
+            repr(_w5)[:300])
+    P._sekret_aplikacji_reset()
+    P._dziennik_animacji("klik Zaloguj — weryfikacja na serwerze", nowy=True)
+    P._sekret_aplikacji_dziennik()
+    P._podpisz_zadanie({"akcja": "puls", "kod": "12345"})
+    sprawdz("klik Zaloguj jako PIERWSZY odczyt w procesie: nadal dokładnie jeden wpis (bez dubla z pierwszego odczytu)",
+            len(_wpisy5()) == 1, repr(_wpisy5())[:300])
+    sprawdz("klik Zaloguj w programie woła _sekret_aplikacji_dziennik() zaraz po rozpoczęciu dziennika od nowa",
+            re.search(r"klik Zaloguj[^\n]*nowy=True\)\s*\n\s*_sekret_aplikacji_dziennik\(\)", _zrodlo) is not None)
+
+    os.environ["PMT_SEKRET"] = "  ze-srodowiska-5 \n"
+    P._sekret_aplikacji_reset()
+    sprawdz("bez pliku: zmienna środowiskowa PMT_SEKRET (bez białych znaków)",
+            P._sekret_aplikacji() == "ze-srodowiska-5", repr(P._sekret_aplikacji()))
+    with open(os.path.join(_TMP_HOME, "sekret.txt"), "w", encoding="utf-8-sig") as _f5:
+        _f5.write("  z-domu-5  \r\n")
+    P._sekret_aplikacji_reset()
+    sprawdz("sekret.txt w katalogu domowym (UTF-8 z BOM, CRLF, spacje) wygrywa ze zmienną",
+            P._sekret_aplikacji() == "z-domu-5", repr(P._sekret_aplikacji()))
+    with open(os.path.join(_kat5, "_internal", "sekret.txt"), "w", encoding="utf-8") as _f5:
+        _f5.write("z-paczki-5\n")
+    P._sekret_aplikacji_reset()
+    sprawdz("sekret.txt dołączony do paczki (_internal) wygrywa z domowym",
+            P._sekret_aplikacji() == "z-paczki-5", repr(P._sekret_aplikacji()))
+    with open(os.path.join(_kat5, "sekret.txt"), "w", encoding="cp1250") as _f5:
+        _f5.write("obok-exe-5\n")
+    P._sekret_aplikacji_reset()
+    sprawdz("sekret.txt obok pliku .exe ma pierwszeństwo (ta sama kolejność co menedzer.txt)",
+            P._sekret_aplikacji() == "obok-exe-5", repr(P._sekret_aplikacji()))
+    os.remove(os.path.join(_kat5, "sekret.txt"))
+    sprawdz("odczyt raz na proces: podmiana pliku bez resetu nic nie zmienia",
+            P._sekret_aplikacji() == "obok-exe-5", repr(P._sekret_aplikacji()))
+    P._sekret_aplikacji_reset()
+    sprawdz("po _sekret_aplikacji_reset() czyta na nowo",
+            P._sekret_aplikacji() == "z-paczki-5", repr(P._sekret_aplikacji()))
+    _d5 = P._podpisz_zadanie({"akcja": "sesja", "kod": "12345", "rodzaj": "start"})
+    _baza5 = ("12345|sesja|%s" % _d5.get("klucz_czas")).encode("utf-8")
+    sprawdz("_podpisz_zadanie: podpis = HMAC-SHA256(sekret, kod|akcja|klucz_czas) w hex, znacznik czasu z zegara, wersja programu",
+            _d5.get("podpis") == _hmac5.new(b"z-paczki-5", _baza5, _hashlib5.sha256).hexdigest()
+            and abs(int(_d5["klucz_czas"]) - time.time()) < 60
+            and _d5.get("wersja") == P.WERSJA_PROGRAMU, str(_d5))
+    sprawdz("inny sekret = inny podpis (klucz naprawdę wchodzi do HMAC)",
+            _d5.get("podpis") != _hmac5.new(b"obok-exe-5", _baza5, _hashlib5.sha256).hexdigest())
+    P._sekret_aplikacji_dziennik()
+    sprawdz("gdy sekret jest, dziennik nie dostaje nowych wpisów o jego braku — także po kliku Zaloguj",
+            len(_wpisy5()) == 1, repr(_wpisy5())[:300])
+finally:
+    if _bylo_frozen5 is None:
+        del sys.frozen
+    else:
+        sys.frozen = _bylo_frozen5
+    sys.executable = _bylo_exe5
+    if _bylo_meipass5 is None:
+        del sys._MEIPASS
+    else:
+        sys._MEIPASS = _bylo_meipass5
+    if _bylo_env5 is None:
+        os.environ.pop("PMT_SEKRET", None)
+    else:
+        os.environ["PMT_SEKRET"] = _bylo_env5
+    P._katalogi_towarzyszace = _bylo_kat5
+    for _sc5 in _pliki5:
+        try:
+            os.remove(_sc5)
+        except Exception:
+            pass
+    shutil.rmtree(_kat5, ignore_errors=True)
+    try:
+        os.remove(_dziennik5)
+    except Exception:
+        pass
+    P._sekret_aplikacji_reset()
+
 
 # ══════════════════════════════════════════════════════════════════
 sekcja("5b. Odległości: źródło, pamięć podręczna, klucz Google")
@@ -4814,21 +4992,21 @@ try:
             _kadr_w_ruchu16 == _okno16.mapa._klucz_kadru())
     _okno16.ustaw_animacje(False)
     _miel16(3)
-    _nitka16 = _okno16.mapa._geometria()["nitka"]
+    # Zmiana na życzenie właściciela: nitka od trasy do kartki („przerywana
+    # kreska z Raszyna w górę”) była niezrozumiała i ZNIKŁA. Geometria nie ma
+    # ścieżki nitki, mapa nie ma jej metod, a w pasie tuż przy lewej krawędzi
+    # kartki — tam, gdzie nitka dobiegała do papieru (kropka 4,6 px i poświata
+    # 18 px przy x = lewa − 4) — nie świeci ani jeden piksel trasy.
+    _geo16 = _okno16.mapa._geometria()
     _kar16 = _kartka16()
-    _koniec16 = _nitka16.pointAtPercent(1.0)
-    _start16 = _nitka16.pointAtPercent(0.0)
-    _przystanki16 = [_okno16.mapa._punkt(n)
-                     for n in _okno16.mapa._dzien.przystanki
-                     if n in _okno16.mapa._miasta]
-    _blisko16 = min(math.hypot(q.x() - _start16.x(), q.y() - _start16.y())
-                    for q in _przystanki16) if _przystanki16 else 1e9
-    sprawdz("nitka wychodzi z przystanku trasy i dobiega do krawędzi kartki,"
-            " ale pod papier już nie wchodzi",
-            _blisko16 < 40.0 and not _kar16.contains(_koniec16)
-            and _koniec16.x() >= _kar16.left() - 30.0,
-            "od przystanku %.1f px, koniec x=%.1f przy krawędzi %.1f"
-            % (_blisko16, _koniec16.x(), _kar16.left()))
+    _pas16 = _QR16(_kar16.left() - 12.0, _kar16.top(), 12.0, _kar16.height())
+    _w_pasie16 = _piksele_trasy16(_pas16)
+    sprawdz("nitki do kartki nie ma: geometria bez ścieżki nitki, mapa bez jej metod,"
+            " a w pasie 12 px przy krawędzi kartki nie świeci ani jeden piksel trasy"
+            " (zmiana na życzenie właściciela)",
+            "nitka" not in _geo16 and not hasattr(_okno16.mapa, "_rysuj_nitke")
+            and not hasattr(_okno16.mapa, "_sciezka_nitki") and _w_pasie16 == 0,
+            "pikseli trasy w pasie: %d, klucze geometrii: %s" % (_w_pasie16, sorted(_geo16)))
 
     # ── 7. PIERWSZE WEJŚCIE DO PROGRAMU ───────────────────────────
     _ciasne16 = [k for k in _klatki16
@@ -6279,6 +6457,32 @@ try:
             not _wola21 and not _inne21, str((_wola21, _inne21)))
     sprawdz("nagłówek backendu mówi, co zmieniono w 3.23.0 i jak to wdrożyć",
             "ZMIANY PRZY WYDANIU 3.23.0" in _gs21 and "WDROŻENIE:" in _gs21)
+
+    # ── 21h. sekret aplikacji: do paczki z pliku, nigdy z repozytorium ──
+    # Sam mechanizm (sekret.txt → PMT_SEKRET → pusto) i podpis HMAC sprawdza
+    # sekcja 5; tu — że budowanie niesie plik tą samą drogą co menedzer.txt.
+    sprawdz("zbuduj.DANE niesie sekret.txt obok menedzer.txt (do paczki przez --add-data, gdy plik jest)",
+            "sekret.txt" in _ZB21.DANE and "menedzer.txt" in _ZB21.DANE)
+    _zb_zr21 = open(os.path.join(KATALOG, "zbuduj.py"), encoding="utf-8").read()
+    sprawdz("zbuduj.py bez sekret.txt ostrzega, że puls, sesja i reset hasła będą odrzucane — a z plikiem nie wypisuje wartości",
+            "Brak sekret.txt" in _zb_zr21 and "ODRZUCANE" in _zb_zr21 and "reset hasla" in _zb_zr21
+            and 'pisz("Sekret aplikacji: sekret.txt trafi do paczki")' in _zb_zr21)
+    _gi21 = [l.strip() for l in open(os.path.join(KATALOG, ".gitignore"), encoding="utf-8").read().splitlines()
+             if l.strip() and not l.strip().startswith("#")]
+    sprawdz(".gitignore pomija sekret.txt (tak jak menedzer.txt)",
+            "sekret.txt" in _gi21 and "menedzer.txt" in _gi21)
+    _czesci21 = _bez_komentarzy21.split("python zbuduj.py --folder")
+    sprawdz("build.yml tworzy sekret.txt z sekretu PMT_SEKRET w OBU jobach, przed budowaniem",
+            _bez_komentarzy21.count("name: Sekret aplikacji z sekretu repozytorium") == 2
+            and len(re.findall(r"> *sekret\.txt", _bez_komentarzy21)) == 2
+            and "secrets.PMT_SEKRET" in _czesci21[0] and "secrets.PMT_SEKRET" in _czesci21[1])
+    sprawdz("build.yml: brak PMT_SEKRET zatrzymuje budowanie (::error + exit 1), chyba że vars.PMT_SEKRET_OPCJONALNY=tak",
+            "vars.PMT_SEKRET_OPCJONALNY" in _bez_komentarzy21
+            and re.search(r"::error::Brak sekretu PMT_SEKRET[^\n]*\n\s*exit 1", _bez_komentarzy21) is not None)
+    _doc21 = open(os.path.join(KATALOG, "BACKEND_APPS_SCRIPT.txt"), encoding="utf-8").read()
+    sprawdz("instrukcja backendu: placeholder <NOWY_SEKRET> zamiast wartości i procedura obrotu (generuj → SEKRETY_PMT przed starym → PMT_SEKRET → usuń stary)",
+            "'<NOWY_SEKRET>'" in _doc21 and "OBRÓT SEKRETU" in _doc21 and "secrets.token_urlsafe" in _doc21
+            and "PRZED starym" in _doc21 and "PMT_SEKRET" in _doc21 and "USUŃ stary sekret" in _doc21)
 except Exception as _e21:
     sprawdz("wydanie: jedno źródło prawdy budowania", False, repr(_e21))
     import traceback as _tb21
@@ -8415,12 +8619,13 @@ try:
             "QPixmap.fromImage(obraz.copy())" in _zrodlo27)
 
     # ── 27h. ten sam dzień w tym samym widżecie — po wycieczce do innego dnia ──
-    # Sędzia mapy wykrył: nitka do kartki i kreski powrotu siedziały w pixmapach
-    # pod kluczem geometrii, który nie zmieniał się, gdy pod TYM SAMYM kadrem
-    # wymieniał się teren (inne ziarno dnia → inna kamera). Po powrocie do dnia
-    # nitka rysowała się starą kamerą — spod pustego miejsca zamiast ze słupa.
-    # Klucz geometrii niesie teraz numer kamery (_wersja_rzutu), więc obraz po
-    # powrocie ma być co do bajta tym samym, co obraz świeżego widżetu.
+    # Sędzia mapy wykrył: pixmapy zależne od geometrii (wtedy nitka do kartki
+    # i kreski powrotu — obie usunięte na życzenie właściciela; dziś warstwy
+    # i blask) siedziały pod kluczem geometrii, który nie zmieniał się, gdy
+    # pod TYM SAMYM kadrem wymieniał się teren (inne ziarno dnia → inna
+    # kamera). Po powrocie do dnia rysowały się starą kamerą. Klucz geometrii
+    # niesie numer kamery (_wersja_rzutu), więc obraz po powrocie ma być co
+    # do bajta tym samym, co obraz świeżego widżetu.
     _DZ_INNY27 = _Dzien27(_BAZA_N27, datetime.date(2026, 7, 8),
                           _przystanki27(_M_NIZ27, _BAZA_N27, 6, 14.0, 60.0), "13:30", "20:40")
     _okno_p27, _m_p27 = _scena27(_BAZA_N27, _M_NIZ27, _DZ_NIZ27, 1040, 660, True)
@@ -8438,20 +8643,23 @@ try:
     _m_p27.ustaw_animacje(False)
     _app27.processEvents()
     _po_powrocie27 = _bajty27(_okno_p27)
-    sprawdz("mapa z kartką po wycieczce do innego dnia i powrocie daje co do bajta obraz świeżego widżetu (nitka i powrót z bieżącej kamery)",
+    sprawdz("mapa z kartką po wycieczce do innego dnia i powrocie daje co do bajta obraz świeżego widżetu (geometria i blask z bieżącej kamery)",
             _po_powrocie27 == _swiezy27 and _w_innym27 != _swiezy27,
             "po powrocie = świeży: %s, inny dzień inny obraz: %s" % (
                 _po_powrocie27 == _swiezy27, _w_innym27 != _swiezy27))
-    _nitka27 = _m_p27._geometria()["nitka"]
-    _slupy27 = [(s["dol"], s["gora"]) for s in _m_p27._geometria()["slupy"]]
-    _start27 = _nitka27.pointAtPercent(0.0) if _nitka27 is not None else None
-    # nitka wychodzi z osi słupa przystanku (na wysokości słupa jednej wizyty),
-    # więc x zgadza się z osią, a y leży między stopą a szczytem słupa
-    sprawdz("nitka do kartki wychodzi z osi słupa przystanku policzonego bieżącą kamerą",
-            _start27 is not None and any(abs(_start27.x() - d.x()) < 0.6
-                                         and g.y() - 0.6 <= _start27.y() <= d.y() + 0.6
-                                         for (d, g) in _slupy27),
-            str(_start27))
+    # zmiana na życzenie właściciela: nitki do kartki już nie ma — zostaje
+    # sprawdzenie, że słupy przystanków po powrocie stoją w osi policzonej
+    # BIEŻĄCĄ kamerą (stopa słupa = rzut miasta na wysokości terenu)
+    _geo_p27 = _m_p27._geometria()
+    _rzut_p27 = _m_p27.rzut()
+    _osie27 = []
+    for _s27 in _geo_p27["slupy"]:
+        _x27, _y27 = _m_p27._miasta[_s27["nazwa"]]
+        _stopa27 = _rzut_p27.ekran(_x27, _y27, _m_p27._wysokosc(_x27, _y27))
+        _osie27.append(math.hypot(_stopa27.x() - _s27["dol"].x(), _stopa27.y() - _s27["dol"].y()))
+    sprawdz("po powrocie do dnia geometria nie ma nitki do kartki (zmiana na życzenie właściciela), a słupy przystanków stoją w osi policzonej bieżącą kamerą",
+            "nitka" not in _geo_p27 and len(_osie27) >= 3 and max(_osie27) < 0.6,
+            "odchyłki osi %s" % [round(v, 2) for v in _osie27])
     _okno_p27.close()
 
     # ── 27i. góry jako bryły, zima i jesień w palecie, mgła rejonu w górach ──
@@ -9485,23 +9693,25 @@ try:
     # przesunięciu zostawia malarza widżetu w tym stanie — klatka awaryjna
     # wyszłaby wyblakła, obcięta albo przesunięta. Ma być identyczna
     # z klatką awaryjną po błędzie w warstwie trasy (tam malarz był czysty).
-    _stara_nitka31 = _PM31.MapaDnia._rysuj_nitke
+    # (dawniej błąd szedł w nitkę do kartki — usuniętą na życzenie właściciela;
+    # oddech bazy jest ostatnim ruchem klatki przed cieniem kartki, więc gra tę samą rolę)
+    _stary_puls31 = _PM31.MapaDnia._rysuj_puls_bazy
 
-    def _zla_nitka31(self, p, geo):
+    def _zly_puls31(self, p, *_reszta):
         p.setOpacity(0.3)
         p.setClipRect(_QR31(0, 0, 60, 60))
         p.translate(300, 200)
         raise RuntimeError("podstawiony błąd po zmianie stanu malarza")
 
     P.log_error = lambda exc: _logi31.append(repr(exc))
-    _PM31.MapaDnia._rysuj_nitke = _zla_nitka31
+    _PM31.MapaDnia._rysuj_puls_bazy = _zly_puls31
     _err_n31 = _io31.StringIO()
     try:
         with _ctx31.redirect_stderr(_err_n31):
             _awaria3_31 = _bajty31(_m31)
             _awaria4_31 = _bajty31(_m31)
     finally:
-        _PM31.MapaDnia._rysuj_nitke = _stara_nitka31
+        _PM31.MapaDnia._rysuj_puls_bazy = _stary_puls31
         P.log_error = _stary_log31
     sprawdz("błąd po obniżeniu krycia, przycięciu i przesunięciu malarza: klatka awaryjna idzie na świeżym malarzu — identyczna z tą po błędzie w warstwie, powtarzalna, jeden nowy wpis w dzienniku",
             _awaria3_31 == _awaria1_31 and _awaria4_31 == _awaria1_31
@@ -9630,6 +9840,472 @@ except Exception as _e31:
     sprawdz("widok „wszystkie dni” i twarda klatka mapy", False, repr(_e31))
     import traceback as _tb31
     _tb31.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("32. Skala ekranu 125/150 %: trasa po odsłonie zostaje na miejscu; powrót jedną wstęgą, bez nitki, tabliczki jak znaki")
+
+# Zgłoszenie właściciela (film, 4 s): na Windows z powiększeniem ekranu
+# 125/150 % (devicePixelRatio 1,25/1,5) trasa rysowała się poprawnie w czasie
+# odsłony, a z chwilą przejścia do gotowej warstwy zamieniała się w „dziwny
+# twór” — powiększony fragment. Przyczyna: w drawPixmap(cel, pixmapa, źródło)
+# prostokąt ŹRÓDŁA jest w pikselach urządzenia pixmapy (logiczne × dpr),
+# a kod podawał go w logicznych. Z tej samej rundy: powrót do bazy jedną
+# wstęgą jak reszta trasy, tabliczka bazy samą nazwą, tabliczki jak polskie
+# znaki E-17a, nitka do kartki usunięta (sekcje 16 i 27h).
+try:
+    import subprocess as _sub32
+    from PyQt6.QtWidgets import QApplication as _QA32
+    from PyQt6.QtGui import QPixmap as _QPix32, QPainter as _QPaint32, QColor as _QC32, QImage as _QI32
+    from PyQt6.QtCore import QRectF as _QR32, QPointF as _QPF32, Qt as _Qt32
+    import nowy_wyglad as _NW32
+    import proto_mapa as _PM32
+    import proto_styl as _ST32
+    _app32 = _QA32.instance() or _QA32(sys.argv)
+
+    # ── 32a. reguła blitu: źródło w pikselach urządzenia pixmapy ────
+    def _kwadrat32(dpr, zrodlo_logiczne):
+        """Pixmapa 100×100 logicznych z czerwonym kwadratem (40..60) i blit
+        fragmentu (40,40,20,20) na drugą pixmapę o tym samym dpr. Zwraca
+        obrys czerwieni w pikselach urządzenia i liczbę czerwonych pikseli."""
+        pix = _QPix32(int(100 * dpr), int(100 * dpr))
+        pix.setDevicePixelRatio(dpr)
+        pix.fill(_Qt32.GlobalColor.transparent)
+        q = _QPaint32(pix)
+        q.fillRect(_QR32(40, 40, 20, 20), _QC32(255, 0, 0))
+        q.end()
+        cel = _QPix32(int(100 * dpr), int(100 * dpr))
+        cel.setDevicePixelRatio(dpr)
+        cel.fill(_Qt32.GlobalColor.transparent)
+        pole = _QR32(40, 40, 20, 20)
+        q = _QPaint32(cel)
+        q.drawPixmap(pole, pix, _QR32(pole) if zrodlo_logiczne else _PM32._zrodlo_blitu(pix, pole))
+        q.end()
+        obraz = cel.toImage()
+        xs, ys = [], []
+        for y in range(obraz.height()):
+            for x in range(obraz.width()):
+                k = obraz.pixelColor(x, y)
+                if k.alpha() > 0 and k.red() > 200 and k.green() < 60:
+                    xs.append(x)
+                    ys.append(y)
+        return (min(xs), min(ys), max(xs), max(ys), len(xs)) if xs else None
+
+    _wyniki32 = {}
+    for _dpr32 in (1.0, 1.25, 1.5, 2.0):
+        _oczek32 = (int(40 * _dpr32), int(40 * _dpr32), int(60 * _dpr32) - 1,
+                    int(60 * _dpr32) - 1, int(20 * _dpr32) ** 2)
+        _wyniki32[_dpr32] = (_kwadrat32(_dpr32, False), _kwadrat32(_dpr32, True), _oczek32)
+    sprawdz("reguła blitu: przez _zrodlo_blitu fragment pixmapy trafia tam, gdzie ma — dpr 1, 1,25, 1,5 i 2, kwadrat co do piksela",
+            all(w[0] == w[2] for w in _wyniki32.values()),
+            str({k: (w[0], w[2]) for k, w in _wyniki32.items()}))
+    sprawdz("...a źródło podane w logicznych przy dpr > 1 trafia w złe miejsce (przy dpr 1 w dobre) — reguła Qt jest prawdziwa, nie wymyślona",
+            _wyniki32[1.0][1] == _wyniki32[1.0][2]
+            and all(_wyniki32[d][1] != _wyniki32[d][2] for d in (1.25, 1.5, 2.0)),
+            str({k: w[1] for k, w in _wyniki32.items()}))
+    _zr_mapa32 = open(os.path.join(KATALOG, "prototyp", "proto_mapa.py"), encoding="utf-8").read()
+    _zr_spekt32 = open(os.path.join(KATALOG, "prototyp", "proto_spektakl.py"), encoding="utf-8").read()
+    sprawdz("każdy blit FRAGMENTU pixmapy (trasa w obrysie, okno blasku, odsłona nitki spektaklu) idzie przez _zrodlo_blitu, a nie przez prostokąt logiczny",
+            "p.drawPixmap(pole, self._trasa_pix, _zrodlo_blitu(self._trasa_pix, pole))" in _zr_mapa32
+            and "q.drawPixmap(pole, self._blask_pix, _zrodlo_blitu(self._blask_pix, pole))" in _zr_mapa32
+            and 'q.drawPixmap(pole, trasa["pix"], pm._zrodlo_blitu(trasa["pix"], pole))' in _zr_spekt32
+            and "p.drawPixmap(pole, self._trasa_pix, pole)" not in _zr_mapa32
+            and "self._blask_pix, QRectF(x0, y0, szer, wys))" not in _zr_mapa32
+            and 'q.drawPixmap(pole, trasa["pix"], pole)' not in _zr_spekt32)
+
+    # ── 32b. powrót jedną wstęgą, tabliczki jak znaki, baza samą nazwą ──
+    sprawdz("kreskowanego powrotu i nitki do kartki nie ma w mapie: ani metod, ani pixmap, ani zielonych warstw tła powrotu",
+            not any(hasattr(_PM32.MapaDnia, n) for n in ("_rysuj_powrot", "_rysuj_poswiate_powrotu",
+                                                          "_rysuj_nitke", "_sciezka_nitki",
+                                                          "WARSTWY_POSWIATY_POWROTU"))
+            and not hasattr(_PM32, "_kreskowana") and not hasattr(_PM32, "WARSTWY_TLA_POWROTU")
+            and "_powrot_pix" not in _zr_mapa32 and "_nitka_pix" not in _zr_mapa32
+            and "start i powrót" not in _zr_mapa32)
+    sprawdz("barwy tabliczek mieszkają w proto_styl: biała plakietka, czarny napis, ciemna ramka, zielona ramka bazy, słupek",
+            all(hasattr(_ST32, n) for n in ("TABLICZKA_TLO", "TABLICZKA_TEKST", "TABLICZKA_RAMKA",
+                                            "TABLICZKA_RAMKA_BAZY", "TABLICZKA_SLUPEK"))
+            and _ST32.TABLICZKA_TLO.lightness() > 235 and _ST32.TABLICZKA_TEKST.lightness() < 40
+            and _ST32.TABLICZKA_RAMKA.lightness() < 80
+            and _ST32.TABLICZKA_RAMKA_BAZY.green() > _ST32.TABLICZKA_RAMKA_BAZY.red() + 60
+            and all(("st.%s" % n) in _zr_mapa32 for n in ("TABLICZKA_TLO", "TABLICZKA_TEKST",
+                                                           "TABLICZKA_RAMKA", "TABLICZKA_RAMKA_BAZY",
+                                                           "TABLICZKA_SLUPEK")))
+
+    _okno32 = _NW32.OknoNowegoWygladu(
+        profil=_NW32.ProfilWidoku("Jan Testowy", "85010112345",
+                                  "ul. Kwiatowa 5, 26-600 Radom", "KR"),
+        rok=2026, miesiac=10)
+    _okno32.showNormal()
+    _okno32.resize(1920, 1080)
+    for _ in range(12):
+        _app32.processEvents()
+    _okno32.ustaw_animacje(False)
+    for _ in range(4):
+        _app32.processEvents()
+    _m32 = _okno32.mapa
+    _dni32 = [d.data.day for d in _okno32._dni_w_trasie()]
+    _okno32._wybierz_dzien(_dni32[1])
+    _okno32.ustaw_animacje(False)
+    for _ in range(8):
+        _app32.processEvents()
+    _geo32 = _m32._geometria()
+    _et32 = _geo32["etykiety"]
+    _baza32 = [e for e in _et32 if e["baza"]]
+    _inne32 = [e for e in _et32 if not e["baza"]]
+    sprawdz("tabliczka bazy to sama nazwa miejscowości, tym samym pismem co pozostałe (bez „start i powrót”)",
+            len(_baza32) == 1 and _baza32[0]["napis"] == _m32._baza
+            and all(e["rozmiar"] == _baza32[0]["rozmiar"] and e["waga"] == _baza32[0]["waga"] for e in _inne32)
+            and len(_inne32) >= 2,
+            str([(e["napis"], e["rozmiar"], e["waga"]) for e in _et32]))
+
+    def _piksel32(obraz, bajty, wiersz, x, y):
+        i = y * wiersz + x * 3
+        return bajty[i], bajty[i + 1], bajty[i + 2]
+
+    _obraz32 = _m32.grab().toImage().convertToFormat(_QI32.Format.Format_RGB888)
+    _bajty32 = _obraz32.constBits().asstring(_obraz32.sizeInBytes())
+    _wiersz32 = _obraz32.bytesPerLine()
+
+    def _srodek_tabliczki32(e):
+        """Barwa pola plakietki tuż przy jej lewej krawędzi, w połowie wysokości
+        (poza napisem) i barwa ramki przy krawędzi górnej: ramka ma 1,1 px
+        i jest wygładzana, więc z trzech wierszy bierzemy najciemniejszy
+        (u bazy — najbardziej zielony)."""
+        pole = e["pole"]
+        x = int(pole.left() + 4)
+        y = int(pole.center().y())
+        tlo = _piksel32(_obraz32, _bajty32, _wiersz32, x, y)
+        kandydaci = [_piksel32(_obraz32, _bajty32, _wiersz32, int(pole.center().x()), int(pole.top()) + k)
+                     for k in range(3)]
+        ramka = (max(kandydaci, key=lambda k: k[1] - k[0]) if e["baza"]
+                 else min(kandydaci, key=lambda k: sum(k)))
+        return tlo, ramka
+
+    _tla32 = [_srodek_tabliczki32(e)[0] for e in _et32]
+    _ramki32 = {e["napis"]: _srodek_tabliczki32(e)[1] for e in _et32}
+    _ramka_bazy32 = _ramki32[_baza32[0]["napis"]]
+    _ramki_inne32 = [_ramki32[e["napis"]] for e in _inne32]
+    sprawdz("na pikselach: plakietki są białe (jak znak E-17a), ramka zwykłej tabliczki ciemna, a ramka bazy zielona",
+            all(min(t) >= 225 for t in _tla32)
+            and all(max(r) <= 110 for r in _ramki_inne32)
+            and _ramka_bazy32[1] > _ramka_bazy32[0] + 50 and _ramka_bazy32[1] > 120,
+            "tła %s, ramki %s, baza %s" % (_tla32[:3], _ramki_inne32[:3], _ramka_bazy32))
+
+    def _trasowy32(r, g, b):
+        return g - r >= 30 and b - r >= 20 and max(g, b) >= 150
+
+    def _przy32(pt, prom):
+        cx, cy = int(round(pt.x())), int(round(pt.y()))
+        for y in range(max(0, cy - prom), min(_obraz32.height(), cy + prom + 1)):
+            for x in range(max(0, cx - prom), min(_obraz32.width(), cx + prom + 1)):
+                if _trasowy32(*_piksel32(_obraz32, _bajty32, _wiersz32, x, y)):
+                    return True
+        return False
+
+    _baza_pt32 = _m32._punkt(_m32._baza)
+    # próbki powrotu z dala od bazy: jej pierścień i słup są zielone z założenia
+    _pw32 = [pt for pt in _geo32["pkt_powrot"]
+             if math.hypot(pt.x() - _baza_pt32.x(), pt.y() - _baza_pt32.y()) > 40.0]
+    _co_pw32 = max(1, len(_pw32) // 12)
+    _powrot_swieci32 = [_przy32(pt, 3) for pt in _pw32[::_co_pw32]]
+    _zielony32 = 0
+    for pt in _pw32[::_co_pw32]:
+        cx, cy = int(round(pt.x())), int(round(pt.y()))
+        for y in range(max(0, cy - 3), min(_obraz32.height(), cy + 4)):
+            for x in range(max(0, cx - 3), min(_obraz32.width(), cx + 4)):
+                r, g, b = _piksel32(_obraz32, _bajty32, _wiersz32, x, y)
+                if g >= 150 and g - b >= 40 and g - r >= 60:      # zieleń dawnego powrotu, nie cyjan
+                    _zielony32 += 1
+    sprawdz("powrót do bazy jest ciągłą wstęgą w barwie trasy: przy każdej próbce powrotu świeci trasa, a zieleni dawnych kresek nie ma",
+            len(_powrot_swieci32) >= 8 and all(_powrot_swieci32) and _zielony32 == 0,
+            "świeci %d/%d, zielonych %d" % (sum(_powrot_swieci32), len(_powrot_swieci32), _zielony32))
+    _probki32 = _geo32["probki"]
+    _n_pr32 = len(_probki32)
+    _ostatni32 = _geo32["pkt_glowna"][-1]
+    _najblizsza32 = min(range(_n_pr32), key=lambda i: math.hypot(
+        _probki32[i].x() - _ostatni32.x(), _probki32[i].y() - _ostatni32.y()))
+    _konce32 = (math.hypot(_probki32[0].x() - _geo32["pkt_glowna"][0].x(),
+                           _probki32[0].y() - _geo32["pkt_glowna"][0].y()),
+                math.hypot(_probki32[-1].x() - _geo32["pkt_powrot"][-1].x(),
+                           _probki32[-1].y() - _geo32["pkt_powrot"][-1].y()))
+    sprawdz("próbki blasku idą po CAŁEJ podróży: zaczynają w bazie, kończą w bazie, a ostatni przystanek leży w środku listy — blask płynie też do domu",
+            _n_pr32 == 150 and 10 < _najblizsza32 < _n_pr32 - 10 and max(_konce32) < 2.5,
+            "ostatni przystanek przy próbce %d z %d, końce %s" % (_najblizsza32, _n_pr32, _konce32))
+
+    # sędzia mapy: słowo „nitka” zostało tylko dla usuniętej nitki do kartki —
+    # słupek odsuniętej tabliczki kończy się „stopką”, żeby grep nie mylił obu
+    sprawdz("odsunięta tabliczka ma „stopkę”, nie „nitkę”: klucz etykiety i stała STOPKA_PODPISU, po „nitce” w tabliczkach ani śladu",
+            hasattr(_PM32.MapaDnia, "STOPKA_PODPISU") and not hasattr(_PM32.MapaDnia, "NITKA_PODPISU")
+            and all("nitka" not in e for e in _et32)
+            and all(e["stopka"] == (math.hypot(e["pole"].center().x() - e["kotwica"].x(),
+                                              e["pole"].center().y() - e["kotwica"].y())
+                                   > _PM32.MapaDnia.STOPKA_PODPISU) for e in _et32)
+            and "nitk" not in _zr_mapa32[_zr_mapa32.index("def _ulozenie_podpisow"):_zr_mapa32.index("def _pole_kartki")],
+            str([(e["napis"], e.get("stopka")) for e in _et32]))
+
+    # sędzia mapy: w kadrze miesiąca 1040×660 sześć tabliczek zakrywało ~100 px
+    # trasy dnia — ciasny kadr (trasa węższa niż CIASNY_KADR tabliczek) szuka
+    # miejsca po wszystkich odsunięciach naraz i tabliczki obsiadają trasę wokoło
+    def _wzdluz32(pkt):
+        """Punkty co 1 px wzdłuż łamanej."""
+        wynik = []
+        for a, b in zip(pkt, pkt[1:]):
+            n = max(1, int(math.hypot(b.x() - a.x(), b.y() - a.y())))
+            for i in range(n):
+                t = i / float(n)
+                wynik.append(_QPF32(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t))
+        return wynik
+
+    def _pod_tabliczkami32(m):
+        """(px trasy dnia pod tabliczkami, tabliczki nad cudzym słupem, nakładania,
+        poza widżetem) dla bieżącej geometrii mapy."""
+        geo = m._geometria()
+        et = geo["etykiety"]
+        trasa = _wzdluz32(list(geo["pkt_glowna"])) + _wzdluz32(list(geo["pkt_powrot"]))
+        pod = sum(1 for pt in trasa if any(e["pole"].contains(pt) for e in et))
+        nad_slupem = [(e["napis"], s["nazwa"]) for e in et for s in geo["slupy"]
+                      if s["nazwa"] != e["napis"] and e["pole"].contains(s["gora"])]
+        nakl = [(et[i]["napis"], et[j]["napis"]) for i in range(len(et)) for j in range(i + 1, len(et))
+                if not et[i]["pole"].intersected(et[j]["pole"]).isEmpty()]
+        poza = [e["napis"] for e in et if not _QR32(m.rect()).contains(e["pole"])]
+        return pod, nad_slupem, nakl, poza
+
+    def _od_nowa32(m):
+        m._geo, m._geo_klucz = None, None
+
+    _okno32.setMinimumSize(1040, 660)
+    _okno32.resize(1040, 660)
+    for _ in range(8):
+        _app32.processEvents()
+    _okno32.zakres.ustaw_aktywna("wszystkie dni")
+    _ciasne32, _luzne32 = {}, {}
+    _stary_ciasny32 = _PM32.MapaDnia.CIASNY_KADR
+    try:
+        for _dz32 in [d for d in (5, 9) if d in _dni32] or _dni32[1:3]:
+            _okno32._wybierz_dzien(_dz32)
+            _okno32.ustaw_animacje(False)
+            for _ in range(8):
+                _app32.processEvents()
+            _od_nowa32(_m32)
+            _ciasne32[_dz32] = _pod_tabliczkami32(_m32)
+            _PM32.MapaDnia.CIASNY_KADR = 0.0          # dawna reguła: najbliższy wolny pierścień
+            _od_nowa32(_m32)
+            _luzne32[_dz32] = _pod_tabliczkami32(_m32)
+            _PM32.MapaDnia.CIASNY_KADR = _stary_ciasny32
+            _od_nowa32(_m32)
+    finally:
+        _PM32.MapaDnia.CIASNY_KADR = _stary_ciasny32
+    # ZMIANA REGUŁY (po ocenie sędziego mapy): karę za zakrytą trasę dostał
+    # także krok ostatniej szansy (`_miejsce_podpisu`, punkt c) — ten, który
+    # wchodzi, gdy wolnego miejsca nie ma wcale. Dzięki temu w ciasnym kadrze
+    # tabliczki schodzą z trasy nawet wtedy, gdy nie ma dla nich pustego
+    # pierścienia; w zamian sama flaga CIASNY_KADR nie jest już jedyną
+    # różnicą, więc porównanie z dawną regułą liczymy SUMĄ po dniach, a nie
+    # dzień po dniu (dla części dni obie reguły dają teraz zero).
+    sprawdz("ciasny kadr miesiąca 1040×660 (dni 5 i 9): tabliczki zakrywają najwyżej 3 px trasy dnia i żadnego cudzego słupa, nie nachodzą na siebie, nie wychodzą poza widżet — a dawna reguła zakrywała więcej (sprawdzenie nie jest puste)",
+            len(_ciasne32) == 2
+            and all(w[0] <= 3 and not w[1] and not w[2] and not w[3] for w in _ciasne32.values())
+            and sum(w[0] for w in _luzne32.values()) >= 20
+            and sum(w[0] for w in _luzne32.values()) > sum(w[0] for w in _ciasne32.values())
+            and all(_luzne32[d][0] >= _ciasne32[d][0] for d in _ciasne32),
+            "ciasno %s, dawna reguła %s" % (_ciasne32, _luzne32))
+    # szeroki kadr dnia nie ma z tym nic wspólnego: ta sama trasa przy 1920×1080
+    # w trybie „ten dzień” układa tabliczki tak samo z regułą ciasnego kadru i bez niej
+    _okno32.zakres.ustaw_aktywna("ten dzień")
+    _okno32.resize(1920, 1080)
+    _okno32._wybierz_dzien(_dni32[1])
+    _okno32.ustaw_animacje(False)
+    for _ in range(8):
+        _app32.processEvents()
+    _od_nowa32(_m32)
+    _uklad_a32 = [(e["napis"], round(e["pole"].x(), 2), round(e["pole"].y(), 2)) for e in _m32._geometria()["etykiety"]]
+    try:
+        _PM32.MapaDnia.CIASNY_KADR = 0.0
+        _od_nowa32(_m32)
+        _uklad_b32 = [(e["napis"], round(e["pole"].x(), 2), round(e["pole"].y(), 2)) for e in _m32._geometria()["etykiety"]]
+    finally:
+        _PM32.MapaDnia.CIASNY_KADR = _stary_ciasny32
+        _od_nowa32(_m32)
+    sprawdz("szeroki kadr „ten dzień” 1920×1080 układa tabliczki tak samo z regułą ciasnego kadru i bez niej — reguła dotyczy tylko trasy-skrawka",
+            _uklad_a32 == _uklad_b32 and len(_uklad_a32) >= 4, str((_uklad_a32[:2], _uklad_b32[:2])))
+    _okno32.close()
+
+    # ── 32c. podproces ze skalą ekranu: 1,0 / 1,25 / 1,5 i sabotaż ──
+    if not SZYBKO:
+        _skrypt32 = os.path.join(_TMP_HOME, "skala_ekranu.py")
+        with open(_skrypt32, "w", encoding="utf-8") as _f32:
+            _f32.write(
+                "# -*- coding: utf-8 -*-\n"
+                "import os, sys, json, time, hashlib\n"
+                "sys.path.insert(0, %r)\n"
+                "sys.path.insert(0, %r)\n"
+                "os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')\n"
+                "from PyQt6.QtWidgets import QApplication\n"
+                "from PyQt6.QtGui import QImage\n"
+                "from PyQt6.QtCore import QRectF\n"
+                "app = QApplication([])\n"
+                "import PMT_Delegacje as P\n"
+                "P.zaproszenie_testera = lambda *a, **k: False\n"
+                "import nowy_wyglad as NW\n"
+                "import proto_mapa as PM\n"
+                "if 'sabotaz' in sys.argv:\n"
+                "    PM._zrodlo_blitu = lambda pix, pole: QRectF(pole)   # dawny błąd: źródło w logicznych\n"
+                "okno = NW.OknoNowegoWygladu(profil=NW.ProfilWidoku('Jan Testowy', '85010112345',"
+                " 'ul. Kwiatowa 5, 26-600 Radom', 'KR'), rok=2026, miesiac=10)\n"
+                "okno.showNormal(); okno.resize(1920, 1080)\n"
+                "def czekaj(s):\n"
+                "    t = time.time()\n"
+                "    while time.time() - t < s:\n"
+                "        app.processEvents(); time.sleep(0.01)\n"
+                "czekaj(1.2)\n"
+                "m = okno.mapa\n"
+                "dpr = m.devicePixelRatioF()\n"
+                "dni = [d.data.day for d in okno._dni_w_trasie()]\n"
+                "def trasowy(r, g, b):\n"
+                "    return g - r >= 30 and b - r >= 20 and max(g, b) >= 150\n"
+                "def obraz():\n"
+                "    o = m.grab().toImage().convertToFormat(QImage.Format.Format_RGB888)\n"
+                "    return o, o.constBits().asstring(o.sizeInBytes()), o.bytesPerLine()\n"
+                "def przy(o, bajty, wiersz, pt, prom):\n"
+                "    cx, cy = int(round(pt.x() * dpr)), int(round(pt.y() * dpr))\n"
+                "    r = int(round(prom * dpr))\n"
+                "    for y in range(max(0, cy - r), min(o.height(), cy + r + 1)):\n"
+                "        baza = y * wiersz\n"
+                "        for x in range(max(0, cx - r), min(o.width(), cx + r + 1)):\n"
+                "            i = baza + x * 3\n"
+                "            if trasowy(bajty[i], bajty[i + 1], bajty[i + 2]):\n"
+                "                return True\n"
+                "    return False\n"
+                "def kratka(o, bajty, wiersz, nx=48, ny=27):\n"
+                "    w, h = o.width(), o.height()\n"
+                "    wynik = []\n"
+                "    for j in range(ny):\n"
+                "        for i in range(nx):\n"
+                "            x0, x1, y0, y1 = w * i // nx, w * (i + 1) // nx, h * j // ny, h * (j + 1) // ny\n"
+                "            jest = 0\n"
+                "            for y in range(y0, y1, 2):\n"
+                "                baza = y * wiersz\n"
+                "                for x in range(x0, x1, 2):\n"
+                "                    k = baza + x * 3\n"
+                "                    if trasowy(bajty[k], bajty[k + 1], bajty[k + 2]):\n"
+                "                        jest = 1\n"
+                "                        break\n"
+                "                if jest:\n"
+                "                    break\n"
+                "            wynik.append(jest)\n"
+                "    return wynik\n"
+                "cel = dni[3] if len(dni) > 3 else dni[-1]\n"
+                "inny = dni[1]\n"
+                "okno.tasma.ustaw_wybrany(inny); okno.tasma.wybrano.emit(inny)\n"
+                "t0 = time.time()\n"
+                "while m.rysuje_trase() and time.time() - t0 < 6.0:\n"
+                "    czekaj(0.05)\n"
+                "czekaj(0.3)\n"
+                "okno.tasma.ustaw_wybrany(cel); okno.tasma.wybrano.emit(cel)\n"
+                "ruszyla = m.rysuje_trase()\n"
+                "czekaj(0.25)\n"
+                "# sędzia mapy: obraz „w trakcie” nie może zależeć od zegara ściennego\n"
+                "# (grab 1920×1080 przy dpr 1,5 trwa) — odsłona staje na 0,45, a potem\n"
+                "# rusza od nowa i kończy się naturalnie, przejściem do gotowej warstwy\n"
+                "m.ustaw_postep_rysowania(0.45); czekaj(0.05)\n"
+                "postep_w_trakcie = m.postep_rysowania()\n"
+                "o, b, w = obraz()\n"
+                "geo = m._geometria()\n"
+                "probki = geo['probki']\n"
+                "bz = m._punkt(m._baza)\n"
+                "daleko = [((pt.x() - bz.x()) ** 2 + (pt.y() - bz.y()) ** 2) ** 0.5 > 40.0 for pt in probki]\n"
+                "w_trakcie = [przy(o, b, w, pt, 3.0) for pt in probki]\n"
+                "m.rysuj_trase_od_nowa()\n"
+                "t0 = time.time()\n"
+                "while m.rysuje_trase() and time.time() - t0 < 6.0:\n"
+                "    czekaj(0.05)\n"
+                "czekaj(0.6)\n"
+                "okno.ustaw_animacje(False); czekaj(0.2)\n"
+                "o, b, w = obraz()\n"
+                "po = [przy(o, b, w, pt, 3.0) for pt in probki]\n"
+                "krat = kratka(o, b, w)\n"
+                "def piksele(o, b, w):\n"
+                "    return b''.join(b[y * w:y * w + o.width() * 3] for y in range(o.height()))\n"
+                "md5a = hashlib.md5(piksele(o, b, w)).hexdigest()\n"
+                "czekaj(0.3)\n"
+                "o2, b2, w2 = obraz()\n"
+                "md5b = hashlib.md5(piksele(o2, b2, w2)).hexdigest()\n"
+                "przystanki = [[n, przy(o, b, w, m._punkt(n), 10.0)] for n in dict.fromkeys(m._dzien.trasa) if n in m._miasta]\n"
+                "print(json.dumps({'dpr': dpr, 'dzien': cel, 'postep_w_trakcie': postep_w_trakcie, 'ruszyla': ruszyla,"
+                " 'w_trakcie': w_trakcie, 'daleko': daleko, 'po': po, 'kratka': krat, 'powtarzalny': md5a == md5b,"
+                " 'przystanki': przystanki, 'trasa_pix_dpr': (m._trasa_pix.devicePixelRatio() if m._trasa_pix is not None else None),"
+                " 'obraz': [o.width(), o.height()], 'mapa': [m.width(), m.height()],"
+                " 'gotowa': m.postep_rysowania() >= 0.999, 'probek': len(probki)}))\n"
+                "okno.close()\n"
+                % (KATALOG, os.path.join(KATALOG, "prototyp")))
+
+        def _skala32(skala, sabotaz=False):
+            srodowisko = dict(os.environ)
+            srodowisko["QT_SCALE_FACTOR"] = str(skala)
+            srodowisko["QT_QPA_PLATFORM"] = "offscreen"
+            wynik = _sub32.run([sys.executable, _skrypt32] + (["sabotaz"] if sabotaz else []),
+                               env=srodowisko, capture_output=True, text=True, timeout=240)
+            if wynik.returncode != 0 or not wynik.stdout.strip():
+                return {"blad": (wynik.stderr or "")[-400:]}
+            return json.loads(wynik.stdout.strip().splitlines()[-1])
+
+        _s32 = {d: _skala32(d) for d in (1.0, 1.25, 1.5)}
+        _sab32 = _skala32(1.5, sabotaz=True)
+
+        def _udzial32(lista):
+            return sum(1 for v in lista if v) / float(max(1, len(lista)))
+
+        def _jaccard32(a, b):
+            wspolne = sum(1 for x, y in zip(a, b) if x and y)
+            suma = sum(1 for x, y in zip(a, b) if x or y)
+            return wspolne / float(max(1, suma))
+
+        sprawdz("podprocesy ze skalą ekranu 1,0 / 1,25 / 1,5 (QT_SCALE_FACTOR) zrenderowały okno 1920×1080, mapa ma pixmapy w dpr ekranu, a obraz jest dpr razy większy od widżetu",
+                all("blad" not in w for w in _s32.values())
+                and all(abs(w["dpr"] - d) < 1e-6 and abs(w["trasa_pix_dpr"] - d) < 1e-6
+                        and abs(w["obraz"][0] - w["mapa"][0] * d) <= 1.0 and w["gotowa"]
+                        for d, w in _s32.items()),
+                str({d: (w.get("blad") or (w["dpr"], w["trasa_pix_dpr"], w["obraz"], w["mapa"], w["gotowa"]))
+                     for d, w in _s32.items()}))
+        if all("blad" not in w for w in _s32.values()):
+            sprawdz("przy każdej skali: przy KAŻDYM przystanku dnia (i w bazie) są piksele w barwie trasy, a trasa świeci przy ≥ 95 % próbek całej podróży",
+                    all(all(p[1] for p in w["przystanki"]) and len(w["przystanki"]) >= 4
+                        and _udzial32(w["po"]) >= 0.95 for w in _s32.values()),
+                    str({d: (round(_udzial32(w["po"]), 3), [p[0] for p in w["przystanki"] if not p[1]])
+                         for d, w in _s32.items()}))
+            def _w_trakcie32(w):
+                """Próbki z dala od bazy (jej zielony pierścień świeci zawsze):
+                (ile z pierwszych pięciu świeci, udział świecących w trakcie,
+                udział świecących po odsłonie). Droga tam i powrót bywają tą
+                samą szosą, więc świecąca próbka powrotu w trakcie odsłony nie
+                jest błędem — liczy się, że trasa rusza z bazy i w trakcie jest
+                jej wyraźnie mniej niż po odsłonie."""
+                daleko = [v for v, d in zip(w["w_trakcie"], w["daleko"]) if d]
+                po = [v for v, d in zip(w["po"], w["daleko"]) if d]
+                return (sum(daleko[:5]), sum(daleko) / float(max(1, len(daleko))),
+                        sum(po) / float(max(1, len(po))))
+
+            sprawdz("w czasie odsłony (ruszyła po kliknięciu w taśmę, zatrzymana na 0,45) trasa jest narysowana częściowo, od bazy: pierwsze próbki za bazą świecą, a świecących jest wyraźnie mniej niż po odsłonie",
+                    all(w["ruszyla"] and abs(w["postep_w_trakcie"] - 0.45) < 0.01
+                        and _w_trakcie32(w)[0] >= 4
+                        and 0.1 < _w_trakcie32(w)[1] < 0.85 * _w_trakcie32(w)[2]
+                        for w in _s32.values()),
+                    str({d: (_w_trakcie32(w), round(w["postep_w_trakcie"], 3)) for d, w in _s32.items()}))
+            sprawdz("obraz po odsłonie przy dpr 1,25 i 1,5 ma trasę w tych samych miejscach (w skali) co przy dpr 1,0 — kratka 48×27 pól z trasą zgodna w ≥ 85 %",
+                    all(_jaccard32(_s32[1.0]["kratka"], _s32[d]["kratka"]) >= 0.85 for d in (1.25, 1.5))
+                    and sum(_s32[1.0]["kratka"]) >= 40,
+                    str({d: round(_jaccard32(_s32[1.0]["kratka"], _s32[d]["kratka"]), 3) for d in (1.25, 1.5)}))
+            sprawdz("przy każdej skali zrzut po odsłonie z wyłączoną animacją jest powtarzalny co do bajta (same piksele, bez dopychania wierszy)",
+                    all(w["powtarzalny"] for w in _s32.values()),
+                    str({d: w["powtarzalny"] for d, w in _s32.items()}))
+            sprawdz("sabotaż (źródło blitu w logicznych, jak przed poprawką) przy dpr 1,5 daje „dziwny twór”: trasa znika spod większości próbek albo kratka rozjeżdża się z dpr 1,0 — sprawdzenie nie jest puste",
+                    "blad" not in _sab32 and (_udzial32(_sab32["po"]) < 0.8
+                                              or _jaccard32(_s32[1.0]["kratka"], _sab32["kratka"]) < 0.7),
+                    str(_sab32.get("blad") or (round(_udzial32(_sab32["po"]), 3),
+                                               round(_jaccard32(_s32[1.0]["kratka"], _sab32["kratka"]), 3))))
+except Exception as _e32:
+    sprawdz("skala ekranu, powrót jedną wstęgą, tabliczki jak znaki", False, repr(_e32))
+    import traceback as _tb32
+    _tb32.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

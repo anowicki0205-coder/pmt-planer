@@ -2115,9 +2115,7 @@ class KartaStanu(QWidget):
         klucz = (self.width(), self.height(), round(dpr, 2))
         if self._pix is not None and self._klucz_pix == klucz:
             return self._pix
-        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = S.pixmapa_urzadzenia(self.width(), self.height(), dpr)
         malarz = QPainter(pix)
         malarz.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         pole = QRectF(0, 0, self.width(), self.height()).adjusted(0.5, 0.5, -0.5, -0.5)
@@ -2410,9 +2408,7 @@ class KratkaRoku(QWidget):
                  self._biezacy)
         if self._pix is not None and self._klucz_pix == klucz:
             return self._pix
-        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = S.pixmapa_urzadzenia(self.width(), self.height(), dpr)
         p = QPainter(pix)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)

@@ -41,9 +41,11 @@ Co z tego wynika na obrazie:
   osady nigdy nie zlewają się w jedną dzielnicę,
 * trasa dnia leży kilka jednostek nad gruntem i rzuca na niego własny cień,
 * przystanki to pionowe słupy światła, tym wyższe, im więcej wizyt,
-* podpisy miast są tabliczkami zwróconymi do widza — jako jedyne nie pochylają
-  się razem z terenem, bo muszą pozostać czytelne; żadna nie nachodzi na drugą
-  ani nie wychodzi poza widżet, a odsunięta dalej dostaje nitkę odniesienia,
+* podpisy miast są tabliczkami jak polskie znaki E-17a (biała plakietka,
+  czarny napis, ciemna ramka, u bazy zielona) zwróconymi do widza — jako
+  jedyne nie pochylają się razem z terenem, bo muszą pozostać czytelne; żadna
+  nie nachodzi na drugą ani nie wychodzi poza widżet, a odsuniętej dalej
+  słupek kończy się stopką u miasta,
 * podziałka u dołu ma dwa ramiona — w poprzek kadru i w głąb — bo na
   pochylonym terenie ten sam kilometr zajmuje w głąb mniej pikseli; mierzy
   świat, a nie ekran, więc zgadza się z kilometrami, które liczy silnik.
@@ -61,7 +63,7 @@ ten sam układ podpisów.
 Rzut, teren, sieć dróg i zabudowa liczone są raz i siedzą w dwóch pixmapach
 zależnych od rozmiaru widżetu i od ziarna dnia: osobno grunt z terenem,
 osobno plamy zabudowy — bo cień trasy leży między nimi. Klatka animacji
-dokłada do tego płynący blask, kreski powrotu i oddech bazy; sama nic nie
+dokłada do tego płynący blask i oddech bazy; sama nic nie
 przelicza.
 
 Białe plamy rejonu: rejon leży pod delikatną mgłą (część gotowej warstwy pod
@@ -95,7 +97,7 @@ import unicodedata
 from PyQt6.QtCore import Qt, QRectF, QPointF, QLineF, QSize, QTimer, QEvent, pyqtSignal
 from PyQt6.QtGui import (QPainter, QPainterPath, QPen, QBrush, QColor, QPixmap,
                          QFontMetricsF, QLinearGradient, QRadialGradient,
-                         QPolygonF, QRegion, QTransform, QImage)
+                         QPolygonF, QTransform, QImage)
 from PyQt6.QtWidgets import QWidget
 
 import proto_styl as st
@@ -369,8 +371,7 @@ UDZIAL_MIN_KADRU = 0.34
 # i wraca dopiero wtedy, gdy klatka znowu schodzi poniżej progu powrotu.
 # Przerwa między progami jest szersza niż koszt samych efektów, więc nic
 # tu nie zacznie mrugać w kółko. Ściszanie zdejmuje SAMO ŻYCIE REJONU;
-# blask trasy i płynące kreski powrotu zostają, bo były tu przed nim
-# i kosztują ułamek tego, co ono.
+# blask trasy zostaje, bo był tu przed nim i kosztuje ułamek tego, co ono.
 SUFIT_KLATKI_MS = 16.0
 PROG_POWROTU_MS = 12.0
 KLATEK_DO_DECYZJI = 8         # tyle klatek z rzędu musi potwierdzić zmianę
@@ -381,6 +382,7 @@ BARWA_SWIATLA_DROGI = QColor(255, 208, 140)
 OKRES_RZEKI_MS = 19000.0      # połysk przepływa wzdłuż rzeki
 
 PROMIEN_LINII = 4.2           # połowa najszerszej warstwy samej linii
+RDZEN_LINII_BARWA = QColor(232, 255, 255)   # jasny rdzeń wstęgi trasy
 PROMIEN_BLASKU = 13.0         # promień świecącej głowy płynącej po trasie
 CZAS_ODSLONY_MS = 1500        # ile trwa rysowanie trasy od bazy z powrotem do bazy
 
@@ -391,10 +393,10 @@ CZAS_ODSLONY_MS = 1500        # ile trwa rysowanie trasy od bazy z powrotem do b
 # głowy, słupów i tabliczek. Pieczone raz na miesiąc i kadr — zmiana
 # wybranego dnia ich nie przelicza. Warstwy jak w _poswiata_zmienna:
 # (szerokość w jednostkach odniesienia, alfa, co ile punktów). Rdzeń kryje
-# w ~39 %, zielony powrót w ~36 % — dość, żeby wstęgi i powroty dało się
-# odczytać, a za mało, żeby konkurowały ze świecącą trasą dnia.
+# w ~39 % — dość, żeby wstęgi dało się odczytać, a za mało, żeby
+# konkurowały ze świecącą trasą dnia. Powrót do bazy jest częścią tej
+# samej wstęgi (właściciel: droga do domu ma być ciągłością, jak cała trasa).
 WARSTWY_TLA_TRASY = ((2.0, 16, 3), (0.84, 100, 1))
-WARSTWY_TLA_POWROTU = ((0.84, 92, 1),)
 
 # Ranga miejscowości → wielkość plamy zabudowy. Kolejno: promień plamy w km,
 # ile niskich brył, najmniejszy i największy bok bryły w km, ile domów.
@@ -940,6 +942,31 @@ def _domknij(lista, ostatni):
     return wynik
 
 
+def _zrodlo_blitu(pixmapa, pole):
+    """Prostokąt ŹRÓDŁA do ``drawPixmap(cel, pixmapa, źródło)`` — w pikselach pixmapy.
+
+    Qt bierze źródło w PIKSELACH URZĄDZENIA pixmapy, nie w logicznych, więc
+    przy powiększeniu ekranu Windows 125/150 % (devicePixelRatio 1,25/1,5)
+    prostokąt podany w logicznych wycinał ćwierć obrazu i rozciągał ją na całe
+    pole: trasa po odsłonie zamieniała się w powiększony fragment (zgłoszenie
+    właściciela, film). Cel zostaje w logicznych — tylko źródło się mnoży.
+    """
+    dpr = pixmapa.devicePixelRatio()
+    if abs(dpr - 1.0) < 1e-9:
+        return QRectF(pole)
+    return QRectF(pole.x() * dpr, pole.y() * dpr, pole.width() * dpr, pole.height() * dpr)
+
+
+def _pixmapa_urzadzenia(szer, wys, dpr):
+    """Przezroczysta pixmapa ``szer × wys`` logicznych w pikselach urządzenia,
+    zaokrąglona w górę — nigdy o ułamek piksela za mała (patrz _nowa_pixmapa)."""
+    pix = QPixmap(max(1, int(math.ceil(szer * dpr - 1e-6))),
+                  max(1, int(math.ceil(wys * dpr - 1e-6))))
+    pix.setDevicePixelRatio(dpr)
+    pix.fill(Qt.GlobalColor.transparent)
+    return pix
+
+
 def _lamana(punkty):
     """Lista punktów ekranu → otwarta ścieżka."""
     s = QPainterPath()
@@ -949,70 +976,6 @@ def _lamana(punkty):
     for pt in punkty[1:]:
         s.lineTo(pt)
     return s
-
-
-def _kreski(punkty, kreska, przerwa, przesuniecie=0.0):
-    """Ścieżka z samych kresek wzdłuż łamanej — zamiast wzoru pióra Qt.
-
-    Kreskowane pióro Qt liczy wzór na nowo przy każdym pociągnięciu i przy
-    trzech warstwach powrotu zjadało trzy milisekundy klatki. Tu kreski
-    liczą się raz w liczbach i idą jako podścieżki jednej ścieżki, którą
-    pióro pełne kreśli tanio. ``przesuniecie`` działa jak ``dashOffset``:
-    o tyle pikseli wzór jest przesunięty do tyłu, więc malejące
-    przesunięcie płynie z kreskami do przodu.
-    """
-    okres = kreska + przerwa
-    sciezka = QPainterPath()
-    if okres <= 0.0 or len(punkty) < 2:
-        return sciezka
-    faza = (przesuniecie % okres)
-    w_kresce = False
-    for k in range(len(punkty) - 1):
-        a, b = punkty[k], punkty[k + 1]
-        dx, dy = b.x() - a.x(), b.y() - a.y()
-        dl = math.hypot(dx, dy)
-        if dl <= 1e-9:
-            continue
-        t = 0.0
-        while t < dl:
-            if faza < kreska:
-                krok = min(dl - t, kreska - faza)
-                if not w_kresce:
-                    sciezka.moveTo(a.x() + dx * t / dl, a.y() + dy * t / dl)
-                    w_kresce = True
-                t += krok
-                faza += krok
-                sciezka.lineTo(a.x() + dx * t / dl, a.y() + dy * t / dl)
-                if faza >= kreska - 1e-9:
-                    w_kresce = False
-            else:
-                krok = min(dl - t, okres - faza)
-                t += krok
-                faza += krok
-            if faza >= okres - 1e-9:
-                faza = 0.0
-    return sciezka
-
-
-def _kreskowana(p, sciezka, kolor, warstwy=((15, 22), (7, 60), (2.4, 205)),
-                kreska=10.0, przerwa=8.0, przesuniecie=0.0):
-    """Świecąca linia kreskowana — poswiata_linii nie umie wzorów kreski.
-
-    ``sciezka`` to QPainterPath (łuki są spłaszczane) albo lista punktów.
-    """
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    if isinstance(sciezka, QPainterPath):
-        punkty = []
-        for wielokat in sciezka.toSubpathPolygons():
-            punkty.extend(wielokat)
-    else:
-        punkty = list(sciezka)
-    kreski = _kreski(punkty, kreska, przerwa, przesuniecie)
-    for szer, alfa in warstwy:
-        pen = QPen(st.z_alfa(kolor, alfa), szer)
-        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-        p.setPen(pen)
-        p.drawPath(kreski)
 
 
 _SPRITE_SWIATLA = {}
@@ -1409,7 +1372,7 @@ class MapaDnia(QWidget):
         self._kotwica = None
         self._pole_kar = None           # prawdziwy prostokąt kartki, podany przez okno
         self._zaslony = ()              # inne widżety leżące na mapie (pigułka, zakres)
-        self._obecnosc_kar = 1.0        # ile kartki widać: cień i nitka idą za tym
+        self._obecnosc_kar = 1.0        # ile kartki widać: jej cień idzie za tym
         self._stan = "zwykly"
         # trasa dnia i kadr liczone raz na układ miast — nie co klatkę
         self._wersja_swiata = 0
@@ -1451,7 +1414,7 @@ class MapaDnia(QWidget):
         self._rzut = None               # kamera; zależy od widżetu, trasy i kartki
         self._rzut_klucz = None
         # numer kolejnej kamery: wchodzi do klucza geometrii, więc każda
-        # pamięć zależna od rzutu (nitka, powrót, warstwy) unieważnia się
+        # pamięć zależna od rzutu (geometria, blask, warstwy) unieważnia się
         # SAMA, gdy kamera zostaje policzona od nowa — także wtedy, gdy klucz
         # kadru wygląda tak samo, a zmienił się teren pod nią
         self._wersja_rzutu = 0
@@ -1465,16 +1428,10 @@ class MapaDnia(QWidget):
         self._geo = None                # policzona geometria trasy i podpisów
         self._geo_klucz = None
         self._cien_pix = None           # cień kartki — nieruchomy, więc w pixmapie
-        self._powrot_pix = None         # kreskowany powrót: przerysowany co pełny piksel
-        self._powrot_poz = None
-        self._powrot_klucz = None
         self._cien_poz = QPointF(0.0, 0.0)
         self._cien_klucz = None
         self._blask_pix = None          # poświata całej trasy: klatka odsłania z niej okno
         self._trasa_pole = None         # obrys trasy na ekranie: tylko tyle się blituje
-        self._nitka_pix = None          # nitka do kartki: przerysowana co pełny piksel
-        self._nitka_poz = None
-        self._nitka_klucz = None
         self._wykonczenie_pix = None    # winieta i ziarno — też się nie ruszają
         self._wykonczenie_klucz = None
         self._faza = self.FAZA_ZRZUTU
@@ -1792,9 +1749,12 @@ class MapaDnia(QWidget):
         self._zegar_terenu.start()
 
     def ustaw_kotwice_kartki(self, punkt, pole=None):
-        """Kartka delegacji widziana przez mapę: punkt nitki i jej prostokąt.
+        """Kartka delegacji widziana przez mapę: jej narożnik i jej prostokąt.
 
-        ``punkt`` to miejsce we współrzędnych mapy, do którego biegnie nitka.
+        ``punkt`` to miejsce we współrzędnych mapy tuż pod lewym górnym rogiem
+        papieru; bez ``pole`` mapa zgaduje z niego obrys kartki. Nitki od trasy
+        do tego punktu już nie ma — właściciel jej nie rozumiał — więc punkt
+        zostaje wyłącznie dla zgadywania.
         ``pole`` to PRAWDZIWY prostokąt kartki — okno zna jej geometrię co do
         piksela i podaje ją wprost. Bez niego mapa musi zgadywać wysokość
         kartki z własnej wysokości, a wtedy rezerwuje pas, który naprawdę jest
@@ -1825,7 +1785,7 @@ class MapaDnia(QWidget):
         self.update()
 
     def ustaw_obecnosc_kartki(self, ile):
-        """Ile kartki widać (0..1) — za tym idzie jej cień i nitka do trasy.
+        """Ile kartki widać (0..1) — za tym idzie jej cień na mapie.
 
         Kadr tego NIE słucha: prostokąt kartki jest zarezerwowany także wtedy,
         gdy kartka ustąpiła, bo inaczej trasa przeskakiwałaby w bok za każdym
@@ -1901,9 +1861,7 @@ class MapaDnia(QWidget):
         film = QRectF(0, 0, szer, self.height())
         srodek = QRectF(zapas_px, 0, self.width(), self.height())
         pola = self._zbuduj_pola(rzut, film)
-        dpr = self.devicePixelRatioF()
-        pix = QPixmap(max(1, int(szer * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
+        pix = _pixmapa_urzadzenia(szer, self.height(), self.devicePixelRatioF())
         q = QPainter(pix)
         q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         q.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
@@ -4604,24 +4562,21 @@ class MapaDnia(QWidget):
             if pole is None:
                 p.drawPixmap(0, 0, self._trasa_pix)
             else:
-                p.drawPixmap(pole, self._trasa_pix, pole)
+                p.drawPixmap(pole, self._trasa_pix, _zrodlo_blitu(self._trasa_pix, pole))
         if geo is not None:
             if gotowa:
-                self._rysuj_powrot(p, geo)             # b) kreskowany powrót
-                self._rysuj_blask(p, geo)              # c) płynący blask
+                self._rysuj_blask(p, geo)              # b) płynący blask
             else:
-                self._rysuj_odslone(p, geo, odslona)   # b–c) trasa rysująca się
-        p.drawPixmap(0, 0, gora)                       # d) słupy i tabliczki
+                self._rysuj_odslone(p, geo, odslona)   # b) trasa rysująca się
+        p.drawPixmap(0, 0, gora)                       # c) słupy i tabliczki
         if geo is not None:
             if not gotowa:                             # ...te, do których już doszła
                 self._rysuj_slupy(p, self.rzut(), geo, odslona)
                 self._rysuj_podpisy(p, geo, odslona)
             if zycie and gotowa:
-                self._rysuj_zapal_przystankow(p, geo)  # d1) blask zapala przystanki
-            self._rysuj_puls_bazy(p)                   # e) oddech bazy
-            if gotowa:
-                self._rysuj_nitke(p, geo)              # f) nitka do kartki
-        self._poloz_cien_kartki(p)                     # g) kartka kładzie cień
+                self._rysuj_zapal_przystankow(p, geo)  # c1) blask zapala przystanki
+            self._rysuj_puls_bazy(p)                   # d) oddech bazy
+        self._poloz_cien_kartki(p)                     # e) kartka kładzie cień
         # (winieta i ziarno siedzą w „dol”)
 
     # — efekty ściszają się same, kiedy klatka przestaje się mieścić —
@@ -4649,11 +4604,14 @@ class MapaDnia(QWidget):
 
     # — warstwy trzymane w pixmapach —
     def _nowa_pixmapa(self):
-        dpr = self.devicePixelRatioF()
-        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
-        return pix
+        """Przezroczysta pixmapa wielkości widżetu w pikselach urządzenia.
+
+        Rozmiar zaokrąglony W GÓRĘ: przy powiększeniu ekranu 125 % i nieparzystej
+        wysokości widżetu pixmapa obcięta do int(wys × dpr) była o ułamek piksela
+        za krótka i ostatni wiersz urządzenia zostawał niepomalowany (widżet jest
+        nieprzezroczysty, więc zostawały tam śmieci i zrzut nie był powtarzalny).
+        """
+        return _pixmapa_urzadzenia(self.width(), self.height(), self.devicePixelRatioF())
 
     def _warstwy(self, geo, gotowa=True):
         """Dwie pixmapy: pod blaskiem i nad nim. Liczone raz na układ.
@@ -4707,7 +4665,6 @@ class MapaDnia(QWidget):
             q = QPainter(trasa)
             q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._rysuj_trase(q, w_warstwie)
-            self._rysuj_poswiate_powrotu(q, w_warstwie)
             q.end()
             blask = self._upiecz_blask(w_warstwie)
             pole_trasy = self._obrys_trasy(w_warstwie, cel)
@@ -4801,26 +4758,25 @@ class MapaDnia(QWidget):
         """Cienkie, przygaszone wstęgi tras tła nad terenem: bez poświaty i głowy.
 
         Ta sama wysokość nad gruntem i ta sama geometria co trasa dnia, więc
-        wybrany dzień kładzie się DOKŁADNIE na swojej wstędze z tła. Powrót
-        idzie w zieleni jak kreskowany powrót dnia, tylko ciągły i cieńszy.
-        Drogi dołożone tam, gdzie sieć ich nie ma, leżą na gruncie pod
-        bryłami (:meth:`_warstwy`) — tu są same wstęgi.
+        wybrany dzień kładzie się DOKŁADNIE na swojej wstędze z tła. Droga
+        tam i powrót do bazy idą jedną łamaną, jak trasa dnia. Drogi dołożone
+        tam, gdzie sieć ich nie ma, leżą na gruncie pod bryłami
+        (:meth:`_warstwy`) — tu są same wstęgi.
         """
         kolor = self._kolor_trasy()
         odn = self._odniesienie()
         wznios = self._wznios_trasy
         wys = self._wysokosc
         for s in sciezki:
-            for punkty, barwa, warstwy in ((s["glowna"], kolor, WARSTWY_TLA_TRASY),
-                                           (s["powrot"], st.ZIELEN, WARSTWY_TLA_POWROTU)):
-                if len(punkty) < 2:
-                    continue
-                pkt, ska = [], []
-                for (x, y) in punkty:
-                    ekran, sk = rzut.rzutuj(x, y, wys(x, y) + wznios)
-                    pkt.append(ekran)
-                    ska.append(sk * odn)
-                _poswiata_zmienna(p, pkt, ska, barwa, warstwy)
+            punkty = list(s["glowna"]) + list(s["powrot"][1:])
+            if len(punkty) < 2:
+                continue
+            pkt, ska = [], []
+            for (x, y) in punkty:
+                ekran, sk = rzut.rzutuj(x, y, wys(x, y) + wznios)
+                pkt.append(ekran)
+                ska.append(sk * odn)
+            _poswiata_zmienna(p, pkt, ska, kolor, WARSTWY_TLA_TRASY)
 
     # — białe plamy: mgła rejonu z wycięciami —
     def _wyciecia_mgly(self, rzut, geo):
@@ -4960,8 +4916,8 @@ class MapaDnia(QWidget):
             kot = (round(self._kotwica.x(), 1), round(self._kotwica.y(), 1))
         # kamera PRZED kluczem: jej numer jest częścią klucza, a rzut() może
         # ją właśnie teraz policzyć od nowa (np. po wymianie terenu pod tym
-        # samym kadrem) — nitka i kreski powrotu rysowały się wtedy starą
-        # kamerą z pixmapy zapamiętanej pod niezmienionym kluczem
+        # samym kadrem) — pixmapy zapamiętane pod niezmienionym kluczem
+        # rysowały się wtedy starą kamerą
         rzut = self.rzut()
         klucz = (self._klucz_kadru(), trasa, self._stan, kot, self._wersja_rzutu)
         if self._geo_klucz == klucz and self._geo is not None:
@@ -4997,7 +4953,9 @@ class MapaDnia(QWidget):
 
         glowna = _lamana(pkt_gl)
         powrot = _lamana(pkt_pw)
-        probki_swiat = _rowno(swiat_glowna, 150)
+        # próbki blasku po CAŁEJ podróży: tam i z powrotem do domu — powrót
+        # zaczyna się w ostatnim przystanku, więc ten punkt idzie raz
+        probki_swiat = _rowno(list(swiat_glowna) + list(swiat_powrot[1:]), 150)
         probki, skale_probek = na_ekran(probki_swiat, wznios)
 
         # c) słupy przystanków: im więcej wizyt, tym wyższy słup światła
@@ -5034,8 +4992,7 @@ class MapaDnia(QWidget):
                 udzial_gl * _udzial_punktu(swiat_glowna, dl_gl,
                                            self._miasta.get(s["nazwa"]))
 
-        nitka = self._sciezka_nitki()
-        etykiety = self._ulozenie_podpisow(slupy, probki, pkt_pw, nitka)
+        etykiety = self._ulozenie_podpisow(slupy, probki, pkt_pw)
         for e, s in zip(etykiety, slupy):
             e["postep"] = s["postep"]
         self._geo = {"glowna": glowna, "powrot": powrot, "probki": probki,
@@ -5043,7 +5000,7 @@ class MapaDnia(QWidget):
                      "cien_powrot": cien_pw, "ska_cglowna": ska_cgl,
                      "ska_cpowrot": ska_cpw, "pkt_glowna": pkt_gl,
                      "ska_glowna": ska_gl, "pkt_powrot": pkt_pw, "ska_powrot": ska_pw,
-                     "slupy": slupy, "nitka": nitka, "etykiety": etykiety,
+                     "slupy": slupy, "etykiety": etykiety,
                      "trasa": trasa, "dodatkowe": dodatkowe,
                      "dl_glowna": dl_gl, "dl_powrot": dl_pw,
                      "udzial_glowna": udzial_gl}
@@ -5071,62 +5028,75 @@ class MapaDnia(QWidget):
         return (len(geo["pkt_glowna"]), 0.0, i, t, False)
 
     def _rysuj_odslone(self, p, geo, ile):
-        """Trasa w trakcie rysowania: linia dobiega do czoła, a czoło świeci."""
+        """Trasa w trakcie rysowania: linia dobiega do czoła, a czoło świeci.
+
+        Droga tam i powrót do domu to JEDNA wstęga: za ostatnim przystankiem
+        linia idzie dalej tą samą poświatą i tym samym rdzeniem, aż do bazy
+        (właściciel: „droga z powrotem też ma być ciągłością, jak cała trasa”).
+        """
         gl, t_gl, pw, t_pw, na_glownej = self._kawalek_trasy(geo, ile)
         kolor = self._kolor_trasy()
-        # urwany koniec każdej łamanej liczy się z tego samego odcinka i ułamka,
-        # więc cień na gruncie kończy się pod czołem trasy, a nie przy nim
-        ur = _punkt_miedzy(geo["pkt_glowna"], gl, t_gl) if na_glownej else None
-        s_ur = _miara_miedzy(geo["ska_glowna"], gl, t_gl) if na_glownej else 0.0
-        pkt = _domknij(geo["pkt_glowna"][:gl], ur)
+
+        # urwany koniec łamanej liczy się z tego samego odcinka i ułamka dla
+        # linii, jej skal i cienia, więc cień na gruncie kończy się pod czołem
+        # trasy, a nie przy nim
+        def urwana(nazwa, i, t, miara=False):
+            lista = geo[nazwa]
+            koniec = (_miara_miedzy if miara else _punkt_miedzy)(lista, i, t)
+            return _domknij(lista[:i], koniec)
+
+        if na_glownej:
+            pkt = urwana("pkt_glowna", gl, t_gl)
+            ska = urwana("ska_glowna", gl, t_gl, True)
+            cien = urwana("cien_glowna", gl, t_gl)
+            ska_c = urwana("ska_cglowna", gl, t_gl, True)
+        else:
+            # powrót zaczyna się tam, gdzie droga tam się kończy — ten punkt idzie raz
+            pkt = list(geo["pkt_glowna"]) + urwana("pkt_powrot", pw, t_pw)[1:]
+            ska = list(geo["ska_glowna"]) + urwana("ska_powrot", pw, t_pw, True)[1:]
+            cien = list(geo["cien_glowna"]) + urwana("cien_powrot", pw, t_pw)[1:]
+            ska_c = list(geo["ska_cglowna"]) + urwana("ska_cpowrot", pw, t_pw, True)[1:]
         if len(pkt) >= 2:
-            ska = _domknij(geo["ska_glowna"][:gl], s_ur if ur is not None else None)
-            cien = _domknij(geo["cien_glowna"][:gl],
-                            _punkt_miedzy(geo["cien_glowna"], gl, t_gl)
-                            if na_glownej else None)
-            ska_c = _domknij(geo["ska_cglowna"][:gl],
-                             _miara_miedzy(geo["ska_cglowna"], gl, t_gl)
-                             if na_glownej else None)
             _poswiata_zmienna(p, cien, ska_c, QColor(0, 0, 0), self.WARSTWY_CIENIA_TRASY)
-            _poswiata_zmienna(p, pkt, ska, kolor,
-                              ((7.4, 20, 5), (4.1, 42, 3), (2.1, 118, 2), (1.0, 226, 1)))
-            _poswiata_zmienna(p, pkt, ska, QColor(232, 255, 255), ((0.36, 185, 1),))
-        wrot = _domknij(geo["pkt_powrot"][:pw],
-                        None if na_glownej
-                        else _punkt_miedzy(geo["pkt_powrot"], pw, t_pw))
-        if len(wrot) >= 2:
-            k = self._grubosc()
-            ska = geo["ska_powrot"][:max(2, pw)] or [1.0]
-            sr = sum(ska) / max(1, len(ska))
-            _kreskowana(p, wrot, st.ZIELEN,
-                        warstwy=((4.2 * sr, 30), (2.0 * sr, 76), (0.80 * sr, 235)),
-                        kreska=11.0 * k, przerwa=8.0 * k)
-            if not na_glownej:
-                s_ur = _miara_miedzy(geo["ska_powrot"], pw, t_pw)
-        czolo = ur if na_glownej else (wrot[-1] if len(wrot) >= 2 else None)
-        if czolo is not None:
-            s = max(0.4, s_ur)
-            _punkt_swiatla(p, czolo, PROMIEN_BLASKU * s, kolor, 96)
-            _punkt_swiatla(p, czolo, 5.0 * s, QColor(238, 255, 255), 140)
+            _poswiata_zmienna(p, pkt, ska, kolor, self.WARSTWY_LINII)
+            _poswiata_zmienna(p, pkt, ska, RDZEN_LINII_BARWA, self.RDZEN_LINII)
+        if pkt:
+            s = max(0.4, ska[-1])
+            _punkt_swiatla(p, pkt[-1], PROMIEN_BLASKU * s, kolor, 96)
+            _punkt_swiatla(p, pkt[-1], 5.0 * s, QColor(238, 255, 255), 140)
 
     # cień trasy na gruncie: na jasnym krajobrazie musi być lżejszy niż był
     # na granacie, inaczej wzdłuż całej trasy leży czarna smuga
     WARSTWY_CIENIA_TRASY = ((3.1, 22, 4), (1.7, 30, 2), (0.9, 40, 1))
 
+    # linia trasy: poświata od najszerszej po rdzeń, (szerokość w skali, alfa,
+    # co ile punktów) — te same warstwy dla drogi tam i dla powrotu do domu
+    WARSTWY_LINII = ((7.4, 20, 5), (4.1, 42, 3), (2.1, 118, 2), (1.0, 226, 1))
+    RDZEN_LINII = ((0.36, 185, 1),)
+
+    @staticmethod
+    def _petla(geo, tam, wrot):
+        """Droga tam i powrót jako jedna lista: powrót zaczyna się w ostatnim
+        przystanku, gdzie kończy się droga tam, więc ten punkt idzie raz."""
+        return list(geo[tam]) + list(geo[wrot][1:])
+
     def _rysuj_cien_trasy(self, p, geo):
         """Trasa unosi się nad terenem, więc rzuca na niego cień prosto w dół."""
-        czern = QColor(0, 0, 0)
-        warstwy = self.WARSTWY_CIENIA_TRASY
-        _poswiata_zmienna(p, geo["cien_glowna"], geo["ska_cglowna"], czern, warstwy)
-        _poswiata_zmienna(p, geo["cien_powrot"], geo["ska_cpowrot"], czern, warstwy)
+        _poswiata_zmienna(p, self._petla(geo, "cien_glowna", "cien_powrot"),
+                          self._petla(geo, "ska_cglowna", "ska_cpowrot"),
+                          QColor(0, 0, 0), self.WARSTWY_CIENIA_TRASY)
 
     def _rysuj_trase(self, p, geo):
-        """Świecąca linia leżąca nad terenem, węższa w głębi sceny."""
+        """Świecąca linia leżąca nad terenem, węższa w głębi sceny.
+
+        Droga tam i powrót do domu jedną wstęgą, bez szwu w ostatnim
+        przystanku: ta sama poświata, ten sam rdzeń i ta sama barwa.
+        """
         kolor = self._kolor_trasy()
-        _poswiata_zmienna(p, geo["pkt_glowna"], geo["ska_glowna"], kolor,
-                          ((7.4, 20, 5), (4.1, 42, 3), (2.1, 118, 2), (1.0, 226, 1)))
-        _poswiata_zmienna(p, geo["pkt_glowna"], geo["ska_glowna"],
-                          QColor(232, 255, 255), ((0.36, 185, 1),))
+        pkt = self._petla(geo, "pkt_glowna", "pkt_powrot")
+        ska = self._petla(geo, "ska_glowna", "ska_powrot")
+        _poswiata_zmienna(p, pkt, ska, kolor, self.WARSTWY_LINII)
+        _poswiata_zmienna(p, pkt, ska, RDZEN_LINII_BARWA, self.RDZEN_LINII)
 
     def _obrys_trasy(self, geo, cel):
         """Prostokąt ekranu, w którym leży cokolwiek z pixmapy trasy.
@@ -5143,31 +5113,6 @@ class MapaDnia(QWidget):
         if ramka.isEmpty():
             return None
         return QRectF(ramka.toAlignedRect())
-
-    WARSTWY_POSWIATY_POWROTU = ((4.2, 30), (2.0, 76))
-
-    def _rysuj_poswiate_powrotu(self, p, geo):
-        """Miękka poświata powrotu — ciągła, więc leży w pixmapie trasy.
-
-        Same kreski płyną (:meth:`_rysuj_powrot`); ich szerokie, wygładzane
-        warstwy kosztowały pięć milisekund co trzecią klatkę. Poświata pod
-        kreskami nie musi być kreskowana, żeby linia czytała się jako
-        przerywana — to robi jasny rdzeń.
-        """
-        punkty = geo["pkt_powrot"]
-        if len(punkty) < 2:
-            return
-        ska = geo["ska_powrot"]
-        sr = sum(ska) / max(1, len(ska))
-        sciezka = _lamana(punkty)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        for szer, alfa in self.WARSTWY_POSWIATY_POWROTU:
-            pen = QPen(st.z_alfa(st.ZIELEN, alfa), max(0.8, szer * sr))
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            p.setPen(pen)
-            p.drawPath(sciezka)
-        p.setPen(Qt.PenStyle.NoPen)
 
     PROBEK_NA_KAWALEK = 12     # tyle próbek trasy dostaje jedną szerokość pióra poświaty
 
@@ -5212,44 +5157,6 @@ class MapaDnia(QWidget):
                 q.drawPath(sciezka)
         q.end()
         return pix
-
-    def _rysuj_powrot(self, p, geo):
-        """Powrót do bazy: kreski wolno płyną w stronę domu.
-
-        Kreski przesuwają się o ułamek piksela na klatkę, więc trzy szerokie
-        warstwy kreskowane nie rysują się co klatkę, tylko wtedy, gdy wzór
-        przesunie się o cały piksel; między tymi chwilami klatka kładzie
-        gotową pixmapę wielkości samego powrotu.
-        """
-        k = self._grubosc()
-        ska = geo["ska_powrot"]
-        sr = sum(ska) / max(1, len(ska))
-        przesun = -self._faza * 34.0 * k if self._anim else 0.0
-        punkty = geo["pkt_powrot"]
-        if len(punkty) < 2:
-            return
-        krok = int(round(przesun))
-        klucz = (self._geo_klucz, krok, round(k, 4), round(sr, 4))
-        if self._powrot_klucz != klucz or self._powrot_pix is None:
-            zapas = 4.2 * sr * 0.5 + 3.0
-            xs = [q.x() for q in punkty]
-            ys = [q.y() for q in punkty]
-            x0, y0 = math.floor(min(xs) - zapas), math.floor(min(ys) - zapas)
-            szer = int(math.ceil(max(xs) + zapas)) - x0 + 1
-            wys = int(math.ceil(max(ys) + zapas)) - y0 + 1
-            dpr = self.devicePixelRatioF()
-            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
-            pix.setDevicePixelRatio(dpr)
-            pix.fill(Qt.GlobalColor.transparent)
-            q = QPainter(pix)
-            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            q.translate(-x0, -y0)
-            # sama kreska: poświata pod nią leży w pixmapie trasy
-            _kreskowana(q, punkty, st.ZIELEN, warstwy=((0.80 * sr, 235),),
-                        kreska=11.0 * k, przerwa=8.0 * k, przesuniecie=float(krok))
-            q.end()
-            self._powrot_pix, self._powrot_poz, self._powrot_klucz = pix, QPointF(x0, y0), klucz
-        p.drawPixmap(self._powrot_poz, self._powrot_pix)
 
     # blask: (szerokość w skali, alfa, barwa) — od najszerszej, najmiększej
     WARSTWY_BLASKU = ((6.0, 34, None), (2.8, 74, None), (1.3, 112, None),
@@ -5340,9 +5247,7 @@ class MapaDnia(QWidget):
             x0, y0 = int(math.floor(ramka.x())), int(math.floor(ramka.y()))
             szer = int(math.ceil(ramka.right())) - x0 + 1
             wys = int(math.ceil(ramka.bottom())) - y0 + 1
-            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
-            pix.setDevicePixelRatio(dpr)
-            pix.fill(Qt.GlobalColor.transparent)
+            pix = _pixmapa_urzadzenia(szer, wys, dpr)
             q = QPainter(pix)
             # wstęga jest MASKĄ dla miękkiej poświaty i jest od niej szersza o
             # dwa piksele, gdzie poświata ma alfę bliską zera — schodków
@@ -5375,7 +5280,8 @@ class MapaDnia(QWidget):
                 q.setBrush(QBrush(QColor(0, 0, 0, int(255 * u * u))))
             q.drawPolygon(wielokat)
             q.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-            q.drawPixmap(QRectF(x0, y0, szer, wys), self._blask_pix, QRectF(x0, y0, szer, wys))
+            pole = QRectF(x0, y0, szer, wys)
+            q.drawPixmap(pole, self._blask_pix, _zrodlo_blitu(self._blask_pix, pole))
             q.end()
             p.drawPixmap(QPointF(x0, y0), pix)
 
@@ -5586,24 +5492,36 @@ class MapaDnia(QWidget):
         p.drawEllipse(dol, rr, rr * 0.56)
 
     # — tabliczki z nazwami —
-    def _rozmiary_podpisow(self):
-        """Wielkość podpisów rośnie z oknem, ale wolniej niż ono samo."""
+    def _rozmiar_podpisu(self):
+        """Wielkość pisma na tabliczkach rośnie z oknem, ale wolniej niż ono samo.
+
+        Jedna wielkość dla wszystkich — baza też: właściciel uznał większą
+        tabliczkę bazy z dopiskiem za zbędną, bazę zdradza zieleń ramki i słup.
+        """
         k = max(0.55, min(2.0, self._grubosc())) ** 0.45
-        return max(10.5, min(15.0, 11.5 * k)), max(12.0, min(18.0, 13.5 * k))
+        return max(10.5, min(15.0, 11.5 * k))
 
     # osiem stron świata wokół szczytu słupa; góra i skosy przed bokami,
     # bo tam tabliczka najrzadziej wchodzi na trasę
     KIERUNKI_PODPISU = ((0.0, -1.0), (0.8, -0.8), (-0.8, -0.8), (1.0, -0.15),
                         (-1.0, -0.15), (0.7, 0.7), (-0.7, 0.7), (0.0, 1.0))
-    LUZY_PODPISU = (9.0, 20.0, 34.0, 52.0, 76.0, 108.0, 148.0)
+    LUZY_PODPISU = (15.0, 25.0, 38.0, 55.0, 78.0, 110.0, 150.0)
     ODSTEP_PODPISOW = 3.0        # tyle pikseli przerwy zostaje między tabliczkami
-    NITKA_PODPISU = 44.0         # dalej odsunięta tabliczka dostaje nitkę odniesienia
+    STOPKA_PODPISU = 44.0        # dalej odsuniętej tabliczce słupek kończy się stopką
+    CIASNY_KADR = 3.0            # trasa węższa niż tyle tabliczek = kadr ciasny (miesiąc)
+    WAGA_ODSUNIECIA = 6.0        # w ciasnym kadrze: koszt każdego piksela odsunięcia
+    KARA_ZA_TRASE = 420.0        # gdy wolnego miejsca nie ma: cena zakrycia trasy
+    MARGINES_TABLICZKI = 9.0     # biały margines plakietki z każdej strony napisu
+    RAMKA_TABLICZKI = 1.4        # ciemna ramka znaku...
+    RAMKA_BAZY = 1.4             # ...u bazy tej samej grubości, ale zielona
+    PASEK_BAZY = 3.0             # zielony pasek u góry plakietki bazy
+    PROMIEN_TABLICZKI = 2.0      # znak ma ledwie zaokrąglone narożniki
 
     def _obszar_podpisow(self):
         """Prostokąt, poza który tabliczka wyjść nie może: widżet bez brzegu."""
         return QRectF(self.rect()).adjusted(6, 5, -6, -5)
 
-    def _ulozenie_podpisow(self, slupy, probki, pkt_powrot, nitka):
+    def _ulozenie_podpisow(self, slupy, probki, pkt_powrot):
         """Tabliczki rozsuwane wokół swoich punktów — raz na układ, nie co klatkę.
 
         Każda szuka miejsca w ośmiu kierunkach od szczytu swojego słupa,
@@ -5611,22 +5529,34 @@ class MapaDnia(QWidget):
         kartkę delegacji i wejście na już położoną tabliczkę są ZAKAZANE, a nie
         tylko drogie — inaczej osiem tabliczek dnia układało się w jeden stos
         w rogu. Kiedy przy mieście nie ma wolnego miejsca, tabliczka odchodzi
-        dalej i łączy ją z punktem cienka nitka odniesienia.
+        dalej, a jej słupek kończy się stopką u miasta, żeby było widać, czyj
+        to znak.
+
+        W kadrze miesiąca trasa dnia bywa skrawkiem kadru, a tabliczek jest
+        tyle co w kadrze dnia — przy miastach nie ma dla nich miejsca i
+        zakrywałyby trasę. Taki ciasny kadr (trasa węższa niż CIASNY_KADR
+        tabliczek) dostaje inne szukanie: po wszystkich odsunięciach naraz,
+        z ceną za każdy piksel odsunięcia, więc tabliczki obsiadają trasę
+        wokoło (sędzia mapy: w kadrze miesiąca 1040×660 sześć tabliczek
+        zakrywało 100 px trasy dnia).
 
         Wszystko idzie po listach w stałej kolejności — słupy w kolejności
         trasy, kierunki i odsunięcia z krotek — więc ta sama trasa daje zawsze
         ten sam układ co do piksela, także przy innym PYTHONHASHSEED.
         """
-        rozm_z, rozm_b = self._rozmiary_podpisow()
-        f_zwykly = st.czcionka(rozm_z, 600)
-        f_baza = st.czcionka(rozm_b, 700)
-        m_zwykly = QFontMetricsF(f_zwykly)
-        m_baza = QFontMetricsF(f_baza)
+        rozmiar, waga = self._rozmiar_podpisu(), 600
+        m = QFontMetricsF(st.czcionka(rozmiar, waga))
+
+        szerokosci = [m.horizontalAdvance(s["nazwa"]) + 2 * self.MARGINES_TABLICZKI
+                      for s in slupy]
+        xs = [pt.x() for pt in probki]
+        ys = [pt.y() for pt in probki]
+        ciasno = bool(szerokosci) and bool(xs) and (
+            max(max(xs) - min(xs), max(ys) - min(ys))
+            < self.CIASNY_KADR * sum(szerokosci) / len(szerokosci))
 
         przeszkody = list(probki[::2]) + list(pkt_powrot[::2])
         przeszkody += [s["gora"] for s in slupy]
-        if nitka is not None and nitka.length() > 0:
-            przeszkody += [nitka.pointAtPercent(i / 24.0) for i in range(25)]
 
         brzeg = self._obszar_podpisow()
         # pierścienie przystanków na gruncie są zajęte tak samo jak kartka:
@@ -5642,32 +5572,24 @@ class MapaDnia(QWidget):
         # baza pierwsza, potem przystanki w kolejności trasy — dokładnie tak,
         # jak zbudowana jest lista słupów. Żadnego sortowania po położeniu na
         # ekranie ani po zbiorze: ta sama trasa ma zawsze dać ten sam układ
-        mieszczace = max(60.0, self._pole().width() - 12.0)
         for s in slupy:
-            baza = s["baza"]
-            napis = f"{s['nazwa']} · start i powrót" if baza else s["nazwa"]
-            m = m_baza if baza else m_zwykly
-            szer = m.horizontalAdvance(napis) + (baza and 20 or 16)
-            if baza and szer > mieszczace:
-                # w kadrze węższym niż sama tabliczka zostaje sama nazwa bazy;
-                # że to baza, widać po zieleni i po większym piśmie
-                napis = s["nazwa"]
-                szer = m.horizontalAdvance(napis) + 20
-            wys = m.height() + 8
+            # sama nazwa miejscowości — także dla bazy, jak na znaku drogowym
+            napis = s["nazwa"]
+            szer = m.horizontalAdvance(napis) + 2 * self.MARGINES_TABLICZKI
+            wys = m.height() + 6 + (self.PASEK_BAZY if s["baza"] else 0.0)
             kotwica = s["gora"]
             pole = self._miejsce_podpisu(kotwica, szer, wys, zajete, brzeg,
-                                         strefy, przeszkody, slupy, s)
+                                         strefy, przeszkody, slupy, s, ciasno)
             zajete.append(pole)
-            rozmiar, waga = (rozm_b, 700) if baza else (rozm_z, 600)
             odlegla = math.hypot(pole.center().x() - kotwica.x(),
-                                 pole.center().y() - kotwica.y()) > self.NITKA_PODPISU
+                                 pole.center().y() - kotwica.y()) > self.STOPKA_PODPISU
             etykiety.append({"pole": pole, "napis": napis, "rozmiar": rozmiar,
-                             "waga": waga, "baza": baza, "kotwica": kotwica,
-                             "powtorka": s["wizyty"] > 1, "nitka": odlegla})
+                             "waga": waga, "baza": s["baza"], "kotwica": kotwica,
+                             "stopka": odlegla})
         return etykiety
 
     def _miejsce_podpisu(self, kotwica, szer, wys, zajete, brzeg, strefy,
-                         przeszkody, slupy, moj):
+                         przeszkody, slupy, moj, ciasno=False):
         """Wolne miejsce na jedną tabliczkę: najpierw przy mieście, potem dalej.
 
         Trzy podejścia, jedno po drugim: osiem stron świata przy coraz większym
@@ -5675,6 +5597,13 @@ class MapaDnia(QWidget):
         wolnego kadru (gdy przy mieście nie ma już miejsca), a na koniec — gdy
         kadr jest ciasny do granic — położenie o najmniejszym nachodzeniu,
         wciągnięte do widżetu. Żaden krok niczego nie losuje.
+
+        W ciasnym kadrze (``ciasno``, patrz :meth:`_ulozenie_podpisow`)
+        pierwsze podejście nie kończy się na najbliższym wolnym pierścieniu:
+        wszystkie odsunięcia stają do jednego rachunku, w którym piksel
+        odsunięcia kosztuje WAGA_ODSUNIECIA, a zakryta próbka trasy 60 —
+        tabliczka odchodzi od miasta tylko tyle, ile trzeba, żeby zejść
+        z trasy.
         """
         odstep = self.ODSTEP_PODPISOW
 
@@ -5709,18 +5638,23 @@ class MapaDnia(QWidget):
             sy = kotwica.y() + ky * (wys * 0.5 + luz)
             return QRectF(sx - szer * 0.5, sy - wys * 0.5, szer, wys)
 
-        # a) wokół miasta, od najbliższego pierścienia
+        # a) wokół miasta, od najbliższego pierścienia; w ciasnym kadrze
+        #    wszystkie pierścienie naraz, z ceną za odsunięcie
+        najlepszy, najkoszt = None, None
         for luz in self.LUZY_PODPISU:
-            najlepszy, najkoszt = None, None
             for nr, (kx, ky) in enumerate(self.KIERUNKI_PODPISU):
                 pole = probne(luz, kx, ky)
                 if not wolne(pole):
                     continue
                 k = koszt(pole, nr * 5.0)
+                if ciasno:
+                    k += (luz - self.LUZY_PODPISU[0]) * self.WAGA_ODSUNIECIA
                 if najkoszt is None or k < najkoszt:
                     najkoszt, najlepszy = k, pole
-            if najlepszy is not None:
+            if najlepszy is not None and not ciasno:
                 return najlepszy
+        if najlepszy is not None:
+            return najlepszy
 
         # b) kratka całego wolnego kadru — bierzemy miejsce najbliższe miastu
         krok = max(8.0, wys * 0.6)
@@ -5760,143 +5694,79 @@ class MapaDnia(QWidget):
                     # gorszym schronieniem niż sąsiadka
                     w = pole.intersected(strefa)
                     k += w.width() * w.height() * 1.2
+                # ...i za zakrytą trasę: bez tego w ciasnym kadrze miesiąca
+                # (1040×660) tabliczki siadały wprost na dniu, bo ten krok
+                # liczył tylko nachodzenie na sąsiadki (sędzia mapy)
+                korytarz = pole.adjusted(-4.0, -4.0, 4.0, 4.0)
+                for pt in przeszkody:
+                    if korytarz.contains(pt):
+                        k += self.KARA_ZA_TRASE
                 if najkoszt is None or k < najkoszt:
                     najkoszt, najlepszy = k, pole
         return najlepszy
 
     def _rysuj_podpisy(self, p, geo, ile=1.0):
-        """Tabliczki zwrócone do widza: nie pochylają się razem z terenem."""
-        kolor = self._kolor_trasy()
+        """Tabliczki jak polskie znaki E-17a (nazwa miejscowości): biała
+        plakietka, czarny napis, cienka ciemna ramka i lekki cień — na słupku
+        nad swoim miastem. Zwrócone do widza, więc nie pochylają się razem
+        z terenem. Baza ma tę samą plakietkę, tylko z zieloną ramką.
+        """
         for e in geo["etykiety"]:
             zapal = self._zapal(e.get("postep", 0.0), ile)
             if zapal <= 0.0:                 # tabliczka czeka na swój przystanek
                 continue
             p.setOpacity(zapal)
             pole = e["pole"]
-            barwa = st.ZIELEN if e["baza"] else kolor
             kotwica = e["kotwica"]
-            # cienka kreska od tabliczki do jej punktu — celujemy w najbliższą
-            # krawędź, więc przy tabliczce z boku kreska też zostaje krótka
+            # słupek od plakietki do szczytu słupa światła — celujemy w
+            # najbliższą krawędź, więc przy tabliczce z boku też jest krótki;
+            # jasny obrys pod ciemnym prętem, żeby słupek nie ginął w lesie
             styk = QPointF(min(max(kotwica.x(), pole.left() + 6), pole.right() - 6),
                            min(max(kotwica.y(), pole.top() + 4), pole.bottom() - 4))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(_pioro_gradientowe(styk, kotwica, st.z_alfa(barwa, 150),
-                                        st.z_alfa(barwa, 40), 1.1))
+            p.setPen(QPen(st.z_alfa(st.TABLICZKA_TLO, 120), 3.0))
             p.drawLine(styk, kotwica)
-            if e.get("nitka"):
-                # tabliczka odsunięta dalej od swojego miasta: nitka odniesienia
-                # kończy się kropką, żeby było widać, czyj to podpis
+            p.setPen(QPen(st.TABLICZKA_SLUPEK, 1.5))
+            p.drawLine(styk, kotwica)
+            if e.get("stopka"):
+                # tabliczka odsunięta dalej od swojego miasta: słupek kończy
+                # się stopką, żeby było widać, czyj to znak
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QBrush(st.z_alfa(barwa, 190)))
-                p.drawEllipse(kotwica, 2.2, 2.2)
+                p.setBrush(QBrush(st.TABLICZKA_SLUPEK))
+                p.drawEllipse(kotwica, 2.4, 2.4)
                 p.setBrush(Qt.BrushStyle.NoBrush)
 
-            promien = pole.height() * 0.42
+            promien = self.PROMIEN_TABLICZKI
             s = QPainterPath()
             s.addRoundedRect(pole, promien, promien)
-            _poduszka(p, pole.adjusted(4, 3, -4, -3), sila=120, warstw=4)
-            p.fillPath(s, QColor(6, 17, 27, 232))
-            p.setPen(QPen(st.z_alfa(barwa, 120 if not e["powtorka"] else 70), 1.1))
-            p.drawPath(s)
+            _cien_miekki(p, pole, promien, przesun=2, rozmycie=6, sila=110, krok=2)
+            p.fillPath(s, st.TABLICZKA_TLO)
+            # ramka leży wewnątrz plakietki, jak na znaku
+            g = self.RAMKA_BAZY if e["baza"] else self.RAMKA_TABLICZKI
+            ramka = QPainterPath()
+            ramka.addRoundedRect(pole.adjusted(g * 0.5, g * 0.5, -g * 0.5, -g * 0.5),
+                                 max(0.5, promien - g * 0.5), max(0.5, promien - g * 0.5))
+            p.setPen(QPen(st.TABLICZKA_RAMKA_BAZY if e["baza"] else st.TABLICZKA_RAMKA, g))
+            p.drawPath(ramka)
+            if e["baza"]:
+                # baza ma nad napisem zielony pasek — jak nagłówek na tablicy
+                # wjazdowej; sama ramka ginęła przy 1920 i dużym kadrze
+                p.save()
+                p.setClipPath(s)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(st.TABLICZKA_RAMKA_BAZY))
+                p.drawRect(QRectF(pole.left(), pole.top(),
+                                  pole.width(), self.PASEK_BAZY))
+                p.restore()
+                p.setBrush(Qt.BrushStyle.NoBrush)
             f = st.czcionka(e["rozmiar"], e["waga"])
             m = QFontMetricsF(f)
             x = pole.center().x() - m.horizontalAdvance(e["napis"]) * 0.5
             y = pole.center().y() + m.ascent() * 0.5 - m.descent() * 0.28
-            _napis(p, x, y, e["napis"],
-                   st.TEKST if not e["powtorka"] else st.z_alfa(st.TEKST_2, 225),
-                   e["rozmiar"], e["waga"])
+            if e["baza"]:
+                y += self.PASEK_BAZY * 0.5      # napis pod zielonym paskiem
+            _napis(p, x, y, e["napis"], st.TABLICZKA_TEKST, e["rozmiar"], e["waga"])
         p.setOpacity(1.0)
-
-    # — nitka do kartki —
-    def _sciezka_nitki(self):
-        """Łuk od trasy do kartki; None, gdy kartka nie podała kotwicy."""
-        dzien = self._dzien
-        if self._kotwica is None or dzien is None or dzien.wolny:
-            return None
-        dokad = QPointF(self._kotwica)
-        kar = self._pole_kartki()
-        if kar is not None:
-            # nitka kończy się PRZY krawędzi papieru, a nie pod nim: pod kartką
-            # nie ma prawa świecić nic, co należy do trasy
-            dokad = QPointF(min(dokad.x(), kar.left() - 4.0),
-                            max(kar.top() + 6.0, min(dokad.y(), kar.bottom() - 6.0)))
-        ostatni = dzien.przystanki[-1] if dzien.przystanki else self._baza
-
-        def dystans(nazwa):
-            s = self._punkt(nazwa)
-            return math.hypot(s.x() - dokad.x(), s.y() - dokad.y())
-
-        # przy równej odległości decyduje nazwa, nie kolejność listy
-        najblizszy = min(dzien.przystanki or [self._baza],
-                         key=lambda n: (dystans(n), n))
-        if dystans(najblizszy) < dystans(ostatni) * 0.75:
-            ostatni = najblizszy
-        x, y = self._miasta.get(ostatni, self._miasta.get(self._baza, (0.0, 0.0)))
-        skad = self.rzut().ekran(x, y, self._wysokosc(x, y)
-                                 + UDZIAL_SLUPA_PRZYSTANKU * self._miara)
-        srodek = QPointF((skad.x() + dokad.x()) / 2.0, (skad.y() + dokad.y()) / 2.0)
-        dx, dy = dokad.x() - skad.x(), dokad.y() - skad.y()
-        dlug = max(1.0, math.hypot(dx, dy))
-        ster = QPointF(srodek.x() - dy / dlug * dlug * 0.14,
-                       srodek.y() + dx / dlug * dlug * 0.14)
-        sciezka = QPainterPath(skad)
-        sciezka.quadTo(ster, dokad)
-        return sciezka
-
-    def _rysuj_nitke(self, p, geo):
-        """Nitka łączy trasę z kartką — jest jej dokładnie tyle, ile kartki.
-
-        Kreski płyną o ułamek piksela na klatkę, więc trzy warstwy kreskowane
-        rysują się tylko wtedy, gdy wzór przesunie się o cały piksel; między
-        tymi chwilami klatka kładzie gotową pixmapę wielkości samej nitki.
-        """
-        sciezka = geo["nitka"]
-        if sciezka is None or self._obecnosc_kar <= 0.02:
-            return
-        k = self._grubosc()
-        kolor = self._kolor_trasy()
-        przesun = -self._faza * 36.0 * k if self._anim else 0.0
-        krok = int(round(przesun))
-        klucz = (self._geo_klucz, krok, round(k, 4), kolor.rgb())
-        if self._nitka_klucz != klucz or self._nitka_pix is None:
-            zapas = 14.0 * k + 22.0
-            ramka = sciezka.boundingRect().adjusted(-zapas, -zapas, zapas, zapas)
-            x0, y0 = int(math.floor(ramka.x())), int(math.floor(ramka.y()))
-            szer = int(math.ceil(ramka.right())) - x0 + 1
-            wys = int(math.ceil(ramka.bottom())) - y0 + 1
-            dpr = self.devicePixelRatioF()
-            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
-            pix.setDevicePixelRatio(dpr)
-            pix.fill(Qt.GlobalColor.transparent)
-            q = QPainter(pix)
-            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            q.translate(-x0, -y0)
-            dokad = sciezka.pointAtPercent(1.0)
-            # szerokie, miękkie warstwy bez wygładzania (przy alfie 16 i 44
-            # schodków nie widać, a wygładzany szeroki pędzel kosztował trzy
-            # razy tyle), rdzeń wygładzony
-            q.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-            _kreskowana(q, sciezka, kolor, warstwy=((14 * k, 16), (6 * k, 44)),
-                        kreska=10.0 * k, przerwa=7.5 * k, przesuniecie=float(krok))
-            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            _kreskowana(q, sciezka, kolor, warstwy=((2.0 * k, 175),),
-                        kreska=10.0 * k, przerwa=7.5 * k, przesuniecie=float(krok))
-            st.punkt_swiatla(q, dokad, 18, kolor, 120)
-            q.setPen(QPen(st.z_alfa(kolor, 230), 1.6))
-            q.setBrush(QBrush(QColor(4, 12, 22, 200)))
-            q.drawEllipse(dokad, 4.6, 4.6)
-            q.end()
-            self._nitka_pix, self._nitka_poz, self._nitka_klucz = pix, QPointF(x0, y0), klucz
-        p.save()
-        kar = self._pole_kartki()
-        if kar is not None:
-            # nitka dobiega do papieru i tam się urywa — pod kartką nie świeci
-            # nic z trasy, nawet ta jedna kreska, której i tak nie byłoby widać
-            p.setClipRegion(QRegion(self.rect()).subtracted(
-                QRegion(kar.toAlignedRect())))
-        p.setOpacity(self._obecnosc_kar)
-        p.drawPixmap(self._nitka_poz, self._nitka_pix)
-        p.restore()
 
     # — cień kartki —
     def _pole_kartki(self):
@@ -5959,10 +5829,7 @@ class MapaDnia(QWidget):
             x0, y0 = int(math.floor(ramka.x())), int(math.floor(ramka.y()))
             szer = int(math.ceil(ramka.right())) - x0 + 1
             wys = int(math.ceil(ramka.bottom())) - y0 + 1
-            dpr = self.devicePixelRatioF()
-            pix = QPixmap(max(1, int(szer * dpr)), max(1, int(wys * dpr)))
-            pix.setDevicePixelRatio(dpr)
-            pix.fill(Qt.GlobalColor.transparent)
+            pix = _pixmapa_urzadzenia(szer, wys, self.devicePixelRatioF())
             q = QPainter(pix)
             q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             q.translate(-x0, -y0)
@@ -6391,9 +6258,7 @@ class KartkaDelegacji(QWidget):
                  self._stan, self._numer, self._zwinieta)
         if self._pix is not None and self._pix_klucz == klucz:
             return self._pix
-        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = _pixmapa_urzadzenia(self.width(), self.height(), dpr)
         p = QPainter(pix)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
@@ -6434,9 +6299,7 @@ class KartkaDelegacji(QWidget):
                  self._stan, self._numer)
         if self._pix_tyl is not None and self._pix_tyl_klucz == klucz:
             return self._pix_tyl
-        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = _pixmapa_urzadzenia(self.width(), self.height(), dpr)
         p = QPainter(pix)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
@@ -7383,10 +7246,7 @@ class PrzelotRejonu(QWidget):
         obrys = QRectF(math.floor(obrys.x()), math.floor(obrys.y()),
                        math.ceil(obrys.width()) + 1, math.ceil(obrys.height()) + 1)
         kolor = BARWA_DOKUMENTU_PRZELOTU if trasa["stempel"] else BARWA_TRASY_PRZELOTU
-        dpr = self._scena.devicePixelRatio()
-        pix = QPixmap(max(1, int(obrys.width() * dpr)), max(1, int(obrys.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = _pixmapa_urzadzenia(obrys.width(), obrys.height(), self._scena.devicePixelRatio())
         q = QPainter(pix)
         q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         q.translate(-obrys.x(), -obrys.y())

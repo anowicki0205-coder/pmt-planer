@@ -358,10 +358,7 @@ class SpektaklMiesiaca(PrzelotRejonu):
         obrys = QRectF(math.floor(obrys.x()), math.floor(obrys.y()),
                        math.ceil(obrys.width()) + 1, math.ceil(obrys.height()) + 1)
         kolor = pm.BARWA_DOKUMENTU_PRZELOTU if trasa["stempel"] else pm.BARWA_TRASY_PRZELOTU
-        dpr = self._scena.devicePixelRatio()
-        pix = QPixmap(max(1, int(obrys.width() * dpr)), max(1, int(obrys.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = pm._pixmapa_urzadzenia(obrys.width(), obrys.height(), self._scena.devicePixelRatio())
         q = QPainter(pix)
         q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         q.translate(-obrys.x(), -obrys.y())
@@ -654,7 +651,7 @@ class SpektaklMiesiaca(PrzelotRejonu):
                 zapas = 3.2 * max(skale[k], skale[k + 1]) + 2.0
                 pole = QRectF(min(a_.x(), b_.x()) - zapas - obrys.x(), min(a_.y(), b_.y()) - zapas - obrys.y(),
                               abs(b_.x() - a_.x()) + 2 * zapas, abs(b_.y() - a_.y()) + 2 * zapas)
-                q.drawPixmap(pole, trasa["pix"], pole)
+                q.drawPixmap(pole, trasa["pix"], pm._zrodlo_blitu(trasa["pix"], pole))
             q.end()
             odslona[1] = i
         kolor = pm.BARWA_DOKUMENTU_PRZELOTU if trasa["stempel"] else pm.BARWA_TRASY_PRZELOTU
@@ -782,10 +779,7 @@ class SpektaklMiesiaca(PrzelotRejonu):
                       min(a.y(), b.y()) - KARTKA_WYS * 0.5 - 12.0,
                       abs(b.x() - a.x()) + KARTKA_SZER + 48.0,
                       abs(b.y() - a.y()) + KARTKA_WYS + 44.0)
-        dpr = self.devicePixelRatioF()
-        pix = QPixmap(max(1, int(pole.width() * dpr)), max(1, int(pole.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = pm._pixmapa_urzadzenia(pole.width(), pole.height(), self.devicePixelRatioF())
         q = QPainter(pix)
         q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         q.translate(-pole.x(), -pole.y())

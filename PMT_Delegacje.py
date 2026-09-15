@@ -629,12 +629,6 @@ def _rozgrzej_backend():
     threading.Thread(target=_w, daemon=True).start()
 
 
-# Wspólny sekret aplikacji — TEN SAM wpisz w Apps Script (weryfikujPodpis).
-# Podpisujemy każde zapytanie do backendu: boty i skanery trafiające na
-# publiczny adres /exec zostaną odrzucone, zanim czegokolwiek dotkną.
-SEKRET_APLIKACJI = "PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS"
-
-
 def _katalogi_towarzyszace():
     """Wszystkie miejsca, w których może leżeć plik dołożony do programu.
 
@@ -733,6 +727,92 @@ def _menedzer_zrodlo() -> str:
     return "BRAK — szukano: " + " | ".join(szukane)
 
 
+# Wspólny sekret aplikacji — klucz HMAC, którym program podpisuje zapytania
+# do backendu (Apps Script: weryfikujPodpis, lista SEKRETY_PMT). Boty
+# i skanery trafiające na publiczny adres /exec odbijają się od akcji
+# podpisanych (puls, sesja, reset_hasla), zanim czegokolwiek dotkną.
+# Do 3.23.0 sekret siedział TUTAJ jako literał — czyli w repozytorium
+# i w jego historii na zawsze. Teraz jest trzymany POZA kodem tak samo
+# jak nazwisko przełożonego: plik sekret.txt (jedna linia) obok programu,
+# wkładany do paczki przez zbuduj.py z sekretu repozytorium PMT_SEKRET.
+# Ujawniony sekret trzeba WYMIENIĆ — procedura obrotu: BACKEND_APPS_SCRIPT.txt.
+_SEKRET_PAMIEC = None          # odczyt raz na proces (None = jeszcze nie czytano)
+_SEKRET_SZUKANE = []           # gdzie szukano pliku — do wpisu w dzienniku
+
+
+def _sekret_aplikacji_reset():
+    """Zapomina odczytany sekret — po podmianie pliku i w testach."""
+    global _SEKRET_PAMIEC, _SEKRET_SZUKANE
+    _SEKRET_PAMIEC = None
+    _SEKRET_SZUKANE = []
+
+
+def _sekret_aplikacji_dziennik():
+    """Wpis „brak sekretu aplikacji" (z listą przeszukanych miejsc)
+    do dziennika diagnostycznego — tylko gdy sekretu nie ma.
+
+    Pierwszy odczyt w procesie robi ten wpis sam. Ale klik „Zaloguj"
+    zaczyna dziennik OD NOWA (nowy=True), a sekret jest pamiętany do
+    końca procesu — bez tej funkcji druga próba logowania kasowała
+    wpis i nikt już go nie odtwarzał. Dlatego klik woła ją zaraz po
+    rozpoczęciu dziennika: stan sekretu jest w nim po KAŻDEJ próbie.
+    Jedno wywołanie = jeden wpis; z sekretem — nic."""
+    if _SEKRET_PAMIEC is None:
+        _sekret_aplikacji()        # pierwszy odczyt sam dopisuje wpis
+        return
+    if _SEKRET_PAMIEC:
+        return
+    try:
+        _dziennik_animacji("brak sekretu aplikacji — zapytania do backendu bez podpisu"
+                           " (puls, sesja, reset hasła będą odrzucane); szukano: "
+                           + " | ".join(_SEKRET_SZUKANE) + " | zmienna PMT_SEKRET")
+    except Exception:
+        pass
+
+
+def _sekret_aplikacji() -> str:
+    """Sekret do podpisu zapytań — pierwsza linia sekret.txt z katalogów
+    towarzyszących (jak menedzer.txt) i domowego, potem zmienna środowiskowa
+    PMT_SEKRET. Brak = pusty napis: zapytania idą BEZ podpisu (backend
+    odrzuca akcje podpisane) i dziennik diagnostyczny dostaje JEDEN wpis
+    z listą przeszukanych miejsc (i znów po każdym kliku „Zaloguj" —
+    _sekret_aplikacji_dziennik). Wynik jest pamiętany do końca procesu."""
+    global _SEKRET_PAMIEC, _SEKRET_SZUKANE
+    if _SEKRET_PAMIEC is not None:
+        return _SEKRET_PAMIEC
+    # Pierwszy odczyt idzie pod blokadą: dwa wątki naraz (logowanie i puls
+    # w tle) dopisałyby dwa wpisy „brak sekretu" do dziennika.
+    with _blokada:
+        if _SEKRET_PAMIEC is not None:
+            return _SEKRET_PAMIEC
+        return _sekret_aplikacji_odczyt()
+
+
+def _sekret_aplikacji_odczyt() -> str:
+    """Samo szukanie sekretu — wołane raz, spod blokady."""
+    global _SEKRET_PAMIEC, _SEKRET_SZUKANE
+    szukane = []
+    for kat in _katalogi_towarzyszace() + [os.path.expanduser("~")]:
+        sc = os.path.join(kat, "sekret.txt")
+        szukane.append(sc)
+        try:
+            if os.path.exists(sc):
+                w = _pierwsza_linia_pliku(sc)
+                if w:
+                    _SEKRET_PAMIEC = w
+                    return w
+        except Exception:
+            continue
+    _SEKRET_SZUKANE = szukane
+    w = str(os.environ.get("PMT_SEKRET", "") or "").strip()
+    if w:
+        _SEKRET_PAMIEC = w
+        return w
+    _SEKRET_PAMIEC = ""
+    _sekret_aplikacji_dziennik()
+    return ""
+
+
 # Adres, na który trafia „Zgłoś błąd". Do 3.21.2 był zaszyty na sztywno
 # w kodzie — teraz można go podmienić plikiem pmt_kontakt.txt (jedna
 # linia) obok programu, bez wydawania nowej wersji. Brak pliku = adres
@@ -802,7 +882,13 @@ def mailto_zgloszenia(kod: str = "") -> str:
 
 
 def _podpisz_zadanie(dane: dict) -> dict:
-    """Dokłada znacznik czasu i podpis HMAC-SHA256 do zapytania."""
+    """Dokłada znacznik czasu, wersję i podpis HMAC-SHA256 do zapytania.
+
+    Klucz to _sekret_aplikacji(). Bez sekretu pola „podpis" NIE dokłada:
+    backend (weryfikujPodpis) porównuje String(d.podpis || '') z HMAC-em,
+    więc brak pola to ta sama „odmowa" co zły podpis — dla akcji
+    podpisanych (puls, sesja, reset_hasla); pozostałe akcje przechodzą
+    jak z aplikacji na telefonie, która nie podpisuje niczego."""
     try:
         import hmac
         import hashlib
@@ -810,9 +896,13 @@ def _podpisz_zadanie(dane: dict) -> dict:
         baza = "%s|%s|%s" % (dane.get("kod", ""), dane.get("akcja", ""), czas)
         dane["klucz_czas"] = czas
         dane["wersja"] = WERSJA_PROGRAMU
-        dane["podpis"] = hmac.new(SEKRET_APLIKACJI.encode("utf-8"),
-                                  baza.encode("utf-8"),
-                                  hashlib.sha256).hexdigest()
+        sekret = _sekret_aplikacji()
+        if sekret:
+            dane["podpis"] = hmac.new(sekret.encode("utf-8"),
+                                      baza.encode("utf-8"),
+                                      hashlib.sha256).hexdigest()
+        else:
+            dane.pop("podpis", None)
     except Exception:
         pass
     return dane
@@ -1786,6 +1876,7 @@ def dialog_logowania():
         b_ok.setFixedWidth(max(_szer_przed,
                                _fm.horizontalAdvance("Sprawdzam\u2026") + 58))
         _dziennik_animacji("klik Zaloguj — weryfikacja na serwerze", nowy=True)
+        _sekret_aplikacji_dziennik()   # dziennik od nowa — wpis o braku sekretu wraca
         _start_wer = time.time()
         _wynik_wer = {}
 

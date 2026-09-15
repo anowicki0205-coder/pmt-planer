@@ -472,9 +472,22 @@ KROK PO KROKU — WYDANIE 3.21.0
 
 
   7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
-     Podpisy można włączyć od razu. MINIMALNA_WERSJA i zmianę sekretu
-     zostaw na czas PO zaktualizowaniu zespołu (zalecane 14 dni).
-     Przy 3.23.0 wdróż na nowo apps_script_POPRAWIONY_v2.gs — trzy
-     poprawki opisane w nagłówku pliku (6e).
+     Podpisy można włączyć od razu. MINIMALNA_WERSJA i usunięcie starego
+     sekretu z listy zostaw na czas PO zaktualizowaniu zespołu (zalecane
+     14 dni). Przy 3.23.0 wdróż na nowo apps_script_POPRAWIONY_v2.gs —
+     trzy poprawki opisane w nagłówku pliku (6e).
+
+     SEKRET APLIKACJI POZA KODEM. Do 3.23.0 klucz podpisu HMAC zapytań
+     do backendu był literałem w PMT_Delegacje.py — czyli w repozytorium
+     i w jego historii, na zawsze. Teraz program czyta go jak nazwisko
+     przełożonego: plik sekret.txt (jedna linia) obok programu, w _internal
+     albo w katalogu domowym, a bez pliku — zmienna środowiskowa
+     PMT_SEKRET. Do paczki wkłada go zbuduj.py (sekret.txt obok zbuduj.py
+     u autora; na GitHubie sekret repozytorium PMT_SEKRET — bez niego
+     budowanie zatrzymuje się, jak bez PMT_MENEDZER). Bez sekretu program
+     loguje, ale puls, sesja i reset hasła dostają „odmowa". Ujawniony
+     sekret WYMIEŃ przed najbliższym wydaniem — OBRÓT SEKRETU
+     w BACKEND_APPS_SCRIPT.txt: nowy do SEKRETY_PMT przed starym →
+     PMT_SEKRET na GitHubie → wydanie → po aktualizacji zespołu usuń stary.
 
 ═══════════════════════════════════════════════════════════════════════

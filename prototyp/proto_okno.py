@@ -2225,11 +2225,11 @@ class OknoPrototypu(QWidget):
             self.kartka.wroc()
 
     def _kartka_na_miejsce(self):
-        """Trasa dobiegła do bazy — kartka wsuwa się i łączy z nią nitką."""
+        """Trasa dobiegła do bazy — kartka wsuwa się na swoje miejsce."""
         self.kartka.wroc()
 
     def _obecnosc_kartki(self, ile):
-        """Cień kartki na mapie i nitka do trasy idą za tym, ile kartki widać."""
+        """Cień kartki na mapie idzie za tym, ile kartki widać."""
         self.mapa.ustaw_obecnosc_kartki(ile)
 
     def _odswiez_pigulke(self, d, zbiorczo):
@@ -2279,7 +2279,7 @@ class OknoPrototypu(QWidget):
         self.mapa.ustaw_zaslony(pola)
 
     def _przelicz_kotwice(self):
-        """Mapa dostaje prawdziwy prostokąt kartki i punkt, do którego biegnie nitka."""
+        """Mapa dostaje prawdziwy prostokąt kartki i punkt pod jej narożnikiem."""
         g = self.kartka.geometry()
         m = self.mapa.geometry()
         pole = QRectF(g.x() - m.x(), g.y() - m.y(), g.width(), g.height())

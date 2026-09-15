@@ -2,6 +2,10 @@
 # Nazwisko przełożonego drukowane na delegacji. Ma leżeć obok programu
 # u konkretnej osoby albo być wpisane w oknie programu (pole „Przełożony").
 menedzer.txt
+# Wspólny sekret aplikacji (klucz HMAC podpisu zapytań do backendu) —
+# do 3.23.0 był literałem w kodzie i został w historii repozytorium.
+# Teraz: plik obok programu, do paczki z sekretu PMT_SEKRET (jak wyżej).
+sekret.txt
 # Własny kod aktywacyjny panelu administratora.
 pmt_kod.txt
 # Certyfikat do podpisywania programu i jego hasło.

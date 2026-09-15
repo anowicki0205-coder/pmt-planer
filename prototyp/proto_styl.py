@@ -125,6 +125,28 @@ SKALA_CIEN      = QColor(96, 92, 96)
 # Iskra słońca na wodzie — jaśniejsza od blasku, w wąskim pasie.
 WODA_ISKRA      = QColor(244, 249, 253)
 DACH_CIEMNY     = QColor(110, 94, 86)     # trzeci odcień dachu: łupek
+# Tabliczki miejscowości na mapie: jak polskie znaki E-17a — biała plakietka,
+# czarny napis, cienka ciemna ramka; u bazy ramka zielona (ciemniejsza od
+# ZIELEN, bo neon na białym ginie), na ciemnym słupku.
+TABLICZKA_TLO        = QColor(250, 250, 247)
+TABLICZKA_TEKST      = QColor(20, 21, 24)
+TABLICZKA_RAMKA      = QColor(42, 44, 48)
+TABLICZKA_RAMKA_BAZY = QColor(12, 158, 112)
+TABLICZKA_SLUPEK     = QColor(58, 62, 70)
+
+
+def pixmapa_urzadzenia(szer, wys, dpr):
+    """Przezroczysta pixmapa ``szer × wys`` logicznych w pikselach urządzenia.
+
+    Rozmiar zaokrąglony W GÓRĘ: przy powiększeniu ekranu 125 % i nieparzystej
+    szerokości ``int(szer * dpr)`` daje pixmapę o ułamek piksela za krótką,
+    a wtedy ostatni wiersz albo kolumna widżetu zostaje niepomalowana.
+    """
+    pix = QPixmap(max(1, int(math.ceil(szer * dpr - 1e-6))),
+                  max(1, int(math.ceil(wys * dpr - 1e-6))))
+    pix.setDevicePixelRatio(dpr)
+    pix.fill(Qt.GlobalColor.transparent)
+    return pix
 
 # ── miary ────────────────────────────────────────────────────────────
 PROMIEN       = 18.0     # domyślne zaokrąglenie narożnika

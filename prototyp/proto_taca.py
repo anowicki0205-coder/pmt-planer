@@ -646,9 +646,7 @@ class KafelDokumentu(QWidget):
         if self._pix is not None and self._klucz_pix == klucz:
             return self._pix
         dpr = self.devicePixelRatioF()
-        pix = QPixmap(max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr)))
-        pix.setDevicePixelRatio(dpr)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix = S.pixmapa_urzadzenia(self.width(), self.height(), dpr)
         p = QPainter(pix)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)

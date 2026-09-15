@@ -49,9 +49,15 @@ WYMAGANE = ["PMT_Delegacje.py", "karta_testera.py",
 # plik NIE trafia (.gitignore) — i tylko to było realnym problemem.
 # pmt.jpg / PMT.jpg (zapasowe nazwy logo, patrz znajdz_logo) i czcionki
 # DejaVu do PDF-ów dokładało dotąd samo CI — lista jest teraz jedna.
+#
+# sekret.txt: wspólny sekret aplikacji (klucz HMAC, którym program podpisuje
+# zapytania puls/sesja/reset_hasla do backendu). Do 3.23.0 był literałem
+# w PMT_Delegacje.py — czyli w repozytorium i w jego historii. Teraz, jak
+# menedzer.txt, leży poza kodem: obok zbuduj.py (u autora) albo z sekretu
+# PMT_SEKRET (na GitHubie) i trafia do paczki; do repozytorium NIE (.gitignore).
 DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
         "pmt_logo_retro.png", "pmt_logo_retro.ico", "pmt.jpg", "PMT.jpg",
-        "DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "menedzer.txt"]
+        "DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "menedzer.txt", "sekret.txt"]
 # winsound i PyQt6.QtMultimedia wypadly z listy razem z intrem (3.23.0):
 # tylko ono gralo dzwiek.
 UKRYTE = ["karta_testera", "wyglad_3d", "pmt_dokumenty",
@@ -388,6 +394,24 @@ def main():
         pisz("        delegacjach bedzie pusta (w programie nie ma pola do")
         pisz("        wpisania). Utworz plik menedzer.txt (jedna linia)")
         pisz("        obok zbuduj.py i zbuduj ponownie.")
+    # Sekret aplikacji: tylko obecnosc i niepusta pierwsza linia — samej
+    # wartosci ani jej dlugosci do raportu nie wypisujemy.
+    _sekret = os.path.join(KATALOG, "sekret.txt")
+    _sekret_jest = False
+    if os.path.exists(_sekret):
+        try:
+            with open(_sekret, "rb") as f:
+                _sekret_jest = bool(f.read(4096).lstrip(b"\xef\xbb\xbf\xff\xfe").strip())
+        except Exception:
+            pass
+    if _sekret_jest:
+        pisz("Sekret aplikacji: sekret.txt trafi do paczki")
+    else:
+        pisz("[UWAGA] Brak sekret.txt w tym folderze (albo plik pusty) - program nie")
+        pisz("        podpisze zapytan do backendu, wiec puls, sesja i reset hasla")
+        pisz("        beda ODRZUCANE (odmowa). Utworz plik sekret.txt (jedna linia,")
+        pisz("        ten sam sekret co w SEKRETY_PMT w Apps Script) obok zbuduj.py")
+        pisz("        i zbuduj ponownie. Patrz BACKEND_APPS_SCRIPT.txt.")
     py = sys.executable
     if not przygotuj_biblioteki(py):
         return 1

@@ -30,6 +30,14 @@ PLIK menedzer.txt — ZRÓB GO PRZED BUDOWANIEM
   W oknie programu nie ma pola na to nazwisko — plik jest jedyną drogą.
   Gdy uruchamiasz ze źródeł, połóż menedzer.txt obok PMT_Delegacje.py.
 
+PLIK sekret.txt — TEŻ PRZED BUDOWANIEM
+  Obok zbuduj.py połóż również sekret.txt: jedna linia, wspólny sekret
+  aplikacji (ten sam, co na liście SEKRETY_PMT w Apps Script — dostaniesz
+  go od autora, w repozytorium go celowo nie ma). Bez niego program nie
+  podpisze zapytań i backend odrzuci puls, sesję i reset hasła; logowanie
+  działa. Ze źródeł: sekret.txt obok PMT_Delegacje.py albo zmienna
+  środowiskowa PMT_SEKRET.
+
 KONTO TESTOWE
   W arkuszu użytkowników konto, którym się logujesz, musi mieć wypełnioną
   rubrykę „Ważne do" (data). Puste pole program czyta jako konto wygasłe

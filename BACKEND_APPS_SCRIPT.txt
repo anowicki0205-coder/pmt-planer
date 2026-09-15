@@ -1,6 +1,65 @@
 ═══════════════════════════════════════════════════════════════════════
   BACKEND (GOOGLE APPS SCRIPT) — CO ZROBIĆ PRZY WYDANIU 3.21.0
-  wersja instrukcji: 3.23.0 (dopisek na górze; kroki 0–4 bez zmian)
+  wersja instrukcji: 3.23.0 + obrót sekretu (dopiski na górze;
+  kroki 0–4 bez zmian poza listą SEKRETY_PMT, która nie niesie już
+  żadnej prawdziwej wartości — patrz OBRÓT SEKRETU)
+═══════════════════════════════════════════════════════════════════════
+
+OBRÓT SEKRETU APLIKACJI — OBOWIĄZKOWO PRZED NAJBLIŻSZYM WYDANIEM
+
+  CO SIĘ STAŁO: do 3.23.0 wspólny sekret aplikacji (klucz HMAC, którym
+  program podpisuje zapytania puls / sesja / reset_hasla) był wpisany
+  w kodzie — stała SEKRET_APLIKACJI w PMT_Delegacje.py — i w tej
+  instrukcji. Repozytorium pamięta każdą wersję każdego pliku, więc ten
+  sekret jest UJAWNIONY na zawsze i trzeba go WYMIENIĆ. Kto go zna,
+  podpisuje zapytania tak samo dobrze jak program.
+
+  CO ZMIENIONO W PROGRAMIE: literału w kodzie nie ma. Program czyta
+  sekret z pliku sekret.txt (jedna linia) obok programu, z podkatalogu
+  _internal albo z katalogu domowego — dokładnie tak, jak menedzer.txt —
+  a gdy pliku nie ma, ze zmiennej środowiskowej PMT_SEKRET. Bez sekretu
+  zapytanie idzie BEZ pola „podpis" i backend odpowiada „odmowa" na
+  akcje podpisane (puls, sesja, reset_hasla); logowanie i reszta
+  działają, bo tych akcji podpis nie obowiązuje (jak z telefonu).
+  Plik do paczki wkłada zbuduj.py: u autora sekret.txt obok zbuduj.py,
+  na GitHubie sekret repozytorium PMT_SEKRET (bez niego budowanie
+  zatrzymuje się z czerwonym błędem, jak bez PMT_MENEDZER). Do
+  repozytorium plik NIE trafia (.gitignore), testy pilnują, żeby żaden
+  śledzony plik nie niósł wartości sekretu.
+
+  KROKI — W TEJ KOLEJNOŚCI, inaczej ktoś z zespołu wypada z obiegu:
+
+  (a) Wygeneruj nowy sekret (długi losowy napis; wzór nazwy jak dotąd):
+        python -c "import datetime,secrets;print('PMT-%d-%s' % (datetime.date.today().year, secrets.token_urlsafe(24)))"
+      Zapisz go w menedżerze haseł. NIE wklejaj do żadnego pliku
+      w repozytorium ani do tej instrukcji — tylko do sekret.txt (który
+      .gitignore pomija) i do dwóch miejsc niżej.
+
+  (b) Apps Script → Code.gs → blok z KROKU 1: dopisz nowy sekret do listy
+      SEKRETY_PMT PRZED starym. Lista ma wtedy: nowy sekret i ten, który
+      już tam masz (wpisany w kodzie 3.21.0–3.23.0). Jeśli wisi tam
+      jeszcze trzeci, z 3.20.x — usuń go, gdy w arkuszu nikt nie ma
+      3.20.x. Wdróż: Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja:
+      Nowa → Wdróż (adres /exec zostaje). Backend przyjmuje odtąd OBA
+      sekrety, więc paczki 3.21.0–3.23.0 działają dalej.
+
+  (c) GitHub → Settings → Secrets and variables → Actions → New
+      repository secret → nazwa PMT_SEKRET, wartość = nowy sekret.
+      Potem zbuduj wydanie (tag). Budując na komputerze: sekret.txt
+      (jedna linia = nowy sekret) obok zbuduj.py.
+
+  (d) Gdy cały zespół ma nową wersję (kolumna „Wersja" w arkuszu albo
+      zakładka Log; zalecane 14 dni po wydaniu) — USUŃ stary sekret
+      z listy SEKRETY_PMT i wdróż ponownie. Dopiero wtedy ujawniony
+      sekret przestaje działać.
+
+  SPRAWDZENIE po (c): zaloguj się w nowej paczce i wygeneruj delegację —
+  w arkuszu ma przybyć puls. Paczka BEZ sekretu loguje, ale puls dostaje
+  „odmowa"; wtedy w PMT_diagnostyka_animacji.txt (katalog użytkownika;
+  plik zaczyna się od nowa przy każdym kliknięciu „Zaloguj", a wpis
+  wraca po każdym) jest jeden wpis „brak sekretu aplikacji" z listą
+  przeszukanych miejsc.
+
 ═══════════════════════════════════════════════════════════════════════
 
 PRZY WYDANIU 3.23.0 — WDRÓŻ NOWY PLIK .GS (5 minut)
@@ -67,9 +126,10 @@ NAJWAŻNIEJSZE OSTRZEŻENIE — PRZECZYTAJ, ZANIM COKOLWIEK ZMIENISZ
   tam, gdzie obie strony go wysyłają, a reszta jest chroniona kodem
   użytkownika.
 
-  Druga pułapka: stara instrukcja podawała sekret 'PMT-2026-a7Kq9mZr4tXw',
-  a program 3.21.0 podpisuje już nowym. Kod poniżej akceptuje OBA naraz,
-  więc podczas przechodzenia zespołu na nową wersję nikt nie wypada.
+  Druga pułapka: stara instrukcja (ZABEZPIECZENIA_BACKEND.txt) podawała
+  sekret z 3.20.x, a program 3.21.0 podpisywał już innym. Lista poniżej
+  przyjmuje KILKA sekretów naraz, więc podczas przechodzenia zespołu na
+  nową wersję (i podczas obrotu sekretu — patrz góra) nikt nie wypada.
 
 ───────────────────────────────────────────────────────────────────────
 KROK 0 — USUŃ STARY BLOK, JEŚLI JUŻ TAM JEST (30 sekund, obowiązkowo)
@@ -91,11 +151,14 @@ KROK 1 — WKLEJ TEN BLOK NA POCZĄTEK PLIKU Code.gs
 
 /* ═══ PMT 3.21.0 — podpis, wersja, limity ════════════════════════ */
 
-// Dwa sekrety naraz: nowy (3.21.0+) i stary (3.20.x).
-// Stary USUŃ z tej listy, gdy cały zespół zaktualizuje program.
+// Kilka sekretów naraz: NOWY (z sekret.txt w paczce — OBRÓT SEKRETU na
+// górze tej instrukcji) i STARY (wpisany w kodzie 3.21.0–3.23.0; jeśli
+// wisi tu jeszcze ten z 3.20.x — też jest stary). W miejsce <...> wpisz
+// prawdziwe wartości — w tym pliku ich celowo nie ma.
+// Stare USUŃ z tej listy, gdy cały zespół zaktualizuje program.
 var SEKRETY_PMT = [
-  'PMT-2026-WhmNi2Tbn4XxBVR8eKQNJPZp1xNS',
-  'PMT-2026-a7Kq9mZr4tXw'
+  '<NOWY_SEKRET>',
+  '<STARY_SEKRET_Z_KODU_3.21.0-3.23.0>'
 ];
 
 // Akcje wysyłane WYŁĄCZNIE przez program na komputerze — tylko one mogą
@@ -200,7 +263,8 @@ KROK 4 — DOPIERO PO 14 DNIACH (gdy zespół ma 3.21.0)
 
   · zmień ją na:  var MINIMALNA_WERSJA = "3.21.0";
   · WYMAGANA_WERSJA = '3.21.0';   (blok z KROKU 1 — druga, niezależna bramka)
-  · usuń 'PMT-2026-a7Kq9mZr4tXw' z listy SEKRETY_PMT,
+  · usuń stare sekrety z listy SEKRETY_PMT (z 3.20.x i ten z kodu
+    3.21.0–3.23.0 — krok (d) w OBRÓT SEKRETU na górze),
   · wdróż nową wersję.
 
   Od tej chwili stara wersja programu nie zaloguje się do arkusza, nawet

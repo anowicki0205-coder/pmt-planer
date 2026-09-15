@@ -5511,11 +5511,12 @@ class MapaDnia(QWidget):
     CIASNY_KADR = 3.0            # trasa węższa niż tyle tabliczek = kadr ciasny (miesiąc)
     WAGA_ODSUNIECIA = 6.0        # w ciasnym kadrze: koszt każdego piksela odsunięcia
     KARA_ZA_TRASE = 420.0        # gdy wolnego miejsca nie ma: cena zakrycia trasy
-    MARGINES_TABLICZKI = 9.0     # biały margines plakietki z każdej strony napisu
-    RAMKA_TABLICZKI = 1.4        # ciemna ramka znaku...
-    RAMKA_BAZY = 1.4             # ...u bazy tej samej grubości, ale zielona
-    PASEK_BAZY = 3.0             # zielony pasek u góry plakietki bazy
-    PROMIEN_TABLICZKI = 2.0      # znak ma ledwie zaokrąglone narożniki
+    MARGINES_TABLICZKI = 11.0    # zielone pole tablicy z każdej strony napisu
+    RAMKA_TABLICZKI = 1.4        # biała ramka wewnątrz znaku...
+    RAMKA_BAZY = 2.2             # ...u bazy grubsza
+    OTOK_TABLICZKI = 3.2         # o tyle biała ramka odsunięta jest od krawędzi
+    OBWODKA_TABLICZKI = 1.2      # ciemna obwódka po obrysie tablicy
+    PROMIEN_TABLICZKI = 3.0      # znak ma ledwie zaokrąglone narożniki
 
     def _obszar_podpisow(self):
         """Prostokąt, poza który tabliczka wyjść nie może: widżet bez brzegu."""
@@ -5576,7 +5577,7 @@ class MapaDnia(QWidget):
             # sama nazwa miejscowości — także dla bazy, jak na znaku drogowym
             napis = s["nazwa"]
             szer = m.horizontalAdvance(napis) + 2 * self.MARGINES_TABLICZKI
-            wys = m.height() + 6 + (self.PASEK_BAZY if s["baza"] else 0.0)
+            wys = m.height() + 10
             kotwica = s["gora"]
             pole = self._miejsce_podpisu(kotwica, szer, wys, zajete, brzeg,
                                          strefy, przeszkody, slupy, s, ciasno)
@@ -5706,10 +5707,11 @@ class MapaDnia(QWidget):
         return najlepszy
 
     def _rysuj_podpisy(self, p, geo, ile=1.0):
-        """Tabliczki jak polskie znaki E-17a (nazwa miejscowości): biała
-        plakietka, czarny napis, cienka ciemna ramka i lekki cień — na słupku
-        nad swoim miastem. Zwrócone do widza, więc nie pochylają się razem
-        z terenem. Baza ma tę samą plakietkę, tylko z zieloną ramką.
+        """Tabliczki jak polskie znaki E-17a (nazwa miejscowości): ZIELONA
+        tablica, biały napis, biała ramka odsunięta od krawędzi, ciemna
+        obwódka po obrysie i lekki cień — na słupku nad swoim miastem.
+        Zwrócone do widza, więc nie pochylają się razem z terenem. Baza ma
+        tę samą tablicę, tylko z grubszą białą ramką.
         """
         for e in geo["etykiety"]:
             zapal = self._zapal(e.get("postep", 0.0), ile)
@@ -5724,7 +5726,7 @@ class MapaDnia(QWidget):
             styk = QPointF(min(max(kotwica.x(), pole.left() + 6), pole.right() - 6),
                            min(max(kotwica.y(), pole.top() + 4), pole.bottom() - 4))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(st.z_alfa(st.TABLICZKA_TLO, 120), 3.0))
+            p.setPen(QPen(st.z_alfa(st.TABLICZKA_RAMKA, 120), 3.0))
             p.drawLine(styk, kotwica)
             p.setPen(QPen(st.TABLICZKA_SLUPEK, 1.5))
             p.drawLine(styk, kotwica)
@@ -5741,30 +5743,25 @@ class MapaDnia(QWidget):
             s.addRoundedRect(pole, promien, promien)
             _cien_miekki(p, pole, promien, przesun=2, rozmycie=6, sila=110, krok=2)
             p.fillPath(s, st.TABLICZKA_TLO)
-            # ramka leży wewnątrz plakietki, jak na znaku
+            # ciemna obwódka po obrysie tablicy — jak czarny kant znaku
+            o = self.OBWODKA_TABLICZKI
+            obwodka = QPainterPath()
+            obwodka.addRoundedRect(pole.adjusted(o * 0.5, o * 0.5, -o * 0.5, -o * 0.5),
+                                   max(0.5, promien - o * 0.5), max(0.5, promien - o * 0.5))
+            p.setPen(QPen(st.TABLICZKA_OBWODKA, o))
+            p.drawPath(obwodka)
+            # biała ramka odsunięta od krawędzi, wewnątrz zielonego pola
             g = self.RAMKA_BAZY if e["baza"] else self.RAMKA_TABLICZKI
+            w = self.OTOK_TABLICZKI + g * 0.5
             ramka = QPainterPath()
-            ramka.addRoundedRect(pole.adjusted(g * 0.5, g * 0.5, -g * 0.5, -g * 0.5),
-                                 max(0.5, promien - g * 0.5), max(0.5, promien - g * 0.5))
+            ramka.addRoundedRect(pole.adjusted(w, w, -w, -w),
+                                 max(0.5, promien - w), max(0.5, promien - w))
             p.setPen(QPen(st.TABLICZKA_RAMKA_BAZY if e["baza"] else st.TABLICZKA_RAMKA, g))
             p.drawPath(ramka)
-            if e["baza"]:
-                # baza ma nad napisem zielony pasek — jak nagłówek na tablicy
-                # wjazdowej; sama ramka ginęła przy 1920 i dużym kadrze
-                p.save()
-                p.setClipPath(s)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QBrush(st.TABLICZKA_RAMKA_BAZY))
-                p.drawRect(QRectF(pole.left(), pole.top(),
-                                  pole.width(), self.PASEK_BAZY))
-                p.restore()
-                p.setBrush(Qt.BrushStyle.NoBrush)
             f = st.czcionka(e["rozmiar"], e["waga"])
             m = QFontMetricsF(f)
             x = pole.center().x() - m.horizontalAdvance(e["napis"]) * 0.5
             y = pole.center().y() + m.ascent() * 0.5 - m.descent() * 0.28
-            if e["baza"]:
-                y += self.PASEK_BAZY * 0.5      # napis pod zielonym paskiem
             _napis(p, x, y, e["napis"], st.TABLICZKA_TEKST, e["rozmiar"], e["waga"])
         p.setOpacity(1.0)
 

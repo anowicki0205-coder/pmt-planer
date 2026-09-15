@@ -9920,15 +9920,27 @@ try:
             and not hasattr(_PM32, "_kreskowana") and not hasattr(_PM32, "WARSTWY_TLA_POWROTU")
             and "_powrot_pix" not in _zr_mapa32 and "_nitka_pix" not in _zr_mapa32
             and "start i powrót" not in _zr_mapa32)
-    sprawdz("barwy tabliczek mieszkają w proto_styl: biała plakietka, czarny napis, ciemna ramka, zielona ramka bazy, słupek",
+    # ZMIANA NA ŻYCZENIE WŁAŚCICIELA (zdjęcie prawdziwego znaku w zgłoszeniu):
+    # polski znak E-17a przy wjeździe do miejscowości jest ZIELONY z białym
+    # napisem, białą ramką w środku i ciemną obwódką po obrysie — nie biały
+    # z czarnym napisem, jak zrobiliśmy najpierw. Bazę wyróżnia teraz sama
+    # grubość białej ramki (i jak dotąd zielony słup oraz pierścień).
+    sprawdz("barwy tabliczek mieszkają w proto_styl: zielona tablica, biały napis, biała ramka, ciemna obwódka, słupek",
             all(hasattr(_ST32, n) for n in ("TABLICZKA_TLO", "TABLICZKA_TEKST", "TABLICZKA_RAMKA",
-                                            "TABLICZKA_RAMKA_BAZY", "TABLICZKA_SLUPEK"))
-            and _ST32.TABLICZKA_TLO.lightness() > 235 and _ST32.TABLICZKA_TEKST.lightness() < 40
-            and _ST32.TABLICZKA_RAMKA.lightness() < 80
-            and _ST32.TABLICZKA_RAMKA_BAZY.green() > _ST32.TABLICZKA_RAMKA_BAZY.red() + 60
+                                            "TABLICZKA_RAMKA_BAZY", "TABLICZKA_OBWODKA",
+                                            "TABLICZKA_SLUPEK"))
+            and _ST32.TABLICZKA_TLO.green() > _ST32.TABLICZKA_TLO.red() + 50
+            and _ST32.TABLICZKA_TLO.lightness() < 140
+            and _ST32.TABLICZKA_TEKST.lightness() > 220
+            and _ST32.TABLICZKA_RAMKA.lightness() > 210
+            and _ST32.TABLICZKA_RAMKA_BAZY.lightness() >= _ST32.TABLICZKA_RAMKA.lightness()
+            and _ST32.TABLICZKA_OBWODKA.lightness() < 60
             and all(("st.%s" % n) in _zr_mapa32 for n in ("TABLICZKA_TLO", "TABLICZKA_TEKST",
                                                            "TABLICZKA_RAMKA", "TABLICZKA_RAMKA_BAZY",
-                                                           "TABLICZKA_SLUPEK")))
+                                                           "TABLICZKA_OBWODKA", "TABLICZKA_SLUPEK")))
+    sprawdz("baza ma grubszą białą ramkę niż zwykła tabliczka",
+            _PM32.MapaDnia.RAMKA_BAZY > _PM32.MapaDnia.RAMKA_TABLICZKI
+            and _PM32.MapaDnia.OTOK_TABLICZKI > 0 and _PM32.MapaDnia.OBWODKA_TABLICZKI > 0)
 
     _okno32 = _NW32.OknoNowegoWygladu(
         profil=_NW32.ProfilWidoku("Jan Testowy", "85010112345",
@@ -9961,34 +9973,53 @@ try:
         i = y * wiersz + x * 3
         return bajty[i], bajty[i + 1], bajty[i + 2]
 
+    # tabliczki zapalają się razem z odsłoną trasy: dopóki ich przystanek nie
+    # jest osiągnięty, rysują się półprzezroczyste i piksele mieszają się
+    # z terenem. Do pomiaru barw wymuszamy trasę dorysowaną do końca.
+    _m32.ustaw_postep_rysowania(1.0)
+    for _ in range(4):
+        _app32.processEvents()
     _obraz32 = _m32.grab().toImage().convertToFormat(_QI32.Format.Format_RGB888)
     _bajty32 = _obraz32.constBits().asstring(_obraz32.sizeInBytes())
     _wiersz32 = _obraz32.bytesPerLine()
 
     def _srodek_tabliczki32(e):
-        """Barwa pola plakietki tuż przy jej lewej krawędzi, w połowie wysokości
-        (poza napisem) i barwa ramki przy krawędzi górnej: ramka ma 1,1 px
-        i jest wygładzana, więc z trzech wierszy bierzemy najciemniejszy
-        (u bazy — najbardziej zielony)."""
+        """Barwa zielonego pola tablicy (między obwódką a białą ramką, poza
+        napisem), najjaśniejszy piksel białej ramki w pionowym przekroju
+        przez środek i liczba jasnych pikseli tej ramki — po niej poznajemy
+        grubszą ramkę bazy. Wszystko na pikselach zrzutu."""
         pole = e["pole"]
-        x = int(pole.left() + 4)
         y = int(pole.center().y())
-        tlo = _piksel32(_obraz32, _bajty32, _wiersz32, x, y)
-        kandydaci = [_piksel32(_obraz32, _bajty32, _wiersz32, int(pole.center().x()), int(pole.top()) + k)
-                     for k in range(3)]
-        ramka = (max(kandydaci, key=lambda k: k[1] - k[0]) if e["baza"]
-                 else min(kandydaci, key=lambda k: sum(k)))
-        return tlo, ramka
+        tlo = _piksel32(_obraz32, _bajty32, _wiersz32,
+                        int(pole.left() + _PM32.MapaDnia.OTOK_TABLICZKI * 0.5 + 1), y)
+        x = int(pole.center().x())
+        gora = int(pole.top())
+        wysoko = int(_PM32.MapaDnia.OTOK_TABLICZKI) + 6
+        # trzy kolumny, bo pozioma krawędź ramki potrafi wypaść na ułamek
+        # piksela i w jednej kolumnie zostaje sam wygładzony odcień
+        przekroje = [[_piksel32(_obraz32, _bajty32, _wiersz32, x + dx, gora + k)
+                      for k in range(wysoko)] for dx in (-3, 0, 3)]
+        ramka = max((k for kol in przekroje for k in kol), key=lambda k: sum(k))
+        jasnych = max(sum(1 for k in kol if min(k) >= 170) for kol in przekroje)
+        return tlo, ramka, jasnych
 
-    _tla32 = [_srodek_tabliczki32(e)[0] for e in _et32]
-    _ramki32 = {e["napis"]: _srodek_tabliczki32(e)[1] for e in _et32}
-    _ramka_bazy32 = _ramki32[_baza32[0]["napis"]]
-    _ramki_inne32 = [_ramki32[e["napis"]] for e in _inne32]
-    sprawdz("na pikselach: plakietki są białe (jak znak E-17a), ramka zwykłej tabliczki ciemna, a ramka bazy zielona",
-            all(min(t) >= 225 for t in _tla32)
-            and all(max(r) <= 110 for r in _ramki_inne32)
-            and _ramka_bazy32[1] > _ramka_bazy32[0] + 50 and _ramka_bazy32[1] > 120,
-            "tła %s, ramki %s, baza %s" % (_tla32[:3], _ramki_inne32[:3], _ramka_bazy32))
+    _pomiary32 = {e["napis"]: _srodek_tabliczki32(e) for e in _et32}
+    _tla32 = [_pomiary32[e["napis"]][0] for e in _et32]
+    _ramki32 = [_pomiary32[e["napis"]][1] for e in _et32]
+    _jasne_bazy32 = _pomiary32[_baza32[0]["napis"]][2]
+    _jasne_inne32 = [_pomiary32[e["napis"]][2] for e in _inne32]
+    sprawdz("na pikselach: tablice są zielone z białą ramką (jak znak E-17a), a ramka bazy jest grubsza",
+            all(t[1] - t[0] >= 35 and t[1] >= 70 and max(t) <= 200 for t in _tla32)
+            and all(min(r) >= 185 for r in _ramki32)
+            and _jasne_bazy32 > max(_jasne_inne32),
+            "łamią: %s | jasnych baza %s wobec %s"
+            % ([(e["napis"], _pomiary32[e["napis"]][0], _pomiary32[e["napis"]][1])
+                for e in _et32
+                if not (_pomiary32[e["napis"]][0][1] - _pomiary32[e["napis"]][0][0] >= 35
+                        and _pomiary32[e["napis"]][0][1] >= 70
+                        and max(_pomiary32[e["napis"]][0]) <= 200
+                        and min(_pomiary32[e["napis"]][1]) >= 185)],
+               _jasne_bazy32, _jasne_inne32))
 
     def _trasowy32(r, g, b):
         return g - r >= 30 and b - r >= 20 and max(g, b) >= 150

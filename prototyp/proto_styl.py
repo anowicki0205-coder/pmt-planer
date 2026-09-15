@@ -125,13 +125,16 @@ SKALA_CIEN      = QColor(96, 92, 96)
 # Iskra słońca na wodzie — jaśniejsza od blasku, w wąskim pasie.
 WODA_ISKRA      = QColor(244, 249, 253)
 DACH_CIEMNY     = QColor(110, 94, 86)     # trzeci odcień dachu: łupek
-# Tabliczki miejscowości na mapie: jak polskie znaki E-17a — biała plakietka,
-# czarny napis, cienka ciemna ramka; u bazy ramka zielona (ciemniejsza od
-# ZIELEN, bo neon na białym ginie), na ciemnym słupku.
-TABLICZKA_TLO        = QColor(250, 250, 247)
-TABLICZKA_TEKST      = QColor(20, 21, 24)
-TABLICZKA_RAMKA      = QColor(42, 44, 48)
-TABLICZKA_RAMKA_BAZY = QColor(12, 158, 112)
+# Tabliczki miejscowości na mapie: jak polskie znaki E-17a przy wjeździe do
+# miejscowości — ZIELONA tablica, biały napis, biała ramka odsunięta od
+# krawędzi i ciemna obwódka po obrysie, na ciemnym słupku. U bazy ta sama
+# tablica, tylko biała ramka grubsza (bazę niesie i tak zielony słup
+# światła oraz pierścień na gruncie).
+TABLICZKA_TLO        = QColor(18, 110, 88)
+TABLICZKA_TEKST      = QColor(240, 245, 242)
+TABLICZKA_RAMKA      = QColor(236, 242, 239)
+TABLICZKA_RAMKA_BAZY = QColor(252, 254, 253)
+TABLICZKA_OBWODKA    = QColor(24, 28, 30)
 TABLICZKA_SLUPEK     = QColor(58, 62, 70)
 
 

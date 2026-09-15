@@ -542,12 +542,13 @@ try:
     sprawdz("bez żadnego pliku — puste, a źródło mówi, gdzie szukano",
             P._menedzer() == "" and "BRAK" in P._menedzer_zrodlo(), P._menedzer_zrodlo()[:80])
 
-    # tła i logo w tym samym układzie
-    with open(os.path.join(_udawany, "_internal", "ciemny.png"), "wb") as f:
+    # logo w tym samym układzie (tła ciemny/jasny.png wypadły z paczki
+    # w 3.23.0 — nowy wygląd rysuje wszystko sam)
+    with open(os.path.join(_udawany, "_internal", "pmt_logo.png"), "wb") as f:
         f.write(b"x")
-    sprawdz("zasob_sciezka() znajduje tło w _internal",
-            P.zasob_sciezka("ciemny.png") == os.path.join(_udawany, "_internal", "ciemny.png"),
-            P.zasob_sciezka("ciemny.png"))
+    sprawdz("zasob_sciezka() znajduje zasób w _internal",
+            P.zasob_sciezka("pmt_logo.png") == os.path.join(_udawany, "_internal", "pmt_logo.png"),
+            P.zasob_sciezka("pmt_logo.png"))
 finally:
     if _bylo_frozen is None:
         del sys.frozen
@@ -6342,9 +6343,12 @@ try:
         if os.path.exists(os.path.join(KATALOG, _n21)) \
                 and os.path.normcase(_n21) not in map(os.path.normcase, _oczek21):
             _oczek21.append(_n21)
-    sprawdz("każdy istniejący plik z DANE (tła, logo) wchodzi przez --add-data — i żaden inny",
+    # Tła ciemny.png / jasny.png wypadły z DANE w 3.23.0 (nowy wygląd rysuje
+    # wszystko sam), więc pilnujemy już tylko logo, ikon i czcionek.
+    sprawdz("każdy istniejący plik z DANE (logo, ikony, czcionki) wchodzi przez --add-data — i żaden inny",
             sorted(_dane21) == sorted(_oczek21) and _dol21 == _oczek21
-            and {"ciemny.png", "jasny.png", "pmt_logo_retro.png", "pmt_logo_retro.ico"} <= set(_dane21),
+            and {"pmt_logo_retro.png", "pmt_logo_retro.ico"} <= set(_dane21)
+            and not ({"ciemny.png", "jasny.png"} & set(_dane21)),
             str(_dane21))
     if os.name == "nt":
         sprawdz("Windows: ikona retro .ico i --version-file wersja_exe.txt",

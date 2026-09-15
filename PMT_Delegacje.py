@@ -2241,7 +2241,7 @@ def dialog_logowania():
                 _okno_pmt(d, "Stary skrypt na serwerze",
                           "Serwer nie zna akcji resetu (dzia\u0142a starsza wersja "
                           "skryptu Apps Script) i odm\u00f3wi\u0142 zmiany has\u0142a.\n\n"
-                          "Wklej apps_script.gs z paczki do edytora Apps Script "
+                          "Wklej apps_script_POPRAWIONY_v2.gs z paczki do edytora Apps Script "
                           "i opublikuj NOWE wdro\u017cenie (Deploy) \u2014 reset "
                           "zadzia\u0142a od r\u0119ki.",
                           tylko_ok=True)

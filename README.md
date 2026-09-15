@@ -48,7 +48,7 @@ DOKĄD go wgrać.
 | `1_program_desktop` | `updater.bat`, `updater.sh` | repozytorium GitHub (katalog główny) |
 | `2_ikony` | `pmt_logo.ico`, `.icns`, `.png` | repozytorium GitHub (katalog główny) |
 | `3_budowanie_github` | `build.yml` | repozytorium → `.github/workflows/build.yml` |
-| `4_backend_arkusz` | `apps_script.gs` | Arkusz Google → Rozszerzenia → Apps Script |
+| `4_backend_arkusz` | `apps_script_POPRAWIONY_v2.gs` | Arkusz Google → Rozszerzenia → Apps Script |
 | `5_program_desktop_online` | `pmt_online.py` | źródło modułu online (jest już wklejony w programie) |
 | `6_aplikacja_wizyty` | `pmt_wizyty.html`, `manifest.webmanifest`, `sw.js`, `pwa_192.png`, `pwa_512.png` | repozytorium GitHub (katalog główny) |
 | `7_dane_do_arkusza` | pliki `.csv` | import do Arkusza Google — **NIGDY do repozytorium** (dane osobowe) |
@@ -58,7 +58,7 @@ DOKĄD go wgrać.
 
 ## Kolejność wdrożenia (gdyby trzeba było odtworzyć wszystko od zera)
 
-1. **Arkusz**: wklej `apps_script.gs` → zapisz → uruchom `inicjalizuj_v2`
+1. **Arkusz**: wklej `apps_script_POPRAWIONY_v2.gs` → zapisz → uruchom `inicjalizuj_v2`
    (utworzy zakładki i poprosi o zgody) → **Wdróż → Zarządzaj wdrożeniami →
    ołówek → Wersja: Nowa → Wdróż**. Adres `/exec` jest już wklejony w plikach
    klienckich — zmieniaj go tylko, jeśli tworzysz nowe wdrożenie od podstaw.

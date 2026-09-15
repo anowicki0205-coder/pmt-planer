@@ -55,7 +55,7 @@ WYMAGANE = ["PMT_Delegacje.py", "karta_testera.py",
 # w PMT_Delegacje.py — czyli w repozytorium i w jego historii. Teraz, jak
 # menedzer.txt, leży poza kodem: obok zbuduj.py (u autora) albo z sekretu
 # PMT_SEKRET (na GitHubie) i trafia do paczki; do repozytorium NIE (.gitignore).
-DANE = ["ciemny.png", "jasny.png", "pmt_logo.png", "pmt_logo.ico",
+DANE = ["pmt_logo.png", "pmt_logo.ico",
         "pmt_logo_retro.png", "pmt_logo_retro.ico", "pmt.jpg", "PMT.jpg",
         "DejaVuSans.ttf", "DejaVuSans-Bold.ttf", "menedzer.txt", "sekret.txt"]
 # winsound i PyQt6.QtMultimedia wypadly z listy razem z intrem (3.23.0):
@@ -366,22 +366,9 @@ def main():
         return 1
     pisz("Wersja w źródle: %s" % wer)
     uzgodnij_wersje_exe(wer)
-    # Tła programu: ciemny.png i jasny.png. Mogą leżeć luzem obok programu
-    # albo w podfolderze zasoby\ — sprawdzamy oba miejsca i mówimy wprost,
-    # czego brakuje. Bez nich program działa, tylko rysuje tło zastępcze.
-    tla = []
-    for nazwa in ("ciemny.png", "jasny.png"):
-        if os.path.exists(os.path.join(KATALOG, nazwa)):
-            tla.append(nazwa)
-        elif os.path.exists(os.path.join(KATALOG, "zasoby", nazwa)):
-            tla.append("zasoby/" + nazwa)
-    if len(tla) == 2:
-        pisz("Tła programu: %s" % ", ".join(tla))
-    else:
-        pisz("[UWAGA] Nie widzę plików tła (ciemny.png, jasny.png).")
-        pisz("        Program zbuduje się i będzie działał — narysuje tło")
-        pisz("        zastępcze. Jeśli chcesz oryginalne, skopiuj te dwa pliki")
-        pisz("        z folderu starego programu tutaj (albo do zasoby\\).")
+    # Tła ciemny.png / jasny.png wypadły z paczki w 3.23.0: nowy wygląd
+    # rysuje wszystko sam, a te dwa pliki ważyły 2,6 MB i nikt ich już nie
+    # wczytywał. Gdyby ktoś trzymał je obok programu, nic się nie dzieje.
     if os.path.exists(os.path.join(KATALOG, "menedzer.txt")):
         try:
             with open(os.path.join(KATALOG, "menedzer.txt"), "rb") as f:

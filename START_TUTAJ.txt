@@ -130,7 +130,7 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
     Wysyłanie do przeglądarki zostało planem awaryjnym (na wypadek, gdyby
     pobieranie zawiodło) — bo to właśnie tam SmartScreen straszy najmocniej.
 
-  NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script.gs
+  NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script_POPRAWIONY_v2.gs
   jest już gotowa kontrola wersji przy logowaniu:
         var MINIMALNA_WERSJA = "3.16.0";
   Podniesienie jej do "3.21.0" (po 14 dniach) odetnie stare wersje
@@ -218,7 +218,6 @@ KROK PO KROKU — WYDANIE 3.21.0
 ───────────────────────────────────────────────────────────────────────
   1. PRZYGOTUJ FOLDER
      Nowy, pusty folder (np. C:\PMT_3.21.0), rozpakuj do niego całość.
-     Skopiuj ze starego katalogu ciemny.png i jasny.png, jeśli ich nie ma.
 
   2. SPRAWDŹ WERSJE
      Dwuklik SPRAWDZ_WERSJE.bat — w źródle (PMT_Delegacje.py, wersja_exe.txt)

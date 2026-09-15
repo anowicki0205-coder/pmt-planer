@@ -58,19 +58,26 @@ POLA_WIOSNA = (QColor(118, 164, 70), QColor(134, 176, 82), QColor(104, 152, 62),
                QColor(146, 172, 92), QColor(128, 158, 74), QColor(156, 182, 98))
 POLA_LATO   = (QColor(200, 176, 92), QColor(214, 190, 104), QColor(182, 166, 84),
                QColor(160, 168, 84), QColor(222, 200, 120), QColor(190, 154, 80))
-POLA_JESIEN = (QColor(176, 128, 72), QColor(190, 142, 86), QColor(156, 116, 68),
-               QColor(166, 152, 96), QColor(200, 152, 90), QColor(146, 124, 82))
-POLA_ZIMA   = (QColor(204, 208, 208), QColor(196, 202, 204), QColor(212, 214, 214),
-               QColor(186, 194, 192), QColor(200, 206, 206), QColor(192, 198, 196))
+# Jesień: ścierniska, oziminy, rdza i złoto — nie sześć brązów (błoto).
+POLA_JESIEN = (QColor(196, 160, 70), QColor(120, 140, 60), QColor(178, 96, 52),
+               QColor(210, 176, 96), QColor(150, 130, 58), QColor(232, 192, 110))
+# Zima: śnieg chłodny, z błękitnym cieniem — nie jednolita szarość.
+POLA_ZIMA   = (QColor(222, 228, 238), QColor(214, 222, 234), QColor(228, 232, 240),
+               QColor(206, 216, 230), QColor(218, 226, 236), QColor(224, 230, 238))
 LAKA_WIOSNA, LAKA_LATO = QColor(140, 190, 90), QColor(150, 186, 88)
-LAKA_JESIEN, LAKA_ZIMA = QColor(162, 164, 92), QColor(208, 212, 208)
-# Las: (cień pod koronami, korony w świetle). Jesienią rdza, zimą szarość.
+LAKA_JESIEN, LAKA_ZIMA = QColor(172, 160, 78), QColor(220, 226, 236)
+# Las: (cień pod koronami, korony w świetle). Jesienią rdza liściastych
+# i ciemna zieleń iglastych (co trzeci płat), zimą ciemne iglaki na śniegu.
 LAS_WIOSNA = (QColor(50, 100, 56), QColor(82, 136, 72))
 LAS_LATO   = (QColor(40, 90, 50), QColor(66, 120, 62))
-LAS_JESIEN = (QColor(72, 84, 44), QColor(134, 104, 50))
-LAS_ZIMA   = (QColor(56, 70, 70), QColor(84, 96, 92))
+LAS_JESIEN = (QColor(96, 64, 34), QColor(184, 116, 44))
+LAS_JESIEN_IGLASTY = (QColor(32, 58, 42), QColor(50, 90, 60))
+LAS_ZIMA   = (QColor(28, 46, 40), QColor(44, 70, 60))
 GLEBA      = QColor(112, 98, 78)         # ziemia pod polami (miedze, obrzeża)
-GLEBA_ZIMA = QColor(150, 152, 150)
+GLEBA_ZIMA = QColor(176, 188, 208)
+SNIEG_CIEN = QColor(176, 188, 208)       # miedze i cienie na śniegu
+WODA_ZIMA  = QColor(60, 84, 120)         # rzeka i stawy zimą: ciemna, nie lodowo-szara
+DROGA_ZIMA = QColor(110, 112, 116)       # drogi zimą ciemne na śniegu
 # Woda: koryto, głębia i jasny blask słońca na tafli.
 WODA        = QColor(70, 98, 138)
 WODA_GLEBOKA = QColor(48, 72, 112)
@@ -107,6 +114,14 @@ POZIOMICA       = QColor(70, 58, 40)
 # Góry: ponad granicą lasu skała, na szczytach śnieg (zimą śnieg schodzi niżej).
 SKALA           = QColor(146, 134, 120)
 SNIEG           = QColor(238, 241, 244)
+# Bryły grzbietów: hala (górska łąka) u stóp, piarg między halą a skałą,
+# skała w cieniu przeciwstoku ciemniejsza i chłodniejsza od skały w słońcu.
+HALA_LATO       = QColor(128, 146, 76)
+HALA_WIOSNA     = QColor(112, 150, 74)
+HALA_JESIEN     = QColor(160, 128, 66)
+HALA_ZIMA       = QColor(206, 212, 220)
+PIARG           = QColor(132, 122, 104)
+SKALA_CIEN      = QColor(96, 92, 96)
 # Iskra słońca na wodzie — jaśniejsza od blasku, w wąskim pasie.
 WODA_ISKRA      = QColor(244, 249, 253)
 DACH_CIEMNY     = QColor(110, 94, 86)     # trzeci odcień dachu: łupek

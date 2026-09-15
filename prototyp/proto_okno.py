@@ -1581,11 +1581,22 @@ class SiatkaDni(QWidget):
             wybrany = dzien in self.wybrane
             weekend = (self.pierwszy + dzien - 1) % 7 >= 5
             if dzien in self.zablokowane:
-                # dzień bez pracy z góry: sam wygaszony numer i cienka kreska
-                # w miejscu dna pigułki — nic do kliknięcia
+                # dzień bez pracy z góry (weekend, święto): wgłębiony kafel
+                # z kropkowanym obrysem — czytelnie „zablokowany", nie
+                # „brakujący" — wygaszony numer, cienka kreska w miejscu dna
+                # pigułki; nic do kliknięcia
+                kafel = pole.adjusted(1.0, 1.0, -1.0, -1.0)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(9, 16, 28, 110)))
+                p.drawRoundedRect(kafel, 11, 11)
+                obrys = QPen(S.z_alfa(S.TEKST_3, 84), 1.0)
+                obrys.setStyle(Qt.PenStyle.DotLine)
+                p.setPen(obrys)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRoundedRect(kafel, 11, 11)
                 napis = str(dzien)
                 S.tekst(p, pole.center().x() - _szerokosc(napis, 13, 500, mono=True) / 2.0,
-                        pole.center().y() + 5, napis, S.z_alfa(S.TEKST_3, 92), 13, 500, mono=True)
+                        pole.center().y() + 5, napis, S.z_alfa(S.TEKST_3, 120), 13, 500, mono=True)
                 p.setPen(QPen(S.z_alfa(S.TEKST_3, 70), 1.0))
                 p.drawLine(QPointF(pole.center().x() - 7.0, pole.bottom() - 6.5),
                            QPointF(pole.center().x() + 7.0, pole.bottom() - 6.5))

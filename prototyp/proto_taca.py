@@ -1413,6 +1413,16 @@ class Panel(QDialog):
         self._stopka = list(przyciski)
         return d
 
+    # — jeden wyłącznik ruchu —
+    def zatrzymaj_animacje(self):
+        """Wszystko, co się w panelu rusza, staje w położeniu docelowym —
+        powtarzalne zrzuty i czyste wyjście. Panele z własnymi zegarami
+        (podpis, wysyłka) mają swoją wersję; ta obsługuje każdy inny."""
+        for widget in self.findChildren(QWidget):
+            zatrzymaj = getattr(widget, "zatrzymaj_animacje", None)
+            if zatrzymaj is not None and not isinstance(widget, Panel):
+                zatrzymaj()
+
     def _rowek_tresci(self, r, y_kreski):
         """Wgłębienie, w którym leży treść panelu — to samo dno co na tacy."""
         gorne = y_kreski + 12.0

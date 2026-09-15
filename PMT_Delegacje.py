@@ -1574,17 +1574,24 @@ def dialog_logowania():
     d.mouseMoveEvent = _mysz_ruch
     d.mouseReleaseEvent = _mysz_pusc
     # ...i ZMINIMALIZOWAĆ małym przyciskiem w prawym górnym rogu
-    b_minim = QPushButton("\u2013", d)
-    b_minim.setObjectName("chipmin")     # osobna nazwa: NIE wpada w pętlę chipów
-    b_minim.setAutoDefault(False)
-    b_minim.setFixedSize(30, 24)
-    b_minim.setToolTip("Minimalizuj")
+    # W oprawie nowego systemu obie pigułki są malowane pędzlem (ta sama
+    # kreska, co w pasku górnym okna programu) — glif czcionki był w tym
+    # rogu prawie niewidoczny. Bez oprawy zostają przyciski z napisem.
+    if oprawa is not None and hasattr(oprawa, "PrzyciskOkna"):
+        b_minim = oprawa.PrzyciskOkna("minimalizuj", d)
+        b_x = oprawa.PrzyciskOkna("zamknij", d)
+    else:
+        b_minim = QPushButton("\u2013", d)
+        b_minim.setObjectName("chipmin")     # osobna nazwa: NIE wpada w pętlę chipów
+        b_minim.setAutoDefault(False)
+        b_minim.setFixedSize(30, 24)
+        b_minim.setToolTip("Minimalizuj")
+        b_x = QPushButton("\u2715", d)
+        b_x.setObjectName("chipmin")
+        b_x.setAutoDefault(False)
+        b_x.setFixedSize(30, 24)
+        b_x.setToolTip("Zamknij")
     b_minim.clicked.connect(d.showMinimized)
-    b_x = QPushButton("\u2715", d)
-    b_x.setObjectName("chipmin")
-    b_x.setAutoDefault(False)
-    b_x.setFixedSize(30, 24)
-    b_x.setToolTip("Zamknij")
     b_x.clicked.connect(d.reject)
     def _ustaw_rogi():
         b_minim.move(d.width() - 86, 16)
@@ -7062,7 +7069,30 @@ def zapisz_geo_cache(sciezka=None):
     except Exception:
         pass
 
+# Kody pocztowe nie trzymają się granic województw co do dwóch pierwszych
+# cyfr — pas 26-xxx dzielą Radom (mazowieckie), Kielce (świętokrzyskie)
+# i Opoczno (łódzkie), 19-3xx to Ełk, nie Białystok. Wyjątki po trzech
+# cyfrach mają pierwszeństwo przed zgrubnym podziałem po dwóch.
+WYJATKI_WOJEWODZTW = {
+    "19-3": "warmińsko-mazurskie", "19-4": "warmińsko-mazurskie",   # Ełk, Olecko
+    "19-5": "warmińsko-mazurskie",                                  # Gołdap
+    "26-3": "łódzkie",                                              # Opoczno, Drzewica
+    "26-4": "mazowieckie", "26-5": "mazowieckie",                   # Przysucha, Szydłowiec
+    "26-6": "mazowieckie", "26-7": "mazowieckie",                   # Radom, Zwoleń
+    "26-8": "mazowieckie", "26-9": "mazowieckie",                   # Białobrzegi, Kozienice
+    "27-1": "mazowieckie", "27-3": "mazowieckie",                   # Iłża, Lipsko
+    "34-3": "śląskie",                                              # Żywiec
+    "76-2": "pomorskie",                                            # Słupsk, Ustka
+    "77-1": "pomorskie", "77-2": "pomorskie", "77-3": "pomorskie",  # Bytów, Miastko, Człuchów
+    "77-4": "wielkopolskie",                                        # Złotów
+    "82-3": "warmińsko-mazurskie",                                  # Elbląg, Pasłęk
+    "89-4": "pomorskie", "89-6": "pomorskie",                       # Chojnice, Czersk
+}
+
 def rozpoznaj_wojewodztwo(kod: str) -> str:
+    kod = str(kod or "").strip()
+    wyjatek = WYJATKI_WOJEWODZTW.get(kod[:4])
+    if wyjatek: return wyjatek
     try: p = int(kod[:2])
     except: return "mazowieckie"
     if p <= 9: return "mazowieckie"

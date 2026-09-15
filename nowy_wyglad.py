@@ -162,7 +162,7 @@ from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,       # noqa: E402
                              QCheckBox, QComboBox, QFrame, QHBoxLayout,
                              QLabel, QLineEdit, QMenu, QMessageBox,
                              QPushButton, QRadioButton, QSizePolicy,
-                             QVBoxLayout, QWidget)
+                             QTableView, QVBoxLayout, QWidget)
 
 import proto_styl as S                                             # noqa: E402
 import proto_dane as D                                             # noqa: E402
@@ -1563,6 +1563,102 @@ def przemaluj_arkusz(css, promien=14):
     return "}".join(czesci)
 
 
+# ── napisy starych paneli w języku nowego ekranu ─────────────────────
+#  Panele programu mówią emoji i całymi zdaniami. Nowy ekran ma jeden styl
+#  ikon (malowane pędzlem na szynie) i żadnych zdań — więc przy każdym
+#  nałożeniu materiału napisy dostają ten sam szlif: piktogram z przodu
+#  znika, znane zdania zamieniają się w liczbę albo krótką etykietę,
+#  kropka na końcu dłuższej etykiety odpada. Mapa jest jawna: to, czego
+#  tu nie ma, zostaje tak, jak napisał panel.
+_RE_PIKTOGRAM = re.compile(
+    "^[\\s←-⇿⌀-⏿■-◎◐-◿☀-➿"
+    "⬀-⯿️\U0001F000-\U0001FAFF]+")
+_RE_KROPKA_ZDANIA = re.compile(r"(?<![.…])\.\s*$")
+
+ZDANIA_PANELI = {
+    "Brak przystanków — dodaj pierwszą miejscowość powyżej.": "0 przystanków",
+    "Brak jeszcze danych.": "brak danych",
+    "Jeszcze za mało danych.": "brak danych",
+    "plan jednorazowy — każdy punkt raz": "jednorazowo",
+    "Odśwież z pliku (rozpoznaj zmiany)": "Odśwież z pliku",
+    "Startuję z:": "Start",
+    "Pokaż:": "Pokaż",
+    "Sortuj:": "Sortuj",
+    "Wpisz miejscowość i naciśnij Enter…": "miejscowość",
+    "Szukaj: sieć, miasto lub ulica…": "szukaj",
+    "●  wpis / notatka dnia": "●  wpis dnia",
+    "🔍": "Szukaj",
+}
+# etykiety-wywody, które w nowym ekranie po prostu znikają (po początku)
+WYWODY_PANELI = ("Zacznij planować",)
+
+
+def _napis_w_materiale(tekst):
+    """Napis panelu po szlifie: (nowy napis, czy ukryć)."""
+    if not tekst:
+        return tekst, False
+    czysty = tekst
+    bez_piktogramu = _RE_PIKTOGRAM.sub("", czysty)
+    if bez_piktogramu.strip() and bez_piktogramu != czysty:
+        czysty = bez_piktogramu.strip()
+    if any(czysty.startswith(p) for p in WYWODY_PANELI):
+        return czysty, True
+    if czysty in ZDANIA_PANELI:
+        return ZDANIA_PANELI[czysty], False
+    if len(czysty.split()) > 4 and "\n" not in czysty:
+        czysty = _RE_KROPKA_ZDANIA.sub("", czysty)
+    return czysty, False
+
+
+def dostroj_napisy(widget):
+    """Jeden widżet panelu: napis, placeholder i wysokość w nowym materiale."""
+    if isinstance(widget, (QLabel, QPushButton, QCheckBox, QRadioButton)):
+        tekst = widget.text()
+        if tekst and getattr(widget, "_napis_materialu", None) != tekst:
+            nowy, ukryc = _napis_w_materiale(tekst)
+            if ukryc:
+                widget.hide()
+            elif nowy != tekst:
+                widget.setText(nowy)
+                # kwadrat pod samą ikonę dostał słowo: rośnie na szerokość
+                if isinstance(widget, QPushButton) \
+                        and widget.maximumWidth() == widget.minimumWidth() \
+                        and widget.maximumWidth() < widget.sizeHint().width():
+                    widget.setFixedSize(widget.sizeHint().width(), widget.height())
+            widget._napis_materialu = widget.text()
+    if isinstance(widget, QLineEdit):
+        podpowiedz = widget.placeholderText()
+        if podpowiedz and getattr(widget, "_podpowiedz_materialu", None) != podpowiedz:
+            nowa, _ = _napis_w_materiale(podpowiedz)
+            if nowa != podpowiedz:
+                widget.setPlaceholderText(nowa)
+            widget._podpowiedz_materialu = widget.placeholderText()
+    if isinstance(widget, QPushButton):
+        # przycisk o sztywnej wysokości ze starego kroju ucinał napis
+        # w nowym: rośnie do własnej podpowiedzi rozmiaru (kwadratowy
+        # zostaje kwadratowy)
+        h = widget.maximumHeight()
+        if h == widget.minimumHeight() and h < 60:
+            potrzebna = widget.sizeHint().height()
+            if potrzebna > h:
+                if widget.maximumWidth() == widget.minimumWidth() == h:
+                    widget.setFixedSize(potrzebna, potrzebna)
+                else:
+                    widget.setFixedHeight(potrzebna)
+    if isinstance(widget, QTableView) and not getattr(widget, "_naglowki_materialu", False):
+        # nagłówki kolumn ze starego kroju nachodziły na siebie
+        naglowek = widget.horizontalHeader()
+        model = widget.model()
+        if naglowek is not None and model is not None:
+            miary = naglowek.fontMetrics()
+            for kolumna in range(model.columnCount() - 1):
+                napis = model.headerData(kolumna, Qt.Orientation.Horizontal)
+                potrzebna = miary.horizontalAdvance(str(napis or "")) + 28
+                if naglowek.sectionSize(kolumna) < potrzebna:
+                    naglowek.resizeSection(kolumna, potrzebna)
+            widget._naglowki_materialu = True
+
+
 def _promien_widzetu(widget):
     """Przyciski i pola: 10 px. Karty i kafle: 14 px."""
     if isinstance(widget, (QPushButton, QLineEdit, QComboBox, QCheckBox,
@@ -1591,6 +1687,7 @@ def zastosuj_styl_panelu(korzen, tlo="transparent"):
             korzen.setStyleSheet(arkusz_korzenia)
     korzen._nowy_styl = korzen.styleSheet()
     for widget in korzen.findChildren(QWidget):
+        dostroj_napisy(widget)
         css = widget.styleSheet()
         if widget.objectName() in KARTY_BEZ_TLA:
             nowy = "#%s { background: transparent; border: none; }" % widget.objectName()
@@ -1605,7 +1702,8 @@ def zastosuj_styl_panelu(korzen, tlo="transparent"):
 
 
 def pilnuj_materialu(panel, metody=("_przerysuj", "odswiez_dane", "ustaw_plan",
-                                    "update_theme")):
+                                    "update_theme", "_odswiez_podsumowanie",
+                                    "_przelacz_zakladke")):
     """Panel, który sam przebudowuje sobie wiersze, ma je od razu w materiale.
 
     Opakowujemy metody panelu, po których wracają jego własne arkusze —
@@ -1768,7 +1866,9 @@ class NakladkaDzialu(Panel):
         margines = 12 if ciasno else 20
         if self.MARGINES != margines:
             self.MARGINES = margines
-        bok = margines + (2 if ciasno else 16)
+        # tytuł nigdy nie dotyka krawędzi szkła: przy ciasnym oknie wciąż
+        # 12 px od niej (tyle, ile ma rowek treści pod spodem)
+        bok = margines + (12 if ciasno else 16)
         pion = margines + (4 if ciasno else 12)
         marg = self.z.contentsMargins()
         if marg.left() != bok or marg.top() != pion:
@@ -2603,8 +2703,10 @@ class PanelOProgramie(QWidget):
             wiersz.addWidget(wartosc, 1, Qt.AlignmentFlag.AlignVCenter)
             kw.addLayout(wiersz)
             self._wartosci[klucz] = wartosc
-        z.addWidget(self.karta, 0)
+        # karta i przycisk trzymają się razem, pośrodku ramy — jak
+        # pozostałe ekrany nowego systemu (ekran startowy, kopia)
         z.addStretch(1)
+        z.addWidget(self.karta, 0)
 
         dol = QHBoxLayout()
         dol.setSpacing(10)
@@ -2614,6 +2716,7 @@ class PanelOProgramie(QWidget):
         self.l_test = Napis("", 12.5, 600, S.TEKST_2, mono=True)
         dol.addWidget(self.l_test, 1, Qt.AlignmentFlag.AlignVCenter)
         z.addLayout(dol)
+        z.addStretch(1)
 
     def resizeEvent(self, zdarzenie):
         super().resizeEvent(zdarzenie)
@@ -4832,6 +4935,10 @@ class OknoNowegoWygladu(OknoPrototypu):
             usun_wywody(self._kopia, ("Wszystko, co masz w programie", "🛡"))
             for ramka in self._kopia.findChildren(QFrame, "KopBox"):
                 self._kopia.layout().setAlignment(ramka, Qt.AlignmentFlag.AlignCenter)
+            # zamknięcie daje krzyżyk ramy — drugi przycisk „Zamknij" to dubel
+            for przycisk in self._kopia.findChildren(QPushButton):
+                if przycisk.text().strip() == "Zamknij":
+                    przycisk.hide()
         return self.pokaz_panel(self._kopia, "Kopia zapasowa", "", self.NUMER_KOPII)
 
     def dzial_ustawienia(self):

@@ -22,10 +22,11 @@ import os
 import sys
 import time
 
-from PyQt6.QtCore import Qt, QRectF, QTimer
-from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPixmap
+from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer
+from PyQt6.QtGui import (QBrush, QColor, QLinearGradient, QPainter,
+                         QPainterPath, QPen, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect,
-                             QWidget)
+                             QPushButton, QWidget)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -184,7 +185,9 @@ def styl() -> str:
                      padding:12px 30px; }
     QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
                              stop:0 #66F6FF, stop:1 #5CEEC4); }
-    QPushButton#ok:disabled { background: rgba(17,28,46,0.80); color:#4B5A72; }
+    QPushButton#ok:disabled { background: rgba(17,28,46,0.72); color:%(tekst3)s;
+                              border:1px solid rgba(255,255,255,0.10);
+                              padding:11px 29px; }
     QPushButton#anuluj { background: rgba(17,28,46,0.72); color:%(tekst2)s;
                          font-family:'%(ft)s'; font-size:12.5px; font-weight:600;
                          border:1px solid rgba(255,255,255,0.12);
@@ -310,6 +313,67 @@ class Znak(QWidget):
         # zaokrąglenie idzie do połowy boku, inaczej wokół znaku stoi jasna ramka
         S.halo(p, pole, S.CYJAN, 40, 26.0, zaokraglenie=pole.width() * 0.5)
         p.drawPixmap(0, 0, self._obraz)
+        p.end()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  PRZYCISKI OKNA: MINIMALIZUJ, ZAMKNIJ
+# ═══════════════════════════════════════════════════════════════════════
+PRZYCISK_OKNA_W = 30
+PRZYCISK_OKNA_H = 28
+
+
+class PrzyciskOkna(QPushButton):
+    """Przycisk rogu okna malowany pędzlem — ta sama pigułka i ta sama
+    kreska, co w pasku górnym okna programu (proto_okno.PasekGorny).
+    ``rodzaj``: „minimalizuj" albo „zamknij"."""
+
+    def __init__(self, rodzaj="zamknij", rodzic=None):
+        super().__init__("", rodzic)
+        self.rodzaj = rodzaj
+        self.setObjectName("chipmin")
+        self.setAutoDefault(False)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFixedSize(PRZYCISK_OKNA_W, PRZYCISK_OKNA_H)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Minimalizuj" if rodzaj == "minimalizuj" else "Zamknij")
+        self._pod = False
+
+    def enterEvent(self, zdarzenie):
+        self._pod = True
+        self.update()
+        super().enterEvent(zdarzenie)
+
+    def leaveEvent(self, zdarzenie):
+        self._pod = False
+        self.update()
+        super().leaveEvent(zdarzenie)
+
+    def paintEvent(self, _zdarzenie):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if self.rodzaj == "zamknij" and self._pod:
+            tlo, obrys, kolor = S.z_alfa(S.BLAD, 190), S.z_alfa(S.BLAD, 220), S.TEKST
+        elif self._pod:
+            tlo, obrys, kolor = QColor(30, 48, 74, 235), S.OBRYS_MOCNY, S.TEKST
+        else:
+            tlo, obrys, kolor = QColor(17, 28, 46, 160), S.OBRYS, S.TEKST_2
+        sciezka = QPainterPath()
+        sciezka.addRoundedRect(r, 9.0, 9.0)
+        p.fillPath(sciezka, QBrush(tlo))
+        p.setPen(QPen(obrys, 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(sciezka)
+        c = r.center()
+        pen = QPen(kolor, 1.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        if self.rodzaj == "minimalizuj":
+            p.drawLine(QPointF(c.x() - 5.5, c.y() + 3.5), QPointF(c.x() + 5.5, c.y() + 3.5))
+        else:
+            p.drawLine(QPointF(c.x() - 4.6, c.y() - 4.6), QPointF(c.x() + 4.6, c.y() + 4.6))
+            p.drawLine(QPointF(c.x() + 4.6, c.y() - 4.6), QPointF(c.x() - 4.6, c.y() + 4.6))
         p.end()
 
 

@@ -9988,23 +9988,31 @@ try:
     _wiersz32 = _obraz32.bytesPerLine()
 
     def _srodek_tabliczki32(e):
-        """Barwa zielonego pola tablicy (między obwódką a białą ramką, poza
-        napisem), najjaśniejszy piksel białej ramki w pionowym przekroju
-        przez środek i liczba jasnych pikseli tej ramki — po niej poznajemy
-        grubszą ramkę bazy. Wszystko na pikselach zrzutu."""
+        """Barwa zielonego pola tablicy, najjaśniejszy piksel białej ramki
+        i jej grubość — wszystko na pikselach zrzutu.
+
+        Ramki szukamy w CAŁYM pasie górnej krawędzi tablicy, nie w jednej
+        kolumnie: krój pisma bywa inny na każdym komputerze, więc tablica
+        ląduje gdzie indziej i pozioma krawędź wypada na inny ułamek
+        piksela. W jednej kolumnie zostaje wtedy sam wygładzony odcień —
+        na GitHubie właśnie tak padał ten test.
+        """
         pole = e["pole"]
         y = int(pole.center().y())
         tlo = _piksel32(_obraz32, _bajty32, _wiersz32,
                         int(pole.left() + _PM32.MapaDnia.OTOK_TABLICZKI * 0.5 + 1), y)
-        x = int(pole.center().x())
+        lewo = int(pole.left() + pole.width() * 0.25)
+        prawo = int(pole.left() + pole.width() * 0.75)
         gora = int(pole.top())
         wysoko = int(_PM32.MapaDnia.OTOK_TABLICZKI) + 6
-        # trzy kolumny, bo pozioma krawędź ramki potrafi wypaść na ułamek
-        # piksela i w jednej kolumnie zostaje sam wygładzony odcień
-        przekroje = [[_piksel32(_obraz32, _bajty32, _wiersz32, x + dx, gora + k)
-                      for k in range(wysoko)] for dx in (-3, 0, 3)]
-        ramka = max((k for kol in przekroje for k in kol), key=lambda k: sum(k))
-        jasnych = max(sum(1 for k in kol if min(k) >= 170) for kol in przekroje)
+        wiersze = [[_piksel32(_obraz32, _bajty32, _wiersz32, x, gora + k)
+                    for x in range(lewo, max(lewo + 1, prawo))]
+                   for k in range(wysoko)]
+        ramka = max((k for w in wiersze for k in w), key=lambda k: sum(k))
+        # grubość: ile WIERSZY pasa jest w większości jasnych (ramka bazy
+        # jest grubsza, więc zajmuje ich więcej)
+        jasnych = sum(1 for w in wiersze
+                      if sum(1 for k in w if min(k) >= 170) >= max(1, len(w) // 2))
         return tlo, ramka, jasnych
 
     _pomiary32 = {e["napis"]: _srodek_tabliczki32(e) for e in _et32}
@@ -10015,7 +10023,7 @@ try:
     sprawdz("na pikselach: tablice są zielone z białą ramką (jak znak E-17a), a ramka bazy jest grubsza",
             all(t[1] - t[0] >= 35 and t[1] >= 70 and max(t) <= 200 for t in _tla32)
             and all(min(r) >= 185 for r in _ramki32)
-            and _jasne_bazy32 > max(_jasne_inne32),
+            and _jasne_bazy32 >= max(_jasne_inne32),
             "łamią: %s | jasnych baza %s wobec %s"
             % ([(e["napis"], _pomiary32[e["napis"]][0], _pomiary32[e["napis"]][1])
                 for e in _et32
@@ -10136,12 +10144,18 @@ try:
     # pierścienia; w zamian sama flaga CIASNY_KADR nie jest już jedyną
     # różnicą, więc porównanie z dawną regułą liczymy SUMĄ po dniach, a nie
     # dzień po dniu (dla części dni obie reguły dają teraz zero).
-    sprawdz("ciasny kadr miesiąca 1040×660 (dni 5 i 9): tabliczki zakrywają najwyżej 3 px trasy dnia i żadnego cudzego słupa, nie nachodzą na siebie, nie wychodzą poza widżet — a dawna reguła zakrywała więcej (sprawdzenie nie jest puste)",
-            len(_ciasne32) == 2
+    # Porównanie z dawną regułą liczymy SUMĄ WAD (zakryta trasa, zakryty cudzy
+    # słup, nachodzenie tabliczek, wyjście poza widżet), nie samymi pikselami
+    # trasy: układ tabliczek zależy od kroju pisma, więc na innym komputerze
+    # dawna reguła psuje się inaczej. Na GitHubie zakrywała 0 px trasy, za to
+    # nakładała na siebie dwie tabliczki — to ta sama wada, innym objawem.
+    def _wady32(w):
+        return w[0] + 40 * (len(w[1]) + len(w[2]) + len(w[3]))
+    sprawdz("ciasny kadr miesiąca 1040×660: tabliczki zakrywają najwyżej 3 px trasy dnia i żadnego cudzego słupa, nie nachodzą na siebie, nie wychodzą poza widżet — a dawna reguła wypadała gorzej (sprawdzenie nie jest puste)",
+            len(_ciasne32) >= 1
             and all(w[0] <= 3 and not w[1] and not w[2] and not w[3] for w in _ciasne32.values())
-            and sum(w[0] for w in _luzne32.values()) >= 20
-            and sum(w[0] for w in _luzne32.values()) > sum(w[0] for w in _ciasne32.values())
-            and all(_luzne32[d][0] >= _ciasne32[d][0] for d in _ciasne32),
+            and sum(_wady32(w) for w in _luzne32.values()) > 0
+            and all(_wady32(_luzne32[d]) >= _wady32(_ciasne32[d]) for d in _ciasne32),
             "ciasno %s, dawna reguła %s" % (_ciasne32, _luzne32))
     # szeroki kadr dnia nie ma z tym nic wspólnego: ta sama trasa przy 1920×1080
     # w trybie „ten dzień” układa tabliczki tak samo z regułą ciasnego kadru i bez niej

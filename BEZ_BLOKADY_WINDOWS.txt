@@ -1,59 +1,96 @@
 ═══════════════════════════════════════════════════════════════════════
   ŻEBY WINDOWS NIE ZABLOKOWAŁ PROGRAMU
-  co zrobiłem po swojej stronie i co musisz zrobić Ty
+  co blokuje, jak to poznać i co da się zrobić bez wydawania pieniędzy
+  (stan: wrzesień 2026, wersja 3.23.0)
 ═══════════════════════════════════════════════════════════════════════
 
-PRAWDA, KTÓREJ NIE DA SIĘ OBEJŚĆ KODEM
-  „Inteligentna kontrola aplikacji" (Smart App Control) w Windows 11
-  blokuje KAŻDY program bez podpisu cyfrowego uznawanego przez Microsoft.
-  Nie ma znaczenia, co jest w środku ani jak został zbudowany. Żadna
-  zmiana w kodzie tego nie zdejmie — potrzebny jest certyfikat albo
-  wyłączenie tej funkcji.
+JAK DZIAŁA „INTELIGENTNA KONTROLA APLIKACJI” (Smart App Control)
+  Przy uruchamianiu każdego pliku wykonywalnego Windows 11 pyta chmurę
+  Microsoft o jego reputację. Dotyczy to plików EXE, ale TAKŻE bibliotek
+  DLL i modułów .pyd, które wczytuje Python. Plik znany i uznany za dobry
+  wchodzi. Plik nieznany jest sprawdzany pod kątem podpisu cyfrowego
+  z zaufanego urzędu; bez takiego podpisu zostaje zablokowany. Nie ma
+  listy wyjątków: wykluczenia Microsoft Defender tej kontroli nie
+  dotyczą, a przycisku „Uruchom mimo to” nie ma.
 
-CO ZROBIŁEM, ŻEBY BYŁO JAK NAJLEPIEJ
-  · budowa FOLDEROWA zamiast jednoplikowej — program nie rozpakowuje się
-    sam do katalogu tymczasowego, więc heurystyki traktują go łagodniej,
-  · brak kompresji UPX (to ona najczęściej wywołuje fałszywe alarmy),
-  · pełne metadane pliku: nazwa, producent, wersja 3.21.0,
-  · ikona programu,
-  · to samo nazewnictwo co dotąd: PMT_Planer.exe.
-  Więcej po stronie kodu zrobić się nie da.
+  Skutek dla PMT Planera: każdy świeżo zbudowany PMT_Planer.exe ma nowy
+  skrót (hash), więc dla chmury jest nieznany i bez podpisu ZAWSZE
+  zostanie zablokowany. Żadna zmiana w kodzie ani sposobie budowania
+  tego nie zmieni. To samo może spotkać świeżo wydaną wersję biblioteki
+  (np. nowe PyQt6 w tygodniu premiery), zanim nabierze reputacji.
 
-TRZY DROGI — WYBIERZ PRZED ROZSYŁANIEM
+JAK POZNAĆ, CO BLOKUJE
+  · SmartScreen: niebieskie okno „System Windows ochronił ten komputer”
+    z odnośnikiem „Więcej informacji” i przyciskiem „Uruchom mimo to”.
+    To tylko ostrzeżenie o nieznanym wydawcy, da się przejść.
+  · Inteligentna kontrola aplikacji: komunikat „Inteligentna kontrola
+    aplikacji zablokowała aplikację, która może być niebezpieczna” BEZ
+    możliwości uruchomienia. W raporcie PMT_log.txt (przy uruchamianiu
+    Pythonem): „DLL load failed … Zasady kontroli aplikacji zablokowały
+    ten plik”, kod błędu 4551.
+  · Polityka firmowa (WDAC / Device Guard): „…was blocked by your
+    organization's Device Guard policy”. O tym decyduje wyłącznie
+    dział IT, przełącznika w Ustawieniach nie ma.
+  URUCHOM_PROGRAM.bat sam rozpoznaje dwa ostatnie przypadki i wypisuje,
+  który plik nie przeszedł.
 
-  DROGA A: PODPIS CYFROWY (jedyne trwałe rozwiązanie)
-    Po podpisaniu program przechodzi bez pytania u wszystkich.
-    · Azure Trusted Signing — subskrypcja miesięczna, kilkadziesiąt zł,
-      akceptowana przez Smart App Control,
-    · Certum / Sectigo / DigiCert — certyfikat roczny; wersja EV działa
-      od pierwszego dnia, OV potrzebuje trochę czasu na reputację.
-    Po zakupie: dwuklik PODPISZ_EXE.bat — skrypt znajdzie zbudowany
-    program i podpisze go ze znacznikiem czasu.
-    KOSZT TO ARGUMENT NA ROZMOWĘ Z ZARZĄDEM: bez certyfikatu narzędzie
-    nie może działać na firmowych komputerach.
+CO ZROBIŁEM PO SWOJEJ STRONIE (bez kosztów)
+  · budowa FOLDEROWA zamiast jednoplikowej, bez kompresji UPX, z pełnymi
+    metadanymi (nazwa, producent, wersja) i ikoną,
+  · fontTools instalowany bez skompilowanych .pyd (te padły w 3.21.3),
+  · skrypty pierwszego uruchomienia i aktualizacji bez PowerShella,
+  · URUCHOM_PROGRAM.bat rozpoznaje blokadę i mówi, co dalej.
+  Więcej po stronie kodu zrobić się nie da: żaden sposób budowania nie
+  nada plikowi reputacji ani podpisu.
 
-  DROGA B: WYJĄTEK W FIRMOWEJ POLITYCE (rozwiązanie na już)
-    Dział IT może dodać folder programu do wykluczeń Microsoft Defender
-    (Zabezpieczenia Windows → Ochrona przed wirusami → Wykluczenia)
-    albo rozesłać program przez politykę grupową jako zaufany.
+DROGI BEZPŁATNE (od najprostszej)
+
+  DROGA 1: PRZEZ PYTHONA, BEZ PLIKU EXE (testerzy, pojedyncze osoby)
+    Dwuklik URUCHOM_PROGRAM.bat albo skrót z UTWORZ_SKROT.bat.
+    python.exe z python.org jest podpisany przez Python Software
+    Foundation, jego własne moduły też. Biblioteki: PyQt6 i Pillow są
+    popularne, więc chmura zwykle je zna; fpdf2 i openpyxl to czysty
+    Python, nie ma w nich czego blokować.
+    · Python instaluj WYŁĄCZNIE z python.org (instalator „Windows
+      installer (64-bit)”, z zaznaczonym „Add python.exe to PATH”).
+      Wersje „embeddable” i dystrybucje z innych źródeł miewają
+      niepodpisane pliki i padają w pierwszym kroku.
+    · Jeśli launcher wskaże zablokowany plik z folderu PyQt6, to
+      najpewniej świeża wersja bez reputacji: zainstaluj wydanie sprzed
+      co najmniej miesiąca (numery: pypi.org/project/PyQt6/#history):
+          py -3 -m pip install "PyQt6==<numer>" "PyQt6-Qt6==<numer>"
+      albo odczekaj kilka dni i uruchom ponownie.
+
+  DROGA 2: WYŁĄCZENIE INTELIGENTNEJ KONTROLI APLIKACJI
+    (komputer prywatny albo firmowy za zgodą IT; potrzebne uprawnienia
+    administratora)
+    Ustawienia → Prywatność i zabezpieczenia → Zabezpieczenia Windows →
+    Kontrola aplikacji i przeglądarki → Ustawienia inteligentnej kontroli
+    aplikacji → Wyłączone.
+    Trzy stany: Ocena (nic nie blokuje, Windows sam decyduje, czy ją
+    włączyć), Włączona, Wyłączona. Od aktualizacji Windows 11 z kwietnia
+    2026 administrator może ją włączać i wyłączać bez ponownej instalacji
+    systemu; na starszych kompilacjach wyłączenie było nieodwracalne, więc
+    przed zmianą sprawdź, czy system jest aktualny. Na komputerze
+    zarządzanym przez firmę przełącznik bywa wyszarzony; wtedy droga 3.
+
+  DROGA 3: WYJĄTEK W POLITYCE FIRMOWEJ (WDAC / Device Guard)
+    Gotowy tekst do wysłania: WNIOSEK_DO_IT.txt (reguła ścieżkowa dla
+    folderu programu albo informacja, jaki podpis będzie honorowany).
     Przy 65 osobach to jedno zgłoszenie do IT zamiast 65 telefonów.
+    UWAGA: DODAJ_WYJATEK_WINDOWS.bat dodaje wykluczenie w Defenderze,
+    czyli pomaga tylko na skaner antywirusowy, NIE na kontrolę aplikacji.
 
-  DROGA C: BEZ PLIKU EXE (działa natychmiast, dobre na testy)
-    Dwuklik UTWORZ_SKROT.bat tworzy skrót „PMT Planer" na pulpicie,
-    uruchamiający program przez Pythona. Python jest podpisany przez
-    Python Software Foundation, więc Windows go nie blokuje.
-    Wymaga Pythona na komputerze — świetne dla Ciebie i testerów,
-    niepraktyczne dla całego zespołu.
-
-CO POWIEDZIEĆ ZESPOŁOWI, GDY MIMO WSZYSTKO ZOBACZĄ OSTRZEŻENIE
-  „Kliknij Więcej informacji, potem Uruchom mimo to."
-  Zadziała, jeżeli blokuje SmartScreen (zwykłe ostrzeżenie o nieznanym
-  wydawcy). Jeżeli blokuje Inteligentna kontrola aplikacji, ta opcja się
-  nie pojawi — wtedy zostaje droga A albo B.
+DROGA PŁATNA (dla porządku, poza obecnym założeniem „bez kosztów”)
+  Podpis cyfrowy z zaufanego urzędu: Azure Trusted Signing (abonament
+  miesięczny) albo certyfikat OV/EV na rok (Certum, Sectigo, DigiCert).
+  Po podpisaniu: dwuklik PODPISZ_EXE.bat. Certyfikat samopodpisany NIE
+  działa: chmura Microsoft go nie zna. Podpisany, ale zupełnie nowy plik
+  bywa wstrzymywany przez SmartScreen do czasu zbudowania reputacji
+  wydawcy; to osobny mechanizm od kontroli aplikacji.
 
 MOJA REKOMENDACJA NA DZIŚ
-  Zbuduj wersję folderową, przetestuj u siebie i u dwóch–trzech osób.
-  Równolegle zgłoś do IT prośbę o wyjątek (droga B) — to zajmuje im
-  kilka minut. Certyfikat (droga A) załatw spokojnie w ciągu tygodnia;
-  do tego czasu wyjątek wystarczy.
+  Testy: droga 1. Zespół na komputerach firmowych: droga 3, jedno
+  zgłoszenie do IT. Decyzja o podpisie to rozmowa z zarządem, bo bez
+  podpisu plik EXE nie ma szans na komputerach z włączoną kontrolą.
 ═══════════════════════════════════════════════════════════════════════

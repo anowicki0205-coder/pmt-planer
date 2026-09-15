@@ -191,7 +191,7 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
 
   CZEGO KOD NIE ZAŁATWI — powtórzone, bo to nadal prawda:
   „Inteligentna kontrola aplikacji" blokuje KAŻDY program bez podpisu
-  cyfrowego. Szczegóły i trzy możliwe drogi: BEZ_BLOKADY_WINDOWS.txt.
+  cyfrowego. Jak to poznać i możliwe drogi: BEZ_BLOKADY_WINDOWS.txt.
 
 ───────────────────────────────────────────────────────────────────────
 6. TESTY — URUCHOM PRZED KAŻDYM WYDANIEM

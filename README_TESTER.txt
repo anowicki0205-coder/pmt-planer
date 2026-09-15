@@ -82,9 +82,10 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
   Program nie ma podpisu cyfrowego, więc SmartScreen pokazuje niebieskie
   okno „System Windows ochronił Twój komputer". Kliknij „Więcej informacji",
   potem „Uruchom mimo to".
-  Jeśli program znika albo blokada wraca: uruchamiaj ze źródeł (Python jest
-  podpisany i nie bywa blokowany) albo poproś dział IT o wyjątek na folder
-  programu. Więcej: BEZ_BLOKADY_WINDOWS.txt.
+  Jeśli program znika albo blokada wraca: uruchamiaj ze źródeł przez
+  URUCHOM_PROGRAM.bat (Python z python.org jest podpisany, a launcher sam
+  rozpozna, gdyby Windows zablokował którąś bibliotekę) albo poproś dział
+  IT o wyjątek na folder programu. Więcej: BEZ_BLOKADY_WINDOWS.txt.
 
 ═══════════════════════════════════════════════════════════════════════
   DO SPRAWDZENIA

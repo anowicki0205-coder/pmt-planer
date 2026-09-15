@@ -863,6 +863,36 @@ sprawdz("program nie kasuje plików poza własnym katalogiem bez zgody",
         P.AUTOMATYCZNE_SPRZATANIE_DYSKU is False,
         "automatyczne skanowanie i kasowanie plików użytkownika jest włączone")
 
+# Skrypty pierwszego uruchomienia z paczki: bez PowerShella (wolno o nim
+# wspomnieć w komentarzu „rem”, nie wolno go wołać), z końcami linii CRLF
+# (cmd potrafi pogubić etykiety w pliku z samymi LF) i z rozpoznaniem
+# blokady zasad kontroli aplikacji Windows, która obejmuje także
+# biblioteki DLL/.pyd wczytywane przez Pythona.
+for _nazwa5 in ("URUCHOM_PMT.bat", "URUCHOM_PROGRAM.bat", "updater.bat", "updater_folder.bat"):
+    with open(os.path.join(KATALOG, _nazwa5), "rb") as _f5:
+        _surowy5 = _f5.read()
+    _bat5 = _surowy5.decode("ascii", errors="replace")
+    _wola5 = [l for l in _bat5.splitlines()
+              if "powershell" in l.lower() and not l.strip().lower().startswith("rem")]
+    sprawdz("%s nie woła PowerShella" % _nazwa5, not _wola5, repr(_wola5[:2]))
+    sprawdz("%s ma końce linii CRLF" % _nazwa5,
+            _surowy5.count(b"\r\n") == _surowy5.count(b"\n") and _surowy5.count(b"\n") > 0)
+with open(os.path.join(KATALOG, "URUCHOM_PROGRAM.bat"), encoding="ascii", errors="replace") as _f5:
+    _launcher5 = _f5.read()
+sprawdz("launcher rozpoznaje blokadę zasad kontroli aplikacji Windows i kieruje do instrukcji",
+        all(x in _launcher5 for x in ("kontroli aplikacji", "Application Control policy",
+                                       "Device Guard", "WinError 4551",
+                                       "BEZ_BLOKADY_WINDOWS.txt", "WNIOSEK_DO_IT.txt")))
+_cele5 = set(re.findall(r"(?:goto|call) :(\w+)", _launcher5))
+_etykiety5 = set(re.findall(r"^:(\w+)", _launcher5, re.M))
+sprawdz("każdy goto/call w launcherze ma swoją etykietę", _cele5 <= _etykiety5,
+        str(sorted(_cele5 - _etykiety5)))
+with open(os.path.join(KATALOG, "BEZ_BLOKADY_WINDOWS.txt"), encoding="utf-8") as _f5:
+    _doc5 = _f5.read()
+sprawdz("instrukcja o blokadzie opisuje rozpoznanie, drogi bezpłatne i zaznacza drogę płatną",
+        all(x in _doc5 for x in ("4551", "URUCHOM_PROGRAM.bat", "WNIOSEK_DO_IT.txt",
+                                  "DROGA PŁATNA", "Kontrola aplikacji i przeglądarki")))
+
 
 # ══════════════════════════════════════════════════════════════════
 sekcja("5b. Odległości: źródło, pamięć podręczna, klucz Google")

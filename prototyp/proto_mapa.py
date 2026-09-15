@@ -384,7 +384,10 @@ OKRES_RZEKI_MS = 19000.0      # połysk przepływa wzdłuż rzeki
 PROMIEN_LINII = 4.2           # połowa najszerszej warstwy samej linii
 RDZEN_LINII_BARWA = QColor(232, 255, 255)   # jasny rdzeń wstęgi trasy
 PROMIEN_BLASKU = 13.0         # promień świecącej głowy płynącej po trasie
-CZAS_ODSLONY_MS = 1500        # ile trwa rysowanie trasy od bazy z powrotem do bazy
+CZAS_ODSLONY_MS = 2300        # ile trwa rysowanie trasy od bazy z powrotem do bazy
+#  1,5 s było za szybkie, żeby nadążyć wzrokiem za drogą dnia (właściciel:
+#  „mogłoby odbywać się odrobinę dłużej"). Z kartką wracającą na koniec
+#  cała zmiana dnia trwa teraz około 2,7 s.
 
 # ── tło miesiąca ─────────────────────────────────────────────────────
 # W widoku „wszystkie dni” trasy pozostałych dni miesiąca leżą pod trasą

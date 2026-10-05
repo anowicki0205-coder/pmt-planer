@@ -15,8 +15,8 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.23.0)
    W zrodle i w wersja.txt ma byc ten sam numer.
 
 3. Przetestuj:  python testy_pmt.py
-   Maja przejsc WSZYSTKIE: pelny przebieg to ponad 680 kontroli,
-   wariant "python testy_pmt.py --szybko" ponad 500 (okolo 1,5 min).
+   Maja przejsc WSZYSTKIE: pelny przebieg to ponad 1090 kontroli,
+   wariant "python testy_pmt.py --szybko" okolo polowy (okolo 1,5 min).
    Jesli cokolwiek nie przechodzi - NIE buduj.
 
 4. Zbuduj:  dwuklik ZBUDUJ_EXE_FOLDER.bat   (wariant zalecany)

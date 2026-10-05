@@ -205,9 +205,22 @@ def _zapisz_wymagania():
     stary wpis siedział w pliku na dysku i wracał przy każdym starcie."""
     global PIERWSZE_ZOBACZENIE, NAJPOZNIEJSZY_DZIEN
     try:
-        if WERSJA_WYMAGANA and not PIERWSZE_ZOBACZENIE:
-            PIERWSZE_ZOBACZENIE = datetime.date.today().isoformat()
-        dzis = datetime.date.today().isoformat()
+        # Poprzednio zapisane „min=" — po nim poznajemy, czy wymaganie jest
+        # NOWE. Bez tego „pierwsze zobaczenie" zostawało z poprzedniego
+        # progu: cały zespół miał w pliku datę sprzed tygodni, więc
+        # podniesienie „min=" bez wiersza „blokada=" nie dawało 14 dni
+        # okresu przejściowego, tylko odcinało wszystkich tego samego dnia.
+        poprzednie_min = ""
+        try:
+            if os.path.exists(PLIK_WYMAGAN):
+                with open(PLIK_WYMAGAN, encoding="utf-8") as f:
+                    poprzednie_min = (json.load(f) or {}).get("min", "") or ""
+        except Exception:
+            poprzednie_min = ""
+        dzis = _dzisiaj_bez_cofania().isoformat()
+        if WERSJA_WYMAGANA and (not PIERWSZE_ZOBACZENIE
+                                or poprzednie_min != WERSJA_WYMAGANA):
+            PIERWSZE_ZOBACZENIE = dzis
         if dzis > (NAJPOZNIEJSZY_DZIEN or ""):
             NAJPOZNIEJSZY_DZIEN = dzis
         with open(PLIK_WYMAGAN, "w", encoding="utf-8") as f:
@@ -252,12 +265,23 @@ def wersja_zablokowana():
     if _wersja_na_liczbe(WERSJA_PROGRAMU) >= _wersja_na_liczbe(WERSJA_WYMAGANA):
         return (False, None)
     termin = _data_z_tekstu(TERMIN_BLOKADY)
+    # Najwcześniejszy dzień, w którym wolno kogoś odciąć: 14 dni od chwili,
+    # gdy jego program PIERWSZY RAZ zobaczył TO wymaganie. Nikt nie ma
+    # przestać pracować w dniu, w którym dowiedział się o nowym progu.
+    od = _data_z_tekstu(PIERWSZE_ZOBACZENIE)
+    najwczesniej = (od + _dt.timedelta(days=DNI_OKRESU_PRZEJSCIOWEGO)) if od else None
     if termin is None:
         # Brak terminu albo data nie do odczytania (np. wpisana po polsku
         # i zjedzona przez arkusz). Nie odcinamy nikogo z dnia na dzień —
         # dajemy okres przejściowy liczony od pierwszego kontaktu.
-        od = _data_z_tekstu(PIERWSZE_ZOBACZENIE) or _dzisiaj_bez_cofania()
-        termin = od + _dt.timedelta(days=DNI_OKRESU_PRZEJSCIOWEGO)
+        termin = najwczesniej or (_dzisiaj_bez_cofania()
+                                  + _dt.timedelta(days=DNI_OKRESU_PRZEJSCIOWEGO))
+    elif najwczesniej is not None and termin < najwczesniej:
+        # Data blokady starsza niż okres przejściowy TEGO wymagania znaczy,
+        # że została w pliku po POPRZEDNIM progu — ktoś podniósł „min=",
+        # a „blokada=" zostawił nietkniętą. Taki zapis odciąłby cały zespół
+        # natychmiast; zgodnie z zasadą nadrzędną dajemy okres przejściowy.
+        termin = najwczesniej
     zostalo = (termin - _dzisiaj_bez_cofania()).days
     return (zostalo <= 0, max(0, zostalo))
 
@@ -2527,7 +2551,7 @@ WERSJA_PROGRAMU = "3.23.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocn
 # dopisek do numeru: WERSJA_PROGRAMU musi zostac czystym X.Y.Z, bo skrypt
 # testowy (testy_pmt.py) robi int() na jego czesciach poza blokiem obslugi
 # wyjatkow — "3.22.0-TEST" wywrocilby caly skrypt, nie jeden test.
-ETYKIETA_WYDANIA = "WERSJA TESTOWA"
+ETYKIETA_WYDANIA = ""
 
 
 def wersja_pelna() -> str:
@@ -3711,6 +3735,32 @@ def _paczka_nie_nowsza(folder: str, biezaca=None) -> str:
             % (w, biezaca))
 
 
+def _tresc_wyglada_na_wersje(tresc) -> bool:
+    """Czy pobrana treść to NAPRAWDĘ plik wersji, a nie strona firmowego
+    proxy albo komunikat błędu.
+
+    Skąd ten bezpiecznik: pod adresem wersja.txt w sieci firmowej potrafi
+    odpowiedzieć bramka, a nie GitHub. Odpowiedź „403 Forbidden — dostep
+    zablokowany przez polityke firmy" przechodziła dalej jako NUMER WERSJI:
+    _wersja_na_liczbe czyta z niej (403, 0, 0), czyli „nowsza niż 3.23.0",
+    i program oferował aktualizację do wersji o takiej nazwie. Strona HTML
+    z kolei kasowała zapisane na dysku min= i blokada=, czyli zdejmowała
+    obowiązkową aktualizację.
+
+    Format pliku jest ustalony: PIERWSZY niepusty wiersz (poza min=
+    i blokada=) to sam numer X.Y albo X.Y.Z. Cokolwiek innego traktujemy
+    jak brak sieci."""
+    for linia in str(tresc or "").splitlines():
+        l = linia.strip()
+        if not l:
+            continue
+        klucz, znak, _ = l.partition("=")
+        if znak and klucz.strip().lower() in ("min", "blokada"):
+            continue
+        return re.match(r"^\d{1,4}(\.\d{1,4}){1,3}$", l) is not None
+    return False
+
+
 def sprawdz_aktualizacje():
     """Zwraca (jest_nowsza, nowa_wersja, opis) albo (False, '', '').
     Działa cicho: każdy błąd (brak sieci, zły URL) = po prostu nic nie pokazujemy.
@@ -3725,6 +3775,11 @@ def sprawdz_aktualizacje():
         req = urllib.request.Request(URL_WERSJI, headers={"User-Agent": "PMT-Planer"})
         with urllib.request.urlopen(req, timeout=4) as resp:
             tresc = resp.read().decode("utf-8", errors="ignore").strip()
+        # Czy to w ogóle plik wersji. Sprawdzamy PRZED zerowaniem wymagań:
+        # strona firmowego proxy pod tym adresem nie może zdjąć blokady.
+        if not _tresc_wyglada_na_wersje(tresc):
+            _wczytaj_wymagania()
+            return (False, "", "")
         # Wiersze „min=" i „blokada=" mogą stać gdziekolwiek w pliku.
         # Świeżo pobrany wersja.txt jest JEDYNYM źródłem prawdy: najpierw
         # zerujemy wymagania, więc usunięcie „min=" z pliku na GitHubie

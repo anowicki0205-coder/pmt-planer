@@ -292,6 +292,17 @@ def sprawdz_zawartosc_paczki(katalog_budowy=None):
     return [m for m in moduly_wlasne() if "('%s'," % m not in tresc]
 
 
+def spis_nieodczytany(brak) -> bool:
+    """Czy kontrola NIE ZDOŁAŁA odczytać spisu archiwum — w odróżnieniu od
+    sytuacji, w której spis przeczytała i modułu w nim nie ma.
+
+    PYZ-00.toc to WEWNĘTRZNY plik PyInstallera. requirements.txt nie
+    przypina jego wersji, więc nowe wydanie narzędzia może ten plik
+    przenieść albo przezwać — i do 3.23.0 PRZERYWAŁO to budowanie
+    wydania, choć paczka była w porządku. Brak modułu nadal przerywa."""
+    return len(brak) == 1 and str(brak[0]).startswith("(nie odczytałem")
+
+
 def buduj(py, folderowo=True):
     args, dolaczone = polecenie_pyinstallera(py, folderowo)
     pisz("Dołączam do programu: " + (", ".join(dolaczone) or "(brak plików dodatkowych)"))
@@ -420,12 +431,18 @@ def main():
     # Paczka bez nowego wyglądu uruchomi się i po cichu pokaże stare okno —
     # dlatego brak KTÓREGOKOLWIEK własnego modułu przerywa budowanie.
     brak = sprawdz_zawartosc_paczki()
-    if brak:
+    if spis_nieodczytany(brak):
+        pisz("[UWAGA] " + brak[0])
+        pisz("        Spis archiwum to wewnętrzny plik PyInstallera — jego brak")
+        pisz("        NIE znaczy, że czegoś brakuje w paczce. Pomijam tę kontrolę;")
+        pisz("        po uruchomieniu sprawdź, czy widzisz nowy wygląd okna.")
+    elif brak:
         pisz("[BŁĄD] W paczce brakuje modułów: " + ", ".join(brak))
         pisz("       (spis archiwum: build\\PMT_Planer\\PYZ-00.toc)")
         return 1
-    pisz("W paczce są wszystkie własne moduły (%d): %s"
-         % (len(moduly_wlasne()), ", ".join(moduly_wlasne())))
+    else:
+        pisz("W paczce są wszystkie własne moduły (%d): %s"
+             % (len(moduly_wlasne()), ", ".join(moduly_wlasne())))
     if folderowo:
         dolacz_do_paczki(sc, wer)
     pisz("")

@@ -16,34 +16,35 @@ if not exist "PMT_Delegacje.py" goto :brak_plikow
 echo Pobieram zmiany z serwera...
 git pull
 echo(
-rem Lista plikow, ktore FAKTYCZNIE skladaja sie na program.
-rem Wczesniej byly tu nazwy z innej, nigdy niewydanej paczki
-rem (intro_zywa_mapa.py, karta_testera.py, wyglad_3d.py) - przez to skrypt
-rem zawsze konczyl sie komunikatem "brakuje plikow" i nie dalo sie go uzyc.
-set "BRAK="
-for %%F in (PMT_Delegacje.py intro_zywa_mapa.py karta_testera.py wyglad_3d.py zbuduj.py wersja_pomocnik.py wersja_exe.txt) do if not exist "%%F" set "BRAK=%BRAK% %%F"
-if not defined BRAK goto :dodaj
-echo [UWAGA] W folderze brakuje plikow:%BRAK%
-echo Skopiuj je z paczki i uruchom ponownie.
+rem Tylko JEDEN plik musi tu byc - bez niego nie ma czego wysylac.
+rem Wyliczanej listy nazw tu JUZ NIE MA. Skrypt wymienial pliki po jednym
+rem i przy kazdym porzadku w repozytorium stawal na nazwie, ktorej juz nie
+rem ma (ostatnio intro_zywa_mapa.py, usuniety w 3.23.0), a nowych modulow
+rem - prototyp\proto_*.py, nowy_wyglad.py, okno_logowania.py - nie wysylal
+rem wcale, bo nikt ich do listy nie dopisal.
+if exist "PMT_Delegacje.py" goto :dodaj
+echo [UWAGA] W tym folderze nie ma PMT_Delegacje.py.
+echo Uruchom skrypt w folderze ze zrodlami programu.
 goto :stop
 
 :dodaj
-rem Kontrola bezpieczenstwa: menedzer.txt to dane osobowe i NIE MOZE
-rem trafic do repozytorium. Plik .gitignore tego pilnuje, ale sprawdzamy
-rem jeszcze raz - blad w tym miejscu jest nie do cofniecia.
-git check-ignore -q menedzer.txt
-if errorlevel 1 if exist "menedzer.txt" goto :dane_osobowe
+rem Kontrola bezpieczenstwa: te trzy pliki to dane osobowe albo sekrety
+rem i NIE MOGA trafic do repozytorium. Plik .gitignore tego pilnuje, ale
+rem sprawdzamy jeszcze raz - blad w tym miejscu jest nie do cofniecia,
+rem bo repozytorium pamieta kazda swoja wersje.
+for %%S in (menedzer.txt sekret.txt pmt_kod.txt) do if exist "%%S" (
+  git check-ignore -q "%%S"
+  if errorlevel 1 set "JAWNY=%%S"
+)
+if defined JAWNY goto :dane_osobowe
 
 echo Dodaje pliki zrodlowe...
-git add PMT_Delegacje.py intro_zywa_mapa.py karta_testera.py wyglad_3d.py zbuduj.py wersja_pomocnik.py wersja_exe.txt
-git add testy_pmt.py START_TUTAJ.txt BEZ_BLOKADY_WINDOWS.txt BACKEND_APPS_SCRIPT.txt
-git add INSTRUKCJA_BUDOWY.txt .gitignore 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt
-git add ZBUDUJ_EXE.bat ZBUDUJ_EXE_FOLDER.bat SPRAWDZ_WERSJE.bat URUCHOM_PROGRAM.bat
-git add UTWORZ_SKROT.bat PODPISZ_EXE.bat DODAJ_WYJATEK_WINDOWS.bat URUCHOM_PMT.bat
-git add updater.bat updater_folder.bat updater.sh
-git add .github/workflows/build.yml .github/workflows/testy.yml
-if exist "pmt_logo.png" git add pmt_logo.png
-if exist "pmt_logo.ico" git add pmt_logo.ico
+rem Wszystko, co nie jest pominiete przez .gitignore. Jedna komenda zamiast
+rem listy nazw - dzieki temu nowy modul jedzie na GitHub sam, a usuniety
+rem przestaje blokowac skrypt.
+git add -A
+rem wersja.txt podbija CI po zbudowaniu paczki - nasza kopia nie ma go nadpisac.
+git reset -q wersja.txt
 echo(
 echo UWAGA: wersja.txt NIE jest wysylany - po zbudowaniu wydania GitHub podbije go SAM.
 echo(
@@ -68,10 +69,11 @@ echo [BLAD] To nie jest folder repozytorium - brak katalogu .git
 goto :stop
 
 :dane_osobowe
-echo [STOP] W folderze lezy menedzer.txt, a nie jest ignorowany przez git.
-echo        To dane osobowe - nie moga trafic do repozytorium.
-echo        Sprawdz, czy w folderze jest plik .gitignore z wpisem menedzer.txt
-echo        (jest w paczce), albo usun menedzer.txt z tego folderu.
+echo [STOP] W folderze lezy %JAWNY%, a nie jest ignorowany przez git.
+echo        To dane osobowe albo sekret - nie moga trafic do repozytorium.
+echo        Sprawdz, czy w folderze jest plik .gitignore z wpisami
+echo        menedzer.txt, sekret.txt i pmt_kod.txt (jest w paczce),
+echo        albo usun ten plik z tego folderu.
 goto :stop
 
 :brak_plikow

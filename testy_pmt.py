@@ -24,6 +24,7 @@ import zlib
 import math
 import time
 import base64
+import io
 import json
 import datetime
 import datetime
@@ -594,6 +595,50 @@ for _nazwa, _tresc in _WARIANTY.items():
             P.WERSJA_WYMAGANA == "3.99.0" and P.TERMIN_BLOKADY == "2099-12-01",
             "min=%r blokada=%r" % (P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY))
 
+# ── CZY TO W OGÓLE PLIK WERSJI ────────────────────────────────────────
+# Pod adresem wersja.txt w sieci firmowej potrafi odpowiedzieć bramka proxy,
+# a nie GitHub. „403 Forbidden — dostep zablokowany przez polityke firmy"
+# przechodziło dalej jako NUMER WERSJI (_wersja_na_liczbe czyta (403, 0, 0),
+# czyli „nowsza"), a strona HTML kasowała zapisane min= i blokada=.
+for _tresc, _oczek in [
+        ("403 Forbidden - dostep zablokowany przez polityke firmy", False),
+        ("ERROR 407 Proxy Authentication Required", False),
+        ("<!DOCTYPE html>\n<html><head><title>Blocked</title></head>", False),
+        ("<html>min=3.23.0</html>", False),
+        ("", False),
+        ("3.24.0", True),
+        ("3.24.0\nOpis\nmin=3.21.4\nblokada=2026-12-01", True),
+        ("min=3.21.4\n3.24.0\nOpis", True),
+        ("3.23", True),
+        ("3.23.0.1", True)]:
+    sprawdz("plik wersji rozpoznany: %r -> %s" % (_tresc[:38], _oczek),
+            P._tresc_wyglada_na_wersje(_tresc) is _oczek)
+
+# ...i że taka odpowiedź nie zdejmuje blokady zapisanej na dysku
+_s3_url, _s3_open = P.URL_WERSJI, P.urllib.request.urlopen
+try:
+    class _S3Odp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    P.URL_WERSJI = "https://przyklad.invalid/wersja.txt"
+    P.urllib.request.urlopen = lambda *a, **k: _S3Odp(b"403 Forbidden - polityka firmy")
+    P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY = "9.99.9", "2099-01-01"
+    P.PIERWSZE_ZOBACZENIE = ""
+    P._zapisz_wymagania()
+    P.WERSJA_WYMAGANA = P.TERMIN_BLOKADY = ""
+    _s3_wynik = P.sprawdz_aktualizacje()
+    sprawdz("strona proxy pod adresem wersja.txt nie oferuje aktualizacji i nie zdejmuje blokady",
+            _s3_wynik == (False, "", "") and P.WERSJA_WYMAGANA == "9.99.9"
+            and P.TERMIN_BLOKADY == "2099-01-01",
+            "wynik=%s min=%r blokada=%r" % (_s3_wynik, P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY))
+finally:
+    P.URL_WERSJI, P.urllib.request.urlopen = _s3_url, _s3_open
+    P.WERSJA_WYMAGANA = P.TERMIN_BLOKADY = P.PIERWSZE_ZOBACZENIE = ""
+    try:
+        os.remove(P.PLIK_WYMAGAN)
+    except Exception:
+        pass
+
 _dzis = datetime.date.today()
 _PRZYPADKI = [
     ("wersja aktualna", P.WERSJA_PROGRAMU, (_dzis + datetime.timedelta(days=1)).isoformat(), False),
@@ -631,12 +676,67 @@ P._wczytaj_wymagania()
 sprawdz("wymagania przeżywają restart bez internetu",
         P.WERSJA_WYMAGANA == "9.99.9", "min=%r" % P.WERSJA_WYMAGANA)
 
-# cofnięcie zegara nie może zdjąć blokady
+# cofnięcie zegara nie może zdjąć blokady. Termin minął DAWNO (90 dni), a to
+# wymaganie program widzi od 100 dni — okres przejściowy ma więc za sobą.
 P.WERSJA_WYMAGANA = "9.99.9"
-P.TERMIN_BLOKADY = (_dzis - datetime.timedelta(days=5)).isoformat()
+P.TERMIN_BLOKADY = (_dzis - datetime.timedelta(days=90)).isoformat()
+P.PIERWSZE_ZOBACZENIE = (_dzis - datetime.timedelta(days=100)).isoformat()
 sprawdz("przeterminowana wersja jest zablokowana", P.wersja_zablokowana()[0] is True)
 
-P.WERSJA_WYMAGANA = P.TERMIN_BLOKADY = ""
+# ── PUŁAPKA PODNIESIENIA „min=" ────────────────────────────────────────
+# Data blokady zostaje w wersja.txt po POPRZEDNIM progu i bywa już przeszła.
+# Samo podniesienie „min=" (albo skasowanie wiersza „blokada=", co wygląda
+# na bezpieczne wyjście) odcinało wtedy CAŁY zespół tego samego dnia: okres
+# przejściowy liczył się od pierwszego zobaczenia JAKIEGOKOLWIEK wymagania,
+# czyli u wszystkich od tygodni. Teraz liczy się od TEGO wymagania.
+_P_WCZORAJ = (_dzis - datetime.timedelta(days=11)).isoformat()      # stary termin
+_P_DAWNO   = (_dzis - datetime.timedelta(days=25)).isoformat()      # poprzedni próg
+
+# a) nowy próg + przeszła data blokady = okres przejściowy, nie odcięcie
+P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY = "9.99.9", _P_WCZORAJ
+P.PIERWSZE_ZOBACZENIE = _dzis.isoformat()
+_zab, _dni = P.wersja_zablokowana()
+sprawdz("blokada: podniesiony min= przy przeszłej dacie NIE odcina z dnia na dzień",
+        _zab is False and _dni == P.DNI_OKRESU_PRZEJSCIOWEGO,
+        "zablokowana=%s dni=%s" % (_zab, _dni))
+
+# b) nowy próg bez wiersza „blokada=" — to samo
+P.TERMIN_BLOKADY = ""
+_zab, _dni = P.wersja_zablokowana()
+sprawdz("blokada: podniesiony min= BEZ wiersza blokada= też daje 14 dni",
+        _zab is False and _dni == P.DNI_OKRESU_PRZEJSCIOWEGO,
+        "zablokowana=%s dni=%s" % (_zab, _dni))
+
+# c) data w przyszłości dalej rządzi — dalszy termin wygrywa z podłogą
+P.TERMIN_BLOKADY = (_dzis + datetime.timedelta(days=40)).isoformat()
+_zab, _dni = P.wersja_zablokowana()
+sprawdz("blokada: termin dalszy niż okres przejściowy zostaje nietknięty",
+        _zab is False and _dni == 40, "zablokowana=%s dni=%s" % (_zab, _dni))
+
+# d) po okresie przejściowym przeszły termin ODCINA (mechanizm nie jest zepsuty)
+P.TERMIN_BLOKADY = _P_WCZORAJ
+P.PIERWSZE_ZOBACZENIE = _P_DAWNO
+_zab, _dni = P.wersja_zablokowana()
+sprawdz("blokada: gdy okres przejściowy minął, przeszły termin odcina",
+        _zab is True, "zablokowana=%s dni=%s" % (_zab, _dni))
+
+# e) zmiana „min=" w pliku przestawia datę pierwszego zobaczenia na dziś
+try:
+    os.remove(P.PLIK_WYMAGAN)
+except Exception:
+    pass
+P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.PIERWSZE_ZOBACZENIE = "3.21.4", "", ""
+P._zapisz_wymagania()
+P.PIERWSZE_ZOBACZENIE = _P_DAWNO                 # tak to wygląda po tygodniach
+P._zapisz_wymagania()
+_stare_pierwsze = P.PIERWSZE_ZOBACZENIE
+P.WERSJA_WYMAGANA = "3.23.0"                      # właściciel podnosi próg
+P._zapisz_wymagania()
+sprawdz("nowe wymaganie min= zeruje datę pierwszego zobaczenia (stare zostaje przy tym samym min=)",
+        _stare_pierwsze == _P_DAWNO and P.PIERWSZE_ZOBACZENIE == _dzis.isoformat(),
+        "stare=%r nowe=%r" % (_stare_pierwsze, P.PIERWSZE_ZOBACZENIE))
+
+P.WERSJA_WYMAGANA = P.TERMIN_BLOKADY = P.PIERWSZE_ZOBACZENIE = ""
 try:
     os.remove(P.PLIK_WYMAGAN)
 except Exception:
@@ -6396,6 +6496,21 @@ try:
             str(_ZB21.sprawdz_zawartosc_paczki(_kat21)))
     sprawdz("brak spisu = zgłoszony brak, nie cisza",
             _ZB21.sprawdz_zawartosc_paczki(os.path.join(_kat21, "nie_ma")) != [])
+    # Nieodczytany spis archiwum to NIE to samo, co brak modułu: PYZ-00.toc
+    # jest wewnętrznym plikiem PyInstallera, a requirements.txt nie przypina
+    # jego wersji — nowe wydanie narzędzia mogło zatrzymać całe wydanie.
+    sprawdz("zbuduj odróżnia „nie odczytałem spisu” od „brakuje modułu”",
+            _ZB21.spis_nieodczytany(
+                _ZB21.sprawdz_zawartosc_paczki(os.path.join(_kat21, "nie_ma"))) is True
+            and _ZB21.spis_nieodczytany(["nowy_wyglad"]) is False
+            and _ZB21.spis_nieodczytany([]) is False)
+    _zb_main21 = open(os.path.join(KATALOG, "zbuduj.py"),
+                      encoding="utf-8").read().split("def main(")[-1]
+    sprawdz("zbuduj: nieodczytany spis to [UWAGA] i budowanie idzie dalej, brak modułu nadal przerywa",
+            "if spis_nieodczytany(brak):" in _zb_main21
+            and "elif brak:" in _zb_main21
+            and _zb_main21.index("spis_nieodczytany(brak)") < _zb_main21.index("elif brak:")
+            and re.search(r"elif brak:(?:[^\n]*\n){1,4}\s*return 1", _zb_main21) is not None)
 
     # ── 21e. numer wersji: jedno źródło (WERSJA_PROGRAMU) ─────────
     _exe21 = os.path.join(_kat21, "wersja_exe.txt")
@@ -6480,13 +6595,54 @@ try:
             _bez_komentarzy21.count("name: Sekret aplikacji z sekretu repozytorium") == 2
             and len(re.findall(r"> *sekret\.txt", _bez_komentarzy21)) == 2
             and "secrets.PMT_SEKRET" in _czesci21[0] and "secrets.PMT_SEKRET" in _czesci21[1])
+    # ETYKIETA_WYDANIA = "WERSJA TESTOWA" stała na gałęzi w dniu, w którym
+    # 3.23.0 miało iść do 65 osób — wszyscy zobaczyliby ten napis w pasku
+    # okna. Testy nie mogą wymagać pustej etykiety (paczki dla testera mają
+    # ją ustawioną celowo), więc pilnuje tego budowanie Z TAGU.
+    sprawdz("build.yml zatrzymuje paczkę z TAGU, gdy ETYKIETA_WYDANIA nie jest pusta",
+            "Kontrola - paczka z tagu bez etykiety testowej" in _bez_komentarzy21
+            and "ETYKIETA_WYDANIA" in _bez_komentarzy21
+            and re.search(r"ETYKIETA\" != '\"\"'", _bez_komentarzy21) is not None
+            and re.search(r"::error::Paczka z tagu ma ustawiona ETYKIETA_WYDANIA[^\n]*\n\s*exit 1",
+                          _bez_komentarzy21) is not None)
+    sprawdz("build.yml: kontrola etykiety biegnie PRZED budowaniem i tylko dla tagu",
+            _bez_komentarzy21.index("Kontrola - paczka z tagu bez etykiety testowej")
+            < _bez_komentarzy21.index("python zbuduj.py --folder")
+            and "if: startsWith(github.ref, 'refs/tags/')" in _bez_komentarzy21)
     sprawdz("build.yml: brak PMT_SEKRET zatrzymuje budowanie (::error + exit 1), chyba że vars.PMT_SEKRET_OPCJONALNY=tak",
             "vars.PMT_SEKRET_OPCJONALNY" in _bez_komentarzy21
             and re.search(r"::error::Brak sekretu PMT_SEKRET[^\n]*\n\s*exit 1", _bez_komentarzy21) is not None)
     _doc21 = open(os.path.join(KATALOG, "BACKEND_APPS_SCRIPT.txt"), encoding="utf-8").read()
-    sprawdz("instrukcja backendu: placeholder <NOWY_SEKRET> zamiast wartości i procedura obrotu (generuj → SEKRETY_PMT przed starym → PMT_SEKRET → usuń stary)",
-            "'<NOWY_SEKRET>'" in _doc21 and "OBRÓT SEKRETU" in _doc21 and "secrets.token_urlsafe" in _doc21
+    sprawdz("instrukcja backendu: procedura obrotu sekretu (generuj → SEKRETY_PMT przed starym → PMT_SEKRET → usuń stary)",
+            "OBRÓT SEKRETU" in _doc21 and "secrets.token_urlsafe" in _doc21
             and "PRZED starym" in _doc21 and "PMT_SEKRET" in _doc21 and "USUŃ stary sekret" in _doc21)
+
+    # ── 21i. blok bezpieczeństwa JEST W PLIKU .gs ──────────────────────
+    # Do 3.23.0 blok (SEKRETY_PMT, AKCJE_PODPISANE, weryfikujPodpis) leżał
+    # TYLKO w BACKEND_APPS_SCRIPT.txt jako tekst do wklejenia, a instrukcja
+    # kazała wkleić CAŁY .gs do Code.gs. Kto zrobił jedno i drugie, dostawał
+    # backend BEZ weryfikacji podpisu — po cichu, bo nic się nie psuło:
+    # podpisane akcje (puls, sesja, reset_hasla) przechodziły wszystkim.
+    sprawdz("backend .gs ma własny blok bezpieczeństwa (nie trzeba go wklejać osobno)",
+            all(("var SEKRETY_PMT" in _gs21, "var AKCJE_PODPISANE" in _gs21,
+                 "function weryfikujPodpis(" in _gs21, "function wersjaZaStara(" in _gs21,
+                 "function _pmtSekrety(" in _gs21)))
+    _dp21 = _gs21.split("function doPost(")[1].split("\nfunction ")[0]
+    sprawdz("backend doPost odrzuca akcje z AKCJE_PODPISANE bez dobrego podpisu, PRZED rozdzielaczem",
+            "!weryfikujPodpis(dane)" in _dp21 and "wersjaZaStara(dane.wersja)" in _dp21
+            and _dp21.index("weryfikujPodpis") < _dp21.index("switch (dane.akcja)"))
+    _lista21 = _gs21.split("var SEKRETY_PMT = [")[1].split("]")[0]
+    sprawdz("backend .gs niesie WYŁĄCZNIE zaślepki <...>, żadnej prawdziwej wartości sekretu",
+            [w for w in re.findall(r"'([^']*)'", _lista21)]
+            and all(w.startswith("<") for w in re.findall(r"'([^']*)'", _lista21)),
+            _lista21.strip())
+    sprawdz("backend: zaślepka <...> nigdy nie potwierdza podpisu (świeży skrypt odmawia, zamiast przyjmować)",
+            "s.charAt(0) !== '<'" in _gs21 and "lista = _pmtSekrety()" in _gs21)
+    sprawdz("backend doGet pokazuje LICZBĘ wpisanych sekretów (do sprawdzenia wdrożenia), nie ich treść",
+            "sekrety: _pmtSekrety().length" in _gs21)
+    sprawdz("instrukcja backendu NIE każe już wklejać bloku z powrotem do Code.gs",
+            "wklej je z powrotem" not in _doc21 and "nowy plik ich nie zawiera" not in _doc21
+            and "jest już W TYM\n       PLIKU" in _doc21)
 except Exception as _e21:
     sprawdz("wydanie: jedno źródło prawdy budowania", False, repr(_e21))
     import traceback as _tb21

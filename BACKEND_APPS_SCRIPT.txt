@@ -1,8 +1,12 @@
 ═══════════════════════════════════════════════════════════════════════
-  BACKEND (GOOGLE APPS SCRIPT) — CO ZROBIĆ PRZY WYDANIU 3.21.0
-  wersja instrukcji: 3.23.0 + obrót sekretu (dopiski na górze;
-  kroki 0–4 bez zmian poza listą SEKRETY_PMT, która nie niesie już
-  żadnej prawdziwej wartości — patrz OBRÓT SEKRETU)
+  BACKEND (GOOGLE APPS SCRIPT) — CO ZROBIĆ PRZY WYDANIU 3.23.0
+  wersja instrukcji: 3.23.0 + obrót sekretu
+
+  NAJWIĘKSZA ZMIANA WZGLĘDEM POPRZEDNIEJ INSTRUKCJI: bloku
+  bezpieczeństwa NIE WKLEJA SIĘ JUŻ RĘCZNIE. Siedzi w pliku
+  apps_script_POPRAWIONY_v2.gs i doPost sam go woła. Wklejenie całego
+  Code.gs już go nie gubi — a gubiło, po cichu, zostawiając backend
+  bez weryfikacji podpisu.
 ═══════════════════════════════════════════════════════════════════════
 
 OBRÓT SEKRETU APLIKACJI — OBOWIĄZKOWO PRZED NAJBLIŻSZYM WYDANIEM
@@ -35,13 +39,19 @@ OBRÓT SEKRETU APLIKACJI — OBOWIĄZKOWO PRZED NAJBLIŻSZYM WYDANIEM
       w repozytorium ani do tej instrukcji — tylko do sekret.txt (który
       .gitignore pomija) i do dwóch miejsc niżej.
 
-  (b) Apps Script → Code.gs → blok z KROKU 1: dopisz nowy sekret do listy
-      SEKRETY_PMT PRZED starym. Lista ma wtedy: nowy sekret i ten, który
-      już tam masz (wpisany w kodzie 3.21.0–3.23.0). Jeśli wisi tam
-      jeszcze trzeci, z 3.20.x — usuń go, gdy w arkuszu nikt nie ma
-      3.20.x. Wdróż: Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja:
-      Nowa → Wdróż (adres /exec zostaje). Backend przyjmuje odtąd OBA
-      sekrety, więc paczki 3.21.0–3.23.0 działają dalej.
+  (b) Apps Script → Code.gs: wklej CAŁY apps_script_POPRAWIONY_v2.gs
+      (Ctrl+A, potem wklej — ma ZASTĄPIĆ treść), a następnie w liście
+      SEKRETY_PMT u góry wpisz NOWY sekret PRZED starym, a jako drugi
+      ten, który do tej pory miałeś w starym bloku (wpisany w kodzie
+      3.21.0–3.22.0). Jeśli wisiał tam jeszcze trzeci, z 3.20.x —
+      pomiń go, gdy w arkuszu nikt nie ma 3.20.x. Wdróż: Wdróż →
+      Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż (adres
+      /exec zostaje). Backend przyjmuje odtąd OBA sekrety, więc paczki
+      3.21.0–3.22.0 działają dalej.
+
+      SPRAWDŹ OD RAZU: otwórz adres /exec w przeglądarce — ma pokazać
+      sekrety: 2. Zero znaczy, że w SEKRETY_PMT zostały zaślepki <...>
+      i backend odmawia pulsu, sesji oraz resetu hasła.
 
   (c) GitHub → Settings → Secrets and variables → Actions → New
       repository secret → nazwa PMT_SEKRET, wartość = nowy sekret.
@@ -83,14 +93,14 @@ PRZY WYDANIU 3.23.0 — WDRÓŻ NOWY PLIK .GS (5 minut)
        wywołania), więc nic mu nie ubywa.
 
   CO WDROŻYĆ:
-    a) Rozszerzenia → Apps Script → Code.gs: zaznacz wszystko i wklej
-       CAŁY apps_script_POPRAWIONY_v2.gs. Jeśli na górze Code.gs masz
-       już blok z KROKU 1 (SEKRETY_PMT, weryfikujPodpis, AKCJE_PODPISANE)
-       i trzy linie z KROKU 2 w doPost — wklej je z powrotem w te same
-       miejsca (nowy plik ich nie zawiera, tak jak poprzedni).
+    a) Rozszerzenia → Apps Script → Code.gs: zaznacz wszystko (Ctrl+A)
+       i wklej CAŁY apps_script_POPRAWIONY_v2.gs. Blok bezpieczeństwa
+       (SEKRETY_PMT, AKCJE_PODPISANE, weryfikujPodpis) jest już W TYM
+       PLIKU i doPost sam go woła — niczego nie wklejasz z powrotem.
+       Jedyne, co trzeba uzupełnić, to SEKRETY_PMT: patrz KROK 1.
     b) Zapisz, potem Wdróż → Zarządzaj wdrożeniami → ołówek →
        Wersja: Nowa → Wdróż. Adres /exec zostaje ten sam.
-    c) Sprawdź (KROK 3 niżej): logowanie z programu, „Nie pamiętam hasła"
+    c) Sprawdź (KROK 2 niżej): logowanie z programu, „Nie pamiętam hasła"
        z programu (reset telefonem + nowe hasło + logowanie nowym hasłem),
        logowanie z telefonu (pmt_wizyty.html), jeden puls w arkuszu.
        Nowe: w zakładce Log po każdej próbie resetu ma być wiersz.
@@ -99,19 +109,17 @@ PRZY WYDANIU 3.23.0 — WDRÓŻ NOWY PLIK .GS (5 minut)
 
 KTÓRY PLIK .GS JEST TEN WŁAŚCIWY
 
-  W repozytorium leżą trzy warianty. NAJNOWSZY jest
-  apps_script_POPRAWIONY_v2.gs (939 linii) — i to on odpowiada temu,
-  co masz wdrożone (inaczej nikt z hasłem literowym nie mógłby się
-  zalogować).
+  Od 3.23.0 w repozytorium jest JEDEN plik backendu:
+  apps_script_POPRAWIONY_v2.gs. Dwa stare warianty (apps_script.gs
+  i apps_script_NAPRAWIONY.gs) zostały usunięte właśnie dlatego, żeby
+  nie dało się wkleić złego — apps_script.gs odrzucał hasła literowe
+  komunikatem „Podaj 9-cyfrowy numer telefonu" i odciął od systemu
+  każdego, kto ma ustawione własne hasło.
 
-  NIE WKLEJAJ z powrotem apps_script.gs (847 linii). To wariant sprzed
-  poprawki logowania: w linii 434 odrzuca żądanie komunikatem „Podaj
-  9-cyfrowy numer telefonu", ZANIM w ogóle spojrzy na hasło. Program
-  wysyła hasło również w polu „telefon", więc każde hasło literowe
-  wywala się na tej bramce. Wklejenie tego pliku odetnie od systemu
-  wszystkich, którzy mają ustawione własne hasło.
-
-  Zmiany opisane niżej rób na apps_script_POPRAWIONY_v2.gs.
+  Obowiązuje wyłącznie apps_script_POPRAWIONY_v2.gs i zawiera on
+  WSZYSTKO: rozdzielacz akcji, obsługę arkusza oraz blok
+  bezpieczeństwa (SEKRETY_PMT, AKCJE_PODPISANE, weryfikujPodpis,
+  wersjaZaStara).
 
 NAJWAŻNIEJSZE OSTRZEŻENIE — PRZECZYTAJ, ZANIM COKOLWIEK ZMIENISZ
 
@@ -132,127 +140,60 @@ NAJWAŻNIEJSZE OSTRZEŻENIE — PRZECZYTAJ, ZANIM COKOLWIEK ZMIENISZ
   nową wersję (i podczas obrotu sekretu — patrz góra) nikt nie wypada.
 
 ───────────────────────────────────────────────────────────────────────
-KROK 0 — USUŃ STARY BLOK, JEŚLI JUŻ TAM JEST (30 sekund, obowiązkowo)
-───────────────────────────────────────────────────────────────────────
-  W Code.gs naciśnij Ctrl+F i poszukaj po kolei:
-        weryfikujPodpis        SEKRET_PMT        WYMAGAJ_PODPISU
-  Jeśli którekolwiek z tych słów jest w pliku — pochodzi ze starszej
-  instrukcji (ZABEZPIECZENIA_BACKEND.txt) i USUŃ CAŁY tamten blok, zanim
-  wkleisz nowy.
-
-  DLACZEGO TO WAŻNE: w JavaScripcie druga definicja funkcji o tej samej
-  nazwie po cichu zastępuje pierwszą. Zostawiając oba bloki dostaniesz
-  weryfikację ze STARYM sekretem — czyli dokładnie to, czego chcemy
-  uniknąć: program 3.21.0 podpisuje nowym i dostaje „odmowa".
-
-───────────────────────────────────────────────────────────────────────
-KROK 1 — WKLEJ TEN BLOK NA POCZĄTEK PLIKU Code.gs
+KROK 1 — WKLEJ CAŁY PLIK apps_script_POPRAWIONY_v2.gs (3 minuty)
 ───────────────────────────────────────────────────────────────────────
 
-/* ═══ PMT 3.21.0 — podpis, wersja, limity ════════════════════════ */
+  Do 3.22.0 były tu trzy kroki: usuń stary blok, wklej nowy blok na
+  początek pliku, dopisz trzy linie w doPost. Tego już NIE MA — blok
+  bezpieczeństwa jest w pliku .gs i doPost sam go woła. Ręczne
+  składanie backendu z dwóch źródeł było najłatwiejszym sposobem
+  zostawienia go bez weryfikacji podpisu.
 
-// Kilka sekretów naraz: NOWY (z sekret.txt w paczce — OBRÓT SEKRETU na
-// górze tej instrukcji) i STARY (wpisany w kodzie 3.21.0–3.23.0; jeśli
-// wisi tu jeszcze ten z 3.20.x — też jest stary). W miejsce <...> wpisz
-// prawdziwe wartości — w tym pliku ich celowo nie ma.
-// Stare USUŃ z tej listy, gdy cały zespół zaktualizuje program.
-var SEKRETY_PMT = [
-  '<NOWY_SEKRET>',
-  '<STARY_SEKRET_Z_KODU_3.21.0-3.23.0>'
-];
+  1a. Apps Script → Code.gs → Ctrl+A → wklej CAŁY
+      apps_script_POPRAWIONY_v2.gs. Ma ZASTĄPIĆ dotychczasową treść.
+      NIE dopisuj go pod spodem: dwie funkcje o tej samej nazwie
+      w jednym pliku to cicha pomyłka, bo JavaScript bierze ostatnią.
 
-// Akcje wysyłane WYŁĄCZNIE przez program na komputerze — tylko one mogą
-// wymagać podpisu. Aplikacja na telefonie ich nie używa (sprawdzone:
-// pmt_wizyty.html wysyła analiza_polki, logowanie, moje_sklepy,
-// ostatnia_wizyta, produkty, zapisz_planogram, zapisz_produkt,
-// zapisz_wizyte, zgloszenie, zmien_haslo — i żadnej z poniższych).
-// reset_hasla jest tu najważniejsze: po tej zmianie hasła nie da się
-// wyzerować z przeglądarki, tylko z podpisanego programu.
-var AKCJE_PODPISANE = ['puls', 'sesja', 'reset_hasla'];
+  1b. Jeśli wcześniej miałeś blok z tej instrukcji albo ze starszej
+      (ZABEZPIECZENIA_BACKEND.txt — słowa weryfikujPodpis, SEKRET_PMT,
+      WYMAGAJ_PODPISU), Ctrl+A w punkcie 1a usunął go razem z resztą.
+      Tak ma być — nowy plik ma własny, jeden blok. Sprawdź tylko
+      przez Ctrl+F, czy WYMAGAJ_PODPISU już nigdzie nie występuje.
 
-// Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
-// Wpisz '3.21.0' dopiero wtedy, gdy zespół ma już nową wersję
-// (zalecane: 14 dni po publikacji wydania).
-var WYMAGANA_WERSJA = '';
+  1c. W liście SEKRETY_PMT (na początku pliku, pod nagłówkiem) wpisz
+      prawdziwe sekrety w miejsce zaślepek <NOWY_SEKRET> i
+      <STARY_SEKRET_Z_KODU_3.21.0-3.22.0>. W repozytorium tych wartości
+      nie ma i nigdy być nie może.
 
-function _pmtHex(sig) {
-  return sig.map(function (b) {
-    return ('0' + (b & 255).toString(16)).slice(-2);
-  }).join('');
-}
+      DOPÓKI ZOSTAJĄ ZAŚLEPKI, backend odmawia pulsu, sesji i resetu
+      hasła — celowo: lepiej odmówić niż przyjmować cokolwiek.
 
-function weryfikujPodpis(d) {
-  try {
-    var czas = Number(d.klucz_czas || 0);
-    if (!czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
-    var baza = String(d.kod || '') + '|' + String(d.akcja || '') + '|' + czas;
-    var podany = String(d.podpis || '');
-    for (var i = 0; i < SEKRETY_PMT.length; i++) {
-      var sig = Utilities.computeHmacSha256Signature(baza, SEKRETY_PMT[i]);
-      if (_pmtHex(sig) === podany) return true;
-    }
-    return false;
-  } catch (e) { return false; }
-}
+  1d. Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
+      ADRES /exec POZOSTAJE TEN SAM.
 
-function wersjaZaStara(w) {
-  if (!WYMAGANA_WERSJA) return false;        // odcinanie wyłączone
-  // BRAK POLA „wersja" = NIE ODCINAMY. Aplikacja na telefonie
-  // (pmt_wizyty.html) nigdy go nie wysyła — zwracanie tu „true"
-  // wyłączyłoby ją w całości. Stare wersje programu na komputerze
-  // odcinamy inaczej: przez MINIMALNA_WERSJA w logowanie() (KROK 4),
-  // gdzie warunek obejmuje wyłącznie żądania z zrodlo="program".
-  if (!w) return false;
-  var a = String(w).split('.'), b = WYMAGANA_WERSJA.split('.');
-  for (var i = 0; i < 3; i++) {
-    var x = Number(a[i] || 0), y = Number(b[i] || 0);
-    if (x > y) return false;
-    if (x < y) return true;
-  }
-  return false;
-}
+  1e. Otwórz adres /exec w przeglądarce. Odpowiedź ma zawierać
+          sekrety: 2
+      (nowy i stary). To jedyna rzecz, którą widać z zewnątrz — sama
+      LICZBA wpisanych sekretów, nigdy ich treść. Zero = wróć do 1c.
+
+  CZEGO NIE WŁĄCZAĆ: w starej instrukcji ZABEZPIECZENIA_BACKEND.txt
+  było WYMAGAJ_PODPISU = true dla wszystkich akcji. To odcina od razu
+  całą aplikację na telefonie — patrz ostrzeżenie wyżej. Podpis
+  obowiązuje tylko akcje z listy AKCJE_PODPISANE.
 
 ───────────────────────────────────────────────────────────────────────
-KROK 2 — DOPISZ TRZY LINIE W doPost
-───────────────────────────────────────────────────────────────────────
-
-  Znajdź funkcję doPost — UWAGA: w pliku są DWIE. Obowiązuje TA DRUGA,
-  z komentarzem "rozszerzony rozdzielacz akcji (podmienia doPost z v1)".
-  Zaraz po linii:
-
-      var dane = JSON.parse(e.postData.contents || "{}");
-
-  wklej:
-
-      if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
-          && !weryfikujPodpis(dane)) {
-        return _json({ status: 'blad', opis: 'odmowa' });
-      }
-      // Kontrola wersji TYLKO dla akcji wysyłanych przez program na
-      // komputerze. Aplikacja na telefonie nie wysyła pola „wersja"
-      // i nie może przez to wypaść z obiegu.
-      if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
-          && wersjaZaStara(dane.wersja)) {
-        return _json({ status: 'blad',
-          opis: 'Ta wersja programu nie jest już obsługiwana. Pobierz nową wersję.' });
-      }
-
-  Potem: Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
-  ADRES /exec POZOSTAJE TEN SAM.
-
-───────────────────────────────────────────────────────────────────────
-KROK 3 — SPRAWDŹ, ŻE NIC SIĘ NIE ZEPSUŁO (5 minut, obowiązkowo)
+KROK 2 — SPRAWDŹ, ŻE NIC SIĘ NIE ZEPSUŁO (5 minut, obowiązkowo)
 ───────────────────────────────────────────────────────────────────────
   1. Zaloguj się w programie na komputerze — musi wejść jak dotąd.
   2. Otwórz pmt_wizyty.html na telefonie i zaloguj się — musi wejść.
-     (Ten punkt powtórz TAKŻE po KROKU 4 — to jedyna rzecz, którą
+     (Ten punkt powtórz TAKŻE po KROKU 3 — to jedyna rzecz, którą
      zmiana progu wersji mogłaby zepsuć.)
   3. Wygeneruj jedną delegację — w arkuszu ma przybyć puls.
   Jeśli którykolwiek punkt zawiedzie: cofnij wdrożenie (Zarządzaj
   wdrożeniami → wybierz poprzednią wersję) i napisz, co się stało.
 
 ───────────────────────────────────────────────────────────────────────
-KROK 4 — DOPIERO PO 14 DNIACH (gdy zespół ma 3.21.0)
+KROK 3 — DOPIERO PO 14 DNIACH (gdy zespół ma 3.23.0)
 ───────────────────────────────────────────────────────────────────────
   To jest NAJSKUTECZNIEJSZA dźwignia w całym mechanizmie obowiązkowej
   aktualizacji — jedyna, której nie da się obejść ani cofnięciem zegara,
@@ -262,7 +203,7 @@ KROK 4 — DOPIERO PO 14 DNIACH (gdy zespół ma 3.21.0)
       var MINIMALNA_WERSJA = "3.16.0";     ← znajdź tę linię
 
   · zmień ją na:  var MINIMALNA_WERSJA = "3.21.0";
-  · WYMAGANA_WERSJA = '3.21.0';   (blok z KROKU 1 — druga, niezależna bramka)
+  · WYMAGANA_WERSJA = '3.23.0';   (blok w pliku .gs — druga, niezależna bramka)
   · usuń stare sekrety z listy SEKRETY_PMT (z 3.20.x i ten z kodu
     3.21.0–3.23.0 — krok (d) w OBRÓT SEKRETU na górze),
   · wdróż nową wersję.

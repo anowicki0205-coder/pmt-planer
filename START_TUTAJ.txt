@@ -91,11 +91,23 @@ W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
 3. OBOWIĄZKOWA AKTUALIZACJA
 ───────────────────────────────────────────────────────────────────────
   Sterują nią dwa wiersze w pliku wersja.txt w repozytorium:
-        min=3.21.0
-        blokada=2026-09-23
+        min=3.21.4
+        blokada=2026-09-24
   Program starszy niż „min" ostrzega, a po dacie „blokada" odmawia
   uruchomienia i kieruje do pobrania. Wymagania zapisują się lokalnie,
   więc odłączenie internetu blokady nie zdejmuje.
+
+  PODNOSZĄC „min=" ZMIEŃ RAZEM Z NIM „blokada=". Data blokady z reguły
+  jest już wtedy przeszła (stoi w pliku od poprzedniego progu), a przeszła
+  data znaczy „odetnij teraz" — podniesienie samego „min=" odcina więc
+  wszystkich niezaktualizowanych NATYCHMIAST, bez okresu przejściowego
+  i bez odliczania. Nowy termin wpisuj zwykle 14 dni naprzód:
+        min=3.23.0
+        blokada=<dzisiaj + 14 dni>
+  (Program nie zostawia takiej osoby bez wyjścia — pokazuje okno
+  aktualizacji z działającym przyciskiem „Zaktualizuj teraz" — ale
+  odliczanie „zostało X dni" jest po to, żeby nikt nie został zaskoczony
+  w trakcie pracy.)
 
   Co zostało naprawione (każda z tych rzeczy wyłączała mechanizm albo
   odcinała zespół bez ostrzeżenia):
@@ -245,7 +257,17 @@ KROK PO KROKU — WYDANIE 3.21.0
   6. GITHUB — KOLEJNOŚĆ JEST WAŻNA
      a) wyślij źródła (WYSLIJ_NA_GITHUB.bat). Pliku wersja.txt NIE ruszaj
         (poza wierszami min= i blokada=) — numer wpisze się sam, patrz c).
-     b) opublikuj wydanie z tagiem v3.21.3 i NIC do niego nie przeciągaj.
+        SPRAWDŹ WCZEŚNIEJ DWA SEKRETY repozytorium (Settings → Secrets and
+        variables → Actions): PMT_MENEDZER (imię i nazwisko przełożonego)
+        oraz PMT_SEKRET (sekret aplikacji, ten sam napis co w SEKRETY_PMT
+        we wdrożonym Apps Script). Brak któregokolwiek ZATRZYMUJE
+        budowanie z czerwonym błędem — i słusznie.
+        SPRAWDŹ TEŻ ETYKIETĘ: w PMT_Delegacje.py ETYKIETA_WYDANIA musi być
+        pusta (""). Niepusta trafia do paska okna jako np. „PMT Planer —
+        WERSJA TESTOWA" i zobaczyłby ją cały zespół; budowanie z tagu
+        samo zatrzymuje się w takim przypadku.
+     b) opublikuj wydanie z tagiem vX.Y.Z (dla tego wydania v3.23.0)
+        i NIC do niego nie przeciągaj.
         UWAGA: paczka v3.21.2 (09.09.2026) została zbudowana BEZ nazwiska —
         sekret PMT_MENEDZER był pusty (log: „brak sekretu PMT_MENEDZER”).
         Od 3.21.3 budowanie bez sekretu ZATRZYMUJE się z czerwonym

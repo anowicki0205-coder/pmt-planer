@@ -43,11 +43,29 @@
  *     kodów, które on zastępuje — nie całego zespołu. Program tylko
  *     zapisuje tę listę w pamięci podręcznej, nic z cudzych wpisów nie
  *     czyta, więc nic mu nie ubywa.
- *  WDROŻENIE: wklej CAŁY ten plik do Code.gs (jeśli masz już na górze
- *  blok z BACKEND_APPS_SCRIPT.txt — SEKRETY_PMT, weryfikujPodpis — zostaw
- *  go), zapisz, potem Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja:
- *  Nowa → Wdróż. Adres /exec zostaje ten sam. Sprawdź: logowanie
- *  z programu, „Nie pamiętam hasła" z programu, logowanie z telefonu.
+ *  4. Blok bezpieczeństwa (SEKRETY_PMT, AKCJE_PODPISANE,
+ *     weryfikujPodpis, wersjaZaStara) jest TERAZ W TYM PLIKU i doPost
+ *     sam go woła. Wcześniej wklejało się go osobno z
+ *     BACKEND_APPS_SCRIPT.txt — przy wklejaniu całego Code.gs ginął
+ *     razem z resztą i backend zostawał BEZ weryfikacji podpisu.
+ *
+ *  ── WDROŻENIE: TRZY RZECZY, W TEJ KOLEJNOŚCI ────────────────────
+ *  A. W Code.gs zaznacz wszystko (Ctrl+A) i wklej CAŁY ten plik —
+ *     ma ZASTĄPIĆ dotychczasową treść, nie dopisać się do niej. Dwie
+ *     funkcje o tej samej nazwie w jednym pliku to cicha pomyłka:
+ *     JavaScript bierze ostatnią.
+ *  B. Wpisz sekrety w liście SEKRETY_PMT (zaraz pod nagłówkiem).
+ *     DOPÓKI SĄ TAM ZAŚLEPKI <...>, backend odmawia pulsu, sesji
+ *     i resetu hasła — celowo, bo lepiej odmówić niż przyjmować
+ *     cokolwiek. Sprawdzisz to w punkcie D.
+ *  C. Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
+ *     Adres /exec zostaje ten sam.
+ *  D. Otwórz adres /exec w przeglądarce. Ma pokazać
+ *     sekrety: 2  (nowy i stary). Zero znaczy, że punkt B został
+ *     pominięty — wróć do niego i wdróż jeszcze raz.
+ *  Na koniec sprawdź z programu: logowanie, „Nie pamiętam hasła",
+ *  jedna wygenerowana delegacja (w arkuszu ma przybyć puls)
+ *  oraz logowanie z telefonu.
  *********************************************************************/
 
 var ZAKLADKA_UZYTKOWNICY  = "Uzytkownicy";
@@ -57,6 +75,95 @@ var ZAKLADKA_LOG          = "Log";
 // Ile dni sesji dostaje NOWY kod przy pierwszym kontakcie, zanim
 // zdążysz ręcznie ustawić datę (0 = nowy kod od razu zablokowany).
 var DOMYSLNE_DNI_NOWEGO = 30;
+
+/* ══════════════════════════════════════════════════════════════════ */
+/*  PODPIS ZAPYTAŃ — blok bezpieczeństwa                              */
+/*                                                                    */
+/*  Do 3.23.0 ten blok wklejało się ręcznie z BACKEND_APPS_SCRIPT.txt. */
+/*  Przy wklejaniu całego Code.gs ginął razem z resztą pliku i backend */
+/*  zostawał BEZ weryfikacji podpisu — po cichu, bo nic się nie psuło. */
+/*  Dlatego od teraz leży TUTAJ, w jednym pliku z rozdzielaczem akcji. */
+/*                                                                    */
+/*  JEDYNE, CO MUSISZ TU ZMIENIĆ: lista SEKRETY_PMT poniżej.          */
+/* ══════════════════════════════════════════════════════════════════ */
+
+// Kilka sekretów naraz: NOWY (ten sam napis, co w sekrecie repozytorium
+// PMT_SEKRET, z którego budowanie robi sekret.txt w paczce) i STARY —
+// ten, który do 3.22.0 był wpisany wprost w kodzie programu. Dwie
+// pozycje sprawiają, że nikt nie wypada w trakcie przechodzenia zespołu
+// na nową wersję.
+//
+// W miejsce <...> wpisz prawdziwe wartości. W tym pliku ich celowo nie
+// ma i nigdy być nie może — plik leży w repozytorium, które pamięta
+// każdą swoją wersję.
+//
+// Stary sekret USUŃ z listy, gdy cały zespół ma już 3.23.0 (procedura
+// OBRÓT SEKRETU na początku BACKEND_APPS_SCRIPT.txt).
+var SEKRETY_PMT = [
+  '<NOWY_SEKRET>',
+  '<STARY_SEKRET_Z_KODU_3.21.0-3.22.0>'
+];
+
+// Akcje wysyłane WYŁĄCZNIE przez program na komputerze — tylko one
+// wymagają podpisu. Aplikacja na telefonie (pmt_wizyty.html) żadnej
+// z nich nie używa, więc podpis jej nie dotyczy.
+// reset_hasla jest tu najważniejsze: hasła nie da się wyzerować
+// z przeglądarki, tylko z podpisanego programu.
+var AKCJE_PODPISANE = ['puls', 'sesja', 'reset_hasla'];
+
+// Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
+// Wpisz numer (np. '3.23.0') dopiero wtedy, gdy zespół ma już nową
+// wersję — zalecane 14 dni po publikacji wydania.
+var WYMAGANA_WERSJA = '';
+
+// Pozycje z listy, które są jeszcze zaślepką <...> albo pustym napisem,
+// NIE mogą nigdy nic potwierdzić. Dzięki temu świeżo wklejony skrypt
+// bez wpisanych sekretów odmawia wszystkiego (fail-closed), a nie
+// przyjmuje czegokolwiek.
+function _pmtSekrety() {
+  var ok = [];
+  for (var i = 0; i < SEKRETY_PMT.length; i++) {
+    var s = String(SEKRETY_PMT[i] || '');
+    if (s && s.charAt(0) !== '<') ok.push(s);
+  }
+  return ok;
+}
+
+function _pmtHex(sig) {
+  return sig.map(function (b) {
+    return ('0' + (b & 255).toString(16)).slice(-2);
+  }).join('');
+}
+
+function weryfikujPodpis(d) {
+  try {
+    var czas = Number(d.klucz_czas || 0);
+    if (!czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
+    var baza = String(d.kod || '') + '|' + String(d.akcja || '') + '|' + czas;
+    var podany = String(d.podpis || '');
+    if (!podany) return false;
+    var lista = _pmtSekrety();
+    for (var i = 0; i < lista.length; i++) {
+      var sig = Utilities.computeHmacSha256Signature(baza, lista[i]);
+      if (_pmtHex(sig) === podany) return true;
+    }
+    return false;
+  } catch (e) { return false; }
+}
+
+function wersjaZaStara(w) {
+  if (!WYMAGANA_WERSJA) return false;        // odcinanie wyłączone
+  // BRAK POLA „wersja" = NIE ODCINAMY. Aplikacja na telefonie nigdy go
+  // nie wysyła — zwracanie tu „true" wyłączyłoby ją w całości.
+  if (!w) return false;
+  var a = String(w).split('.'), b = WYMAGANA_WERSJA.split('.');
+  for (var i = 0; i < 3; i++) {
+    var x = Number(a[i] || 0), y = Number(b[i] || 0);
+    if (x > y) return false;
+    if (x < y) return true;
+  }
+  return false;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Inicjalizacja arkusza — uruchom RAZ ręcznie po wklejeniu skryptu  */
@@ -96,7 +203,12 @@ function _zakladka(ss, nazwa, naglowki) {
 // GET zostawiamy jako prosty test "czy żyje" — otwarcie adresu /exec
 // w przeglądarce ma pokazać znak życia, nic więcej.
 function doGet(e) {
-  return _json({ status: "ok", opis: "PMT backend dziala" });
+  // „sekrety" to LICZBA wpisanych sekretów, nigdy ich treść. Otwarcie
+  // adresu /exec w przeglądarce ma pokazać sekrety: 2 (nowy i stary).
+  // Zero znaczy, że w SEKRETY_PMT zostały zaślepki <...> i backend
+  // odmawia pulsu, sesji oraz resetu hasła.
+  return _json({ status: "ok", opis: "PMT backend dziala",
+                 sekrety: _pmtSekrety().length });
 }
 
 function _json(obiekt) {
@@ -256,6 +368,23 @@ function doPost(e) {
   blokada.tryLock(20000);
   try {
     var dane = JSON.parse(e.postData.contents || "{}");
+
+    // Podpis: akcje z AKCJE_PODPISANE przyjmujemy tylko od programu,
+    // który zna sekret aplikacji. Brak pola „podpis" to ta sama odmowa
+    // co zły podpis — patrz blok bezpieczeństwa na początku pliku.
+    if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
+        && !weryfikujPodpis(dane)) {
+      return _json({ status: "blad", opis: "odmowa" });
+    }
+    // Kontrola wersji TYLKO dla akcji wysyłanych przez program na
+    // komputerze. Aplikacja na telefonie nie wysyła pola „wersja"
+    // i nie może przez to wypaść z obiegu.
+    if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
+        && wersjaZaStara(dane.wersja)) {
+      return _json({ status: "blad",
+        opis: "Ta wersja programu nie jest juz obslugiwana. Pobierz nowa wersje." });
+    }
+
     switch (dane.akcja) {
       case "puls":               return _json(obsluzPuls(dane));
       case "pobierz_planogramy": return _json(pobierzPlanogramy());

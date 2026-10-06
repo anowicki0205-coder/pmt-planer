@@ -1,169 +1,299 @@
 ═══════════════════════════════════════════════════════════════════════
   PMT PLANER 3.24.0 — WYDANIE I WDROŻENIE, KROK PO KROKU
-  Jedyna instrukcja, której potrzebujesz. Rób od góry do dołu.
+  Jedyna instrukcja, której potrzebujesz. Rób od góry do dołu,
+  niczego nie pomijaj, przy każdym kroku sprawdź „CO ZOBACZYSZ".
 ═══════════════════════════════════════════════════════════════════════
 
-CO JUŻ JEST GOTOWE (nic z tego nie robisz)
-  · Kod 3.24.0 leży na GitHubie w Pull Requeście nr 1, testy zielone.
-  · Paczka buduje się poprawnie (sprawdzone budowaniem od zera).
-  · Sekretu aplikacji nie ma w kodzie; backend ma blok bezpieczeństwa
-    w środku pliku, nic nie składasz z kilku źródeł.
-  · Obecnie wdrożony backend NIE sprawdza podpisu zapytań wcale (nie ma
-    w nim SEKRETY_PMT). Nowy skrypt wchodzi w okresie przejściowym:
-    sprawdzanie jest gotowe, ale nikogo nie blokuje, dopóki nie włączysz
-    go jedną linią w KROKU 8. Dlatego nikt nie wypadnie z obiegu.
-  · Plik wersja.txt jest nietknięty — dopóki nie opublikujesz wydania
-    (KROK 6), nikt z zespołu nie zobaczy żadnej aktualizacji.
+NAJPIERW TO (2 minuty czytania)
 
-CZEGO POTRZEBUJESZ
-  · przeglądarki z dostępem do GitHuba i do arkusza Google (Apps Script),
-  · komputera z Windows do KROKU 4 (sprawdzenie paczki),
-  · menedżera haseł (albo kartki) na jeden napis: nowy sekret.
+  SEKRETY — JEDNA RZECZ DO ZROBIENIA, NIC DO SZUKANIA
+    · Starego sekretu NIE szukasz i NIE przepisujesz. Twój obecny
+      backend (Code.gs) w ogóle nie sprawdza podpisu — dlatego nie ma
+      w nim słowa SEKRETY_PMT. To jest stan prawidłowy, nie błąd.
+    · Robisz tylko jedno: tworzysz JEDEN NOWY sekret (KROK 1) i wpisujesz
+      go w DWA miejsca: GitHub (KROK 2) i Apps Script (KROK 4).
+    · Ochrona podpisem startuje WYŁĄCZONA. Włączasz ją jedną linią po
+      14 dniach (KROK 8a). Do tego czasu nikt nie wypadnie z obiegu.
+    · Pomyłkę w sekrecie wykryjesz od razu, w KROKU 5 (zakładka Log
+      w arkuszu), a nie po 14 dniach.
 
-Łącznie ok. 1 godziny, z czego połowa to czekanie na GitHuba.
+  CO JUŻ JEST ZROBIONE
+    · Kod 3.24.0 leży na GitHubie w Pull Requeście nr 1.
+    · Paczka buduje się poprawnie na komputerze. Pierwsze budowanie na
+      GitHubie to Twój KROK 5 — po to on jest.
+    · Dopóki nie opublikujesz wydania (KROK 6), nikt z zespołu nie
+      zobaczy żadnej zmiany.
+
+  TELEFON CZY KOMPUTER
+    · KROKI 0, 4, 5 i 8a — TYLKO na komputerze (Windows).
+    · KROKI 1, 2, 3, 6, 7 i 8b — mogą być z telefonu, ale w przeglądarce
+      (nie w aplikacji GitHub) i w trybie „Wersja na komputer”
+      (Chrome: ⋮ w prawym górnym rogu → zaznacz „Wersja na komputer").
+      W wąskim widoku telefonu część przycisków bywa schowana.
+
+  CZAS: ok. 1,5 godziny, z czego połowa to czekanie na GitHuba.
+  Przygotuj Notatnik (do zapisywania adresów i numerów).
 
 
 ───────────────────────────────────────────────────────────────────────
-KROK 1 — NOWY SEKRET APLIKACJI                                  5 minut
+KROK 0 — PRZYGOTOWANIE W APPS SCRIPT                 5 min, KOMPUTER
 ───────────────────────────────────────────────────────────────────────
-  Po co: dawny klucz podpisu zapytań był wpisany w kodzie, a repozytorium
-  pamięta każdą wersję — ten klucz jest ujawniony i nie wolno go dalej
-  używać. Starego klucza NIGDZIE nie przepisujesz — nie jest potrzebny.
+  Tu niczego nie zmieniasz — tylko sprawdzasz i robisz kopię.
 
-  1a. Wygeneruj nowy sekret: dowolny losowy napis, 32+ znaki, litery
-      i cyfry, bez spacji, np. z generatora w menedżerze haseł.
-      Jeśli masz Pythona:
+  0a. Otwórz arkusz Google, w którym jest panel PMT (zakładki na dole:
+      Uzytkownicy, Log, Sesje…). Menu Rozszerzenia → Apps Script.
+
+  0b. Po lewej, w sekcji „Pliki”, ma być TYLKO jeden plik: Code.gs.
+      Widzisz więcej plików .gs → STOP, wyślij mi zrzut ekranu.
+
+  0c. Na górze po prawej: niebieski „Wdróż” → „Zarządzaj wdrożeniami”.
+      Po lewej kliknij wdrożenie (zwykle jest jedno, „Aktywne”).
+      Po prawej zobaczysz:
+        · „Wersja" z numerem, np. „Wersja 14" → ZAPISZ ten numer
+          w Notatniku jako „wersja przed zmianą". To Twoja droga odwrotu.
+        · „Aplikacja internetowa — URL" → kliknij „Kopiuj" i wklej do
+          Notatnika. To jest „adres /exec".
+      SPRAWDŹ: adres zaczyna się od
+          https://script.google.com/macros/s/AKfycbyKUur4Fh
+      i kończy na  /exec.
+      Inny początek → to nie ten projekt albo nie to wdrożenie: STOP,
+      wyślij mi zrzut ekranu.
+      Zamknij okno (krzyżyk) — niczego tu nie zmieniaj.
+
+  0d. KOPIA obecnego skryptu: kliknij w treść Code.gs → Ctrl+A → Ctrl+C
+      → Notatnik (nowy plik) → Ctrl+V → zapisz na Pulpicie jako
+          Code_stary_2026-10.txt
+      Jeśli cokolwiek pójdzie źle, z tego pliku przywrócisz stan.
+
+
+───────────────────────────────────────────────────────────────────────
+KROK 1 — NOWY SEKRET                                            5 minut
+───────────────────────────────────────────────────────────────────────
+  1a. Wygeneruj napis: 40 znaków, TYLKO litery A–Z, a–z (bez polskich
+      liter) i cyfry 0–9. W generatorze menedżera haseł WYŁĄCZ znaki
+      specjalne. Apostrof, cudzysłów albo ukośnik zepsułyby skrypt.
+      Jeśli masz Pythona, może być też:
         python -c "import secrets;print('PMT-'+secrets.token_urlsafe(32))"
+      (ten daje jeszcze znaki - i _ — te dwa są dozwolone).
 
-  1b. Zapisz go w menedżerze haseł jako „PMT — sekret".
+  1b. Zapisz go w menedżerze haseł jako „PMT — sekret aplikacji".
 
-
-───────────────────────────────────────────────────────────────────────
-KROK 2 — ARKUSZ GOOGLE: NOWY SKRYPT                            10 minut
-───────────────────────────────────────────────────────────────────────
-  Musi być PRZED wydaniem: backend ma znać nowy sekret, zanim paczka
-  z nowym sekretem trafi do ludzi.
-
-  2a. Na GitHubie otwórz plik apps_script_POPRAWIONY_v2.gs
-      (Code → wybierz gałąź z listy „main" — jeśli KROK 4 jeszcze nie
-      zrobiony, wybierz gałąź claude/retro-futurystyczne-logo-pmt-yoz8bz)
-      → przycisk „Copy raw file" (ikona dwóch kartek nad treścią pliku).
-
-  2b. Arkusz Google → menu Rozszerzenia → Apps Script → plik Code.gs.
-      Ctrl+A (zaznacz wszystko) → Ctrl+V.
-      Plik ma ZASTĄPIĆ dotychczasową treść, a nie dopisać się pod nią.
-
-  2c. Na górze wklejonego pliku jest lista SEKRETY_PMT z zaślepką.
-      Zamień ją tak, żeby wyglądało dokładnie tak:
-
-        var SEKRETY_PMT = [
-          'tu-sekret-z-kroku-1a'
-        ];
-
-      Apostrofy zostają. Zaraz pod spodem jest linia
-        var PODPIS_OBOWIAZKOWY = false;
-      — ZOSTAW false. Włączasz ją dopiero w KROKU 8.
-
-  2d. Ikona dyskietki (Zapisz). Potem: Wdróż → Zarządzaj wdrożeniami →
-      ołówek przy aktywnym wdrożeniu → Wersja: „Nowa wersja" → Wdróż.
-      Adres /exec się nie zmienia.
-
-  2e. SPRAWDZENIE (10 sekund): otwórz w przeglądarce adres /exec
-      (ten sam, który jest w programie). Ma się pokazać m.in.:
-          "sekrety":1,"podpis_obowiazkowy":false
-      "sekrety":0 = została zaślepka: wróć do 2c, zapisz, wdróż jeszcze
-      raz. Widać tylko liczbę, nigdy treść sekretu.
-
-  2f. Na telefonie zaloguj się w aplikacji pmt_wizyty — ma wejść jak
-      zwykle. Jeśli nie wchodzi: Wdróż → Zarządzaj wdrożeniami →
-      wróć do poprzedniej wersji i napisz mi, co się stało.
+  Dobrze wiedzieć: ten napis nie trafi do repozytorium, ale BĘDZIE
+  w każdej paczce programu (plik _internal\sekret.txt), a paczki na
+  GitHubie są publiczne. Podpis to próg dla botów i przypadkowych
+  skanerów, nie zamek. Tego napisu NIE używaj nigdzie indziej.
 
 
 ───────────────────────────────────────────────────────────────────────
-KROK 3 — GITHUB: SEKRETY REPOZYTORIUM                           3 minuty
+KROK 2 — GITHUB: SEKRETY REPOZYTORIUM                          3 minuty
 ───────────────────────────────────────────────────────────────────────
-  Repozytorium → zakładka Settings → po lewej „Secrets and variables"
-  → „Actions".
+  github.com/anowicki0205-coder/pmt-planer → zakładka „Settings" (u góry,
+  ostatnia z prawej) → po lewej „Secrets and variables" → „Actions".
 
-  3a. Zakładka „Secrets" → „New repository secret":
-        Name:   PMT_SEKRET
-        Secret: sekret z kroku 1a (dokładnie ten sam napis,
-                który wpisałeś w SEKRETY_PMT)
-      → „Add secret". Jeśli PMT_SEKRET już istnieje — ołówek →
-      „Update secret" i wpisz nowy.
+  2a. Zakładka „Secrets”, przycisk „New repository secret”:
+        Name:    PMT_SEKRET
+        Secret:  sekret z KROKU 1 (wklej, bez spacji na początku i końcu)
+      → „Add secret”.
+      Jeśli PMT_SEKRET już jest na liście: ołówek przy nim → wklej nowy
+      → „Update secret".
 
-  3b. Na tej samej liście musi być PMT_MENEDZER (imię i nazwisko
-      przełożonego). Jeśli go nie ma — dodaj tak samo.
+  2b. Na tej samej liście musi być PMT_MENEDZER (imię i nazwisko
+      przełożonego). Nie ma → dodaj tak samo (Name: PMT_MENEDZER).
 
-  3c. Zakładka „Variables": powinna być PUSTA. Jeśli widzisz
-      PMT_SEKRET_OPCJONALNY albo PMT_MENEDZER_OPCJONALNY — usuń je
-      (pozwalają zbudować paczkę bez sekretu albo bez nazwiska).
+  2c. Zakładka „Variables”: jeśli widzisz PMT_SEKRET_OPCJONALNY albo
+      PMT_MENEDZER_OPCJONALNY — usuń TYLKO te dwie (ikona kosza).
+      Innych nie ruszaj.
 
-
-───────────────────────────────────────────────────────────────────────
-KROK 4 — SCAL ZMIANY DO MAIN                                    1 minuta
-───────────────────────────────────────────────────────────────────────
-  To jeszcze NIE jest wydanie — nikt z zespołu niczego nie zobaczy.
-
-  4a. Zakładka „Pull requests" → „PMT Planer 3.24.0 …" (nr 1).
-  4b. Na dole: zielony znaczek przy testach. Kliknij
-      „Merge pull request" → „Confirm merge".
-      (Przycisku „Delete branch" nie musisz klikać.)
+  CO ZOBACZYSZ: na liście „Repository secrets" są PMT_SEKRET
+  i PMT_MENEDZER (wartości GitHub nigdy już nie pokaże — tak ma być).
 
 
 ───────────────────────────────────────────────────────────────────────
-KROK 5 — BUDOWANIE TESTOWE I SPRAWDZENIE NA WINDOWS     15 min + 20 min
+KROK 3 — SCAL ZMIANY DO MAIN                                   2 minuty
 ───────────────────────────────────────────────────────────────────────
-  Paczka zbudowana tak samo jak w wydaniu, ale widzisz ją tylko Ty.
+  To jeszcze NIE jest wydanie. Zespół niczego nie zobaczy — plik, którym
+  programy sprawdzają aktualizacje (wersja.txt), się nie zmienia.
 
-  5a. Zakładka „Actions" → po lewej „Buduj wydanie" → po prawej
-      „Run workflow" → Branch: main → zielony „Run workflow".
-  5b. Po ok. 10–15 minutach przebieg ma zielony znaczek. Czerwony?
-      Otwórz go — komunikat na górze mówi, czego brakuje (najczęściej
-      sekretu z KROKU 3). Popraw i „Re-run all jobs".
+  3a. Zakładka „Pull requests" → „PMT Planer 3.24.0: nowy wygląd, mapa
+      trasy, bezpieczeństwo, uporządkowane wydanie" (nr 1).
+  3b. Przewiń na dół. W ramce sprawdzeń ma być „All checks have passed"
+      (zielony ptaszek).
+      Czerwony krzyżyk przy „Testy" → kliknij „Details" → u góry
+      „Re-run jobs" → „Re-run failed jobs" → po ok. 5 minutach odśwież
+      stronę PR. Nadal czerwono → STOP, wyślij mi zrzut ekranu.
+  3c. Zielony przycisk „Merge pull request" → „Confirm merge".
+      („Delete branch" nie musisz klikać.)
+
+  CO ZOBACZYSZ: fioletowa etykieta „Merged" u góry strony PR.
+
+
+───────────────────────────────────────────────────────────────────────
+KROK 4 — APPS SCRIPT: NOWY SKRYPT                    15 min, KOMPUTER
+───────────────────────────────────────────────────────────────────────
+  4a. Otwórz w przeglądarce ten adres (sam tekst pliku, bez strony
+      GitHuba):
+        https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/apps_script_POPRAWIONY_v2.gs
+      SPRAWDZENIE: Ctrl+F → wpisz   var PODPIS_OBOWIAZKOWY
+      → ma być dokładnie 1 trafienie.
+      0 trafień → GitHub jeszcze podaje starą wersję: odczekaj 5 minut,
+      Ctrl+F5, sprawdź jeszcze raz. Dalej 0 → STOP, KROK 3 nie wszedł.
+      Kliknij w tekst → Ctrl+A → Ctrl+C.
+
+  4b. W Apps Script, w Code.gs: kliknij w treść → Ctrl+A → Ctrl+V.
+      Plik ma ZASTĄPIĆ dotychczasową treść.
+      Na górze wklejonego pliku jest ramka „AKTUALIZUJESZ DZIAŁAJĄCY
+      BACKEND? POMIŃ…" i dalej opis „JAK URUCHOMIĆ” — to instrukcja
+      PIERWSZEJ instalacji: POMIŃ ją. Nie tworzysz arkusza, nie
+      uruchamiasz żadnej funkcji (▶) i NIGDY nie klikasz „Nowe
+      wdrożenie" — to dałoby nowy adres, którego programy nie znają.
+
+  4c. Ctrl+F → wpisz   var SEKRETY_PMT   (koniecznie z „var").
+      W linii pod spodem zamień  <NOWY_SEKRET>  — RAZEM ze znakami
+      < i > — na sekret z KROKU 1. Apostrofy zostają. Ma wyglądać tak:
+          var SEKRETY_PMT = [
+            'tu-twój-sekret-z-kroku-1'
+          ];
+      Kilka linii niżej jest:
+          var PODPIS_OBOWIAZKOWY = false;
+      ZOSTAW false.
+
+  4d. Zapisz: Ctrl+S (albo ikona dyskietki).
+      Czerwony pasek z błędem składni → najpewniej usunięty apostrof
+      w 4c. Popraw i zapisz ponownie.
+      Potem: „Wdróż" → „Zarządzaj wdrożeniami" → kliknij wdrożenie po
+      lewej (to samo co w 0c) → ołówek „Edytuj" u góry →
+      pole „Wersja": wybierz „Nowa wersja" (domyślnie stoi stary numer —
+      MUSISZ zmienić) → „Wdróż".
+      Jeśli wyskoczy „Wymagana autoryzacja": „Sprawdź uprawnienia" →
+      Twoje konto → „Zaawansowane" → „Przejdź do … (niebezpieczne)" →
+      „Zezwól".
+      CO ZOBACZYSZ: numer wersji o 1 większy niż ten zapisany w 0c
+      i TEN SAM adres /exec.
+
+  4e. SPRAWDZENIE: wklej do paska przeglądarki adres /exec z Notatnika.
+      Chrome/Edge pokaże jedną linię:
+        {"status":"ok","opis":"PMT backend dziala","sekrety":1,"podpis_obowiazkowy":false}
+      (Firefox pokaże tabelkę: sekrety 1, podpis_obowiazkowy false.)
+        · sekrety 1 i false → dobrze, dalej.
+        · sekrety 0 → w 4c została zaślepka: popraw, 4d jeszcze raz.
+        · w ogóle nie ma słowa „sekrety" → pod adresem działa jeszcze
+          STARY skrypt: w 4d nie wybrałeś „Nowa wersja" albo edytowałeś
+          inne wdrożenie. Powtórz 4d.
+      Treści sekretu nie widać nigdy, tylko liczbę.
+
+  4f. CZY DZIAŁA TO, CO DZIAŁAŁO:
+        · TELEFON: w aplikacji PMT Wizyty naciśnij ➲ w prawym górnym
+          rogu (Wyloguj) → potwierdź → wpisz kod i hasło. Ma wejść.
+        · KOMPUTER: uruchom swój obecny PMT Planer (3.22.0) i zaloguj
+          się. W arkuszu: zakładka Uzytkownicy → wiersz z Twoim kodem →
+          „Ostatni kontakt" = przed chwilą.
+      Któreś nie działa → COFNIJ: „Wdróż" → „Zarządzaj wdrożeniami" →
+      wdrożenie → ołówek → Wersja: numer zapisany w 0c → „Wdróż".
+      Potem napisz do mnie.
+
+
+───────────────────────────────────────────────────────────────────────
+KROK 5 — BUDOWANIE TESTOWE I SPRAWDZENIE      15 min + 30 min, KOMPUTER
+───────────────────────────────────────────────────────────────────────
+  Paczka zbudowana dokładnie tak jak w wydaniu, ale widzisz ją tylko Ty.
+
+  5a. GitHub → zakładka „Actions" → po lewej „Buduj wydanie" → po prawej
+      szary przycisk „Run workflow" → Branch: main → zielony
+      „Run workflow". Odśwież stronę po kilku sekundach.
+
+  5b. Po ok. 10–15 minutach przebieg ma zielony ptaszek.
+      Czerwony → otwórz go; komunikat na górze mówi, czego brakuje
+      (najczęściej sekretu z KROKU 2). Popraw → „Re-run all jobs".
+
   5c. Wejdź w zielony przebieg → na dole sekcja „Artifacts" →
-      PMT_Planer_TEST_Windows → pobierze się plik .zip.
-  5d. Na Windows: prawy przycisk na zip → „Wyodrębnij wszystkie" →
-      do C:\PMT_TEST. Wejdź do folderu, uruchom raz URUCHOM_PMT.bat.
-  5e. Sprawdź (pełna lista w README_TESTER.txt, minimum to):
-        · logowanie działa,
-        · „O programie" pokazuje 3.24.0, w pasku okna NIE ma napisu
-          „WERSJA TESTOWA",
-        · wygeneruj jeden miesiąc delegacji — dokumenty powstają,
-          rubryka PRZEŁOŻONY wypełniona,
-        · w arkuszu, w zakładce z aktywnością, przybył puls,
-        · mapa: trasa rysuje się i zostaje na miejscu, zielone tabliczki.
-  5f. Wszystko gra → KROK 6. Coś nie gra → STOP, napisz mi co
-      (zrzut ekranu wystarczy). Zespół nadal niczego nie widzi.
+      PMT_Planer_TEST_Windows (ok. 100 MB) → pobierze się .zip.
+      Artefakt żyje 7 dni — gdy go nie ma, zrób 5a jeszcze raz.
 
-  Po teście możesz skasować C:\PMT_TEST.
+  5d. PRZED URUCHOMIENIEM (paczka testowa używa tych samych plików
+      danych co Twój zwykły program):
+        · zamknij swój zwykły PMT Planer,
+        · kopia danych: Eksplorator → w pasku adresu wpisz
+          %USERPROFILE%  → Enter → zaznacz wszystkie pliki, których
+          nazwa zaczyna się od  .pmt_  → Ctrl+C → utwórz folder
+          C:\PMT_KOPIA_DANYCH → wejdź do niego → Ctrl+V.
+
+  5e. Prawy przycisk na pobranym .zip → „Wyodrębnij wszystkie…" →
+      w polu ścieżki wpisz  C:\PMT_TEST  → „Wyodrębnij".
+      W C:\PMT_TEST mają być od razu PMT_Planer.exe, URUCHOM_PMT.bat
+      i folder _internal (widzisz folder PMT_Planer → wejdź do niego).
+      Uruchom URUCHOM_PMT.bat. Niebieskie okno „System Windows ochronił
+      komputer" → „Więcej informacji" → „Uruchom mimo to".
+
+  5f. SPRAWDŹ PO KOLEI:
+        1) Logowanie działa.
+        2) „O programie" pokazuje 3.24.0; w pasku okna NIE ma napisu
+           „WERSJA TESTOWA".
+        3) Arkusz → zakładka Uzytkownicy → Twój wiersz: „Ostatni
+           kontakt" = przed chwilą, „Wersja" = 3.24.0.
+        4) NAJWAŻNIEJSZE — SEKRET: arkusz → zakładka Log → ostatnie
+           wiersze. NIE MOŻE być wiersza ze zdarzeniem  podpis_zly.
+             · nie ma → sekret w paczce zgadza się z Apps Script. Dalej.
+             · jest → sekrety się różnią. STOP, nie wydawaj. Sprawdź
+               znak w znak: PMT_SEKRET (KROK 2a) i SEKRETY_PMT (KROK 4c).
+               Popraw, zbuduj test jeszcze raz (5a) i sprawdź od nowa.
+        5) Wygeneruj delegacje za miesiąc, którego NIGDY nie
+           generowałeś (np. ten sam miesiąc rok temu). NIE generuj
+           miesiąca, który rozliczasz naprawdę — program skasowałby
+           z Pulpitu jego niepodpisane dokumenty.
+           Dokumenty powstają, rubryka PRZEŁOŻONY jest wypełniona.
+           Po teście usuń z Pulpitu folder Rozliczenie_…_<ten miesiąc>.
+        6) Mapa: trasa rysuje się i zostaje na miejscu, nazwy
+           miejscowości na zielonych tabliczkach.
+
+  5g. Zamknij program testowy. Możesz znów używać swojego zwykłego
+      programu (w arkuszu wróci Wersja 3.22.0 — to normalne).
+      Program testowy NIE zaproponuje aktualizacji — tak ma być.
+      Zwykły program zachowuje się dziwnie → zamknij go → skopiuj pliki
+      z C:\PMT_KOPIA_DANYCH z powrotem do %USERPROFILE% (Zamień).
+      C:\PMT_TEST możesz skasować.
+
+  Wszystko 1)–6) gra → KROK 6. Coś nie gra → STOP, napisz mi co
+  (zrzut ekranu wystarczy). Zespół nadal niczego nie widzi.
 
 
 ───────────────────────────────────────────────────────────────────────
-KROK 6 — WYDANIE DLA ZESPOŁU                            2 min + 20 min
+KROK 6 — WYDANIE DLA ZESPOŁU                           5 min + 20 min
 ───────────────────────────────────────────────────────────────────────
   6a. Zakładka „Code" → po prawej „Releases" → „Draft a new release".
-  6b. „Choose a tag" → wpisz:  v3.24.0  → „Create new tag: v3.24.0".
-      Target: main.
-  6c. Release title:  PMT Planer 3.24.0
-  6d. Opis — PIERWSZA linia zobaczą wszyscy w okienku aktualizacji,
-      więc wklej dokładnie:
-        Nowy wygląd, mapa trasy ze znakami miejscowości, poprawki bezpieczeństwa
-  6e. Nic nie dołączaj. „Publish release".
-  6f. Zakładka „Actions" → przebieg „Buduj wydanie" dla v3.24.0.
-      Ma się zakończyć na zielono (ok. 20 minut): Windows, macOS,
-      Linux i na końcu „wersja".
-  6g. Sprawdź: w Releases przy v3.24.0 są trzy pliki .zip (pierwszy
-      PMT_Planer.Windows.zip), a plik wersja.txt na main zaczyna się
-      od 3.24.0. Od tej chwili programy u ludzi widzą aktualizację.
+  6b. „Choose a tag" → wpisz  v3.24.0  → kliknij „Create new tag:
+      v3.24.0 on publish". Obok „Target": main.
+  6c. „Release title":  PMT Planer 3.24.0
+  6d. W polu opisu wklej JEDNĄ linię, bez spacji na początku:
+Nowy wygląd, mapa trasy ze znakami miejscowości, poprawki bezpieczeństwa
+      Tę linię zobaczą wszyscy w okienku aktualizacji.
+      NIE klikaj „Generate release notes".
+  6e. Niczego nie dołączaj. Na dole:
+        · „Set as a pre-release" — NIE zaznaczone,
+        · „Set as the latest release" — ZAZNACZONE,
+      → zielony „Publish release" (NIE „Save draft").
+      CO ZOBACZYSZ: strona v3.24.0 z zieloną etykietą „Latest" i na
+      razie tylko dwoma plikami „Source code". Paczki dojdą same.
+  6f. Zakładka „Actions" → przebieg „Buduj wydanie" z etykietą v3.24.0.
+      Joby po kolei: windows → dwa razy „pozostale" (macOS, Linux) →
+      „wersja". Całość ok. 20 minut, ma być zielona.
+  6g. SPRAWDŹ:
+        · Releases → v3.24.0: trzy pliki .zip, pierwszy
+          PMT_Planer.Windows.zip.
+        · https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt
+          pierwsza linia = 3.24.0 (może potrwać do 5 min).
+      Od tej chwili programy u ludzi proponują aktualizację.
 
-  Gdyby przebieg stanął na czerwono: otwórz go, komunikat na górze
-  mówi, który krok i dlaczego. Popraw przyczynę → „Re-run all jobs".
-  NIE twórz drugiego wydania i nie kasuj tagu.
+  CZERWONY PRZEBIEG W 6f — zobacz, który job jest czerwony:
+    · tylko „pozostale" (macOS albo Linux) → Windows jest już w wydaniu
+      i ludzie dostają aktualizację. Kliknij „Re-run failed jobs"
+      (NIE „Re-run all jobs").
+    · „windows" → komunikat na górze mówi dlaczego (najczęściej
+      KROK 2). Popraw → „Re-run all jobs".
+    NIE twórz drugiego wydania i NIE kasuj tagu.
 
 
 ───────────────────────────────────────────────────────────────────────
-KROK 7 — WIADOMOŚĆ DO ZESPOŁU                                   2 minuty
+KROK 7 — WIADOMOŚĆ DO ZESPOŁU                                  2 minuty
 ───────────────────────────────────────────────────────────────────────
   Gotowy tekst:
 
@@ -176,71 +306,128 @@ KROK 7 — WIADOMOŚĆ DO ZESPOŁU                                   2 minuty
   (Prośba o sprawdzenie numeru jest ważna: jeśli komuś podmiana się nie
   uda, program wróci w starej wersji bez komunikatu.)
 
+  W KOLEJNYCH DNIACH zaglądaj raz na jakiś czas do zakładki Log:
+  wiersz  podpis_zly  od kogoś z 3.24.0 → patrz „GDY COŚ NIE GRA".
+
 
 ───────────────────────────────────────────────────────────────────────
-KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                              10 minut
+HAMULEC AWARYJNY — tylko gdy 3.24.0 okaże się zepsuta
 ───────────────────────────────────────────────────────────────────────
-  Zanim zaczniesz: w arkuszu (kolumna „Wersja" w zakładce Uzytkownicy)
+  GitHub → Code → kliknij wersja.txt (gałąź main) → ołówek „Edit this
+  file" → w PIERWSZEJ linii zamień 3.24.0 na 3.22.0 (reszty nie ruszaj)
+  → „Commit changes…" → „Commit changes".
+  Od tej chwili nikt nowy nie dostaje propozycji aktualizacji; kto ma
+  3.24.0, zostaje na niej. Wydania i tagu NIE kasuj. Napisz do mnie.
+  (Jedyny wyjątek od zasady „nie edytujesz wersja.txt przed KROKIEM 8".)
+
+
+───────────────────────────────────────────────────────────────────────
+KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
+───────────────────────────────────────────────────────────────────────
+  ZANIM ZACZNIESZ: arkusz → zakładka Uzytkownicy → kolumna „Wersja":
   wszyscy mają 3.24.0. Kto nie ma — najpierw do niego zadzwoń.
+  I w zakładce Log nie ma świeżych wierszy  podpis_zly.
 
-  8a. WŁĄCZ PODPIS. Apps Script → Code.gs → znajdź linię
-        var PODPIS_OBOWIAZKOWY = false;
-      i zmień na
-        var PODPIS_OBOWIAZKOWY = true;
-      → Zapisz → Wdróż → Zarządzaj wdrożeniami → ołówek → Nowa wersja →
-      Wdróż. Adres /exec ma teraz pokazać "podpis_obowiazkowy":true.
-      Od tej chwili ujawniony stary klucz nic nie daje. Starsze wersje
-      programu tracą puls, sesję i reset hasła — dlatego najpierw
-      sprawdzasz kolumnę „Wersja".
-      Po włączeniu: zaloguj się w programie i wygeneruj jedną delegację
-      (puls ma przybyć) oraz zaloguj się na telefonie (ma wejść).
-      Coś nie działa → zmień z powrotem na false i wdróż.
+  8a. WŁĄCZ PODPIS. Apps Script → Code.gs → Ctrl+F →
+      var PODPIS_OBOWIAZKOWY  → zmień
+          var PODPIS_OBOWIAZKOWY = false;
+      na
+          var PODPIS_OBOWIAZKOWY = true;
+      → Ctrl+S → „Wdróż" → „Zarządzaj wdrożeniami" → wdrożenie →
+      ołówek → Wersja: „Nowa wersja" → „Wdróż". ZAPISZ numer wersji
+      sprzed tej zmiany (droga odwrotu).
+      SPRAWDZENIE: adres /exec pokazuje "podpis_obowiazkowy":true.
+      Potem: zaloguj się w programie 3.24.0 → zakładka Uzytkownicy,
+      Twój wiersz: „Ostatni kontakt" = przed chwilą. I zaloguj się na
+      telefonie (Wyloguj ➲ → zaloguj) — ma wejść.
+      Coś nie działa → zmień z powrotem na false → Ctrl+S → Wdróż →
+      Nowa wersja. Napisz do mnie.
+      Od tej chwili stary klucz (z historii repozytorium) nic nie daje.
 
-  8b. PRÓG WERSJI. GitHub → Code → plik wersja.txt (gałąź main) →
-      ołówek (Edit). ZMIEŃ OBIE OSTATNIE LINIE NARAZ, a pierwszych
-      dwóch nie ruszaj:
-
-        min=3.24.0
-        blokada=RRRR-MM-DD
-
-      W miejsce RRRR-MM-DD wpisz datę 14 dni od dnia, w którym to
-      robisz, dokładnie w tym formacie (np. 2026-11-09).
-      → „Commit changes".
-
-      Co się stanie: kto ma starszą wersję, zobaczy okienko
-      z odliczaniem dni i przyciskiem „Zaktualizuj teraz"; po tej dacie
-      starsza wersja przestanie się uruchamiać.
+  8b. PRÓG WERSJI (komputer albo telefon w trybie komputerowym).
+      GitHub → Code → gałąź main → kliknij wersja.txt → ołówek „Edit
+      this file". Plik ma 4 linie. Pierwszych dwóch NIE ruszaj. Trzecią
+      i czwartą zamień w JEDNYM zapisie na:
+          min=3.24.0
+          blokada=RRRR-MM-DD
+      Data = dziś + 14 dni, dokładnie w formacie RRRR-MM-DD
+      (np. 2026-11-09). Sprawdź w kalendarzu, że taki dzień istnieje.
+      → „Commit changes…" → zostaw „Commit directly to the main
+      branch" → „Commit changes".
+      SPRAWDZENIE (po 1–5 min): otwórz
+        https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt
+      → 4 linie: trzecia min=3.24.0, czwarta blokada=Twoja data.
+      UWAGA: wersje 3.22.0 i starsze nie mają bezpiecznika — zmiana
+      samego min= albo zła data odcięłaby je OD RAZU. Dlatego obie
+      linie naraz i poprawna data.
+      Pomyliłeś się → edytuj jeszcze raz i przywróć poprzednie linie:
+          min=3.21.4
+          blokada=2026-09-24
+      Co się stanie po poprawnej zmianie: kto ma starszą wersję, zobaczy
+      okienko z przyciskiem „Zaktualizuj teraz"; po tej dacie starsza
+      wersja przestanie się uruchamiać.
 
 
 ───────────────────────────────────────────────────────────────────────
 CZEGO NIE ROBISZ
 ───────────────────────────────────────────────────────────────────────
-  · Nie zmieniasz nic w kodzie i nie edytujesz wersja.txt przed
-    KROKIEM 8 — numer wpisuje tam samo budowanie po wydaniu.
-  · Nie używasz WYSLIJ_NA_GITHUB.bat — kod już jest na GitHubie.
+  · Nie szukasz starego sekretu — nie istnieje i nie jest potrzebny.
+  · Nie klikasz w Apps Script „Nowe wdrożenie" ani nie uruchamiasz
+    żadnej funkcji (▶).
+  · Nie edytujesz wersja.txt przed KROKIEM 8 (poza hamulcem awaryjnym).
+  · Nie zmieniasz nic w kodzie i nie używasz WYSLIJ_NA_GITHUB.bat.
   · Nie dołączasz własnych plików .zip do wydania.
-  · Nie wklejasz żadnego sekretu do plików w repozytorium.
+  · Nie wklejasz sekretu do żadnego pliku w repozytorium.
 
 
 ───────────────────────────────────────────────────────────────────────
 GDY COŚ NIE GRA
 ───────────────────────────────────────────────────────────────────────
-  /exec pokazuje "sekrety":0
-      → w SEKRETY_PMT została zaślepka: KROK 2c, zapisz, wdróż.
-  W Code.gs nie ma SEKRETY_PMT (przed KROKIEM 2)
-      → tak ma być: obecny backend nie sprawdza podpisu. Po prostu
-        wklej nowy plik (KROK 2).
-  Budowanie czerwone, „Brak sekretu PMT_SEKRET" / „PMT_MENEDZER"
-      → KROK 3, potem „Re-run all jobs".
-  Po KROKU 8a paczka 3.24.0 loguje, ale nie przybywa puls
-      → sekret w GitHubie (3a) różni się od tego w SEKRETY_PMT (2c).
-        Wróć z PODPIS_OBOWIAZKOWY na false, wpisz w oba miejsca ten
-        sam napis, zbuduj i wydaj ponownie.
-        W katalogu użytkownika (C:\Users\Nazwa) plik
-        PMT_diagnostyka_animacji.txt z wpisem „brak sekretu aplikacji"
-        znaczy, że paczka powstała bez sekretu.
-  Telefon nie loguje się po KROKU 2
-      → przywróć poprzednią wersję wdrożenia (2f) i napisz.
+  W Code.gs nie ma słowa SEKRETY_PMT (przed KROKIEM 4)
+      → tak ma być: obecny backend nie sprawdza podpisu. Rób KROK 4.
+
+  /exec: "sekrety":0
+      → w 4c została zaślepka <NOWY_SEKRET>. Popraw, Ctrl+S, 4d.
+
+  /exec: w ogóle nie ma słowa „sekrety"
+      → działa stary skrypt: w 4d wybierz „Nowa wersja" i właściwe
+        wdrożenie (to z adresem z 0c).
+
+  Budowanie czerwone: „Brak sekretu PMT_SEKRET" albo „PMT_MENEDZER"
+      → KROK 2, potem „Re-run all jobs".
+
+  W zakładce Log jest wiersz  podpis_zly
+      PRZED wydaniem (KROK 5): popraw sekret w GitHubie albo w Apps
+        Script (ma być znak w znak ten sam), zbuduj test jeszcze raz.
+      PO wydaniu: NIE buduj i NIE wydawaj ponownie. Zamiast tego:
+        1) Releases → v3.24.0 → pobierz PMT_Planer.Windows.zip →
+           rozpakuj → PMT_Planer\_internal\sekret.txt → otwórz
+           Notatnikiem → skopiuj jedyną linię.
+        2) Apps Script → var SEKRETY_PMT → dopisz ją jako DRUGĄ
+           pozycję (przecinek po pierwszej!):
+             var SEKRETY_PMT = [
+               'sekret-z-kroku-1',
+               'sekret-z-paczki'
+             ];
+           → Ctrl+S → Wdróż → Nowa wersja. /exec: "sekrety":2.
+        3) Nowe wiersze podpis_zly przestają przybywać.
+
+  Ktoś nie może zmienić hasła na telefonie numerem telefonu
+  („To konto ma ustawione haslo…")
+      → tak ma być (ochrona przed przejęciem konta). Arkusz →
+        Uzytkownicy → wiersz tej osoby → kolumna „Haslo hash" (N) →
+        zaznacz komórkę → Delete. Osoba loguje się numerem telefonu
+        i ustawia nowe hasło. W programie na komputerze może też użyć
+        „Nie pamiętam hasła".
+
+  Po KROKU 8a puls nie przybywa tylko u JEDNEJ osoby z 3.24.0
+      → sprawdź godzinę na jej komputerze: różnica ponad 10 minut
+        psuje podpis. Windows: Ustawienia → Czas → „Ustaw czas
+        automatycznie".
+
+  Telefon albo obecny program nie logują się po KROKU 4
+      → cofnij wdrożenie do numeru z 0c (4f) i napisz.
+
   Windows blokuje program
       → BEZ_BLOKADY_WINDOWS.txt.
 ═══════════════════════════════════════════════════════════════════════

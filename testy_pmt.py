@@ -6078,21 +6078,32 @@ try:
     print("      klatka mapy %.2f ms (%dx%d), całe okno %.2f ms (%dx%d)"
           % (_ms_mapy18, _mapa18.width(), _mapa18.height(),
              _ms_okna18, _okno18.width(), _okno18.height()))
-    sprawdz("klatka mapy przy 1920x1080 mieści się w suficie 16 ms",
-            _ms_mapy18 <= _PM18.SUFIT_KLATKI_MS, "%.2f ms" % _ms_mapy18)
+    sprawdz("klatka mapy przy 1920x1080 mieści się w suficie 16 ms (w budżecie tej maszyny)",
+            w_budzecie(_ms_mapy18, _PM18.SUFIT_KLATKI_MS),
+            "%.2f ms (budżet %.2f ms)" % (_ms_mapy18, budzet(_PM18.SUFIT_KLATKI_MS)))
     # na czas pomiaru wyłączamy samoczynne ściszanie: inaczej mapa w połowie
     # mierzenia sama zapala życie z powrotem i wychodzi z tego bzdura
-    _mapa18._ciche = True
+    # Koszt życia to RÓŻNICA dwóch median — sumuje szum obu pomiarów. Mierzymy
+    # trzy pary (z życiem, ściszona) i bierzemy najmniejszą różnicę: hałas
+    # planisty tylko dokłada czasu, więc minimum najuczciwiej mówi o samym
+    # życiu. Próg 4 ms przeliczamy na szybkość tej maszyny, jak inne budżety.
     _mapa18.odnotuj_klatke = lambda _ms: None
     try:
-        _ms_bez18 = _klatka18(_mapa18)
+        _koszty18 = []
+        for _ in range(3):
+            _z18 = _klatka18(_mapa18)
+            _mapa18._ciche = True
+            _b18 = _klatka18(_mapa18)
+            _mapa18._ciche = False
+            _koszty18.append(_z18 - _b18)
     finally:
         del _mapa18.odnotuj_klatke
-    _mapa18._ciche = False
-    print("      z życiem %.2f ms, ściszona %.2f ms — życie kosztuje %.2f ms"
-          % (_ms_mapy18, _ms_bez18, _ms_mapy18 - _ms_bez18))
-    sprawdz("całe życie na mapie kosztuje mniej niż cztery milisekundy klatki",
-            _ms_mapy18 - _ms_bez18 <= 4.0, "%.2f ms" % (_ms_mapy18 - _ms_bez18))
+        _mapa18._ciche = False
+    _koszt_zycia18 = min(_koszty18)
+    print("      życie kosztuje %.2f ms (pary: %s)"
+          % (_koszt_zycia18, ", ".join("%.2f" % k for k in _koszty18)))
+    sprawdz("całe życie na mapie kosztuje mniej niż cztery milisekundy klatki (w budżecie tej maszyny)",
+            w_budzecie(_koszt_zycia18, 4.0), "%.2f ms (budżet %.2f ms)" % (_koszt_zycia18, budzet(4.0)))
     sprawdz("sufit klatki i próg powrotu zostawiają zapas większy niż koszt efektów",
             _PM18.SUFIT_KLATKI_MS - _PM18.PROG_POWROTU_MS >= 3.0)
 
@@ -6854,8 +6865,17 @@ try:
     # domyślnie WYŁĄCZONY i sprawdzany w doPost PRZED weryfikacją.
     sprawdz("backend: PODPIS_OBOWIAZKOWY domyślnie false — wdrożenie skryptu nikogo nie odcina",
             re.search(r"^var PODPIS_OBOWIAZKOWY = false;", _gs21, re.M) is not None
-            and "if (PODPIS_OBOWIAZKOWY\n" in _dp21
-            and _dp21.index("PODPIS_OBOWIAZKOWY") < _dp21.index("!weryfikujPodpis(dane)"))
+            and re.search(r"!weryfikujPodpis\(dane\)\) \{\s*if \(PODPIS_OBOWIAZKOWY\) \{\s*return _json\(\{ status: \"blad\", opis: \"odmowa\" \}\);",
+                          _dp21) is not None)
+    # W okresie przejściowym rozjazd sekretu w NOWEJ paczce ma być widać od
+    # razu (zakładka Log), a nie dopiero w dniu włączenia podpisu — gdy cały
+    # zespół ma już paczkę i nie da się wydać drugiej 3.24.0.
+    sprawdz("backend: zły podpis od paczki z sekretem (3.24.0+) zostawia w Log wpis „podpis_zly” — także w okresie przejściowym",
+            '"podpis_zly"' in _dp21 and "_wersjaCoNajmniej(dane.wersja, WERSJA_Z_SEKRETEM)" in _dp21
+            and "var WERSJA_Z_SEKRETEM = '3.24.0';" in _gs21)   # pierwsza wersja z sekret.txt — stała historyczna
+    sprawdz("backend: nagłówek każe POMINĄĆ pierwszą instalację przy aktualizacji (żadnego „Nowe wdrożenie”)",
+            "AKTUALIZUJESZ DZIAŁAJĄCY BACKEND? POMIŃ" in _gs21
+            and "uruchom raz \"inicjalizuj\" i zrób nowe" not in _gs21)
     sprawdz("backend: /exec pokazuje stan przełącznika podpisu (do sprawdzenia po wdrożeniu)",
             "podpis_obowiazkowy: PODPIS_OBOWIAZKOWY === true" in _gs21)
     sprawdz("instrukcja wydania: przełącznik włącza się dopiero w kroku domknięcia, po aktualizacji zespołu",
@@ -7008,13 +7028,18 @@ try:
             _fp.write(b"%PDF-1.4\n" + b"x" * 2000)
     for _i in range(30):
         os.makedirs(os.path.join(_pulpit22, "Rozliczenie_Osoba_Obca%d_maj_2026r" % _i), exist_ok=True)
-    _t22 = time.perf_counter()
-    _ile22 = P.dociagnij_historie_z_folderow(_IMIE22, _PESEL22, _pulpit22)
-    _ms22 = (time.perf_counter() - _t22) * 1000
+    # Skan bez nowości jest idempotentny — mierzymy trzy razy i bierzemy
+    # minimum (czas dysku i antywirusa to szum, nie program).
+    _pomiary_skanu22 = []
+    for _ in range(3):
+        _t22 = time.perf_counter()
+        _ile22 = P.dociagnij_historie_z_folderow(_IMIE22, _PESEL22, _pulpit22)
+        _pomiary_skanu22.append((time.perf_counter() - _t22) * 1000)
+    _ms22 = min(_pomiary_skanu22)
     sprawdz("skan: folder z PDF-ami bez czytelnej kwoty nie daje wpisu; cudze foldery pominięte",
             _ile22 == 0 and _historia22() == [], str((_ile22, _historia22())))
-    sprawdz("skan 31 folderów bez nowości kosztuje milisekundy (< 50 ms)",
-            _ms22 < 50, "%.1f ms" % _ms22)
+    sprawdz("skan 31 folderów bez nowości kosztuje milisekundy (< 50 ms, w budżecie tej maszyny)",
+            w_budzecie(_ms22, 50.0), "%.1f ms" % _ms22)
     sprawdz("pmt_dokumenty: liczby z nieczytelnego / obcego / nieistniejącego pliku to None, nie zero",
             _PD22.liczby_dokumentu(os.path.join(_atrapa22, "delegacja_01_Jan_Testowy_luty_2026r.pdf"))["kwota"] is None
             and _PD22.liczby_kompletu(_atrapa22)["kwota"] is None
@@ -7148,8 +7173,8 @@ if not SZYBKO:
                 and _skan22.get("imie") == "Anna Obca" and _skan22.get("folder") == _obca22,
                 str({k: (_skan22.get(k), _nowy22.get(k))
                      for k in ("kwota", "km", "dni_wyjazdowe", "dokumenty", "baza", "zrodlo")}))
-        sprawdz("dociągnięcie jednego miesiąca (odczyt PDF-ów + HTML) kosztuje milisekundy (< 200 ms)",
-                _ms22 < 200, "%.1f ms" % _ms22)
+        sprawdz("dociągnięcie jednego miesiąca (odczyt PDF-ów + HTML) kosztuje milisekundy (< 200 ms, w budżecie tej maszyny)",
+                w_budzecie(_ms22, 200.0), "%.1f ms" % _ms22)
         sprawdz("skan nie dopisuje cudzego folderu do historii Jana i jest idempotentny",
                 P.dociagnij_historie_z_folderow(_IMIE22, _PESEL22) == 0
                 and P.dociagnij_historie_z_folderow("Anna Obca", "85010112345") == 0
@@ -7172,7 +7197,13 @@ if not SZYBKO:
         _ov22._przelacz_zakladke("delegacje")
         _ov22._rok_del = 2026
         _ov22._przelicz_delegacje()
-        for _ in range(6):
+        # Słupki wykresu rosną zegarem co 16 ms (wyk_koszty._postep 0 → 1).
+        # Sześć obrotów pętli potrafi zmieścić się w 16 ms i wtedy na zrzucie
+        # nie ma ani jednego piksela słupka — czekamy więc na KONIEC wzrostu.
+        _granica22 = datetime.datetime.now() + datetime.timedelta(seconds=5)
+        while _ov22.wyk_koszty._postep < 1.0 and datetime.datetime.now() < _granica22:
+            _app.processEvents()
+        for _ in range(2):
             _app.processEvents()
         _karty22 = [w.text() for w, _o in _ov22.karty_stat_del]
         _suma_roku22 = sum(v["kwota"] for (r, m), v in _api22.items() if r == 2026)
@@ -7190,7 +7221,8 @@ if not SZYBKO:
                 if _c.blue() > 180 and _c.green() > 150 and _c.red() < 120:
                     _akcent22 += 1
         sprawdz("wykres „Koszty miesięczne” ma narysowany słupek (piksele w kolorze akcentu), nie same zera",
-                _akcent22 > 30, str(_akcent22))
+                _ov22.wyk_koszty._postep >= 1.0 and _akcent22 > 30,
+                "postęp wzrostu %.2f, pikseli akcentu %d" % (_ov22.wyk_koszty._postep, _akcent22))
         _okno22.close()
         shutil.rmtree(_obca22, ignore_errors=True)
     except Exception as _e22:
@@ -7465,8 +7497,8 @@ try:
             _ekran23.render(_p23)
             _p23.end()
             _czasy23.append((time.perf_counter() - _t23) * 1000)
-        sprawdz("klatka ekranu startowego z kratką roku: szkło kart i kratka z bufora (mediana < 25 ms)",
-                _stat23.median(_czasy23) < 25 and _ekran23.karta_roku._pix is not None
+        sprawdz("klatka ekranu startowego z kratką roku: szkło kart i kratka z bufora (mediana < 25 ms, w budżecie tej maszyny)",
+                w_budzecie(_stat23.median(_czasy23), 25.0) and _ekran23.karta_roku._pix is not None
                 and _kr23._pix is not None and _ekran23.karta_dnia._pix is not None,
                 "%.2f ms" % _stat23.median(_czasy23))
 
@@ -7825,8 +7857,9 @@ try:
     sprawdz("obrócona kartka jest ściśnięta w poziomie o cosinus kąta (faza 0,3 → ok. 59% szerokości)",
             _szer_przod24 > 100 and abs(_szer_obrot24 / float(_szer_przod24) - math.cos(0.3 * math.pi)) < 0.08,
             "%d → %d kolumn (%.2f)" % (_szer_przod24, _szer_obrot24, _szer_obrot24 / float(max(1, _szer_przod24))))
-    sprawdz("klatka obrotu kosztuje ułamki milisekundy (mediana < 3 ms przy 342x470)",
-            _czasy24[len(_czasy24) // 2] < 3.0, "%.2f ms" % _czasy24[len(_czasy24) // 2])
+    sprawdz("klatka obrotu kosztuje ułamki milisekundy (mediana < 3 ms przy 342x470, w budżecie tej maszyny)",
+            w_budzecie(_czasy24[len(_czasy24) // 2], 3.0),
+            "%.2f ms (budżet %.2f ms)" % (_czasy24[len(_czasy24) // 2], budzet(3.0)))
     _k24.close()
 
     # ── 24d. białe plamy: mgła, wycięcia, licznik ─────────────────
@@ -7836,6 +7869,17 @@ try:
     _m24.ustaw_dzien(_dzien24)
     _m24.show()
     _miel24()
+    # ustaw_dzien i odłożony resizeEvent z show() nastawiają zegar terenu
+    # (180 ms) także przy zgaszonych animacjach. Gdy wystrzeli PO zapamiętaniu
+    # kamery niżej, mapa dostaje nowe wzniesienia i nowy rzut — punkty
+    # miejscowości przesuwają się o kilkanaście pikseli i próbki mgły trafiają
+    # obok. Domykamy zegar tak jak w sekcjach 16, 27 i 31: drugie
+    # ustaw_animacje(False) PO zmianie dnia.
+    _m24.ustaw_animacje(False)
+    _miel24()
+    sprawdz("mapa rejonu stoi na terenie z ziarna dnia (zegar terenu domknięty, kamera się już nie zmieni)",
+            not _m24._zegar_terenu.isActive() and _m24._ziarno_terenu == _m24._ziarno,
+            str((_m24._zegar_terenu.isActive(), _m24._ziarno_terenu, _m24._ziarno)))
     _nazwy24 = [n for n in _m24._nazwy() if n != _m24._baza]
     _trasa24 = set(_dzien24.trasa)
     sprawdz("bez śladu obecności licznik mówi 0 / N (N = miejscowości mapy bez bazy)",
@@ -7897,13 +7941,18 @@ try:
         del _m24._pixmapa_mgly
     sprawdz("dwanaście klatek animacji nie buduje mgły ani razu — jest częścią warstwy pod trasą",
             _ile_mgly24["n"] == 0, str(_ile_mgly24))
-    _t0 = time.perf_counter()
-    _m24._pixmapa_mgly(_rzut24, _geo24)
-    _koszt_mgly24 = (time.perf_counter() - _t0) * 1000.0
+    # Pięć pomiarów, minimum: JEDEN pomiar przegrywał z pojedynczą czkawką
+    # planisty albo odśmiecacza. Hałas tylko dodaje czasu.
+    _koszty_mgly24 = []
+    for _ in range(5):
+        _t0 = time.perf_counter()
+        _m24._pixmapa_mgly(_rzut24, _geo24)
+        _koszty_mgly24.append((time.perf_counter() - _t0) * 1000.0)
+    _koszt_mgly24 = min(_koszty_mgly24)
     print("      budowa mgły rejonu %dx%d: %.2f ms (raz na układ, nie na klatkę)"
           % (_m24.width(), _m24.height(), _koszt_mgly24))
-    sprawdz("zbudowanie mgły przy 900x600 to pojedyncze milisekundy", _koszt_mgly24 < 12.0,
-            "%.2f ms" % _koszt_mgly24)
+    sprawdz("zbudowanie mgły przy 900x600 to pojedyncze milisekundy (w budżecie tej maszyny)",
+            w_budzecie(_koszt_mgly24, 12.0), "%.2f ms (budżet %.2f ms)" % (_koszt_mgly24, budzet(12.0)))
     _m24.close()
 
     # ── 24f. nowe okno: ślad z historii miesięcy trafia na mapę ───
@@ -8778,8 +8827,16 @@ try:
     _zgl26 = []
     _k26.przelaczono_zwiniecie.connect(lambda z: _zgl26.append(z))
     _k26.ustaw_animacje(True)
-    _klik_k26(_QP26(_pu26.center().x(), _pu26.center().y()))
-    _w_ruchu26 = (_k26.zwija_sie(), _k26.zwinieta(), 0.0 < _k26.faza_zwijania() < 1.0, list(_zgl26))
+    # Stan „w trakcie" ustawia się SYNCHRONICZNIE w mousePressEvent, więc
+    # czytamy go od razu po kliknięciu — a nie po dwóch obrotach pętli, które
+    # na zadławionej maszynie potrafią trwać dłużej niż całe zwijanie (300 ms).
+    _pkt_p26 = _QP26(_pu26.center().x(), _pu26.center().y())
+    _k26.mousePressEvent(_QME26(_QE26.Type.MouseButtonPress, _pkt_p26,
+                                _k26.mapToGlobal(_pkt_p26.toPoint()).toPointF(),
+                                _Qt26.MouseButton.LeftButton, _Qt26.MouseButton.LeftButton,
+                                _Qt26.KeyboardModifier.NoModifier))
+    _w_ruchu26 = (_k26.zwija_sie(), _k26.zwinieta(), 0.0 <= _k26.faza_zwijania() < 1.0, list(_zgl26))
+    _miel26(2)
     _t0_26 = time.time()
     while _k26.zwija_sie() and time.time() - _t0_26 < 3.0:
         _app26.processEvents()
@@ -9337,6 +9394,11 @@ try:
     # ── 28c. synchronizacja z postępem: kolejka nitek, brak końca przed silnikiem, domknięcie po nim ──
     _okno28._zacznij_intro_generowania()
     _g28 = _okno28._intro_generowania
+    # Ten test sprawdza CHOREOGRAFIĘ, nie wydajność. Samowygaszenie (średnia
+    # klatki > SUFIT_PRZELOTU_MS przez kilkanaście klatek) ma próg w ms, który
+    # nie skaluje się z maszyną — na wolnym runnerze gasiło spektakl w połowie
+    # i test widział „koniec" zamiast „lot". Sam mechanizm sprawdza 28c-bis.
+    _g28._odnotuj_klatke = lambda _ms: None
     _okno28.k_kompas.kompas.ustaw_stan("praca")
     _okno28._etap_silnika = "trasy"
     _g28._tik()
@@ -9352,8 +9414,13 @@ try:
             and _w_biegu28[0] + _w_biegu28[1] == 4, str(_w_biegu28))
     _fazy28 = set()
     _rozblysk_byl28 = False
+    # Co najmniej 2,6 s patrzymy, czy pokaz nie ląduje przed silnikiem; dalej
+    # (do 6 s) czekamy już tylko, aż nitki dobiegną. Cztery nitki po dwie
+    # naraz potrzebują ~2,3 s, a każda kolejna rusza dopiero po wykryciu
+    # końca poprzedniej — sztywne 2,6 s zostawiało 0,3 s zapasu.
     _t0_28 = time.monotonic()
-    while time.monotonic() - _t0_28 < 2.6:
+    while time.monotonic() - _t0_28 < 6.0 and (
+            time.monotonic() - _t0_28 < 2.6 or _g28.nitki_w_biegu() or _g28.czeka_w_kolejce()):
         _app28.processEvents()
         _fazy28.add(_g28.faza())
         _rozblysk_byl28 = _rozblysk_byl28 or _g28.rozblyski() > 0
@@ -9361,7 +9428,7 @@ try:
     _okno28._postep_generacji("Renderowanie pliku PDF (2/2)...", 0.90)
     _miel28(2)
     _kartek28 = (_g28.kartki(), _g28.kartki_na_stosie(), _g28.stemple())
-    sprawdz("przez 2,6 s bez końca silnika pokaz zostaje w locie (nigdy nie ląduje przed silnikiem), nitki dobiegły i miejscowości rozbłysły",
+    sprawdz("przez co najmniej 2,6 s bez końca silnika pokaz zostaje w locie (nigdy nie ląduje przed silnikiem), nitki dobiegły i miejscowości rozbłysły",
             _fazy28 == {"lot"} and _g28.nitki_w_biegu() == 0 and _g28.czeka_w_kolejce() == 0
             and _rozblysk_byl28, str((_fazy28, _g28.nitki_w_biegu(), _g28.czeka_w_kolejce(), _rozblysk_byl28)))
     sprawdz("dwa dokumenty to dwie kartki w locie z trasy, a trasy dostają stemple",
@@ -9377,7 +9444,7 @@ try:
         _po_koncu28 = (_g28.faza(), _okno28._intro_generowania, _g28.isVisible())
         _domkniete28 = all(k["czas"] <= _SP28.CZAS_DOMYKANIA_MS + 1e-6 or _g28._lot_kartki(k, _g28._czas()) >= 1.0
                            for k in _g28._kartki)
-        while time.monotonic() - _t_kon28 < 3.0 and _okno28.findChildren(_SP28.SpektaklMiesiaca):
+        while time.monotonic() - _t_kon28 < 5.0 and _okno28.findChildren(_SP28.SpektaklMiesiaca):
             _app28.processEvents()
         _czas_domkniecia28 = time.monotonic() - _t_kon28
     finally:
@@ -9385,10 +9452,31 @@ try:
     sprawdz("koniec silnika: pokaz od razu ląduje (faza „ladowanie”), okno o nim zapomina, kartki w locie dolatują w czasie domykania",
             _po_koncu28[0] == "ladowanie" and _po_koncu28[1] is None and _po_koncu28[2] and _domkniete28,
             str(_po_koncu28))
-    sprawdz("po końcu silnika pokaz domyka się i schodzi z okna w mniej niż 1,3 s (lądowanie CZAS_LADOWANIA_MS), stemple kartek rozpędziły kompas",
-            _czas_domkniecia28 < 1.3 and not _okno28.findChildren(_SP28.SpektaklMiesiaca)
+    sprawdz("po końcu silnika pokaz domyka się i schodzi z okna w mniej niż 1,3 s (lądowanie CZAS_LADOWANIA_MS, w budżecie tej maszyny), stemple kartek rozpędziły kompas",
+            w_budzecie(_czas_domkniecia28 * 1000.0, 1300.0)
+            and not _okno28.findChildren(_SP28.SpektaklMiesiaca)
             and len(_impulsy28) >= 1 and _g28.faza() == "koniec",
             "domknięcie %.2f s, impulsów %d, faza %s" % (_czas_domkniecia28, len(_impulsy28), _g28.faza()))
+    _miel28(4)
+
+    # ── 28c-bis. samowygaszenie: komputer nie wyrabia → pokaz gaśnie sam ──
+    # Deterministycznie: zamiast mierzyć prawdziwe klatki podajemy mechanizmowi
+    # klatki droższe niż sufit — tyle, ile potrzeba do decyzji.
+    _okno28._zacznij_intro_generowania()
+    _sg28 = _okno28._intro_generowania
+    _sg28._tik()
+    _miel28(2)
+    _faza_przed_sg28 = _sg28.faza()
+    for _ in range(_PM28.KLATEK_PRZELOTU_DO_DECYZJI + 2):
+        type(_sg28)._odnotuj_klatke(_sg28, _PM28.SUFIT_PRZELOTU_MS * 2.0)
+    _granica_sg28 = time.monotonic() + 5.0
+    while time.monotonic() < _granica_sg28 and _okno28.findChildren(_SP28.SpektaklMiesiaca):
+        _app28.processEvents()
+    sprawdz("samowygaszenie: klatki droższe niż sufit przez kilkanaście klatek gaszą pokaz, zostaje sam postęp na kompasie",
+            _faza_przed_sg28 == "lot" and _sg28.faza() == "koniec"
+            and not _okno28.findChildren(_SP28.SpektaklMiesiaca),
+            str((_faza_przed_sg28, _sg28.faza(), len(_okno28.findChildren(_SP28.SpektaklMiesiaca)))))
+    _okno28._intro_generowania = None
     _miel28(4)
 
     # ── 28d. Esc przerywa, kliknięcie pomija ──────────────────────

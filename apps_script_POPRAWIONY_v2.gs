@@ -6,7 +6,15 @@
  *  status: do kiedy ważna sesja + lista nieobecności (urlopy/L4/
  *  zastępstwa) do uwzględnienia w planowaniu tras.
  *
- *  JAK URUCHOMIĆ (raz, ~5 minut):
+ *  ┌────────────────────────────────────────────────────────────────┐
+ *  │ AKTUALIZUJESZ DZIAŁAJĄCY BACKEND? POMIŃ „JAK URUCHOMIĆ" NIŻEJ. │
+ *  │ Nie twórz arkusza, nie uruchamiaj żadnej funkcji i NIGDY nie   │
+ *  │ klikaj „Nowe wdrożenie" — to daje NOWY adres /exec, którego    │
+ *  │ nie zna ani program, ani telefon. Zrób tylko „WDROŻENIE: TRZY  │
+ *  │ RZECZY" niżej (i WYDANIE.txt w repozytorium).                  │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  JAK URUCHOMIĆ — TYLKO PIERWSZA INSTALACJA, NA PUSTYM ARKUSZU:
  *  1. Wejdź na sheets.new — utworzy się nowy arkusz. Nazwij go np.
  *     "PMT Planer — administracja".
  *  2. W arkuszu: Rozszerzenia → Apps Script. Skasuj przykładowy kod,
@@ -110,6 +118,12 @@ var SEKRETY_PMT = [
 //         stracą wtedy puls, sesję i reset hasła.
 var PODPIS_OBOWIAZKOWY = false;
 
+// Od tej wersji paczki niosą sekret (sekret.txt). Starsze podpisywały
+// ujawnionym kluczem z kodu albo wcale — ich podpis w okresie przejściowym
+// pomijamy w dzienniku, żeby wpis „podpis_zly" znaczył tylko jedno:
+// rozjazd sekretu w nowej paczce.
+var WERSJA_Z_SEKRETEM = '3.24.0';
+
 // Akcje wysyłane WYŁĄCZNIE przez program na komputerze — tylko one
 // wymagają podpisu. Aplikacja na telefonie (pmt_wizyty.html) żadnej
 // z nich nie używa, więc podpis jej nie dotyczy.
@@ -155,6 +169,17 @@ function weryfikujPodpis(d) {
     }
     return false;
   } catch (e) { return false; }
+}
+
+function _wersjaCoNajmniej(w, prog) {
+  if (!w) return false;
+  var a = String(w).split('.'), b = String(prog).split('.');
+  for (var i = 0; i < 3; i++) {
+    var x = Number(a[i] || 0), y = Number(b[i] || 0);
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return true;
 }
 
 function wersjaZaStara(w) {
@@ -328,8 +353,9 @@ function _log(ss, kod, zdarzenie, szczegoly) {
 /*  Właściwości skryptu → Dodaj: nazwa ANTHROPIC_KLUCZ, wartość =     */
 /*  klucz z console.anthropic.com. Klucz zostaje na serwerze Google — */
 /*  telefony go nigdy nie widzą.                                      */
-/*  PO WKLEJENIU TEJ WERSJI: uruchom raz "inicjalizuj" i zrób nowe    */
-/*  wdrożenie (Wdróż → Zarządzaj → Wersja: Nowa).                     */
+/*  PO WKLEJENIU: Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja:    */
+/*  Nowa → Wdróż (ten sam adres /exec). „inicjalizuj" tylko przy      */
+/*  pierwszej instalacji — przy aktualizacji niczego nie uruchamiasz. */
 /* ================================================================== */
 
 var ZAKLADKA_PLANOGRAMY = "Planogramy";
@@ -380,10 +406,21 @@ function doPost(e) {
     // Podpis: akcje z AKCJE_PODPISANE przyjmujemy tylko od programu,
     // który zna sekret aplikacji. Brak pola „podpis" to ta sama odmowa
     // co zły podpis — patrz blok bezpieczeństwa na początku pliku.
-    if (PODPIS_OBOWIAZKOWY
-        && AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
+    if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
         && !weryfikujPodpis(dane)) {
-      return _json({ status: "blad", opis: "odmowa" });
+      if (PODPIS_OBOWIAZKOWY) {
+        return _json({ status: "blad", opis: "odmowa" });
+      }
+      // Okres przejściowy: nie blokujemy, ale program 3.24.0+ MUSI już
+      // podpisywać poprawnie. Zły albo brakujący podpis od niego znaczy,
+      // że sekret w paczce różni się od SEKRETY_PMT — dowiadujemy się
+      // o tym od razu (zakładka Log, zdarzenie „podpis_zly"), a nie
+      // dopiero w dniu włączenia podpisu, gdy cały zespół ma już paczkę.
+      if (_wersjaCoNajmniej(dane.wersja, WERSJA_Z_SEKRETEM)) {
+        _log(SpreadsheetApp.getActiveSpreadsheet(), String(dane.kod || "?"),
+             "podpis_zly", "wersja " + String(dane.wersja || "?") + ", akcja "
+             + String(dane.akcja) + " — sekret w paczce rozni sie od SEKRETY_PMT");
+      }
     }
     // Kontrola wersji TYLKO dla akcji wysyłanych przez program na
     // komputerze. Aplikacja na telefonie nie wysyła pola „wersja"
@@ -707,8 +744,8 @@ function produkty() {
 /* --- uzupelnienie produktu z terenu: EAN + zdjecie opakowania ---------- */
 /*  Zdjecie laduje na Twoj Dysk Google (folder "PMT Produkty"), a wiersz   */
 /*  w zakladce Produkty jest tworzony/aktualizowany po kodzie.             */
-/*  UWAGA: pierwsze uzycie poprosi o nowa zgode (dostep do Dysku) —        */
-/*  po wklejeniu skryptu uruchom raz "inicjalizuj_v2" i zaakceptuj.        */
+/*  UWAGA: przy PIERWSZEJ instalacji pierwsze uzycie poprosi o zgode       */
+/*  (dostep do Dysku) — wtedy uruchom raz "inicjalizuj_v2" i zaakceptuj.   */
 function zapiszProdukt(dane) {
   var kod = String(dane.kod || "").trim();
   if (!kod) return { status: "blad", opis: "Brak kodu produktu" };
@@ -1004,8 +1041,8 @@ function zapiszSesje(dane) {
 }
 
 /* ====== RESET HASLA ==================================================== */
-/*  Administrator: menu PMT -> "Resetuj haslo" albo recznie czysci kolumne  */
-/*  N w zakladce Uzytkownicy. Uzytkownik: ta sama akcja z aplikacji po      */
+/*  Administrator: recznie czysci kolumne N (Haslo hash) w zakladce         */
+/*  Uzytkownicy. Uzytkownik: ta sama akcja z programu po                    */
 /*  podaniu kodu i numeru telefonu z kartoteki.                             */
 /*  LIMIT PROB: numer telefonu to jedyny dowod tozsamosci, wiec bez limitu  */
 /*  dalo sie zgadywac. Liczymy w CacheService: na KOD (cel ataku) i LACZNIE */

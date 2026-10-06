@@ -63,6 +63,14 @@ PODPIS: OKRES PRZEJŚCIOWY (wydanie 3.24.0)
   na GitHubie powstaje on z sekretu repozytorium PMT_SEKRET. Ten sam
   napis musi stać w SEKRETY_PMT.
 
+  WYKRYWANIE ROZJAZDU od razu, nie po 14 dniach: w okresie przejściowym
+  zapytanie od programu 3.24.0+ ze złym albo brakującym podpisem
+  przechodzi, ale zostawia w zakładce Log wpis „podpis_zly". Brak takich
+  wpisów = sekret w paczce zgadza się z SEKRETY_PMT. Starsze wersje
+  (podpisane ujawnionym kluczem albo wcale) wpisów nie zostawiają.
+  Wpis po wydaniu → sekret z paczki (_internal\sekret.txt) dopisz jako
+  drugą pozycję SEKRETY_PMT — WYDANIE.txt, „GDY COŚ NIE GRA".
+
   Paczka bez sekretu loguje się normalnie, ale po włączeniu podpisu jej
   puls dostaje „odmowa"; w katalogu użytkownika plik
   PMT_diagnostyka_animacji.txt ma wtedy wpis „brak sekretu aplikacji".

@@ -1,514 +1,57 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.23.0 — WERSJA STABILNA
-  baza: sprawdzona 3.20.57 · przegląd kodu + poprawki + testy
+  PMT PLANER 3.24.0 — START TUTAJ
+  Mapa plików: co gdzie leży i kiedy do tego zajrzeć.
 ═══════════════════════════════════════════════════════════════════════
 
-W SKRÓCIE — CO SIĘ ZMIENIŁO I DLACZEGO
-
-  Cztery obszary, o które chodziło: przełożony poza kodem, bezpieczeństwo,
-  obowiązkowa aktualizacja, silnik delegacji. Do tego piąty, który wyszedł
-  przy przeglądzie i był najpilniejszy: zachowania programu, po których
-  Windows uznaje go za podejrzany.
-
-  WYGLĄD I SPOSÓB PRACY PROGRAMU SIĘ NIE ZMIENIŁ. Układ okien,
-  planer wizyt, mapy, historia, PDF-y — wszystko jak dotąd.
-  Przełożony na delegacji podstawia się sam z pliku menedzer.txt
-  (dołączanego przy budowaniu z sekretu) — w programie nie ma pola.
-
-───────────────────────────────────────────────────────────────────────
-1. PRZEŁOŻONY POZA KODEM
-───────────────────────────────────────────────────────────────────────
-  · Nazwiska nie ma już nigdzie w kodzie ani w tej instrukcji.
-  · W programie NIE MA pola do wpisania — użytkownik nie może go zmienić
-    ani pominąć (od 3.22.0; wcześniejsze wpisy w ustawieniach są
-    ignorowane).
-  · Jedyne źródło: plik menedzer.txt (jedna linia)
-    położony OBOK PMT_Planer.exe. Program czyta go z katalogu programu,
-    z podkatalogu _internal i z katalogu roboczego, w kodowaniu UTF-8,
-    UTF-8 z BOM albo ANSI (cp1250) — czyli tak, jak zapisze go Notatnik.
-  · NAJPROŚCIEJ DLA ZESPOŁU: menedzer.txt kładziesz obok zbuduj.py PRZED
-    budowaniem — trafia do paczki i każdy dostaje wypełnioną rubrykę bez
-    żadnej roboty. Przy budowaniu na GitHubie to samo załatwia sekret
-    repozytorium PMT_MENEDZER (Settings → Secrets and variables → Actions
-    → New repository secret; wartość = imię i nazwisko).
-    W 3.21.0–3.21.1 plik był z paczki wyrzucony (w imię prywatności) i przez
-    to rubryka wychodziła pusta — cofnięte w 3.21.2. Nazwisko drukowane na
-    każdej delegacji nie jest tajemnicą; problemem było wyłącznie to, że
-    leżało w publicznym repozytorium.
-  · Program szuka pliku po kolei: obok PMT_Planer.exe, w _internal
-    (paczka), w katalogu ze skryptem, w katalogu roboczym, a na końcu
-    w Twoim katalogu użytkownika (C:\Users\TY\menedzer.txt). Czyta UTF-8,
-    UTF-8 z BOM, ANSI (cp1250) i UTF-16 — każdy zapis z Notatnika.
-    W oknie programu NIE MA pola na nazwisko — plik jest jedyną drogą.
-  · Plik .gitignore pilnuje, żeby menedzer.txt nigdy nie trafił na GitHub.
-  · Tak samo działa pmt_kontakt.txt (jedna linia z adresem e-mail): to
-    adres, na który trafia przycisk „Zgłoś błąd". Bez pliku program używa
-    adresu domyślnego, więc nic nie musisz robić, jeśli ma zostać po staremu.
-  · Gdyby rubryka MIMO TO wyszła pusta: w katalogu użytkownika jest plik
-    PMT_diagnostyka_animacji.txt — linia „MENEDZER na dokumencie" mówi,
-    co poszło na PDF i GDZIE program szukał. Wyślij tę linię.
-
-  UWAGA, KTÓREJ NIE DA SIĘ OBEJŚĆ KODEM: nazwisko wciąż istnieje
-  w HISTORII repozytorium (starsze commity) i wewnątrz wydań ≤ 3.20.57
-  opublikowanych na GitHubie. Jeśli ma zniknąć naprawdę, trzeba osobno
-  usunąć/zastąpić starsze wydania i przepisać historię repozytorium.
-  Nowe wydania są już czyste.
-
-───────────────────────────────────────────────────────────────────────
-2. BEZPIECZEŃSTWO — DANE NALEŻĄ DO KONTA, NIE DO KOMPUTERA
-───────────────────────────────────────────────────────────────────────
-  Do 3.20.57 wszystko leżało wspólnie: kto zalogował się jako drugi,
-  widział dane pierwszego. Teraz do konta przypisane są:
-  plan wizyt · lista sklepów · dziennik wizyt z notatkami ·
-  notatki dni · adres bazy planera.
-
-  · Klucz konta bierze się WYŁĄCZNIE z 5-cyfrowego loginu. Wcześniej
-    wchodziło w niego imię z arkusza — poprawka pisowni nazwiska robiła
-    z tej samej osoby kogoś innego i „gubiła" jej plan.
-  · Wylogowanie czyści z komputera imię, rejon, ważność sesji i listę
-    nieobecności. Zostawała tam m.in. lista L4 CAŁEGO zespołu, widoczna
-    dla następnej osoby przy tym komputerze.
-  · Przelogowanie bez zamykania programu naprawdę przełącza konto.
-    Wcześniej nowa osoba pracowała dalej na danych poprzedniej — to była
-    najpoważniejsza dziura w całej tej zmianie.
-  · Kod dostępu do panelu administratora nie jest już jawnym napisem
-    w kodzie (dawało się go odczytać z pliku .exe i z GitHuba). Własny
-    kod ustawisz plikiem pmt_kod.txt obok programu — wtedy stary
-    przestaje działać. WARTO TO ZROBIĆ: dotychczasowy wyciekł.
-
-  CO Z DANYMI, KTÓRE JUŻ SĄ NA KOMPUTERACH:
-  · komputer używany przez JEDNĄ osobę — wszystko przechodzi na jej
-    konto automatycznie, nic nie ginie; wspólne pliki zostają jako
-    kopia z końcówką .sprzed_3.21.0,
-  · komputer WSPÓLNY (w historii logowań kilka kont) — nikt nie dostaje
-    cudzych danych, wspólne pliki zostają nietknięte.
-
-  BACKEND: patrz BACKEND_APPS_SCRIPT.txt. Zmiany po stronie arkusza są
-  opisane krok po kroku, z ostrzeżeniem, czego NIE wolno zrobić (włączenie
-  twardego wymogu podpisu odcięłoby aplikację na telefonie).
-
-───────────────────────────────────────────────────────────────────────
-3. OBOWIĄZKOWA AKTUALIZACJA
-───────────────────────────────────────────────────────────────────────
-  Sterują nią dwa wiersze w pliku wersja.txt w repozytorium:
-        min=3.21.4
-        blokada=2026-09-24
-  Program starszy niż „min" ostrzega, a po dacie „blokada" odmawia
-  uruchomienia i kieruje do pobrania. Wymagania zapisują się lokalnie,
-  więc odłączenie internetu blokady nie zdejmuje.
-
-  PODNOSZĄC „min=" ZMIEŃ RAZEM Z NIM „blokada=". Data blokady z reguły
-  jest już wtedy przeszła (stoi w pliku od poprzedniego progu), a przeszła
-  data znaczy „odetnij teraz" — podniesienie samego „min=" odcina więc
-  wszystkich niezaktualizowanych NATYCHMIAST, bez okresu przejściowego
-  i bez odliczania. Nowy termin wpisuj zwykle 14 dni naprzód:
-        min=3.23.0
-        blokada=<dzisiaj + 14 dni>
-  (Program nie zostawia takiej osoby bez wyjścia — pokazuje okno
-  aktualizacji z działającym przyciskiem „Zaktualizuj teraz" — ale
-  odliczanie „zostało X dni" jest po to, żeby nikt nie został zaskoczony
-  w trakcie pracy.)
-
-  Co zostało naprawione (każda z tych rzeczy wyłączała mechanizm albo
-  odcinała zespół bez ostrzeżenia):
-  · automat GitHuba przy publikacji wydania nadpisywał wersja.txt dwiema
-    liniami i KASOWAŁ min= oraz blokada= — mechanizm wyłączyłby się sam
-    przy pierwszym wydaniu,
-  · gdy w wersja.txt zabrakło linii z opisem, wiersz min= był po cichu
-    pomijany — blokada nie działała wcale,
-  · data wpisana po polsku (23.09.2026) albo z literówką odcinała
-    NATYCHMIAST wszystkich ze starszą wersją; teraz taki zapis jest
-    rozumiany, a przy niezrozumiałym program daje 14 dni okresu
-    przejściowego zamiast blokować,
-  · brak wiersza blokada= też oznaczał natychmiastowe odcięcie; teraz
-    to również 14 dni,
-  · blokady nie dało się zdjąć: usunięcie min= z wersja.txt nie miało
-    żadnego skutku, bo stary wpis wracał z dysku. Teraz świeżo pobrany
-    wersja.txt jest jedynym źródłem prawdy,
-  · cofnięcie zegara w Windows przedłużało życie starej wersji — teraz
-    program pamięta najpóźniejszy dzień, jaki widział,
-  · ostrzeżenie wyskakiwało przy KAŻDYM uruchomieniu przez 14 dni;
-    teraz raz dziennie.
-
-  CO WIDZI UŻYTKOWNIK — wybór zostaje po jego stronie tak długo, jak to
-  możliwe:
-  · dopóki jest w okresie przejściowym — raz dziennie okno z informacją,
-    ile dni zostało; klika OK i pracuje dalej. Aktualizuje wtedy, kiedy
-    chce: ikoną w programie („Zaktualizuj teraz" albo „Przypomnij przy
-    następnym uruchomieniu"),
-  · po terminie — program pokazuje TO SAMO okno aktualizacji z działającym
-    przyciskiem „Zaktualizuj teraz": jedno kliknięcie pobiera nową wersję
-    i podmienia program. Druga opcja to uczciwe „Zamknij program".
-    Wysyłanie do przeglądarki zostało planem awaryjnym (na wypadek, gdyby
-    pobieranie zawiodło) — bo to właśnie tam SmartScreen straszy najmocniej.
-
-  NAJSKUTECZNIEJSZA DŹWIGNIA JEST PO STRONIE ARKUSZA. W apps_script_POPRAWIONY_v2.gs
-  jest już gotowa kontrola wersji przy logowaniu:
-        var MINIMALNA_WERSJA = "3.16.0";
-  Podniesienie jej do "3.21.0" (po 14 dniach) odetnie stare wersje
-  niezależnie od tego, co ktoś zrobi na swoim komputerze. Blokada
-  w programie jest uprzedzeniem, ta linijka — egzekucją.
-
-───────────────────────────────────────────────────────────────────────
-4. SILNIK DELEGACJI (bez zmian względem paczki 3.21.0 — sprawdzony)
-───────────────────────────────────────────────────────────────────────
-  · pełne osiąganie zamówionej kwoty (mnożnik liczony osobno dla dnia),
-  · dokument do 986,34 zł i do 30 etapów — mniej PDF-ów,
-  · żaden przystanek bliżej niż 12 km od domu,
-  · start i powrót z adresu z FORMULARZA delegacji.
-
-───────────────────────────────────────────────────────────────────────
-5. ŻEBY WINDOWS PRZESTAŁ KRZYCZEĆ — CO USUNIĘTO Z PROGRAMU
-───────────────────────────────────────────────────────────────────────
-  To jest ta część, która najbardziej wpływa na „inteligentną kontrolę
-  aplikacji" i firmowe zabezpieczenia. Program robił rzeczy, które
-  wyglądają dokładnie jak zachowanie złośliwego oprogramowania:
-
-  · BEZPIECZNIK PO INTRO (3.21.2) — nieaktualny od 3.23.0: animacji
-    startowej nie ma w programie, po zalogowaniu od razu wstaje okno.
-    Dziennik PMT_diagnostyka_animacji.txt w katalogu użytkownika został
-    (nazwa historyczna) — zapisuje start, werdykt sesji i błędy modułów.
-  · przy KAŻDYM starcie przeszukiwał pulpit, Pobrane, Dokumenty, OneDrive
-    i kasował znalezione pliki .exe oraz foldery — bez pytania. Masowe
-    czytanie profilu użytkownika plus kasowanie plików wykonywalnych to
-    podręcznikowy wzorzec, którego szukają Defender i firmowe EDR-y.
-    Przy okazji „PMT" to nazwa firmy, więc pod filtr trafiały też pliki
-    robocze. TO ZOSTAŁO WYŁĄCZONE. Sprzątanie po własnej aktualizacji
-    (kopie zapasowe zrobione przez sam program) zostaje.
-  · uruchamiał ukryty PowerShell z omijaniem zasad wykonywania skryptów —
-    przy starcie programu, w URUCHOM_PMT.bat rozsyłanym w paczce oraz
-    dwukrotnie w skrypcie aktualizacji. Wszystkie te miejsca robią teraz
-    to samo bez PowerShella (znacznik „plik z internetu" to zwykły
-    strumień NTFS — wystarczy go skasować).
-  · skrypt aktualizacji podnosił uprawnienia przez UAC, uruchamiając
-    ukryty PowerShell na pliku .ps1 zapisanym do katalogu tymczasowego.
-    Krok usunięty — obsługiwał tylko przypadek instalacji w Program Files
-    i tak czy inaczej kończył się komunikatem dla użytkownika.
-  · dopisywał ponad 20 razy przy każdym starcie do pliku w SWOIM katalogu
-    instalacyjnym. Teraz pisze do katalogu użytkownika.
-
-  Poprawione zostało też samo budowanie wydania:
-  · GitHub budował oficjalny plik .exe BEZ metadanych producenta
-    i bez wyłączenia kompresji UPX — czyli dokładnie odwrotnie, niż
-    obiecywał opis. Teraz buduje z --noupx --version-file, więc program
-    ma nazwę, producenta i numer wersji we Właściwościach pliku,
-  · paczka wydania dostaje znacznik wersji (pmt_wersja.txt),
-  · DODAJ_WYJATEK_WINDOWS.bat wykluczał folder, w którym akurat leżał —
-    uruchomiony z Pobranych wyłączał skanowanie CAŁEGO folderu Pobrane.
-    Teraz wyklucza katalog programu i odmawia, gdy program leży
-    w Pobranych, na Pulpicie albo w Dokumentach,
-  · ZBUDUJ_EXE.bat (wariant jednoplikowy) ostrzega i pyta o potwierdzenie
-    — ten wariant rozpakowuje 48 MB do katalogu tymczasowego przy każdym
-    starcie i to on najczęściej obrywa od zabezpieczeń Windows.
-
-  CZEGO KOD NIE ZAŁATWI — powtórzone, bo to nadal prawda:
-  „Inteligentna kontrola aplikacji" blokuje KAŻDY program bez podpisu
-  cyfrowego. Jak to poznać i możliwe drogi: BEZ_BLOKADY_WINDOWS.txt.
-
-───────────────────────────────────────────────────────────────────────
-6. TESTY — URUCHOM PRZED KAŻDYM WYDANIEM
-───────────────────────────────────────────────────────────────────────
-  Dwuklik nie wystarczy, to plik Pythona:
-        python testy_pmt.py            (pełny zestaw, ~2 minuty)
-        python testy_pmt.py --szybko   (bez tras i PDF-ów, ~5 sekund)
-
-  Testy pracują na tymczasowym katalogu domowym — nie ruszają Twoich
-  danych i nie wymagają internetu ani konta. Sprawdzają m.in.:
-  zgodność numerów wersji, brak danych osobowych w kodzie, wszystkie
-  źródła nazwiska przełożonego, parser wersja.txt w pięciu układach,
-  blokadę wersji w ośmiu sytuacjach (w tym polska data i cofnięty zegar),
-  rozdzielenie danych między kontami, przejęcie danych sprzed 3.21.0
-  na komputerze jednym i wspólnym, brak PowerShella w kodzie,
-  12 scenariuszy generowania tras (4 bazy × 3 kwoty), sufity dokumentów,
-  jednostronicowość PDF-ów i zbudowanie głównego okna programu.
-
-  Stan na dziś: przechodzą wszystkie — ponad 200 kontroli w pełnym
-  przebiegu i ponad 100 w wariancie --szybko.
-
-───────────────────────────────────────────────────────────────────────
-KROK PO KROKU — WYDANIE 3.21.0
-───────────────────────────────────────────────────────────────────────
-  1. PRZYGOTUJ FOLDER
-     Nowy, pusty folder (np. C:\PMT_3.21.0), rozpakuj do niego całość.
-
-  2. SPRAWDŹ WERSJE
-     Dwuklik SPRAWDZ_WERSJE.bat — w źródle (PMT_Delegacje.py, wersja_exe.txt)
-     ma być nowy numer. wersja.txt może jeszcze pokazywać poprzedni — to
-     normalne, podbije się samo po zbudowaniu wydania (krok 6c).
-
-  3. PRZETESTUJ
-     python testy_pmt.py — wszystkie testy mają przejść (ponad 200).
-
-  4. ZBUDUJ
-     Dwuklik ZBUDUJ_EXE_FOLDER.bat. Wynik: dist\PMT_Planer\
-     Spakuj CAŁY ten folder do PMT_Planer_3.21.0.zip
-     (albo zdaj się na GitHub Actions — buduje to samo automatycznie
-     po opublikowaniu wydania z tagiem v3.21.0).
-
-  5. SPRAWDŹ NA SOBIE — 10 minut, zanim wyślesz komukolwiek
-     · uruchom program i zaloguj się,
-     · sprawdź, że obok zbuduj.py leży menedzer.txt (inaczej rubryka
-       MENEDŻER wyjdzie pusta i program ostrzeże przed generowaniem),
-     · wygeneruj delegację na 4 700 zł — suma co do grosza,
-     · otwórz jeden PDF: dane, trasa, rubryka MENEDŻER wypełniona,
-     · otwórz mapę tras: pierwszy i ostatni punkt to Twój adres,
-     · wyloguj się i zaloguj ponownie — plan i adres mają być Twoje.
-
-  6. GITHUB — KOLEJNOŚĆ JEST WAŻNA
-     a) wyślij źródła (WYSLIJ_NA_GITHUB.bat). Pliku wersja.txt NIE ruszaj
-        (poza wierszami min= i blokada=) — numer wpisze się sam, patrz c).
-        SPRAWDŹ WCZEŚNIEJ DWA SEKRETY repozytorium (Settings → Secrets and
-        variables → Actions): PMT_MENEDZER (imię i nazwisko przełożonego)
-        oraz PMT_SEKRET (sekret aplikacji, ten sam napis co w SEKRETY_PMT
-        we wdrożonym Apps Script). Brak któregokolwiek ZATRZYMUJE
-        budowanie z czerwonym błędem — i słusznie.
-        SPRAWDŹ TEŻ ETYKIETĘ: w PMT_Delegacje.py ETYKIETA_WYDANIA musi być
-        pusta (""). Niepusta trafia do paska okna jako np. „PMT Planer —
-        WERSJA TESTOWA" i zobaczyłby ją cały zespół; budowanie z tagu
-        samo zatrzymuje się w takim przypadku.
-     b) opublikuj wydanie z tagiem vX.Y.Z (dla tego wydania v3.23.0)
-        i NIC do niego nie przeciągaj.
-        UWAGA: paczka v3.21.2 (09.09.2026) została zbudowana BEZ nazwiska —
-        sekret PMT_MENEDZER był pusty (log: „brak sekretu PMT_MENEDZER”).
-        Od 3.21.3 budowanie bez sekretu ZATRZYMUJE się z czerwonym
-        komunikatem, więc najpierw ustaw sekret, potem publikuj.
-        GitHub sam zbuduje paczki (Windows, macOS, Linux) i dołączy je
-        do tego wydania — z tymi samymi ustawieniami co budowa lokalna.
-        Poczekaj, aż zakładka Actions pokaże zielony znaczek.
-
-        NIE WGRYWAJ własnego ZIP-a obok. W wydaniu byłyby wtedy DWA
-        archiwa Windows i aktualizator u ludzi mógłby pobrać nie to,
-        które trzeba. Ręczną paczkę dokładaj tylko wtedy, gdy budowanie
-        na GitHubie się nie powiodło — i wtedy jako jedyną.
-
-     c) wersja.txt podbija się SAMO. Gdy paczka Windows jest już w wydaniu,
-        ostatni krok build.yml (job „wersja") wpisuje do wersja.txt numer ze
-        źródła i pierwszą linię opisu wydania, zachowując min= i blokada=.
-        Działa także wtedy, gdy wydanie tworzysz przez EDYCJĘ starego wpisu
-        w Releases (poprzedni automat reagował tylko na „Publish" — przy
-        Twoich wydaniach 3.21.0 i 3.21.1 nie uruchomił się ani razu).
-        Od tej chwili wszyscy widzą aktualizację, a po dacie z wiersza
-        blokada= stare wersje przestają się uruchamiać.
-
-        DLACZEGO NIE RĘCZNIE I NIE WCZEŚNIEJ: wersja.txt z numerem, dla
-        którego nie ma jeszcze paczki, każe starym wersjom pobierać w kółko
-        tę samą paczkę (pobierz → zainstaluj → „jest aktualizacja" → …).
-        Program od 3.21.2 sam się przed tym broni — sprawdza znacznik wersji
-        w pobranej paczce — ale 3.21.0 i 3.21.1 nie.
-        Po wszystkim zerknij, czy wersja.txt w repozytorium ma cztery linie.
-
-  6a. CO WYSŁAĆ UŻYTKOWNIKOWI PRZY RĘCZNEJ INSTALACJI
-     Najczęstszy błąd (zdjęcie od użytkownika przy 3.21.1): otwarcie ZIP-a
-     w Eksploratorze i kliknięcie PMT_Planer.exe W ŚRODKU archiwum. Windows
-     wypakowuje wtedy do folderu tymczasowego SAM kliknięty plik i program
-     kończy się komunikatem:
-         Failed to load Python DLL
-         C:\Users\...\AppData\Local\Temp\..._PMT_Planer.Windows.zip...\_internal\python313.dll
-         LoadLibrary: Nie można odnaleźć określonego modułu.
-     To NIE jest uszkodzona paczka ani antywirus — brakuje reszty folderu.
-     Poznasz to po „\Temp\” i nazwie archiwum w ścieżce z komunikatu.
-
-     Od 3.21.2 paczka broni się sama na trzy sposoby:
-       · 0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt — pierwszy plik na liście
-         w archiwum, z instrukcją (otwiera się nawet z wnętrza ZIP-a),
-       · URUCHOM_PMT.bat rozpoznaje start z folderu tymczasowego i zamiast
-         „nie znalazłem PMT_Planer.exe” mówi, co zrobić krok po kroku,
-       · program — gdyby archiwizator rozpakował go do %TEMP% i uruchomił —
-         ostrzega przy starcie, że taka „instalacja” zniknie.
-
-     Instrukcja dla użytkownika (wklej do maila; w opisie wydania dopisz ją
-     OD DRUGIEJ LINII — pierwsza linia opisu trafia do dymka aktualizacji):
-       1. Pobierz PMT_Planer.Windows.zip.
-       2. Kliknij pobrany plik PRAWYM przyciskiem → „Wyodrębnij wszystkie…”
-          → wpisz C:\PMT → „Wyodrębnij”.
-       3. Wejdź do C:\PMT\PMT_Planer i uruchom URUCHOM_PMT (tylko raz).
-       4. Potem uruchamiaj PMT_Planer.exe (skrót: prawy przycisk → w Windows 11
-          „Pokaż więcej opcji” → Wyślij do → Pulpit (utwórz skrót)).
-          Nie przenoś samego .exe — musi zostać obok _internal.
-
-  6b. BŁĄD „DLL load failed while importing iup: Zasady kontroli aplikacji
-      zablokowały ten plik" (wydanie 3.21.3)
-     Windows (Smart App Control albo firmowe zasady WDAC) zablokował
-     NIEPODPISANY plik _internal\fontTools\varLib\iup.pyd. Skąd się wziął:
-     fpdf2 (PDF-y) korzysta z fontTools, a fontTools instalowany z PyPI jako
-     gotowa paczka niesie kilka skompilowanych przyspieszaczy (.pyd). Paczki
-     budowane lokalnie miały starszy fontTools bez nich — dlatego 3.21.0
-     działała, a 3.21.3 z GitHuba nie.
-     Od 3.21.4:
-       · requirements.txt ma „--no-binary fonttools” — fontTools w czystym
-         Pythonie, ZERO plików .pyd z tej biblioteki (robią to samo, wolniej
-         o ułamek sekundy); build.yml sprawdza to i przerywa budowanie, gdyby
-         .pyd jednak się pojawił,
-       · program nie pada na imporcie: gdy biblioteka PDF nie wejdzie, planer,
-         mapy i wizyty działają, a przy generowaniu delegacji pojawia się
-         czytelny komunikat z instrukcją,
-       · flaga życia dla updatera (pmt_zyje.flag) powstaje dopiero PO
-         załadowaniu bibliotek — wcześniej updater uznawał taki start za udany
-         i kasował kopię poprzedniej wersji.
-     Jeśli po 3.21.4 Windows zablokuje inny plik (np. z PyQt6): to już decyzja
-     administratora — w WDAC dopuścić folder programu (np. C:\PMT), a Smart
-     App Control nie ma wyjątków (tylko wyłączenie). Trwałe rozwiązanie to
-     podpis cyfrowy (PODPISZ_EXE.bat, wymaga certyfikatu).
-
-  6c. CZY STARSZE WERSJE ZOBACZĄ AKTUALIZACJĘ
-     · 3.21.0–3.21.3: tak — okno dobrowolne po zalogowaniu, a przez min= w
-       wersja.txt ostrzeżenie przed logowaniem i po terminie okno z przyciskiem
-       „Zaktualizuj teraz”.
-     · 3.20.49–3.20.57: tak — czytają pierwszą linię wersja.txt (numer) i drugą
-       (opis); wierszy min=/blokada= nie znają, więc NIE da się ich wymusić —
-       tylko dobrowolne okno. Ich aktualizator zna układ folderowy (_internal),
-       więc podmiana działa.
-     · starsze niż 3.20 (jednoplikowe .exe): zobaczą okno, ale ich aktualizator
-       wyjmuje z ZIP-a SAM plik .exe — w paczce folderowej to nie zadziała
-       („Failed to load Python DLL”). Te osoby instalują ręcznie (krok 6a).
-
-  6d. CO WRÓCIŁO Z LINII PMT_NOWY (3.22.0) I CO DOSZŁO
-     Do repozytorium nigdy nie trafiły trzy moduły z Twojego folderu
-     PMT_NOWY — dlatego paczki 3.21.0–3.21.4 z GitHuba miały stare intro.
-     Od 3.22.0 obok PMT_Delegacje.py MUSZĄ leżeć (zbuduj.py i CI tego
-     pilnują):
-       · intro_zywa_mapa.py — intro „z orbity do trasy” (USUNIĘTE w 3.23.0
-         razem z klasą AnimacjaStartowa, przełącznikiem INTRO_NA_STARCIE,
-         ustawieniem bez_intra i plikiem BEZ_INTRA.txt — patrz 6e),
-       · karta_testera.py — karta testera (menu awatara, zaproszenie
-         chwilę po starcie najwyżej 3 razy, co 7 dni),
-       · wyglad_3d.py — głębia interfejsu (cienie, wypukłe krawędzie);
-         limit 260 efektów i bez cieni na wielkich panelach — w 3.21.0
-         było ich 991 i to spowalniało intro.
-     Głębia 3D wyłącza się plikiem BEZ_3D.txt.
-     Nowe w pasku: 🔑 Hasło (zmiana bez wylogowania), ★ karta testera.
-     Autologowanie: znane hasło loguje od razu; nieznane — po
-     1,3 s przerwy w pisaniu (każda para kod+hasło próbowana raz, hasło
-     krótsze niż 5 znaków nie wychodzi do serwera).
-     Bezpieczeństwo: logowanie OFFLINE działa tylko 45 dni od ostatniego
-     logowania online (konto zablokowane w arkuszu nie żyje wiecznie na
-     skrócie z dysku).
-     SILNIK: droga nigdy krótsza niż 1,15 × linia prosta (MNOZNIK_MIN).
-     Zamiast ściskać kilometry program usuwa dni (najdłuższe, żeby zostało
-     wiele krótkich rozrzuconych po miesiącu) albo postoje; każdy dzień
-     mieści się w 8 h przy realnej drodze. Dziennik: ~/.pmt_silnik_diag.txt
-     (pola „przyciete dni”, „mnoznik”). Górna granica mnożnika (dziś do
-     ~2,6 przy dużych kwotach) to osobna, większa zmiana silnika.
-     Intro wideo (intro_wideo.py, filmy z Blendera) — projekt porzucony,
-     plik usunięty z repozytorium.
-
-     ZGŁOSZENIE „dane się nie pojawiają, nie da się wpisać, program się
-     wyłącza” — dwie przyczyny, obie po lokalnej 3.21.0 (PMT_NOWY):
-       1. Lokalna 3.21.0 dopisywała do .pmt_uzytkownicy.json znacznik
-          zaproszenia testera jako TEKST obok profili. Każda pętla po
-          profilach (podpowiedź PESEL/adresu po wpisaniu nazwiska, panel
-          administratora) robiła wpis.get() na tekście → wyjątek w slocie Qt
-          → PyQt6 ubija proces. Objaw: użytkownik wpisuje nazwisko i program
-          znika. Od 3.22.0 magazyn pomija obce wpisy, pętle są odporne,
-          a stan zaproszenia siedzi w ustawieniach.
-       2. Lokalna 3.21.0 kluczowała plan i adres bazy przez imię|kod;
-          paczki z GitHuba — przez sam kod. Plan zostawał osierocony, a do
-          nowego pliku kopiował się pusty „stub”. Od 3.22.0 stary plan
-          i adres są przejmowane (kopia .sprzed_3.22.0), stub nie jest
-          planem, a wspólne dane sprzed 3.21.0 wracają też do osoby, która
-          była zalogowana przed aktualizacją (nie tylko na komputerze
-          jednej osoby). Pole nazwiska z konta jest zablokowane, więc
-          podpowiedź PESEL/adresu startuje teraz sama.
-       3. Logowanie BEZ SIECI (także gdy sieć firmowa blokuje serwer)
-          wpuszczało po skrócie hasła, ale NIE zapisywało statusu: puste
-          imię, brak przejęcia danych, sesja bez „Ważne do” → po chwili
-          zasada demo (30 dni od instalacji) zamykała program. Od 3.22.0
-          logowanie offline zapisuje status, ważność konta jest pamiętana
-          PER KONTO w .pmt_logowania.json, a świeże (≤ 45 dni)
-          zweryfikowane logowanie wystarcza do pracy bez serwera. Pusta
-          rubryka „Ważne do” w arkuszu oznacza konto WYGASŁE (tak odpowiada
-          backend) — program zamyka się z komunikatem „Dostęp wygasł (brak
-          daty w arkuszu)”, chyba że instalację odblokowano kodem
-          aktywacyjnym. Wpisz daty wszystkim aktywnym użytkownikom.
-     Werdykt sesji nazywa powód zamknięcia („Dostęp wygasł DD.MM.RRRR” —
-     kolumna Ważne do — albo „nie potwierdził dostępu”) i zapisuje go
-     w PMT_diagnostyka_animacji.txt.
-     Intro: zawsze na ciemnym tle (w jasnym motywie napisy ginęły), tylko
-     pełna zgodność imienia z profilem (żadnego „po początku”), zera zamiast
-     danych pokazowych, klawisz pomija (nakładka ma fokus), dziennik
-     PMT_intro_diag.txt przycinany. Autologowanie: próba automatyczna nie
-     blokuje pola (można pisać dalej), komunikaty o sieci/wersji/blokadzie
-     są pokazywane także po niej, a po zmianie hasła nowe hasło czeka na
-     klik „Zaloguj”. Silnik: odcinki dobudowane po przycięciu liczą się
-     jak reszta (droga z pamięci albo linia × krętość), do cięcia idzie
-     każdy postój, a gdy kwota nie starcza nawet na 2 postoje przy realnej
-     drodze, użytkownik dostaje komunikat „Kwota za mała na realną trasę”
-     z minimum (dziennik: „KWOTA ZA MALA”).
-     Mapa tras: ukośnik w numerze mieszkania („Zamiejska 5/58”) rozbijał
-     adres w linku Google Maps na dwa przystanki (drugi trafiał na obcy
-     adres w tym kodzie pocztowym) — teraz adres jest jednym punktem.
-     Karta PARAMETRY TRASY: przy rozwiniętym menu bocznym tryb pracy
-     i dni bez pracy schodzą do drugiego wiersza, a karta rośnie (nic nie
-     jest obcinane).
-     Start: intro rusza od razu po pokazaniu okna — czarna „kurtyna” pod
-     paskiem (2,6 s czekania na werdykt wersji) zniknęła; okno aktualizacji
-     i tak czeka, aż intro zejdzie. Dymek „Rozpoznano pracownika” pokazuje
-     się dopiero po intrze.
-     Logo: jedno i to samo (pmt_logo_retro) w ikonie programu, w intrze
-     (także wtopione w moduł) i w oknie po intrze.
-
-  6e. CO DOSZŁO W 3.23.0
-     · NOWY WYGLĄD jako jedyny ekran programu: nowy_wyglad.py na
-       widżetach z podfolderu prototyp\ (proto_styl, proto_dane,
-       proto_mapa, proto_tasma, proto_kompas, proto_taca, proto_okno);
-       stare okno App żyje pod spodem tylko jako pojemnik na panele
-       (przełącznika --stary już nie ma). Do tego pmt_dokumenty.py, pmt_podpis.py, pmt_wysylka.py
-       (dokumenty, podpis, wysyłka) i logo_retro.py.
-     · NOWE OKNO LOGOWANIA: okno_logowania.py (oprawa nowego systemu;
-       bez niego logowanie wraca do poprzedniej oprawy).
-     · MAPA W SKALI REGIONU i podziałka, która mierzy prawdę; kadr należy
-       do trasy dnia.
-     · SUFIT KILOMETRÓW: sufit rozciągania odcinków i nieprzekraczalna
-       podłoga linii prostej; ostrzeżenie liczbą, gdy kwota jest niższa
-       niż najtańszy prawdziwy wyjazd.
-     · BUDOWANIE: build.yml na GitHubie uruchamia „python zbuduj.py
-       --folder" — to samo, co ZBUDUJ_EXE_FOLDER.bat. Listy modułów
-       i plików są TYLKO w zbuduj.py; po budowie skrypt sprawdza
-       w build\PMT_Planer\PYZ-00.toc, czy każdy własny moduł trafił do
-       paczki, a wersja_exe.txt uzgadnia ze źródłem. Paczki 3.22.0
-       z GitHuba NIE zawierały nowego wyglądu ani nowego logowania —
-       build.yml miał własną, krótszą listę modułów.
-     · TESTY: „python testy_pmt.py --szybko" znów kończy się (wisiał na
-       modalnym zaproszeniu testera).
-     · BACKEND (apps_script_POPRAWIONY_v2.gs — trzeba wdrożyć na nowo):
-       telefon ustawia hasło tylko na koncie bez hasła, limit prób resetu
-       hasła z dziennikiem, puls oddaje tylko własne nieobecności.
-     ODCHUDZENIE (3.23.0): aparat animacji startowej poszedł do kosza —
-     intro_zywa_mapa.py (1 798 linii, 617 KB), klasa AnimacjaStartowa,
-     pokaz_animacje_startowa, INTRO_NA_STARCIE, bez_intra, BEZ_INTRA.txt,
-     pozycja „Animacja startowa” w menu. Intro gra teraz PRZY GENEROWANIU
-     (zaczep INTRO_GENEROWANIA w nowy_wyglad → proto_mapa.PrzelotRejonu):
-     mapa zamienia się w przelot nad rejonem z paralaksą, trasy ułożonych
-     dni zapalają się z sygnału dzien_gotowy wątku silnika, dokumenty je
-     stemplują, koniec silnika to lądowanie na widoku dnia; Esc kończy
-     przelot od razu, a wyłącznik animacji gasi go jak resztę efektów.
-     Stare okno App jest POJEMNIKIEM NA PANELE: buduje tylko cztery
-     panele (Planer, Plan Wizyt, Twoja praca, Ustawienia), dymki,
-     centrum powiadomień i sprawdzanie aktualizacji (371 → 219
-     widżetów); formularz, kokpit, druga szyna nawigacji, pasek górny
-     i własny generator tego okna zniknęły, tak samo przełącznik --stary.
-     Dymek „Rozpoznano pracownika” i zaproszenie testera (900 ms po
-     starcie) pokazuje nowy ekran (po_starcie). Dane pracownika dla
-     paneli idą z karty PRACOWNIK, miesiąc planu z paska miesięcy.
+WYDAJESZ NOWĄ WERSJĘ DLA ZESPOŁU?
+  → WYDANIE.txt — jedyna instrukcja, krok po kroku, od sekretu po
+    wiadomość do zespołu. Nie potrzebujesz do tego żadnego innego pliku.
 
 
-  7. BACKEND — patrz BACKEND_APPS_SCRIPT.txt
-     Podpisy można włączyć od razu. MINIMALNA_WERSJA i usunięcie starego
-     sekretu z listy zostaw na czas PO zaktualizowaniu zespołu (zalecane
-     14 dni). Przy 3.23.0 wdróż na nowo apps_script_POPRAWIONY_v2.gs —
-     trzy poprawki opisane w nagłówku pliku (6e).
+DLA WŁAŚCICIELA
+  WYDANIE.txt               wydanie i wdrożenie (przeczytaj najpierw)
+  BACKEND_APPS_SCRIPT.txt   backend w arkuszu Google: wdrożenie skryptu,
+                            wymiana sekretu, znane dziury
+  apps_script_POPRAWIONY_v2.gs
+                            skrypt backendu — wkleja się CAŁY do Code.gs
+  README_TESTER.txt         lista sprawdzeń paczki przed wydaniem
+  BEZ_BLOKADY_WINDOWS.txt   gdy Windows (Smart App Control, zasady firmy)
+                            blokuje program
+  WNIOSEK_DO_IT.txt         gotowy tekst prośby do działu IT o wyjątek
+  INSTRUKCJA_BUDOWY.txt     budowanie paczki na własnym komputerze
+                            (zwykle niepotrzebne — buduje GitHub)
+  README.md                 co zmieniła która wersja
 
-     SEKRET APLIKACJI POZA KODEM. Do 3.23.0 klucz podpisu HMAC zapytań
-     do backendu był literałem w PMT_Delegacje.py — czyli w repozytorium
-     i w jego historii, na zawsze. Teraz program czyta go jak nazwisko
-     przełożonego: plik sekret.txt (jedna linia) obok programu, w _internal
-     albo w katalogu domowym, a bez pliku — zmienna środowiskowa
-     PMT_SEKRET. Do paczki wkłada go zbuduj.py (sekret.txt obok zbuduj.py
-     u autora; na GitHubie sekret repozytorium PMT_SEKRET — bez niego
-     budowanie zatrzymuje się, jak bez PMT_MENEDZER). Bez sekretu program
-     loguje, ale puls, sesja i reset hasła dostają „odmowa". Ujawniony
-     sekret WYMIEŃ przed najbliższym wydaniem — OBRÓT SEKRETU
-     w BACKEND_APPS_SCRIPT.txt: nowy do SEKRETY_PMT przed starym →
-     PMT_SEKRET na GitHubie → wydanie → po aktualizacji zespołu usuń stary.
+PLIKI, KTÓRYCH NIE MA W REPOZYTORIUM (i nigdy nie może być)
+  menedzer.txt   imię i nazwisko przełożonego — przy budowaniu na GitHubie
+                 powstaje z sekretu repozytorium PMT_MENEDZER
+  sekret.txt     sekret aplikacji (podpis zapytań do arkusza) — powstaje
+                 z sekretu repozytorium PMT_SEKRET
+  pmt_kod.txt    własny kod aktywacyjny panelu administratora (opcjonalny)
+  Pilnuje tego .gitignore; testy sprawdzają, że żaden śledzony plik nie
+  niesie wartości sekretu.
 
+JAK DZIAŁA WYDANIE (żeby wiedzieć, czego się spodziewać)
+  1. Kod jest na gałęzi main.
+  2. Publikujesz wydanie z tagiem vX.Y.Z (WYDANIE.txt, KROK 6).
+  3. GitHub buduje paczki Windows, macOS i Linux i dołącza je do wydania.
+  4. Dopiero gdy paczka Windows jest w wydaniu, GitHub sam wpisuje numer
+     do wersja.txt na main — od tej chwili programy u ludzi widzą
+     aktualizację i pobierają ją jednym kliknięciem.
+  Budowanie testowe (WYDANIE.txt, KROK 5) robi punkt 3 bez wydania
+  i bez punktu 4 — paczkę widzisz tylko Ty.
+
+OBOWIĄZKOWA AKTUALIZACJA (wersja.txt, dwie ostatnie linie)
+  min=X.Y.Z       wersje starsze niż ta dostają okienko z odliczaniem
+  blokada=RRRR-MM-DD   po tej dacie starsza wersja się nie uruchomi
+  ZAWSZE ZMIENIAJ OBIE LINIE NARAZ, datę 14 dni naprzód. Program i tak
+  nikogo nie odetnie wcześniej niż 14 dni od chwili, gdy zobaczył nowy
+  próg — ale z poprawną datą wszyscy widzą to samo odliczanie.
+
+TESTY
+  python testy_pmt.py   pełny zestaw (ok. 1100 sprawdzeń, kilka minut)
+  Na GitHubie biegną same przy każdej zmianie (zakładka Actions,
+  przebieg „Testy"). Liczy się GÓRNY wiersz listy — starsze przebiegi
+  zostają na liście na zawsze. Gdy coś padnie, nazwa sprawdzenia jest
+  wypisana przy czerwonym znaczku.
 ═══════════════════════════════════════════════════════════════════════

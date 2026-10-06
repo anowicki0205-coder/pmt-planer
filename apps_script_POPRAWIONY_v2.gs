@@ -28,7 +28,7 @@
  *  Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż,
  *  inaczej pod adresem /exec dalej działa stara wersja.
  *
- *  ── ZMIANY PRZY WYDANIU 3.23.0 (co zmieniono, co trzeba wdrożyć) ──
+ *  ── ZMIANY PRZY WYDANIU 3.24.0 (co zmieniono, co trzeba wdrożyć) ──
  *  1. zmienHaslo: numer telefonu ustawia hasło TYLKO na koncie, które
  *     hasła jeszcze nie ma (pierwsze logowanie albo tuż po resecie) —
  *     ten sam warunek, co w logowanie(). Dotąd kto znał cudzy numer,
@@ -97,7 +97,7 @@ var DOMYSLNE_DNI_NOWEGO = 30;
 // ma i nigdy być nie może — plik leży w repozytorium, które pamięta
 // każdą swoją wersję.
 //
-// Stary sekret USUŃ z listy, gdy cały zespół ma już 3.23.0 (procedura
+// Stary sekret USUŃ z listy, gdy cały zespół ma już 3.24.0 (procedura
 // OBRÓT SEKRETU na początku BACKEND_APPS_SCRIPT.txt).
 var SEKRETY_PMT = [
   '<NOWY_SEKRET>',
@@ -112,7 +112,7 @@ var SEKRETY_PMT = [
 var AKCJE_PODPISANE = ['puls', 'sesja', 'reset_hasla'];
 
 // Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
-// Wpisz numer (np. '3.23.0') dopiero wtedy, gdy zespół ma już nową
+// Wpisz numer (np. '3.24.0') dopiero wtedy, gdy zespół ma już nową
 // wersję — zalecane 14 dni po publikacji wydania.
 var WYMAGANA_WERSJA = '';
 

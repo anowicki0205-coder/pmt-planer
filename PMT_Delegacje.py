@@ -2114,9 +2114,9 @@ def dialog_logowania():
                           "p\u00f3l ni\u017c stare_haslo/nowe_haslo albo hashuje "
                           "inn\u0105 funkcj\u0105 ni\u017c przy logowaniu. "
                           "Popro\u015b administratora o reset has\u0142a i "
-                          "por\u00f3wnaj doPost z plikiem ZABEZPIECZENIA_BACKEND.txt "
-                          "(sekcja NAPRAWA ZMIANY HASLA \u2014 gotowa funkcja "
-                          "sama wykrywa schemat hashowania). Dora\u017ana furtka: "
+                          "por\u00f3wnaj funkcj\u0119 zmienHaslo w Code.gs z plikiem "
+                          "apps_script_POPRAWIONY_v2.gs z repozytorium. "
+                          "Dora\u017ana furtka: "
                           "popro\u015b o wyczyszczenie kom\u00f3rki hash i zaloguj "
                           "si\u0119 numerem telefonu.",
                           tylko_ok=True)
@@ -2544,7 +2544,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.23.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
+WERSJA_PROGRAMU = "3.24.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
                              # wersja_exe.txt uzgadnia zbuduj.py, wersja.txt podbija CI po zbudowaniu paczki
 # ETYKIETA WYDANIA — w wydaniu oficjalnym PUSTA (""), w paczce dla testera
 # niesie oznaczenie, ktore ma zobaczyc czlowiek. Dlaczego OSOBNA stala, a nie

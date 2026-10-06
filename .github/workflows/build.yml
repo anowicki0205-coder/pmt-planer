@@ -209,15 +209,31 @@ jobs:
           7z l PMT_Planer.Windows.zip | head -25
 
       - name: Dołącz do wydania
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: PMT_Planer.Windows.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ---------- 2) macOS i Linux — dopiero po Windows ----------
+      # BUDOWANIE TESTOWE (Actions -> Buduj wydanie -> Run workflow): ta sama
+      # paczka, co w wydaniu, ale NIE trafia do Releases i NIE rusza wersja.txt
+      # — nikt z zespolu jej nie zobaczy. Lezy 7 dni w przebiegu, w sekcji
+      # Artifacts, do pobrania i sprawdzenia na Windows przed wydaniem.
+      - name: Paczka testowa (tylko budowanie reczne, bez wydania)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: PMT_Planer_TEST_Windows
+          path: dist/PMT_Planer
+          retention-days: 7
+
+  # ---------- 2) macOS i Linux — dopiero po Windows, tylko w wydaniu ----------
   pozostale:
     needs: windows            # gwarantuje, że Windows jest w wydaniu pierwszy
+    # Budowanie testowe sprawdza tylko paczke Windows — macOS i Linux
+    # buduja sie wylacznie dla prawdziwego wydania (tag).
+    if: startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:

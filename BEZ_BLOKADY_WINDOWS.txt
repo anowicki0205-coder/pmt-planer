@@ -1,7 +1,7 @@
 ═══════════════════════════════════════════════════════════════════════
   ŻEBY WINDOWS NIE ZABLOKOWAŁ PROGRAMU
   co blokuje, jak to poznać i co da się zrobić bez wydawania pieniędzy
-  (stan: wrzesień 2026, wersja 3.23.0)
+  (stan: październik 2026, wersja 3.24.0)
 ═══════════════════════════════════════════════════════════════════════
 
 JAK DZIAŁA „INTELIGENTNA KONTROLA APLIKACJI” (Smart App Control)

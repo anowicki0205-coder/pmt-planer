@@ -1,4 +1,4 @@
-JAK ZBUDOWAC PROGRAM OD ZERA (3.23.0)
+JAK ZBUDOWAC PROGRAM OD ZERA (3.24.0)
 =====================================
 
 1. Rozpakuj CALA paczke do jednego, pustego folderu (np. C:\PMT\build).
@@ -40,7 +40,7 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.23.0)
    JEDEN folder PMT_Planer - luzny plik obok psuje aktualizator 3.21.0/1.
 
 BUDOWANIE NA GITHUBIE (to samo, automatycznie)
-  Opublikowanie wydania z tagiem "v3.23.0" uruchamia .github/workflows/
+  Opublikowanie wydania z tagiem "v3.24.0" uruchamia .github/workflows/
   build.yml. Na Windows, macOS i Linux robot uruchamia DOKLADNIE to samo
   polecenie, co ZBUDUJ_EXE_FOLDER.bat: python zbuduj.py --folder.
   Listy modulow i plikow sa TYLKO w zbuduj.py (do 3.22.0 build.yml mial
@@ -66,7 +66,7 @@ CO NIE POWINNO SIE ZMIENIC
 
 JAK ODCZYTAC WYNIK URUCHOMIENIA
   * okno logowania, po nim ekran programu -> wszystko dziala;
-  * okno "PMT Planer 3.23.0 - blad startu" -> program wystartowal, ale cos
+  * okno "PMT Planer 3.24.0 - blad startu" -> program wystartowal, ale cos
     zawiodlo pozniej: przeslij plik .pmt_start_blad.txt z katalogu
     uzytkownika;
   * goly traceback w czarnej konsoli   -> uruchomil sie STARY plik,

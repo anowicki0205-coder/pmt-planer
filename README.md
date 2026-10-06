@@ -1,11 +1,11 @@
-# PMT — komplet systemu (program v3.23.0)
+# PMT — komplet systemu (program v3.24.0)
 
-> **Zaczynasz od zera? Czytaj `START_TUTAJ.txt`.**
+> **Wydanie i wdrożenie krok po kroku: `WYDANIE.txt`.** Mapa plików: `START_TUTAJ.txt`.
 > Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
 > Blokowanie przez Windows: `BEZ_BLOKADY_WINDOWS.txt`
 > Testy przed wydaniem: `python testy_pmt.py`
 
-## Co zmieniła wersja 3.23.0
+## Co zmieniła wersja 3.24.0 (względem 3.22.0)
 
 | Obszar | Zmiana |
 |---|---|
@@ -17,6 +17,9 @@
 | Backend | `apps_script_POPRAWIONY_v2.gs`: telefon ustawia hasło tylko na koncie bez hasła, limit prób resetu z dziennikiem, puls oddaje tylko własne nieobecności (wdrożyć na nowo) |
 | Sekret aplikacji | klucz HMAC podpisu zapytań poza kodem — plik `sekret.txt` obok programu (sekret `PMT_SEKRET` przy budowaniu), jak `menedzer.txt`; bez niego puls, sesja i reset hasła dostają „odmowa”; ujawniony sekret wymienić — OBRÓT SEKRETU w `BACKEND_APPS_SCRIPT.txt` |
 | Testy | `testy_pmt.py` — pełny zestaw i `--szybko` (wcześniej wisiał na modalnym zaproszeniu testera) |
+| Wydanie | jedna instrukcja `WYDANIE.txt`; budowanie testowe (Actions → „Buduj wydanie” → Run workflow) daje paczkę do sprawdzenia bez wydania; paczka z tagu nie przejdzie z etykietą testową; macOS i Linux dostają nazwisko przełożonego |
+| Odporność | wersja.txt podmieniony przez stronę firmowego proxy nie oferuje fałszywej aktualizacji ani nie zdejmuje blokady; podniesienie progu `min=` daje zawsze 14 dni okresu przejściowego |
+| CI | testy bez internetu i z budżetem klatki liczonym do szybkości maszyny; nieudane sprawdzenie wypisuje się przy czerwonym znaczku |
 
 ## Co zmieniła wersja 3.21.0
 

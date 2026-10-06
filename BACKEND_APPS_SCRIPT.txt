@@ -1,259 +1,107 @@
 ═══════════════════════════════════════════════════════════════════════
-  BACKEND (GOOGLE APPS SCRIPT) — CO ZROBIĆ PRZY WYDANIU 3.23.0
-  wersja instrukcji: 3.23.0 + obrót sekretu
-
-  NAJWIĘKSZA ZMIANA WZGLĘDEM POPRZEDNIEJ INSTRUKCJI: bloku
-  bezpieczeństwa NIE WKLEJA SIĘ JUŻ RĘCZNIE. Siedzi w pliku
-  apps_script_POPRAWIONY_v2.gs i doPost sam go woła. Wklejenie całego
-  Code.gs już go nie gubi — a gubiło, po cichu, zostawiając backend
-  bez weryfikacji podpisu.
+  BACKEND (GOOGLE APPS SCRIPT) — PMT PLANER 3.24.0
+  Jak wdrożyć skrypt, jak wymienić sekret, co jeszcze jest do zrobienia.
+  Kolejność kroków przy wydaniu: WYDANIE.txt (KROK 1–3 i 8).
 ═══════════════════════════════════════════════════════════════════════
 
-OBRÓT SEKRETU APLIKACJI — OBOWIĄZKOWO PRZED NAJBLIŻSZYM WYDANIEM
+JEDEN PLIK
+  Backend to JEDEN plik: apps_script_POPRAWIONY_v2.gs. Zawiera wszystko:
+  rozdzielacz akcji (doPost), obsługę arkusza i blok bezpieczeństwa
+  (SEKRETY_PMT, AKCJE_PODPISANE, weryfikujPodpis, wersjaZaStara).
+  Blok bezpieczeństwa jest już W TYM PLIKU i doPost sam go woła —
+  niczego nie składasz z kilku źródeł i niczego nie wklejasz osobno.
 
-  CO SIĘ STAŁO: do 3.23.0 wspólny sekret aplikacji (klucz HMAC, którym
-  program podpisuje zapytania puls / sesja / reset_hasla) był wpisany
-  w kodzie — stała SEKRET_APLIKACJI w PMT_Delegacje.py — i w tej
-  instrukcji. Repozytorium pamięta każdą wersję każdego pliku, więc ten
-  sekret jest UJAWNIONY na zawsze i trzeba go WYMIENIĆ. Kto go zna,
-  podpisuje zapytania tak samo dobrze jak program.
+  Dawniej blok wklejało się ręcznie z tej instrukcji, a jednocześnie
+  wklejało CAŁY plik .gs — co kasowało blok i zostawiało backend bez
+  sprawdzania podpisu, po cichu. Stąd zasada: jeden plik, wklejany
+  w całości.
 
-  CO ZMIENIONO W PROGRAMIE: literału w kodzie nie ma. Program czyta
-  sekret z pliku sekret.txt (jedna linia) obok programu, z podkatalogu
-  _internal albo z katalogu domowego — dokładnie tak, jak menedzer.txt —
-  a gdy pliku nie ma, ze zmiennej środowiskowej PMT_SEKRET. Bez sekretu
-  zapytanie idzie BEZ pola „podpis" i backend odpowiada „odmowa" na
-  akcje podpisane (puls, sesja, reset_hasla); logowanie i reszta
-  działają, bo tych akcji podpis nie obowiązuje (jak z telefonu).
-  Plik do paczki wkłada zbuduj.py: u autora sekret.txt obok zbuduj.py,
-  na GitHubie sekret repozytorium PMT_SEKRET (bez niego budowanie
-  zatrzymuje się z czerwonym błędem, jak bez PMT_MENEDZER). Do
-  repozytorium plik NIE trafia (.gitignore), testy pilnują, żeby żaden
-  śledzony plik nie niósł wartości sekretu.
-
-  KROKI — W TEJ KOLEJNOŚCI, inaczej ktoś z zespołu wypada z obiegu:
-
-  (a) Wygeneruj nowy sekret (długi losowy napis; wzór nazwy jak dotąd):
-        python -c "import datetime,secrets;print('PMT-%d-%s' % (datetime.date.today().year, secrets.token_urlsafe(24)))"
-      Zapisz go w menedżerze haseł. NIE wklejaj do żadnego pliku
-      w repozytorium ani do tej instrukcji — tylko do sekret.txt (który
-      .gitignore pomija) i do dwóch miejsc niżej.
-
-  (b) Apps Script → Code.gs: wklej CAŁY apps_script_POPRAWIONY_v2.gs
-      (Ctrl+A, potem wklej — ma ZASTĄPIĆ treść), a następnie w liście
-      SEKRETY_PMT u góry wpisz NOWY sekret PRZED starym, a jako drugi
-      ten, który do tej pory miałeś w starym bloku (wpisany w kodzie
-      3.21.0–3.22.0). Jeśli wisiał tam jeszcze trzeci, z 3.20.x —
-      pomiń go, gdy w arkuszu nikt nie ma 3.20.x. Wdróż: Wdróż →
-      Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż (adres
-      /exec zostaje). Backend przyjmuje odtąd OBA sekrety, więc paczki
-      3.21.0–3.22.0 działają dalej.
-
-      SPRAWDŹ OD RAZU: otwórz adres /exec w przeglądarce — ma pokazać
-      sekrety: 2. Zero znaczy, że w SEKRETY_PMT zostały zaślepki <...>
-      i backend odmawia pulsu, sesji oraz resetu hasła.
-
-  (c) GitHub → Settings → Secrets and variables → Actions → New
-      repository secret → nazwa PMT_SEKRET, wartość = nowy sekret.
-      Potem zbuduj wydanie (tag). Budując na komputerze: sekret.txt
-      (jedna linia = nowy sekret) obok zbuduj.py.
-
-  (d) Gdy cały zespół ma nową wersję (kolumna „Wersja" w arkuszu albo
-      zakładka Log; zalecane 14 dni po wydaniu) — USUŃ stary sekret
-      z listy SEKRETY_PMT i wdróż ponownie. Dopiero wtedy ujawniony
-      sekret przestaje działać.
-
-  SPRAWDZENIE po (c): zaloguj się w nowej paczce i wygeneruj delegację —
-  w arkuszu ma przybyć puls. Paczka BEZ sekretu loguje, ale puls dostaje
-  „odmowa"; wtedy w PMT_diagnostyka_animacji.txt (katalog użytkownika;
-  plik zaczyna się od nowa przy każdym kliknięciu „Zaloguj", a wpis
-  wraca po każdym) jest jeden wpis „brak sekretu aplikacji" z listą
-  przeszukanych miejsc.
-
-═══════════════════════════════════════════════════════════════════════
-
-PRZY WYDANIU 3.23.0 — WDRÓŻ NOWY PLIK .GS (5 minut)
-
-  CO ZMIENIONO w apps_script_POPRAWIONY_v2.gs (szczegóły w nagłówku
-  pliku, sekcja „ZMIANY PRZY WYDANIU 3.23.0"):
-    1. zmienHaslo — numer telefonu ustawia hasło TYLKO na koncie, które
-       hasła jeszcze nie ma (ten sam warunek !hashBaza, co w logowanie).
-       Dotąd: kto znał cudzy numer, podmieniał cudze hasło.
-       Konto z hasłem + telefon → odmowa; konto bez hasła + telefon → OK;
-       konto z hasłem + dotychczasowe hasło → OK.
-    2. resetHasla — limit prób w CacheService: 5 na godzinę na kod
-       i 30 na godzinę łącznie (Apps Script nie zdradza adresu wywołującego,
-       więc licznik łączny zastępuje licznik „na adres"). Szósta próba
-       w godzinie = odmowa „Za duzo prob resetu". KAŻDA próba (OK,
-       zły telefon, nieznany kod, konto bez telefonu, za dużo prób) ma
-       wpis w zakładce Log.
-    3. puls — odpowiedź niesie tylko nieobecności pytającego kodu i kodów,
-       które on zastępuje (kolumna „Zastepuje kod"). Program nigdzie nie
-       czyta cudzych wpisów (online_nieobecnosci() nie ma żadnego
-       wywołania), więc nic mu nie ubywa.
-
-  CO WDROŻYĆ:
-    a) Rozszerzenia → Apps Script → Code.gs: zaznacz wszystko (Ctrl+A)
-       i wklej CAŁY apps_script_POPRAWIONY_v2.gs. Blok bezpieczeństwa
-       (SEKRETY_PMT, AKCJE_PODPISANE, weryfikujPodpis) jest już W TYM
-       PLIKU i doPost sam go woła — niczego nie wklejasz z powrotem.
-       Jedyne, co trzeba uzupełnić, to SEKRETY_PMT: patrz KROK 1.
-    b) Zapisz, potem Wdróż → Zarządzaj wdrożeniami → ołówek →
-       Wersja: Nowa → Wdróż. Adres /exec zostaje ten sam.
-    c) Sprawdź (KROK 2 niżej): logowanie z programu, „Nie pamiętam hasła"
-       z programu (reset telefonem + nowe hasło + logowanie nowym hasłem),
-       logowanie z telefonu (pmt_wizyty.html), jeden puls w arkuszu.
-       Nowe: w zakładce Log po każdej próbie resetu ma być wiersz.
-
-═══════════════════════════════════════════════════════════════════════
-
-KTÓRY PLIK .GS JEST TEN WŁAŚCIWY
-
-  Od 3.23.0 w repozytorium jest JEDEN plik backendu:
-  apps_script_POPRAWIONY_v2.gs. Dwa stare warianty (apps_script.gs
-  i apps_script_NAPRAWIONY.gs) zostały usunięte właśnie dlatego, żeby
-  nie dało się wkleić złego — apps_script.gs odrzucał hasła literowe
-  komunikatem „Podaj 9-cyfrowy numer telefonu" i odciął od systemu
-  każdego, kto ma ustawione własne hasło.
-
-  Obowiązuje wyłącznie apps_script_POPRAWIONY_v2.gs i zawiera on
-  WSZYSTKO: rozdzielacz akcji, obsługę arkusza oraz blok
-  bezpieczeństwa (SEKRETY_PMT, AKCJE_PODPISANE, weryfikujPodpis,
-  wersjaZaStara).
-
-NAJWAŻNIEJSZE OSTRZEŻENIE — PRZECZYTAJ, ZANIM COKOLWIEK ZMIENISZ
-
-  Pod tym samym adresem /exec siedzą DWA programy:
-    · PMT Planer (komputer)  — podpisuje każde zapytanie (HMAC),
-    · pmt_wizyty.html (telefon, PWA) — NIE podpisuje niczego.
-
-  Dlatego NIE WOLNO włączyć twardego wymogu podpisu dla wszystkich akcji
-  (WYMAGAJ_PODPISU = true w starej instrukcji ZABEZPIECZENIA_BACKEND.txt).
-  Zrobienie tego odetnie natychmiast całą aplikację na telefonie.
-  Poniżej jest wersja, która tego nie robi: podpis jest wymagany tylko
-  tam, gdzie obie strony go wysyłają, a reszta jest chroniona kodem
-  użytkownika.
-
-  Druga pułapka: stara instrukcja (ZABEZPIECZENIA_BACKEND.txt) podawała
-  sekret z 3.20.x, a program 3.21.0 podpisywał już innym. Lista poniżej
-  przyjmuje KILKA sekretów naraz, więc podczas przechodzenia zespołu na
-  nową wersję (i podczas obrotu sekretu — patrz góra) nikt nie wypada.
+POD JEDNYM ADRESEM /exec SIEDZĄ DWA PROGRAMY
+  · PMT Planer (komputer) — podpisuje zapytania puls, sesja, reset_hasla,
+  · pmt_wizyty.html (telefon) — nie podpisuje niczego.
+  Dlatego podpis obowiązuje TYLKO akcje z listy AKCJE_PODPISANE.
+  Nie rozszerzaj tej listy i nie włączaj podpisu „dla wszystkich" —
+  odcięłoby to od razu całą aplikację na telefonie.
 
 ───────────────────────────────────────────────────────────────────────
-KROK 1 — WKLEJ CAŁY PLIK apps_script_POPRAWIONY_v2.gs (3 minuty)
+WDROŻENIE SKRYPTU
 ───────────────────────────────────────────────────────────────────────
-
-  Do 3.22.0 były tu trzy kroki: usuń stary blok, wklej nowy blok na
-  początek pliku, dopisz trzy linie w doPost. Tego już NIE MA — blok
-  bezpieczeństwa jest w pliku .gs i doPost sam go woła. Ręczne
-  składanie backendu z dwóch źródeł było najłatwiejszym sposobem
-  zostawienia go bez weryfikacji podpisu.
-
-  1a. Apps Script → Code.gs → Ctrl+A → wklej CAŁY
-      apps_script_POPRAWIONY_v2.gs. Ma ZASTĄPIĆ dotychczasową treść.
-      NIE dopisuj go pod spodem: dwie funkcje o tej samej nazwie
-      w jednym pliku to cicha pomyłka, bo JavaScript bierze ostatnią.
-
-  1b. Jeśli wcześniej miałeś blok z tej instrukcji albo ze starszej
-      (ZABEZPIECZENIA_BACKEND.txt — słowa weryfikujPodpis, SEKRET_PMT,
-      WYMAGAJ_PODPISU), Ctrl+A w punkcie 1a usunął go razem z resztą.
-      Tak ma być — nowy plik ma własny, jeden blok. Sprawdź tylko
-      przez Ctrl+F, czy WYMAGAJ_PODPISU już nigdzie nie występuje.
-
-  1c. W liście SEKRETY_PMT (na początku pliku, pod nagłówkiem) wpisz
-      prawdziwe sekrety w miejsce zaślepek <NOWY_SEKRET> i
-      <STARY_SEKRET_Z_KODU_3.21.0-3.22.0>. W repozytorium tych wartości
-      nie ma i nigdy być nie może.
-
-      DOPÓKI ZOSTAJĄ ZAŚLEPKI, backend odmawia pulsu, sesji i resetu
-      hasła — celowo: lepiej odmówić niż przyjmować cokolwiek.
-
-  1d. Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
-      ADRES /exec POZOSTAJE TEN SAM.
-
-  1e. Otwórz adres /exec w przeglądarce. Odpowiedź ma zawierać
-          sekrety: 2
-      (nowy i stary). To jedyna rzecz, którą widać z zewnątrz — sama
-      LICZBA wpisanych sekretów, nigdy ich treść. Zero = wróć do 1c.
-
-  CZEGO NIE WŁĄCZAĆ: w starej instrukcji ZABEZPIECZENIA_BACKEND.txt
-  było WYMAGAJ_PODPISU = true dla wszystkich akcji. To odcina od razu
-  całą aplikację na telefonie — patrz ostrzeżenie wyżej. Podpis
-  obowiązuje tylko akcje z listy AKCJE_PODPISANE.
+  1. Arkusz → Rozszerzenia → Apps Script → Code.gs → Ctrl+A → wklej CAŁY
+     apps_script_POPRAWIONY_v2.gs. Ma ZASTĄPIĆ treść, nie dopisać się
+     (dwie funkcje o tej samej nazwie = JavaScript po cichu bierze
+     ostatnią).
+  2. Na górze pliku, w liście SEKRETY_PMT, zamień zaślepki <...> na
+     prawdziwe sekrety. W repozytorium tych wartości nie ma i nie może
+     być. DOPÓKI SĄ ZAŚLEPKI, backend odmawia pulsu, sesji i resetu
+     hasła (celowo: lepiej odmówić niż przyjmować cokolwiek).
+  3. Zapisz → Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa →
+     Wdróż. Adres /exec zostaje ten sam.
+  4. Otwórz /exec w przeglądarce — ma pokazać "sekrety":N, gdzie N to
+     liczba wpisanych sekretów (treści nie widać nigdy). 0 = wróć do 2.
+  5. Sprawdź: logowanie z programu, logowanie z telefonu, jedna
+     wygenerowana delegacja (w arkuszu przybywa puls).
+  Coś nie działa → Zarządzaj wdrożeniami → przywróć poprzednią wersję.
 
 ───────────────────────────────────────────────────────────────────────
-KROK 2 — SPRAWDŹ, ŻE NIC SIĘ NIE ZEPSUŁO (5 minut, obowiązkowo)
+OBRÓT SEKRETU (wymiana klucza podpisu)
 ───────────────────────────────────────────────────────────────────────
-  1. Zaloguj się w programie na komputerze — musi wejść jak dotąd.
-  2. Otwórz pmt_wizyty.html na telefonie i zaloguj się — musi wejść.
-     (Ten punkt powtórz TAKŻE po KROKU 3 — to jedyna rzecz, którą
-     zmiana progu wersji mogłaby zepsuć.)
-  3. Wygeneruj jedną delegację — w arkuszu ma przybyć puls.
-  Jeśli którykolwiek punkt zawiedzie: cofnij wdrożenie (Zarządzaj
-  wdrożeniami → wybierz poprzednią wersję) i napisz, co się stało.
+  Sekret aplikacji to klucz HMAC, którym program podpisuje zapytania.
+  Do 3.22.0 był wpisany w kodzie programu, a repozytorium pamięta każdą
+  wersję pliku — ten sekret jest ujawniony i trzeba go wymienić.
+  Program 3.24.0 czyta sekret z pliku sekret.txt w paczce; przy
+  budowaniu na GitHubie powstaje on z sekretu repozytorium PMT_SEKRET.
 
-───────────────────────────────────────────────────────────────────────
-KROK 3 — DOPIERO PO 14 DNIACH (gdy zespół ma 3.23.0)
-───────────────────────────────────────────────────────────────────────
-  To jest NAJSKUTECZNIEJSZA dźwignia w całym mechanizmie obowiązkowej
-  aktualizacji — jedyna, której nie da się obejść ani cofnięciem zegara,
-  ani skasowaniem pliku na własnym komputerze. Kontrola jest już w kodzie
-  i działa od dawna, tylko z niskim progiem:
+  KOLEJNOŚĆ — inaczej ktoś z zespołu wypada z obiegu:
+  (a) Wygeneruj nowy sekret (długi, losowy), np.:
+        python -c "import secrets;print('PMT-'+secrets.token_urlsafe(32))"
+  (b) W SEKRETY_PMT wpisz nowy sekret PRZED starym (lista ma oba) i wdróż.
+      Backend przyjmuje wtedy oba: stare paczki działają dalej.
+  (c) GitHub → Settings → Secrets and variables → Actions →
+      PMT_SEKRET = nowy sekret. Potem wydanie (paczki z nowym sekretem).
+  (d) Gdy cały zespół ma nową wersję (zalecane 14 dni) — USUŃ stary sekret
+      z SEKRETY_PMT i wdróż. Dopiero wtedy ujawniony sekret przestaje
+      działać. /exec pokazuje wtedy "sekrety":1.
 
-      var MINIMALNA_WERSJA = "3.16.0";     ← znajdź tę linię
-
-  · zmień ją na:  var MINIMALNA_WERSJA = "3.21.0";
-  · WYMAGANA_WERSJA = '3.23.0';   (blok w pliku .gs — druga, niezależna bramka)
-  · usuń stare sekrety z listy SEKRETY_PMT (z 3.20.x i ten z kodu
-    3.21.0–3.23.0 — krok (d) w OBRÓT SEKRETU na górze),
-  · wdróż nową wersję.
-
-  Od tej chwili stara wersja programu nie zaloguje się do arkusza, nawet
-  gdyby ktoś ominął blokadę w samym programie. Uwaga: bramka działa tylko
-  dla żądań z programu na komputerze (pole zrodlo="program"), więc
-  aplikacja na telefonie działa dalej bez zmian.
-
-  ZANIM TO ZROBISZ sprawdź w arkuszu (zakładka Log albo kolumna
-  „Wersja"), czy wszyscy mają już 3.21.0. Kto nie ma — zostanie odcięty
-  tego samego dnia.
+  Paczka bez sekretu loguje się, ale puls dostaje „odmowa"; w katalogu
+  użytkownika plik PMT_diagnostyka_animacji.txt ma wtedy wpis „brak
+  sekretu aplikacji".
 
 ───────────────────────────────────────────────────────────────────────
-DZIURY, KTÓRE ZOSTAJĄ W BACKENDZIE — do zrobienia osobno
+TWARDE ODCIĘCIE STARYCH WERSJI PO STRONIE SERWERA (opcjonalne)
 ───────────────────────────────────────────────────────────────────────
-  Poniższe wynikają z przeglądu apps_script.gs i NIE są naprawione przez
-  kroki 1–2. Każda jest realna i sprawdzalna; żadna nie blokuje wydania
-  3.21.0, ale wszystkie warto zamknąć.
+  Zwykle wystarczy próg w wersja.txt (WYDANIE.txt, KROK 8b) — daje ludziom
+  odliczanie i przycisk aktualizacji. Serwer ma dodatkowo dwie bramki,
+  których nie obejdzie się w samym programie, ale które odcinają OD RAZU:
+    · var MINIMALNA_WERSJA = "3.16.0";   (w funkcji logowania)
+    · var WYMAGANA_WERSJA = '';          (blok bezpieczeństwa)
+  Podnoś je dopiero, gdy w arkuszu (kolumna „Wersja") wszyscy mają już
+  nową wersję. Obie dotyczą tylko programu na komputerze — telefon
+  działa dalej.
 
-  1. analiza_polki — każdy, kto zna adres /exec, może przez ten backend
-     wykonywać zapytania do API Anthropic NA TWÓJ KLUCZ i Twój rachunek.
-     Funkcja nie sprawdza, kto pyta.
-     → na początku analizaPolki() sprawdzać, czy dane.kod istnieje
-       w zakładce Uzytkownicy i ma nieprzeterminowaną datę „Wazne do".
+───────────────────────────────────────────────────────────────────────
+ZMIANY W SKRYPCIE OD 3.22.0 (już w pliku, nic do zrobienia ręcznie)
+───────────────────────────────────────────────────────────────────────
+  · zmienHaslo: numer telefonu ustawia hasło TYLKO na koncie bez hasła.
+    Dotąd kto znał cudzy numer, podmieniał cudze hasło.
+  · resetHasla: limit prób (5 na godzinę na kod, 30 łącznie), każda próba
+    zapisana w zakładce Log.
+  · puls: odpowiedź niesie tylko nieobecności pytającego i osób, które on
+    zastępuje — nie całego zespołu.
+  · blok bezpieczeństwa w pliku; zaślepka <...> nigdy nie potwierdza
+    podpisu; /exec pokazuje liczbę wpisanych sekretów.
 
-  2. zgloszenie — zapisuje przysłane zdjęcie na TWOIM Dysku Google
-     i ustawia mu udostępnianie „każdy, kto ma link". Bez sprawdzania,
-     kto przysłał.
-     → ta sama kontrola kodu; nie ustawiać ANYONE_WITH_LINK, wpisywać
-       do arkusza sam identyfikator pliku.
-
-  3. reset_hasla — kasuje hasło konta po samym numerze telefonu, bez
-     limitu prób. Kto zna numer współpracownika, może przejąć konto.
-     → ZAMKNIĘTE W 3.23.0 (apps_script_POPRAWIONY_v2.gs): licznik prób
-       w CacheService (5/godz. na kod, 30/godz. łącznie), wpis do
-       zakładki Log przy każdej próbie, także nieudanej.
-
-  4. puls zwraca listę nieobecności WSZYSTKICH pracowników (z typem,
-     np. „L4") każdemu, kto się odpyta.
-     → ZAMKNIĘTE W 3.23.0: puls zwraca wyłącznie wiersze pytającego kodu
-       i kodów, które ten kod zastępuje.
-
-  4b. zmien_haslo przyjmował numer telefonu jako „stare hasło" także na
-     koncie z ustawionym hasłem — kto znał cudzy numer, podmieniał cudze
-     hasło.
-     → ZAMKNIĘTE W 3.23.0: telefon ustawia hasło tylko na koncie bez
-       hasła (jak w logowanie); reszta idzie przez reset_hasla.
-
-  5. Nieznany kod bywa dopisywany do arkusza jako nowy użytkownik.
-     → zwracać {status:'blad'} zamiast zakładać konto.
-
+───────────────────────────────────────────────────────────────────────
+ZNANE DZIURY — do osobnej rundy (nie blokują wydania)
+───────────────────────────────────────────────────────────────────────
+  1. analiza_polki — każdy, kto zna adres /exec, może analizować zdjęcia
+     na Twój klucz Anthropic (Twój rachunek). Funkcja nie sprawdza, kto
+     pyta.
+  2. zgloszenie / zapisz_produkt — zdjęcia trafiają na Twój Dysk
+     z udostępnianiem „każdy, kto ma link", bez sprawdzenia nadawcy.
+  Obie naprawy wymagają RÓWNOCZEŚNIE zmiany aplikacji na telefonie
+  (dziś nie wysyła kodu użytkownika przy tych akcjach i trzyma offline
+  kolejkę starych zapytań) — dlatego nie weszły do 3.24.0.
+  3. Nieznany kod przy pierwszym pulsie dostaje konto na
+     DOMYSLNE_DNI_NOWEGO dni. To tak działa dołączanie nowych osób;
+     jeśli wolisz zakładać konta ręcznie, ustaw tam 0.
 ═══════════════════════════════════════════════════════════════════════

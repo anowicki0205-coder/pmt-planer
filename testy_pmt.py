@@ -6724,6 +6724,7 @@ try:
             _ZB21.wersja_zrodla() == P.WERSJA_PROGRAMU == _WP21.wersja_zrodla(KATALOG))
     _stale21 = []
     for _plik21, _wzor21 in (("START_TUTAJ.txt", "PMT PLANER %s"),
+                             ("WYDANIE.txt", "PMT PLANER %s"),
                              ("README.md", "(program v%s)"),
                              ("README_TESTER.txt", "Numer wersji: %s."),
                              ("INSTRUKCJA_BUDOWY.txt", "OD ZERA (%s)")):
@@ -6767,7 +6768,7 @@ try:
     sprawdz("program nigdzie nie czyta cudzych nieobecności — zawężenie pulsu niczego nie psuje",
             not _wola21 and not _inne21, str((_wola21, _inne21)))
     sprawdz("nagłówek backendu mówi, co zmieniono w 3.23.0 i jak to wdrożyć",
-            "ZMIANY PRZY WYDANIU 3.23.0" in _gs21 and "WDROŻENIE:" in _gs21)
+            "ZMIANY PRZY WYDANIU 3.24.0" in _gs21 and "WDROŻENIE:" in _gs21)
 
     # ── 21h. sekret aplikacji: do paczki z pliku, nigdy z repozytorium ──
     # Sam mechanizm (sekret.txt → PMT_SEKRET → pusto) i podpis HMAC sprawdza
@@ -6797,6 +6798,24 @@ try:
             and re.search(r"ETYKIETA\" != '\"\"'", _bez_komentarzy21) is not None
             and re.search(r"::error::Paczka z tagu ma ustawiona ETYKIETA_WYDANIA[^\n]*\n\s*exit 1",
                           _bez_komentarzy21) is not None)
+    # BUDOWANIE TESTOWE: właściciel sprawdza paczkę na Windows, zanim zobaczy
+    # ją zespół. Ręczne uruchomienie NIE może niczego wydać ani ruszyć
+    # wersja.txt — inaczej „test" ogłosiłby aktualizację 65 osobom.
+    _byml21 = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encoding="utf-8").read()
+    _tag21 = "startsWith(github.ref, 'refs/tags/')"
+    _win21 = _byml21.split("\n  pozostale:")[0]
+    _poz21 = _byml21.split("\n  pozostale:")[1].split("\n  wersja:")[0]
+    sprawdz("budowanie testowe: paczka Windows idzie do Artifacts, a do wydania tylko z tagu",
+            re.search(r"name: Dołącz do wydania\n\s+if: " + re.escape(_tag21), _win21) is not None
+            and re.search(r"name: Paczka testowa[^\n]*\n\s+if: \$\{\{ !" + re.escape(_tag21)
+                          + r" \}\}\n\s+uses: actions/upload-artifact@", _win21) is not None)
+    sprawdz("budowanie testowe nie buduje macOS/Linux i nie podbija wersja.txt — tylko tag",
+            re.search(r"\n    if: " + re.escape(_tag21) + r"\n", _poz21) is not None
+            and _tag21 in _byml21.split("\n  wersja:")[1].split("steps:")[0])
+    sprawdz("nie ma już ZABEZPIECZENIA_BACKEND.txt (kazał włączyć podpis dla wszystkich — odcinało telefon)",
+            not os.path.exists(os.path.join(KATALOG, "ZABEZPIECZENIA_BACKEND.txt"))
+            and "ZABEZPIECZENIA_BACKEND" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"),
+                                                     encoding="utf-8").read())
     sprawdz("build.yml: kontrola etykiety biegnie PRZED budowaniem i tylko dla tagu",
             _bez_komentarzy21.index("Kontrola - paczka z tagu bez etykiety testowej")
             < _bez_komentarzy21.index("python zbuduj.py --folder")
@@ -6834,7 +6853,7 @@ try:
             "sekrety: _pmtSekrety().length" in _gs21)
     sprawdz("instrukcja backendu NIE każe już wklejać bloku z powrotem do Code.gs",
             "wklej je z powrotem" not in _doc21 and "nowy plik ich nie zawiera" not in _doc21
-            and "jest już W TYM\n       PLIKU" in _doc21)
+            and "jest już W TYM PLIKU" in " ".join(_doc21.split()))
 except Exception as _e21:
     sprawdz("wydanie: jedno źródło prawdy budowania", False, repr(_e21))
     import traceback as _tb21

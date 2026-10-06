@@ -9462,6 +9462,23 @@ try:
     # ── 28f. zgaszone animacje: sam kompas, zero przerysowań mapy, zrzuty co do bajta ──
     _okno28.ustaw_animacje(False)
     _miel28(4)
+    # Zanim zrobimy zdjęcie „przed", mapa musi DOJŚĆ DO SPOCZYNKU. Cztery
+    # obroty pętli zdarzeń to za mało, gdy maszyna jest szybka albo wolna
+    # akurat inaczej niż zwykle: mapa kończy wtedy ostatnie przerysowanie
+    # PO zdjęciu i test liczył je jako winę spektaklu (GitHub, przebieg
+    # #48: „(None, 2, False)" — spektaklu nie było, były dwa spóźnione
+    # przerysowania). Sprawdzamy, że spektakl NIE RUSZA mapy, więc
+    # zaczynamy liczyć od mapy, która już stoi.
+    _granica_sp28 = datetime.datetime.now() + datetime.timedelta(seconds=5)
+    _pod_rzad28 = 0
+    _poprz_sp28 = same_piksele(_okno28.grab(_okno28.mapa.geometry()).toImage())
+    while datetime.datetime.now() < _granica_sp28 and _pod_rzad28 < 3:
+        _miel28(4)
+        _ter_sp28 = same_piksele(_okno28.grab(_okno28.mapa.geometry()).toImage())
+        _pod_rzad28 = _pod_rzad28 + 1 if _ter_sp28 == _poprz_sp28 else 0
+        _poprz_sp28 = _ter_sp28
+    sprawdz("przy zgaszonych animacjach mapa dochodzi do spoczynku (zanim sprawdzimy spektakl)",
+            _pod_rzad28 >= 3, "zgodnych zrzutów pod rząd: %d" % _pod_rzad28)
     _licznik28 = {"mapa": 0}
     _paint_mapy28 = _PM28.MapaDnia.paintEvent
 

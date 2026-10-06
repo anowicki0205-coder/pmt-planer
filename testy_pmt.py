@@ -6847,6 +6847,20 @@ try:
             [w for w in re.findall(r"'([^']*)'", _lista21)]
             and all(w.startswith("<") for w in re.findall(r"'([^']*)'", _lista21)),
             _lista21.strip())
+    # Wdrożony dotąd skrypt NIE sprawdzał podpisu wcale (właściciel nie
+    # znalazł w nim SEKRETY_PMT). Gdyby nowy od razu wymagał podpisu,
+    # wszyscy na 3.21–3.22 straciliby puls, sesję i reset hasła w dniu
+    # wdrożenia skryptu — przed wydaniem 3.24.0. Dlatego przełącznik
+    # domyślnie WYŁĄCZONY i sprawdzany w doPost PRZED weryfikacją.
+    sprawdz("backend: PODPIS_OBOWIAZKOWY domyślnie false — wdrożenie skryptu nikogo nie odcina",
+            re.search(r"^var PODPIS_OBOWIAZKOWY = false;", _gs21, re.M) is not None
+            and "if (PODPIS_OBOWIAZKOWY\n" in _dp21
+            and _dp21.index("PODPIS_OBOWIAZKOWY") < _dp21.index("!weryfikujPodpis(dane)"))
+    sprawdz("backend: /exec pokazuje stan przełącznika podpisu (do sprawdzenia po wdrożeniu)",
+            "podpis_obowiazkowy: PODPIS_OBOWIAZKOWY === true" in _gs21)
+    sprawdz("instrukcja wydania: przełącznik włącza się dopiero w kroku domknięcia, po aktualizacji zespołu",
+            "var PODPIS_OBOWIAZKOWY = true;" in open(os.path.join(KATALOG, "WYDANIE.txt"), encoding="utf-8").read()
+            and "PODPIS_OBOWIAZKOWY" in _doc21)
     sprawdz("backend: zaślepka <...> nigdy nie potwierdza podpisu (świeży skrypt odmawia, zamiast przyjmować)",
             "s.charAt(0) !== '<'" in _gs21 and "lista = _pmtSekrety()" in _gs21)
     sprawdz("backend doGet pokazuje LICZBĘ wpisanych sekretów (do sprawdzenia wdrożenia), nie ich treść",

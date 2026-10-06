@@ -54,15 +54,14 @@
  *     ma ZASTĄPIĆ dotychczasową treść, nie dopisać się do niej. Dwie
  *     funkcje o tej samej nazwie w jednym pliku to cicha pomyłka:
  *     JavaScript bierze ostatnią.
- *  B. Wpisz sekrety w liście SEKRETY_PMT (zaraz pod nagłówkiem).
- *     DOPÓKI SĄ TAM ZAŚLEPKI <...>, backend odmawia pulsu, sesji
- *     i resetu hasła — celowo, bo lepiej odmówić niż przyjmować
- *     cokolwiek. Sprawdzisz to w punkcie D.
+ *  B. Wpisz sekret w liście SEKRETY_PMT (zaraz pod nagłówkiem)
+ *     w miejsce zaślepki <NOWY_SEKRET>. PODPIS_OBOWIAZKOWY zostaw na
+ *     false — włączasz go dopiero, gdy cały zespół ma nową wersję.
  *  C. Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
  *     Adres /exec zostaje ten sam.
- *  D. Otwórz adres /exec w przeglądarce. Ma pokazać
- *     sekrety: 2  (nowy i stary). Zero znaczy, że punkt B został
- *     pominięty — wróć do niego i wdróż jeszcze raz.
+ *  D. Otwórz adres /exec w przeglądarce. Ma pokazać "sekrety":1
+ *     i "podpis_obowiazkowy":false. Zero sekretów znaczy, że punkt B
+ *     został pominięty — wróć do niego i wdróż jeszcze raz.
  *  Na koniec sprawdź z programu: logowanie, „Nie pamiętam hasła",
  *  jedna wygenerowana delegacja (w arkuszu ma przybyć puls)
  *  oraz logowanie z telefonu.
@@ -87,22 +86,29 @@ var DOMYSLNE_DNI_NOWEGO = 30;
 /*  JEDYNE, CO MUSISZ TU ZMIENIĆ: lista SEKRETY_PMT poniżej.          */
 /* ══════════════════════════════════════════════════════════════════ */
 
-// Kilka sekretów naraz: NOWY (ten sam napis, co w sekrecie repozytorium
-// PMT_SEKRET, z którego budowanie robi sekret.txt w paczce) i STARY —
-// ten, który do 3.22.0 był wpisany wprost w kodzie programu. Dwie
-// pozycje sprawiają, że nikt nie wypada w trakcie przechodzenia zespołu
-// na nową wersję.
+// Sekret aplikacji: ten sam napis, co w sekrecie repozytorium PMT_SEKRET
+// (budowanie robi z niego sekret.txt w paczce). Lista przyjmuje kilka
+// pozycji — przyda się przy przyszłej wymianie sekretu (nowy PRZED
+// starym, stary usuwany po aktualizacji zespołu).
 //
-// W miejsce <...> wpisz prawdziwe wartości. W tym pliku ich celowo nie
+// W miejsce <...> wpisz prawdziwą wartość. W tym pliku jej celowo nie
 // ma i nigdy być nie może — plik leży w repozytorium, które pamięta
 // każdą swoją wersję.
-//
-// Stary sekret USUŃ z listy, gdy cały zespół ma już 3.24.0 (procedura
-// OBRÓT SEKRETU na początku BACKEND_APPS_SCRIPT.txt).
 var SEKRETY_PMT = [
-  '<NOWY_SEKRET>',
-  '<STARY_SEKRET_Z_KODU_3.21.0-3.22.0>'
+  '<NOWY_SEKRET>'
 ];
+
+// Czy akcje z AKCJE_PODPISANE BEZ poprawnego podpisu są odrzucane.
+//
+// false = okres przejściowy: podpis jest sprawdzany, ale brak lub zły
+//         podpis niczego nie blokuje. Tak backend działał dotąd w ogóle
+//         (bloku bezpieczeństwa nie było we wdrożonym skrypcie), więc
+//         wdrożenie tego pliku nikogo nie odcina — także osób, które
+//         jeszcze nie zaktualizowały programu.
+// true  = podpis obowiązkowy. Włącz, gdy cały zespół ma 3.24.0
+//         (kolumna „Wersja" w zakładce Uzytkownicy) — starsze wersje
+//         stracą wtedy puls, sesję i reset hasła.
+var PODPIS_OBOWIAZKOWY = false;
 
 // Akcje wysyłane WYŁĄCZNIE przez program na komputerze — tylko one
 // wymagają podpisu. Aplikacja na telefonie (pmt_wizyty.html) żadnej
@@ -204,11 +210,13 @@ function _zakladka(ss, nazwa, naglowki) {
 // w przeglądarce ma pokazać znak życia, nic więcej.
 function doGet(e) {
   // „sekrety" to LICZBA wpisanych sekretów, nigdy ich treść. Otwarcie
-  // adresu /exec w przeglądarce ma pokazać sekrety: 2 (nowy i stary).
-  // Zero znaczy, że w SEKRETY_PMT zostały zaślepki <...> i backend
-  // odmawia pulsu, sesji oraz resetu hasła.
+  // adresu /exec w przeglądarce ma pokazać sekrety: 1 i stan przełącznika
+  // PODPIS_OBOWIAZKOWY. Zero sekretów znaczy, że w SEKRETY_PMT została
+  // zaślepka <...> — po włączeniu podpisu backend odmawiałby wtedy
+  // pulsu, sesji i resetu hasła.
   return _json({ status: "ok", opis: "PMT backend dziala",
-                 sekrety: _pmtSekrety().length });
+                 sekrety: _pmtSekrety().length,
+                 podpis_obowiazkowy: PODPIS_OBOWIAZKOWY === true });
 }
 
 function _json(obiekt) {
@@ -372,7 +380,8 @@ function doPost(e) {
     // Podpis: akcje z AKCJE_PODPISANE przyjmujemy tylko od programu,
     // który zna sekret aplikacji. Brak pola „podpis" to ta sama odmowa
     // co zły podpis — patrz blok bezpieczeństwa na początku pliku.
-    if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
+    if (PODPIS_OBOWIAZKOWY
+        && AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
         && !weryfikujPodpis(dane)) {
       return _json({ status: "blad", opis: "odmowa" });
     }

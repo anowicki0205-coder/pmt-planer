@@ -8,13 +8,17 @@ CO JUŻ JEST GOTOWE (nic z tego nie robisz)
   · Paczka buduje się poprawnie (sprawdzone budowaniem od zera).
   · Sekretu aplikacji nie ma w kodzie; backend ma blok bezpieczeństwa
     w środku pliku, nic nie składasz z kilku źródeł.
+  · Obecnie wdrożony backend NIE sprawdza podpisu zapytań wcale (nie ma
+    w nim SEKRETY_PMT). Nowy skrypt wchodzi w okresie przejściowym:
+    sprawdzanie jest gotowe, ale nikogo nie blokuje, dopóki nie włączysz
+    go jedną linią w KROKU 8. Dlatego nikt nie wypadnie z obiegu.
   · Plik wersja.txt jest nietknięty — dopóki nie opublikujesz wydania
     (KROK 6), nikt z zespołu nie zobaczy żadnej aktualizacji.
 
 CZEGO POTRZEBUJESZ
   · przeglądarki z dostępem do GitHuba i do arkusza Google (Apps Script),
   · komputera z Windows do KROKU 4 (sprawdzenie paczki),
-  · menedżera haseł (albo kartki) na dwa napisy: nowy i stary sekret.
+  · menedżera haseł (albo kartki) na jeden napis: nowy sekret.
 
 Łącznie ok. 1 godziny, z czego połowa to czekanie na GitHuba.
 
@@ -23,22 +27,15 @@ CZEGO POTRZEBUJESZ
 KROK 1 — NOWY SEKRET APLIKACJI                                  5 minut
 ───────────────────────────────────────────────────────────────────────
   Po co: dawny klucz podpisu zapytań był wpisany w kodzie, a repozytorium
-  pamięta każdą wersję — ten klucz jest ujawniony i trzeba go wymienić.
+  pamięta każdą wersję — ten klucz jest ujawniony i nie wolno go dalej
+  używać. Starego klucza NIGDZIE nie przepisujesz — nie jest potrzebny.
 
   1a. Wygeneruj nowy sekret: dowolny losowy napis, 32+ znaki, litery
       i cyfry, bez spacji, np. z generatora w menedżerze haseł.
       Jeśli masz Pythona:
         python -c "import secrets;print('PMT-'+secrets.token_urlsafe(32))"
 
-  1b. Zapisz go w menedżerze haseł jako „PMT — sekret NOWY".
-
-  1c. Otwórz arkusz Google → menu Rozszerzenia → Apps Script → plik
-      Code.gs. Ctrl+F, wpisz: SEKRETY_PMT
-      Skopiuj napis, który tam stoi w apostrofach (obecny sekret)
-      i zapisz w menedżerze haseł jako „PMT — sekret STARY".
-      Jeśli są tam dwa — skopiuj oba; jeśli nie ma SEKRETY_PMT, tylko
-      SEKRET_PMT — skopiuj ten jeden.
-      ZRÓB TO PRZED KROKIEM 2 — tam treść Code.gs zostanie zastąpiona.
+  1b. Zapisz go w menedżerze haseł jako „PMT — sekret".
 
 
 ───────────────────────────────────────────────────────────────────────
@@ -52,19 +49,20 @@ KROK 2 — ARKUSZ GOOGLE: NOWY SKRYPT                            10 minut
       zrobiony, wybierz gałąź claude/retro-futurystyczne-logo-pmt-yoz8bz)
       → przycisk „Copy raw file" (ikona dwóch kartek nad treścią pliku).
 
-  2b. W Apps Script, w Code.gs: Ctrl+A (zaznacz wszystko) → Ctrl+V.
+  2b. Arkusz Google → menu Rozszerzenia → Apps Script → plik Code.gs.
+      Ctrl+A (zaznacz wszystko) → Ctrl+V.
       Plik ma ZASTĄPIĆ dotychczasową treść, a nie dopisać się pod nią.
 
-  2c. Na górze wklejonego pliku jest lista SEKRETY_PMT z dwiema
-      zaślepkami. Zamień je tak, żeby wyglądało dokładnie tak:
+  2c. Na górze wklejonego pliku jest lista SEKRETY_PMT z zaślepką.
+      Zamień ją tak, żeby wyglądało dokładnie tak:
 
         var SEKRETY_PMT = [
-          'tu-NOWY-sekret-z-kroku-1a',
-          'tu-STARY-sekret-z-kroku-1c'
+          'tu-sekret-z-kroku-1a'
         ];
 
-      Apostrofy zostają, przecinek po pierwszej pozycji zostaje.
-      Jeśli w 1c miałeś dwa stare — dopisz oba (trzy pozycje).
+      Apostrofy zostają. Zaraz pod spodem jest linia
+        var PODPIS_OBOWIAZKOWY = false;
+      — ZOSTAW false. Włączasz ją dopiero w KROKU 8.
 
   2d. Ikona dyskietki (Zapisz). Potem: Wdróż → Zarządzaj wdrożeniami →
       ołówek przy aktywnym wdrożeniu → Wersja: „Nowa wersja" → Wdróż.
@@ -72,9 +70,9 @@ KROK 2 — ARKUSZ GOOGLE: NOWY SKRYPT                            10 minut
 
   2e. SPRAWDZENIE (10 sekund): otwórz w przeglądarce adres /exec
       (ten sam, który jest w programie). Ma się pokazać m.in.:
-          "sekrety":2
-      2 (albo 3) = dobrze. 0 = zostały zaślepki: wróć do 2c, zapisz,
-      wdróż jeszcze raz. Widać tylko liczbę, nigdy treść sekretów.
+          "sekrety":1,"podpis_obowiazkowy":false
+      "sekrety":0 = została zaślepka: wróć do 2c, zapisz, wdróż jeszcze
+      raz. Widać tylko liczbę, nigdy treść sekretu.
 
   2f. Na telefonie zaloguj się w aplikacji pmt_wizyty — ma wejść jak
       zwykle. Jeśli nie wchodzi: Wdróż → Zarządzaj wdrożeniami →
@@ -89,8 +87,8 @@ KROK 3 — GITHUB: SEKRETY REPOZYTORIUM                           3 minuty
 
   3a. Zakładka „Secrets" → „New repository secret":
         Name:   PMT_SEKRET
-        Secret: NOWY sekret z kroku 1a (dokładnie ten sam napis,
-                który wpisałeś jako pierwszy w SEKRETY_PMT)
+        Secret: sekret z kroku 1a (dokładnie ten sam napis,
+                który wpisałeś w SEKRETY_PMT)
       → „Add secret". Jeśli PMT_SEKRET już istnieje — ołówek →
       „Update secret" i wpisz nowy.
 
@@ -185,11 +183,18 @@ KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                              10 minut
   Zanim zaczniesz: w arkuszu (kolumna „Wersja" w zakładce Uzytkownicy)
   wszyscy mają 3.24.0. Kto nie ma — najpierw do niego zadzwoń.
 
-  8a. STARY SEKRET PRZESTAJE DZIAŁAĆ. Apps Script → Code.gs → w liście
-      SEKRETY_PMT zostaw TYLKO nowy sekret (usuń linię ze starym
-      i przecinek po nowym) → Zapisz → Wdróż → Zarządzaj wdrożeniami
-      → ołówek → Nowa wersja → Wdróż. Adres /exec ma teraz pokazać
-      "sekrety":1.
+  8a. WŁĄCZ PODPIS. Apps Script → Code.gs → znajdź linię
+        var PODPIS_OBOWIAZKOWY = false;
+      i zmień na
+        var PODPIS_OBOWIAZKOWY = true;
+      → Zapisz → Wdróż → Zarządzaj wdrożeniami → ołówek → Nowa wersja →
+      Wdróż. Adres /exec ma teraz pokazać "podpis_obowiazkowy":true.
+      Od tej chwili ujawniony stary klucz nic nie daje. Starsze wersje
+      programu tracą puls, sesję i reset hasła — dlatego najpierw
+      sprawdzasz kolumnę „Wersja".
+      Po włączeniu: zaloguj się w programie i wygeneruj jedną delegację
+      (puls ma przybyć) oraz zaloguj się na telefonie (ma wejść).
+      Coś nie działa → zmień z powrotem na false i wdróż.
 
   8b. PRÓG WERSJI. GitHub → Code → plik wersja.txt (gałąź main) →
       ołówek (Edit). ZMIEŃ OBIE OSTATNIE LINIE NARAZ, a pierwszych
@@ -221,12 +226,16 @@ CZEGO NIE ROBISZ
 GDY COŚ NIE GRA
 ───────────────────────────────────────────────────────────────────────
   /exec pokazuje "sekrety":0
-      → w SEKRETY_PMT zostały zaślepki: KROK 2c, zapisz, wdróż.
+      → w SEKRETY_PMT została zaślepka: KROK 2c, zapisz, wdróż.
+  W Code.gs nie ma SEKRETY_PMT (przed KROKIEM 2)
+      → tak ma być: obecny backend nie sprawdza podpisu. Po prostu
+        wklej nowy plik (KROK 2).
   Budowanie czerwone, „Brak sekretu PMT_SEKRET" / „PMT_MENEDZER"
       → KROK 3, potem „Re-run all jobs".
-  Paczka loguje, ale w arkuszu nie przybywa puls
-      → sekret w GitHubie (3a) różni się od pierwszego w SEKRETY_PMT
-        (2c). Wpisz w oba miejsca ten sam napis i zbuduj ponownie.
+  Po KROKU 8a paczka 3.24.0 loguje, ale nie przybywa puls
+      → sekret w GitHubie (3a) różni się od tego w SEKRETY_PMT (2c).
+        Wróć z PODPIS_OBOWIAZKOWY na false, wpisz w oba miejsca ten
+        sam napis, zbuduj i wydaj ponownie.
         W katalogu użytkownika (C:\Users\Nazwa) plik
         PMT_diagnostyka_animacji.txt z wpisem „brak sekretu aplikacji"
         znaczy, że paczka powstała bez sekretu.

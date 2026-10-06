@@ -30,28 +30,48 @@ WDROŻENIE SKRYPTU
      apps_script_POPRAWIONY_v2.gs. Ma ZASTĄPIĆ treść, nie dopisać się
      (dwie funkcje o tej samej nazwie = JavaScript po cichu bierze
      ostatnią).
-  2. Na górze pliku, w liście SEKRETY_PMT, zamień zaślepki <...> na
-     prawdziwe sekrety. W repozytorium tych wartości nie ma i nie może
-     być. DOPÓKI SĄ ZAŚLEPKI, backend odmawia pulsu, sesji i resetu
-     hasła (celowo: lepiej odmówić niż przyjmować cokolwiek).
+  2. Na górze pliku, w liście SEKRETY_PMT, zamień zaślepkę <...> na
+     prawdziwy sekret. W repozytorium tej wartości nie ma i nie może
+     być. Zaślepka nigdy niczego nie potwierdza.
+     Pod spodem: PODPIS_OBOWIAZKOWY — patrz „PODPIS: OKRES PRZEJŚCIOWY".
   3. Zapisz → Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa →
      Wdróż. Adres /exec zostaje ten sam.
-  4. Otwórz /exec w przeglądarce — ma pokazać "sekrety":N, gdzie N to
-     liczba wpisanych sekretów (treści nie widać nigdy). 0 = wróć do 2.
+  4. Otwórz /exec w przeglądarce — ma pokazać "sekrety":N (liczba
+     wpisanych sekretów, treści nie widać nigdy) i "podpis_obowiazkowy".
+     "sekrety":0 = wróć do 2.
   5. Sprawdź: logowanie z programu, logowanie z telefonu, jedna
      wygenerowana delegacja (w arkuszu przybywa puls).
   Coś nie działa → Zarządzaj wdrożeniami → przywróć poprzednią wersję.
 
 ───────────────────────────────────────────────────────────────────────
-OBRÓT SEKRETU (wymiana klucza podpisu)
+PODPIS: OKRES PRZEJŚCIOWY (wydanie 3.24.0)
 ───────────────────────────────────────────────────────────────────────
-  Sekret aplikacji to klucz HMAC, którym program podpisuje zapytania.
-  Do 3.22.0 był wpisany w kodzie programu, a repozytorium pamięta każdą
-  wersję pliku — ten sekret jest ujawniony i trzeba go wymienić.
-  Program 3.24.0 czyta sekret z pliku sekret.txt w paczce; przy
-  budowaniu na GitHubie powstaje on z sekretu repozytorium PMT_SEKRET.
+  Stan wyjściowy: wdrożony dotąd skrypt NIE miał bloku bezpieczeństwa —
+  podpisu nie sprawdzał wcale. Klucz, którym programy 3.21–3.22
+  podpisywały zapytania, był wpisany w kodzie (ujawniony), więc i tak
+  nie wolno go dalej uznawać.
 
-  KOLEJNOŚĆ — inaczej ktoś z zespołu wypada z obiegu:
+  Dlatego nowy skrypt ma przełącznik:
+    var PODPIS_OBOWIAZKOWY = false;
+  false — podpis jest sprawdzany, ale nikogo nie blokuje. Działa jak
+          dotąd, także dla osób na starszych wersjach.
+  true  — akcje puls, sesja, reset_hasla bez poprawnego podpisu dostają
+          „odmowa". Włącz, gdy w zakładce Uzytkownicy (kolumna „Wersja")
+          wszyscy mają 3.24.0 — WYDANIE.txt, KROK 8a.
+
+  Program 3.24.0 czyta sekret z pliku sekret.txt w paczce; przy budowaniu
+  na GitHubie powstaje on z sekretu repozytorium PMT_SEKRET. Ten sam
+  napis musi stać w SEKRETY_PMT.
+
+  Paczka bez sekretu loguje się normalnie, ale po włączeniu podpisu jej
+  puls dostaje „odmowa"; w katalogu użytkownika plik
+  PMT_diagnostyka_animacji.txt ma wtedy wpis „brak sekretu aplikacji".
+
+───────────────────────────────────────────────────────────────────────
+OBRÓT SEKRETU (na przyszłość, gdy sekret trzeba będzie wymienić)
+───────────────────────────────────────────────────────────────────────
+  Przy włączonym podpisie kolejność jest ważna — inaczej ktoś z zespołu
+  wypada z obiegu:
   (a) Wygeneruj nowy sekret (długi, losowy), np.:
         python -c "import secrets;print('PMT-'+secrets.token_urlsafe(32))"
   (b) W SEKRETY_PMT wpisz nowy sekret PRZED starym (lista ma oba) i wdróż.
@@ -59,12 +79,7 @@ OBRÓT SEKRETU (wymiana klucza podpisu)
   (c) GitHub → Settings → Secrets and variables → Actions →
       PMT_SEKRET = nowy sekret. Potem wydanie (paczki z nowym sekretem).
   (d) Gdy cały zespół ma nową wersję (zalecane 14 dni) — USUŃ stary sekret
-      z SEKRETY_PMT i wdróż. Dopiero wtedy ujawniony sekret przestaje
-      działać. /exec pokazuje wtedy "sekrety":1.
-
-  Paczka bez sekretu loguje się, ale puls dostaje „odmowa"; w katalogu
-  użytkownika plik PMT_diagnostyka_animacji.txt ma wtedy wpis „brak
-  sekretu aplikacji".
+      z SEKRETY_PMT i wdróż. Dopiero wtedy stary przestaje działać.
 
 ───────────────────────────────────────────────────────────────────────
 TWARDE ODCIĘCIE STARYCH WERSJI PO STRONIE SERWERA (opcjonalne)
@@ -88,7 +103,8 @@ ZMIANY W SKRYPCIE OD 3.22.0 (już w pliku, nic do zrobienia ręcznie)
   · puls: odpowiedź niesie tylko nieobecności pytającego i osób, które on
     zastępuje — nie całego zespołu.
   · blok bezpieczeństwa w pliku; zaślepka <...> nigdy nie potwierdza
-    podpisu; /exec pokazuje liczbę wpisanych sekretów.
+    podpisu; przełącznik PODPIS_OBOWIAZKOWY (okres przejściowy);
+    /exec pokazuje liczbę wpisanych sekretów i stan przełącznika.
 
 ───────────────────────────────────────────────────────────────────────
 ZNANE DZIURY — do osobnej rundy (nie blokują wydania)

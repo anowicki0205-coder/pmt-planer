@@ -148,6 +148,27 @@ def budzet_p90(ms: float = 16.0) -> float:
     return min(ms * wspolczynnik_maszyny() * LUZ_P90, BUDZET_PROGRAMU)
 
 
+def w_budzecie(zmierzone: float, bazowy_ms: float = 16.0, centyl: bool = False) -> bool:
+    """Czy zmierzony czas mieści się w budżecie TEJ maszyny.
+
+    Gdy nie mieści — mierzymy szybkość maszyny JESZCZE RAZ i pytamy ponownie.
+    Współdzielona maszyna potrafi zwolnić w trakcie przebiegu (inny przebieg
+    na tym samym hoście, dławienie procesora), a wtedy pomiar sprzed kilku
+    minut już jej nie opisuje: na GitHubie ten sam commit 3eaba0f przeszedł
+    w jednym przebiegu i padł w drugim, uruchomionym w tej samej minucie.
+
+    To NIE jest ślepe powtórzenie. Praca wzorcowa nie dotyka kodu programu,
+    więc prawdziwe spowolnienie NASZEGO rysowania nie zmieni odniesienia —
+    pomiar zostaje ten sam i test pada drugi raz. Przesuwa się tylko wtedy,
+    gdy zwolniła sama maszyna."""
+    granica = budzet_p90(bazowy_ms) if centyl else budzet(bazowy_ms)
+    if zmierzone < granica:
+        return True
+    _WSPOLCZYNNIK.clear()
+    granica = budzet_p90(bazowy_ms) if centyl else budzet(bazowy_ms)
+    return zmierzone < granica
+
+
 def same_piksele(obraz):
     """Surowe bajty obrazu BEZ dopychania wierszy — do porównań co do bajta.
 
@@ -5805,6 +5826,9 @@ try:
     sprawdz("budżetu nie da się rozsunąć powyżej progu, przy którym program gasi animacje",
             budzet(16.0) <= BUDZET_PROGRAMU and budzet_p90() <= BUDZET_PROGRAMU,
             "mediana %.1f, p90 %.1f, sufit %.1f" % (budzet(16.0), budzet_p90(), BUDZET_PROGRAMU))
+    sprawdz("ponowny pomiar przy przekroczeniu budżetu nie przepuszcza czasu, który i tak jest za długi",
+            w_budzecie(0.1) is True and w_budzecie(BUDZET_PROGRAMU * 10) is False
+            and w_budzecie(BUDZET_PROGRAMU * 10, centyl=True) is False)
     sprawdz("praca wzorcowa nie dotyka kodu programu — inaczej spowolnienie podniosłoby i pomiar, i budżet",
             not any(n in inspect.getsource(_praca_wzorcowa)
                     for n in ("proto_", "MapaDnia", "nowy_wyglad", "PMT_Delegacje",
@@ -8016,8 +8040,8 @@ try:
                          _okno25.kartka.obecnosc())))
             _s25 = sorted(_klatki25)
             sprawdz("budżet klatki w czasie PRACY SILNIKA przy 1920×1080: mediana i p90 klatki przelotu w budżecie tej maszyny",
-                    len(_s25) >= 8 and _stat25.median(_s25) < budzet(16.0)
-                    and _s25[int(0.9 * (len(_s25) - 1))] < budzet_p90(),
+                    len(_s25) >= 8 and w_budzecie(_stat25.median(_s25))
+                    and w_budzecie(_s25[int(0.9 * (len(_s25) - 1))], centyl=True),
                     "klatek %d, mediana %.2f, p90 %.2f, max %.2f" % (
                         len(_s25), _stat25.median(_s25) if _s25 else -1,
                         _s25[int(0.9 * (len(_s25) - 1))] if _s25 else -1, _s25[-1] if _s25 else -1))
@@ -8107,7 +8131,8 @@ try:
             _pomiar25.append((time.perf_counter() - _t) * 1000.0)
         _pm25 = sorted(_pomiar25)
         sprawdz("budżet klatki przelotu z 4 trasami przy 1920×1080 (silnik stoi): mediana w budżecie tej maszyny",
-                _stat25.median(_pm25) < budzet(16.0) and _pm25[int(0.9 * 39)] < budzet_p90(),
+                w_budzecie(_stat25.median(_pm25))
+                and w_budzecie(_pm25[int(0.9 * 39)], centyl=True),
                 "mediana %.2f p90 %.2f max %.2f" % (_stat25.median(_pm25), _pm25[int(0.9 * 39)], _pm25[-1]))
         _mapa_z25 = _PM25.MapaDnia()
         _mapa_z25.resize(400, 300)
@@ -8947,13 +8972,13 @@ try:
         print("      %s: mediana %.2f ms, p90 %.2f ms, wypiek statyki %.0f ms"
               % ((_nazwa27,) + _wyniki27[_nazwa27]))
     sprawdz("klatka mapy przy 1920×1080 (dzień bliski z kartką i daleki bez): mediana w budżecie tej maszyny",
-            all(w[0] < budzet(10.0) for w in _wyniki27.values()),
+            all(w_budzecie(w[0], 10.0) for w in _wyniki27.values()),
             ", ".join("%s %.2f" % (k, w[0]) for k, w in _wyniki27.items()))
     sprawdz("...i 90. centyl w budżecie tej maszyny",
-            all(w[1] < budzet_p90() for w in _wyniki27.values()),
+            all(w_budzecie(w[1], centyl=True) for w in _wyniki27.values()),
             ", ".join("%s %.2f" % (k, w[1]) for k, w in _wyniki27.items()))
     sprawdz("wypiek statyki (niebo, rzeźba, pola, lasy, woda, drogi, osady) przy 1920×1080 w budżecie tej maszyny",
-            all(w[2] < budzet(400.0) for w in _wyniki27.values()),
+            all(w_budzecie(w[2], 400.0) for w in _wyniki27.values()),
             ", ".join("%s %.0f" % (k, w[2]) for k, w in _wyniki27.items()))
     _pod27 = _m_b27._pola["lasy"]
     sprawdz("po pomiarach mapa wraca do stanu zrzutu: animacje zgaszone, ta sama statyka co przed pomiarem",
@@ -9337,8 +9362,8 @@ try:
         _pomiar28.append((time.perf_counter() - _t) * 1000.0)
     _pm28 = sorted(_pomiar28)
     sprawdz("budżet klatki spektaklu przy 1920×1080 z nitkami, rozbłyskami i kartkami w locie: mediana i p90 w budżecie tej maszyny",
-            len(_pm28) == 40 and _stat28.median(_pm28) < budzet(16.0)
-            and _pm28[int(0.9 * 39)] < budzet_p90()
+            len(_pm28) == 40 and w_budzecie(_stat28.median(_pm28))
+            and w_budzecie(_pm28[int(0.9 * 39)], centyl=True)
             and _zycie28["nitki"] >= 1 and _zycie28["kartki"] >= 1,
             "mediana %.2f p90 %.2f max %.2f, w locie %s" % (_stat28.median(_pm28), _pm28[int(0.9 * 39)], _pm28[-1], _zycie28))
     _m28.przerwij()
@@ -9627,10 +9652,12 @@ try:
 
     # ── 29d. budżet klatki ───────────────────────────────────────
     sprawdz("budżet klatki ekranu startowego (1920×1080) w budżecie tej maszyny",
-            _budzet_startu29[0] < budzet(10.0) and _budzet_startu29[1] < budzet_p90(),
+            w_budzecie(_budzet_startu29[0], 10.0)
+            and w_budzecie(_budzet_startu29[1], centyl=True),
             "mediana %.1f ms, p90 %.1f ms" % _budzet_startu29)
     sprawdz("budżet klatki tacy dokumentów (1920×1080) w budżecie tej maszyny",
-            _budzet_tacy29[0] < budzet(10.0) and _budzet_tacy29[1] < budzet_p90(),
+            w_budzecie(_budzet_tacy29[0], 10.0)
+            and w_budzecie(_budzet_tacy29[1], centyl=True),
             "mediana %.1f ms, p90 %.1f ms" % _budzet_tacy29)
 
     # ── 29e. zero zdań w interfejsie ─────────────────────────────
@@ -9998,10 +10025,11 @@ try:
     print("      wszystkie dni: mediana %.2f ms, p90 %.2f ms, wypiek statyki z tłem %.0f ms"
           % (_med31, _p9031, _wyp31))
     sprawdz("klatka mapy w widoku „wszystkie dni” przy 1920×1080: mediana w budżecie tej maszyny",
-            _med31 < budzet(10.0), "%.2f ms" % _med31)
-    sprawdz("...i 90. centyl w budżecie tej maszyny", _p9031 < budzet_p90(), "%.2f ms" % _p9031)
+            w_budzecie(_med31, 10.0), "%.2f ms" % _med31)
+    sprawdz("...i 90. centyl w budżecie tej maszyny",
+            w_budzecie(_p9031, centyl=True), "%.2f ms" % _p9031)
     sprawdz("wypiek statyki razem ze wstęgami tła w budżecie tej maszyny",
-            _wyp31 < budzet(400.0), "%.0f ms (budżet %.0f ms)" % (_wyp31, budzet(400.0)))
+            w_budzecie(_wyp31, 400.0), "%.0f ms (budżet %.0f ms)" % (_wyp31, budzet(400.0)))
     _okno31.ustaw_animacje(False)
     _miel31(4)
     sprawdz("po pomiarach obraz miesiąca wraca co do bajta", _bajty31(_m31) == _obraz_a31)
@@ -10713,6 +10741,28 @@ if _bledy:
     for _, _n, _s in _bledy:
         print("    · %s%s" % (_n, ("  — " + _s) if _s else ""))
 print("=" * 62)
+
+# ── CZERWONE BUDOWANIE MA SAMO MÓWIĆ, CO PADŁO ────────────────────────
+# Na GitHubie log przebiegu leży pod osobnym adresem, do którego nie
+# zawsze da się sięgnąć — zostaje gołe „Process completed with exit
+# code 1" i trzeba zgadywać. Wypisane tu polecenia ::error:: trafiają do
+# adnotacji przebiegu, więc nazwa każdego nieudanego sprawdzenia widnieje
+# wprost przy czerwonym znaczku, bez otwierania logu.
+if os.environ.get("GITHUB_ACTIONS") == "true":
+    def _bez_znacznikow(t):
+        # W poleceniach ::...:: znaki nowej linii i dwukropki trzeba
+        # zakodować, inaczej adnotacja urywa się w połowie.
+        return (str(t).replace("%", "%25").replace("\r", "%0D")
+                .replace("\n", "%0A").replace("::", "∷"))
+    if _WSPOLCZYNNIK:
+        print("::notice title=Szybkość maszyny::ta maszyna jest %.2f× wolniejsza "
+              "od wzorcowej; budżet mediany klatki %.1f ms, 90. centyla %.1f ms"
+              % (_WSPOLCZYNNIK[0], budzet(16.0), budzet_p90()))
+    for _, _n, _s in _bledy:
+        print("::error title=Test nie przeszedł::%s%s"
+              % (_bez_znacznikow(_n), _bez_znacznikow("  — " + _s) if _s else ""))
+    print("::notice title=Wynik testów::%d / %d przeszło"
+          % (len(WYNIKI) - len(_bledy), len(WYNIKI)))
 
 shutil.rmtree(_TMP_HOME, ignore_errors=True)
 sys.exit(1 if _bledy else 0)

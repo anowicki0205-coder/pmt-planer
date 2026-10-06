@@ -1140,8 +1140,8 @@ sprawdz("instrukcja o blokadzie opisuje rozpoznanie, drogi bezpłatne i zaznacza
 # czyli w repozytorium i w jego historii. Teraz: pierwsza linia sekret.txt
 # (katalogi towarzyszące, potem domowy), potem zmienna PMT_SEKRET; bez
 # nich zapytanie idzie BEZ pola „podpis" — backend (weryfikujPodpis
-# porównuje String(d.podpis || '') z HMAC-em) odpowiada „odmowa" na akcje
-# podpisane, a logowanie przechodzi jak z aplikacji na telefonie.
+# porównuje String(d.podpis || '') z HMAC-em) po włączeniu podpisu
+# odpowiada „odmowa" na każdą akcję.
 import hmac as _hmac5
 import hashlib as _hashlib5
 import subprocess as _sp5
@@ -6873,6 +6873,30 @@ try:
     sprawdz("backend: zły podpis od paczki z sekretem (3.24.0+) zostawia w Log wpis „podpis_zly” — także w okresie przejściowym",
             '"podpis_zly"' in _dp21 and "_wersjaCoNajmniej(dane.wersja, WERSJA_Z_SEKRETEM)" in _dp21
             and "var WERSJA_Z_SEKRETEM = '3.24.0';" in _gs21)   # pierwsza wersja z sekret.txt — stała historyczna
+    # Aplikacja na telefon wycofana (3.24.0). Backend obsługuje wyłącznie
+    # pięć akcji programu i wszystkie wymagają podpisu — telefon był jedynym
+    # klientem bez podpisu i jedynym użytkownikiem analizy zdjęć na klucz
+    # Anthropic oraz publicznych zdjęć na Dysku.
+    _akcje21 = sorted(re.findall(r'case "(\w+)":', _dp21))
+    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze",
+            _akcje21 == ["logowanie", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
+    _podp21 = re.search(r"var AKCJE_PODPISANE = \[([^\]]*)\]", _gs21)
+    sprawdz("backend: podpis obejmuje każdą obsługiwaną akcję",
+            _podp21 is not None
+            and sorted(re.findall(r"'(\w+)'", _podp21.group(1))) == _akcje21, str(_podp21 and _podp21.group(1)))
+    sprawdz("backend bez akcji telefonu: nie woła API Anthropic i nie udostępnia plików z Dysku",
+            "UrlFetchApp" not in _gs21 and "ANYONE_WITH_LINK" not in _gs21
+            and "DriveApp" not in _gs21 and "function analizaPolki" not in _gs21)
+    # Program nadal wysyła tylko te pięć akcji — gdyby doszła nowa, musi
+    # trafić do rozdzielacza i do listy podpisu.
+    _wysyla21 = sorted(set(re.findall(r'"akcja": "(\w+)"', open(os.path.join(KATALOG, "PMT_Delegacje.py"),
+                                                                 encoding="utf-8").read())))
+    sprawdz("program wysyła tylko akcje, które backend obsługuje",
+            set(_wysyla21) <= set(_akcje21), str(_wysyla21))
+    sprawdz("aplikacji na telefon nie ma w repozytorium (strona, service worker, manifest, planogramy, zdjęcia)",
+            not any(os.path.exists(os.path.join(KATALOG, n)) for n in
+                    ("pmt_wizyty.html", "sw.js", "manifest.webmanifest", "pwa_192.png",
+                     "pwa_512.png", "planogramy.json", "produkty")))
     sprawdz("backend: nagłówek każe POMINĄĆ pierwszą instalację przy aktualizacji (żadnego „Nowe wdrożenie”)",
             "AKTUALIZUJESZ DZIAŁAJĄCY BACKEND? POMIŃ" in _gs21
             and "uruchom raz \"inicjalizuj\" i zrób nowe" not in _gs21)

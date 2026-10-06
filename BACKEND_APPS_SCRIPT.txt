@@ -16,12 +16,15 @@ JEDEN PLIK
   sprawdzania podpisu, po cichu. Stąd zasada: jeden plik, wklejany
   w całości.
 
-POD JEDNYM ADRESEM /exec SIEDZĄ DWA PROGRAMY
-  · PMT Planer (komputer) — podpisuje zapytania puls, sesja, reset_hasla,
-  · pmt_wizyty.html (telefon) — nie podpisuje niczego.
-  Dlatego podpis obowiązuje TYLKO akcje z listy AKCJE_PODPISANE.
-  Nie rozszerzaj tej listy i nie włączaj podpisu „dla wszystkich" —
-  odcięłoby to od razu całą aplikację na telefonie.
+JEDEN KLIENT: PROGRAM NA KOMPUTERZE
+  Aplikacja na telefon została wycofana (3.24.0). Backend obsługuje już
+  tylko pięć akcji programu: logowanie, puls, sesja, zmien_haslo,
+  reset_hasla — i wszystkie są na liście AKCJE_PODPISANE, bo program
+  podpisuje każde zapytanie. Inne akcje dostają „Nieznana akcja".
+  Zakładki z danymi telefonu (Wizyty, Planogramy, Produkty, Zgloszenia,
+  Rejonizacja, Pulpit) zostają w arkuszu nietknięte — możesz je usunąć
+  ręcznie, jeśli nie są potrzebne. Klucz ANTHROPIC_KLUCZ we
+  Właściwościach skryptu nie jest już używany i też można go usunąć.
 
 ───────────────────────────────────────────────────────────────────────
 WDROŻENIE SKRYPTU
@@ -39,7 +42,7 @@ WDROŻENIE SKRYPTU
   4. Otwórz /exec w przeglądarce — ma pokazać "sekrety":N (liczba
      wpisanych sekretów, treści nie widać nigdy) i "podpis_obowiazkowy".
      "sekrety":0 = wróć do 2.
-  5. Sprawdź: logowanie z programu, logowanie z telefonu, jedna
+  5. Sprawdź: logowanie z programu, jedna
      wygenerowana delegacja (w arkuszu przybywa puls).
   Coś nie działa → Zarządzaj wdrożeniami → przywróć poprzednią wersję.
 
@@ -98,8 +101,7 @@ TWARDE ODCIĘCIE STARYCH WERSJI PO STRONIE SERWERA (opcjonalne)
     · var MINIMALNA_WERSJA = "3.16.0";   (w funkcji logowania)
     · var WYMAGANA_WERSJA = '';          (blok bezpieczeństwa)
   Podnoś je dopiero, gdy w arkuszu (kolumna „Wersja") wszyscy mają już
-  nową wersję. Obie dotyczą tylko programu na komputerze — telefon
-  działa dalej.
+  nową wersję.
 
 ───────────────────────────────────────────────────────────────────────
 ZMIANY W SKRYPCIE OD 3.22.0 (już w pliku, nic do zrobienia ręcznie)
@@ -115,17 +117,14 @@ ZMIANY W SKRYPCIE OD 3.22.0 (już w pliku, nic do zrobienia ręcznie)
     /exec pokazuje liczbę wpisanych sekretów i stan przełącznika.
 
 ───────────────────────────────────────────────────────────────────────
-ZNANE DZIURY — do osobnej rundy (nie blokują wydania)
+DAWNE DZIURY ZAMKNIĘTE PRZEZ WYCOFANIE TELEFONU
 ───────────────────────────────────────────────────────────────────────
-  1. analiza_polki — każdy, kto zna adres /exec, może analizować zdjęcia
-     na Twój klucz Anthropic (Twój rachunek). Funkcja nie sprawdza, kto
-     pyta.
-  2. zgloszenie / zapisz_produkt — zdjęcia trafiają na Twój Dysk
-     z udostępnianiem „każdy, kto ma link", bez sprawdzenia nadawcy.
-  Obie naprawy wymagają RÓWNOCZEŚNIE zmiany aplikacji na telefonie
-  (dziś nie wysyła kodu użytkownika przy tych akcjach i trzyma offline
-  kolejkę starych zapytań) — dlatego nie weszły do 3.24.0.
-  3. Nieznany kod przy pierwszym pulsie dostaje konto na
-     DOMYSLNE_DNI_NOWEGO dni. To tak działa dołączanie nowych osób;
-     jeśli wolisz zakładać konta ręcznie, ustaw tam 0.
+  · analiza_polki — każdy znający adres /exec mógł analizować zdjęcia na
+    Twój klucz Anthropic. Akcji już nie ma.
+  · zgloszenie / zapisz_produkt — zdjęcia trafiały na Twój Dysk z
+    udostępnianiem „każdy, kto ma link". Akcji już nie ma.
+  Zostaje świadoma decyzja: nieznany kod przy pierwszym pulsie dostaje
+  konto na DOMYSLNE_DNI_NOWEGO dni (tak dołączają nowe osoby); jeśli
+  wolisz zakładać konta ręcznie, ustaw tam 0. Po włączeniu
+  PODPIS_OBOWIAZKOWY puls bez sekretu aplikacji nie przejdzie wcale.
 ═══════════════════════════════════════════════════════════════════════

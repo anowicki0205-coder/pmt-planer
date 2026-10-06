@@ -14,7 +14,8 @@
 | Mapa | mapa w skali regionu, kadr trasy dnia, podziałka mierząca prawdę |
 | Silnik | sufit rozciągania odcinków, nieprzekraczalna podłoga linii prostej, ostrzeżenie liczbą przy zbyt niskiej kwocie |
 | Budowanie | `build.yml` uruchamia `python zbuduj.py --folder` — jedno źródło prawdy dla CI i komputera; zbuduj.py sprawdza po budowie zawartość paczki i uzgadnia `wersja_exe.txt` ze źródłem |
-| Backend | `apps_script_POPRAWIONY_v2.gs`: telefon ustawia hasło tylko na koncie bez hasła, limit prób resetu z dziennikiem, puls oddaje tylko własne nieobecności (wdrożyć na nowo) |
+| Backend | `apps_script_POPRAWIONY_v2.gs`: numer telefonu ustawia hasło tylko na koncie bez hasła, limit prób resetu z dziennikiem, puls oddaje tylko własne nieobecności; podpis obejmuje wszystkie akcje, z okresem przejściowym (`PODPIS_OBOWIAZKOWY`) i wpisem `podpis_zly` przy rozjeździe sekretu |
+| Aplikacja na telefon | wycofana: z repozytorium zniknęły `pmt_wizyty.html`, `sw.js`, `manifest.webmanifest`, ikony PWA, `planogramy.json` i `produkty/`; z backendu — analiza zdjęć na klucz Anthropic, zgłoszenia i zdjęcia na Dysku, planogramy, wizyty i pulpit (1114 → 620 linii) |
 | Sekret aplikacji | klucz HMAC podpisu zapytań poza kodem — plik `sekret.txt` obok programu (sekret `PMT_SEKRET` przy budowaniu), jak `menedzer.txt`; bez niego puls, sesja i reset hasła dostają „odmowa”; ujawniony sekret wymienić — OBRÓT SEKRETU w `BACKEND_APPS_SCRIPT.txt` |
 | Testy | `testy_pmt.py` — pełny zestaw i `--szybko` (wcześniej wisiał na modalnym zaproszeniu testera) |
 | Wydanie | jedna instrukcja `WYDANIE.txt`; budowanie testowe (Actions → „Buduj wydanie” → Run workflow) daje paczkę do sprawdzenia bez wydania; paczka z tagu nie przejdzie z etykietą testową; macOS i Linux dostają nazwisko przełożonego |
@@ -32,52 +33,18 @@
 | Silnik | pełne rozpisanie zamówionej kwoty, dokument do 986,34 zł i 30 etapów |
 | Testy | `testy_pmt.py` — 101 kontroli, w tym 12 scenariuszy generowania tras |
 
-Reszta tego pliku opisuje odtworzenie całego systemu od zera i pochodzi
-z wcześniejszej wersji dokumentacji (v3.13.2) — tabela plików i kolejność
-wdrożenia są nadal aktualne.
+## Z czego składa się system
 
-
-Kopia zapasowa wszystkich elementów systemu. Rozpakuj na komputerze źródłowym
-i trzymaj jako punkt odniesienia — każdy plik opisany jest niżej razem z tym,
-DOKĄD go wgrać.
-
----
-
-## Co gdzie trafia
-
-| Katalog | Plik | Miejsce docelowe |
+| Część | Pliki | Gdzie działa |
 |---|---|---|
-| `1_program_desktop` | `PMT_Delegacje.py`, `wersja.txt`, `wersja_exe.txt` | repozytorium GitHub (katalog główny) |
-| `1_program_desktop` | `updater.bat`, `updater.sh` | repozytorium GitHub (katalog główny) |
-| `2_ikony` | `pmt_logo.ico`, `.icns`, `.png` | repozytorium GitHub (katalog główny) |
-| `3_budowanie_github` | `build.yml` | repozytorium → `.github/workflows/build.yml` |
-| `4_backend_arkusz` | `apps_script_POPRAWIONY_v2.gs` | Arkusz Google → Rozszerzenia → Apps Script |
-| `5_program_desktop_online` | `pmt_online.py` | źródło modułu online (jest już wklejony w programie) |
-| `6_aplikacja_wizyty` | `pmt_wizyty.html`, `manifest.webmanifest`, `sw.js`, `pwa_192.png`, `pwa_512.png` | repozytorium GitHub (katalog główny) |
-| `7_dane_do_arkusza` | pliki `.csv` | import do Arkusza Google — **NIGDY do repozytorium** (dane osobowe) |
-| — | `PMT_plan_wdrozenia.pdf` | checklista wdrożeniowa do wydruku |
+| Program na komputerze | `PMT_Delegacje.py` + moduły (`nowy_wyglad.py`, `okno_logowania.py`, `pmt_*.py`, `prototyp/`) | paczka z GitHub Releases u każdego użytkownika |
+| Aktualizacje | `wersja.txt` (numer, `min=`, `blokada=`), `updater*.bat/.sh` | program czyta je z gałęzi main |
+| Backend | `apps_script_POPRAWIONY_v2.gs` | Arkusz Google → Rozszerzenia → Apps Script |
+| Budowanie | `zbuduj.py`, `.github/workflows/build.yml`, `requirements.txt` | GitHub Actions (tag `vX.Y.Z`) albo komputer |
+| Testy | `testy_pmt.py`, `.github/workflows/testy.yml` | GitHub Actions przy każdej zmianie |
 
----
-
-## Kolejność wdrożenia (gdyby trzeba było odtworzyć wszystko od zera)
-
-1. **Arkusz**: wklej `apps_script_POPRAWIONY_v2.gs` → zapisz → uruchom `inicjalizuj_v2`
-   (utworzy zakładki i poprosi o zgody) → **Wdróż → Zarządzaj wdrożeniami →
-   ołówek → Wersja: Nowa → Wdróż**. Adres `/exec` jest już wklejony w plikach
-   klienckich — zmieniaj go tylko, jeśli tworzysz nowe wdrożenie od podstaw.
-2. **Klucz AI**: Ustawienia projektu → Właściwości skryptu → `ANTHROPIC_KLUCZ`.
-3. **Dane**: zakładki Uzytkownicy (+ telefony!), Rejonizacja, Produkty —
-   import plików z `7_dane_do_arkusza` z **włączoną** opcją "Konwertuj tekst
-   na liczby, daty i formuły" (chroni zera wiodące w kodach).
-4. **Repozytorium**: wgraj pliki z `1_`, `2_`, `6_` do katalogu głównego,
-   `build.yml` do `.github/workflows/`.
-5. **Strona aplikacji**: Settings → Pages → Deploy from a branch → main → /(root).
-   Adres: `https://<login>.github.io/<repo>/pmt_wizyty.html`
-6. **Wydanie programu**: Releases → Draft a new release → tag `v3.13.2` →
-   Publish. GitHub zbuduje Windows/macOS/Linux i dołączy trzy pliki .zip.
-   Gdy paczka Windows jest już w wydaniu, ten sam automat sam podbija
-   `wersja.txt` (zachowując `min=`/`blokada=`) — także gdy wydanie powstało
-   przez edycję starego wpisu. `wersja.txt` nie podbijaj ręcznie.
+Backend obsługuje pięć akcji programu: `logowanie`, `puls`, `sesja`,
+`zmien_haslo`, `reset_hasla`. Wdrożenie i wydanie: `WYDANIE.txt`.
 
 ---
 
@@ -91,12 +58,12 @@ DOKĄD go wgrać.
 - **„Failed to load Python DLL … \\Temp\\…zip…\\python313.dll”** u użytkownika =
   uruchomił program W ŚRODKU archiwum ZIP otwartego w Eksploratorze (wypakował
   się sam `.exe`, bez `_internal`). Nie paczka, nie antywirus. Instrukcja dla
-  użytkownika: START_TUTAJ.txt, krok 6a. Paczka od 3.21.2 zawiera podpowiedź
+  użytkownika: BEZ_BLOKADY_WINDOWS.txt. Paczka od 3.21.2 zawiera podpowiedź
   `0_NAJPIERW_ROZPAKUJ_CALY_FOLDER.txt`, a `URUCHOM_PMT.bat` rozpoznaje tę sytuację.
 - **„DLL load failed while importing iup: Zasady kontroli aplikacji zablokowały ten plik”** =
   Windows zablokował niepodpisany `.pyd` z fontTools (3.21.3). Od 3.21.4 fontTools jest
   instalowany czysto pythonowo (`--no-binary fonttools` w requirements.txt), CI tego pilnuje,
-  a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: START_TUTAJ.txt, 6b.
+  a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: BEZ_BLOKADY_WINDOWS.txt.
 - **Moduły obok programu są obowiązkowe** — pełna lista to `WYMAGANE` w `zbuduj.py`:
   `karta_testera.py`, `wyglad_3d.py`, `nowy_wyglad.py`,
   `okno_logowania.py`, `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py`,
@@ -105,32 +72,9 @@ DOKĄD go wgrać.
   tak wyglądała paczka 3.22.0 z GitHuba (bez nowego wyglądu). Animacja startowa
   (`intro_zywa_mapa.py`) zniknęła z programu w 3.23.0 — start idzie prosto do okna.
   Od 3.23.0 zbuduj.py zatrzymuje budowanie, gdy któregoś modułu nie ma w paczce.
-  Szczegóły: START_TUTAJ 6d i 6e.
 - **Buildy na Pythonie 3.13**, nie 3.14 (błąd `python314.dll` u użytkowników).
 - **Po każdej zmianie skryptu w arkuszu** trzeba wydać **nową wersję wdrożenia**,
   inaczej pod adresem `/exec` działa stary kod.
-- **Dane osobowe** (kody, telefony, rejonizacja) nie trafiają do repozytorium.
+- **Dane osobowe** (kody, telefony, nazwisko przełożonego, sekret) nie trafiają do repozytorium.
 
 ---
-
-## Stan systemu w tej wersji
-
-**Program desktop (v3.13.2)**: logowanie 5-cyfrowym kodem w oknie w stylu
-programu, sesje zarządzane zdalnie przez arkusz, statystyki pracy
-(uruchomienia / dokumenty / minuty) z kolejką offline, dni niezrealizowane
-w kalendarzu na krwistą czerwień, synchronizacja natychmiastowa po
-wygenerowaniu PDF + pętla co 15 minut, odporny aktualizator.
-
-**Backend (Apps Script)**: logowanie (hasło z hashem SHA-256, przejściowo
-telefon), rejonizacja i "moje sklepy", planogramy, analiza półek AI
-(strategia "puste miejsca najpierw" + strony planogramu jako wzorzec, siatka
-współrzędnych, rada trenera), baza Produkty (EAN + zdjęcia na Dysku),
-historia wizyt, zgłoszenia z terenu, zmiana hasła, pulpit administratora
-(menu PMT → Odśwież pulpit: statystyki per osoba + alerty poniżej 70%).
-
-**Aplikacja mobilna (PWA)**: instalowana z ikoną PMT, działa offline,
-powiadomienia przez service workera, przepływ wizyty (planogram wielostronicowy
-→ skan półki → lista ✓/✗ → dokładanie z drzewkiem przyczyn → skan kontrolny →
-delta + weryfikacja deklaracji), plan dnia z nawigacją, skaner EAN na żywo,
-dyktafon uwag, autozapis i wznowienie wizyty, strefy braków na zdjęciu,
-protokół PDF dla kierownika, moduł wykrywania nowości.

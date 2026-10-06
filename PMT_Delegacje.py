@@ -910,9 +910,10 @@ def _podpisz_zadanie(dane: dict) -> dict:
 
     Klucz to _sekret_aplikacji(). Bez sekretu pola „podpis" NIE dokłada:
     backend (weryfikujPodpis) porównuje String(d.podpis || '') z HMAC-em,
-    więc brak pola to ta sama „odmowa" co zły podpis — dla akcji
-    podpisanych (puls, sesja, reset_hasla); pozostałe akcje przechodzą
-    jak z aplikacji na telefonie, która nie podpisuje niczego."""
+    więc brak pola to ta sama „odmowa" co zły podpis — po włączeniu
+    PODPIS_OBOWIAZKOWY dotyczy to KAŻDEJ akcji backendu (logowanie, puls,
+    sesja, zmien_haslo, reset_hasla). W okresie przejściowym zapytanie
+    przechodzi, ale backend zapisuje w Log wpis „podpis_zly"."""
     try:
         import hmac
         import hashlib

@@ -17,6 +17,14 @@ NAJPIERW TO (2 minuty czytania)
     · Pomyłkę w sekrecie wykryjesz od razu, w KROKU 5 (zakładka Log
       w arkuszu), a nie po 14 dniach.
 
+  APLIKACJA NA TELEFON — WYCOFANA
+    · Strona aplikacji (pmt_wizyty) zniknęła z repozytorium, a backend
+      obsługuje już tylko program na komputerze. Niczego na telefonie
+      nie sprawdzasz.
+    · Zakładki arkusza z danymi telefonu (Wizyty, Planogramy, Produkty,
+      Zgloszenia, Rejonizacja, Pulpit) zostają nietknięte. Menu
+      „PMT → Odśwież pulpit" po KROKU 4 zniknie — tak ma być.
+
   CO JUŻ JEST ZROBIONE
     · Kod 3.24.0 leży na GitHubie w Pull Requeście nr 1.
     · Paczka buduje się poprawnie na komputerze. Pierwsze budowanie na
@@ -181,13 +189,10 @@ KROK 4 — APPS SCRIPT: NOWY SKRYPT                    15 min, KOMPUTER
           inne wdrożenie. Powtórz 4d.
       Treści sekretu nie widać nigdy, tylko liczbę.
 
-  4f. CZY DZIAŁA TO, CO DZIAŁAŁO:
-        · TELEFON: w aplikacji PMT Wizyty naciśnij ➲ w prawym górnym
-          rogu (Wyloguj) → potwierdź → wpisz kod i hasło. Ma wejść.
-        · KOMPUTER: uruchom swój obecny PMT Planer (3.22.0) i zaloguj
-          się. W arkuszu: zakładka Uzytkownicy → wiersz z Twoim kodem →
-          „Ostatni kontakt" = przed chwilą.
-      Któreś nie działa → COFNIJ: „Wdróż" → „Zarządzaj wdrożeniami" →
+  4f. CZY DZIAŁA TO, CO DZIAŁAŁO: uruchom swój obecny PMT Planer
+      (3.22.0) i zaloguj się. W arkuszu: zakładka Uzytkownicy → wiersz
+      z Twoim kodem → „Ostatni kontakt" = przed chwilą.
+      Nie działa → COFNIJ: „Wdróż" → „Zarządzaj wdrożeniami" →
       wdrożenie → ołówek → Wersja: numer zapisany w 0c → „Wdróż".
       Potem napisz do mnie.
 
@@ -338,11 +343,15 @@ KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
       sprzed tej zmiany (droga odwrotu).
       SPRAWDZENIE: adres /exec pokazuje "podpis_obowiazkowy":true.
       Potem: zaloguj się w programie 3.24.0 → zakładka Uzytkownicy,
-      Twój wiersz: „Ostatni kontakt" = przed chwilą. I zaloguj się na
-      telefonie (Wyloguj ➲ → zaloguj) — ma wejść.
+      Twój wiersz: „Ostatni kontakt" = przed chwilą.
       Coś nie działa → zmień z powrotem na false → Ctrl+S → Wdróż →
       Nowa wersja. Napisz do mnie.
-      Od tej chwili stary klucz (z historii repozytorium) nic nie daje.
+      Od tej chwili:
+        · stary klucz (z historii repozytorium) nic nie daje,
+        · bez sekretu aplikacji nie da się przez adres /exec ani
+          zalogować, ani zmienić, ani wyzerować hasła,
+        · programy starsze niż 3.24.0 NIE ZALOGUJĄ SIĘ — dlatego
+          najpierw sprawdzasz kolumnę „Wersja".
 
   8b. PRÓG WERSJI (komputer albo telefon w trybie komputerowym).
       GitHub → Code → gałąź main → kliknij wersja.txt → ołówek „Edit
@@ -412,20 +421,21 @@ GDY COŚ NIE GRA
            → Ctrl+S → Wdróż → Nowa wersja. /exec: "sekrety":2.
         3) Nowe wiersze podpis_zly przestają przybywać.
 
-  Ktoś nie może zmienić hasła na telefonie numerem telefonu
-  („To konto ma ustawione haslo…")
-      → tak ma być (ochrona przed przejęciem konta). Arkusz →
+  Ktoś zapomniał hasła
+      → w programie: „Nie pamiętam hasła" (kod + numer telefonu
+        z kartoteki). Gdy w kartotece nie ma telefonu: arkusz →
         Uzytkownicy → wiersz tej osoby → kolumna „Haslo hash" (N) →
-        zaznacz komórkę → Delete. Osoba loguje się numerem telefonu
-        i ustawia nowe hasło. W programie na komputerze może też użyć
-        „Nie pamiętam hasła".
+        zaznacz komórkę → Delete. Osoba loguje się wtedy numerem
+        telefonu i ustawia nowe hasło.
+        (Numer telefonu nie wystarcza do zmiany hasła na koncie, które
+        hasło ma — to ochrona przed przejęciem konta.)
 
   Po KROKU 8a puls nie przybywa tylko u JEDNEJ osoby z 3.24.0
       → sprawdź godzinę na jej komputerze: różnica ponad 10 minut
         psuje podpis. Windows: Ustawienia → Czas → „Ustaw czas
         automatycznie".
 
-  Telefon albo obecny program nie logują się po KROKU 4
+  Obecny program nie loguje się po KROKU 4
       → cofnij wdrożenie do numeru z 0c (4f) i napisz.
 
   Windows blokuje program

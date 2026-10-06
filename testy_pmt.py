@@ -243,6 +243,32 @@ sprawdz("program importuje się bez błędu", True)
 # na własne atrapy i przywracają tę.
 P.zaproszenie_testera = lambda *args, **reszta: False
 
+# ── TESTY CHODZĄ BEZ INTERNETU, ZAWSZE ────────────────────────────────
+# Dotąd sieć była odcinana TYLKO w sekcji 5b i zaraz przywracana, więc
+# reszta testów szła tak, jak akurat wypadło na danej maszynie: tam, gdzie
+# geokodowanie odpowiadało, baza i miasta wokół niej miały inne
+# współrzędne niż tam, gdzie nie odpowiadało. Inne współrzędne to inna
+# mapa (inne tabliczki, inne piksele) i inne kwoty — i dokładnie to widać
+# było na GitHubie: ten sam commit de7bd7e przeszedł w przebiegu #40
+# i padł w #39, na trzech sprawdzeniach naraz (tabliczki E-17a, pas przy
+# kartce, minimum w rejonie o rzadkiej siatce miast), podczas gdy lokalnie,
+# za firmowym proxy, wszystkie trzy były zielone.
+#
+# Testy mają sprawdzać program, a nie to, czy maszyna widzi nominatim.
+# Sekcje, które potrzebują „serwera", i tak podstawiają własne atrapy przez
+# podmianę urlopen — ta blokada im nie przeszkadza, bo podmieniają ją
+# na swoją i przywracają tę.
+SIEC_PRAWDZIWA = P.urllib.request.urlopen
+
+
+def _siec_odcieta(*_a, **_k):
+    raise OSError("testy chodzą bez internetu (oryginał w SIEC_PRAWDZIWA)")
+
+
+P.urllib.request.urlopen = _siec_odcieta
+sprawdz("testy chodzą bez internetu — wynik nie zależy od tego, czy maszyna widzi serwer geokodowania",
+        P.urllib.request.urlopen is _siec_odcieta)
+
 _wersja_txt = ""
 _min_txt = ""
 _blok_txt = ""
@@ -2814,10 +2840,26 @@ if not SZYBKO:
         _okno8d.ustaw_animacje(False)
         _okno8d.k_parametry.kwota.ustaw_tekst("700")
         _okno8d._przelicz_teraz()
-        # Etapy podglądamy próbkowaniem, a nie podmianą slotu: sygnał leci
-        # z wątku roboczego, a zwykła funkcja podpięta pod sygnał wykonałaby
-        # się PO TAMTEJ stronie i dotykała widżetów spoza wątku okna.
+        # Etapy ZAPISUJEMY PRZY KAŻDEJ ZMIANIE, zamiast podglądać je co jakiś
+        # czas w pętli zdarzeń. Próbkowanie gubiło etap, który zdążył minąć
+        # między dwoma zajrzeniami — a jak szybko mija, zależy od maszyny
+        # i od tego, czy sieć odpowiada błędem od razu, czy po timeoucie.
+        # Test stał więc na przypadkowej powolności, nie na programie.
+        #
+        # Opakowujemy METODĘ OKNA, a nie podpinamy się pod sygnał wątku:
+        # metoda jest już po stronie okna (to tam Qt dostarcza sygnał),
+        # a my tylko dopisujemy napis do listy — żadnego widżetu nie
+        # dotykamy, więc nie przenosimy pracy do cudzego wątku.
         _etapy_w_toku = []
+        _postep_oryg8d = _okno8d._postep_generacji
+
+        def _postep_z_zapisem8d(tekst, ulamek):
+            _postep_oryg8d(tekst, ulamek)
+            etap = _okno8d._etap_silnika
+            if etap and (not _etapy_w_toku or _etapy_w_toku[-1] != etap):
+                _etapy_w_toku.append(etap)
+
+        _okno8d._postep_generacji = _postep_z_zapisem8d
 
         def _zanotuj_etap():
             etap = _okno8d._etap_silnika
@@ -2841,9 +2883,10 @@ if not SZYBKO:
                 and _okno8d.k_kompas.kompas.stan() == "sukces"
                 and _okno8d.k_kompas.TYTUL == "Otwórz dokumenty",
                 str((_okno8d._po_generacji, _okno8d.k_kompas.kompas.stan())))
+        _okno8d._postep_generacji = _postep_oryg8d
         sprawdz("łuk kompasu przeszedł przez etapy silnika: dane → trasy → PDF",
                 _etapy_w_toku[:1] == ["dane"] and "trasy" in _etapy_w_toku
-                and "PDF" in _etapy_w_toku, str(sorted(set(_etapy_w_toku))))
+                and "PDF" in _etapy_w_toku, str(_etapy_w_toku))
         _pliki8d = _NW2.dokumenty_w_wyniku(_okno8d.folder_wyniku)
         _delegacje8d = [p for p in _pliki8d
                         if _NW2.DOK.rodzaj_dokumentu(p) == _NW2.DOK.RODZAJ_DELEGACJA]

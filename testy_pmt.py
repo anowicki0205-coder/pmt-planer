@@ -5229,13 +5229,26 @@ try:
     _okno16._wybierz_dzien(_bliski16)
     _miel16(4)
     _okno16._wybierz_dzien(_daleki16)
-    _miel16(3)
-    _rysuje16 = _okno16.mapa.rysuje_trase()
-    _ustapila16 = _okno16.kartka.obecnosc() < 0.9
+    # Czekamy, aż choreografia RUSZY, zamiast zakładać, że po trzech obrotach
+    # pętli zdarzeń już ruszyła. Animacją steruje zegar, więc to, czy zdążył
+    # tyknąć, zależy od szybkości maszyny: na GitHubie (runner równy maszynie
+    # wzorcowej) nie zdążył i test padał z „postęp 0.00, kartka 0.96" — choć
+    # choreografia była w porządku, po prostu jeszcze się nie zaczęła.
+    # Postępu nie pytamy o „> 0" w jednej chwili, tylko zbieramy po drodze:
+    # na bardzo szybkiej maszynie rysowanie może zdążyć dobiec do końca
+    # między dwoma zajrzeniami i wtedy postęp wynosi już 1,0.
+    _koniec16 = datetime.datetime.now() + datetime.timedelta(seconds=5)
+    _rysuje16 = _ustapila16 = False
+    while datetime.datetime.now() < _koniec16 and not (_rysuje16 and _ustapila16):
+        _miel16(2)
+        _rysuje16 = _rysuje16 or _okno16.mapa.rysuje_trase() \
+            or _okno16.mapa.postep_rysowania() > 0.0
+        _ustapila16 = _ustapila16 or _okno16.kartka.obecnosc() < 0.9
     sprawdz("zmiana dnia: trasa rysuje się od nowa, a kartka ustępuje jej miejsca",
             _rysuje16 and _ustapila16,
-            "postęp %.2f, kartka %.2f" % (_okno16.mapa.postep_rysowania(),
-                                          _okno16.kartka.obecnosc()))
+            "trasa ruszyła=%s (postęp %.2f), kartka ustąpiła=%s (obecność %.2f)"
+            % (_rysuje16, _okno16.mapa.postep_rysowania(),
+               _ustapila16, _okno16.kartka.obecnosc()))
     _kadr_w_ruchu16 = _okno16.mapa._klucz_kadru()
     _okno16.mapa._odslona.dokoncz()
     _miel16(4)

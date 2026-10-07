@@ -141,8 +141,10 @@ KROK 4 — APPS SCRIPT: NOWY SKRYPT                    15 min, KOMPUTER
   4a. Otwórz w przeglądarce ten adres (sam tekst pliku, bez strony
       GitHuba):
         https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/apps_script_POPRAWIONY_v2.gs
-      SPRAWDZENIE: Ctrl+F → wpisz   var PODPIS_OBOWIAZKOWY
-      → ma być dokładnie 1 trafienie.
+      SPRAWDZENIE: Ctrl+F → wpisz CAŁĄ frazę, ze słowem „var" i spacją:
+          var PODPIS_OBOWIAZKOWY
+      → ma być dokładnie 1 trafienie (samo słowo PODPIS_OBOWIAZKOWY,
+      bez „var", występuje w pliku kilka razy — to normalne).
       0 trafień → GitHub jeszcze podaje starą wersję: odczekaj 5 minut,
       Ctrl+F5, sprawdź jeszcze raz. Dalej 0 → STOP, KROK 3 nie wszedł.
       Kliknij w tekst → Ctrl+A → Ctrl+C.

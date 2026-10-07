@@ -58,9 +58,10 @@ PODPIS: OKRES PRZEJŚCIOWY (wydanie 3.24.0)
     var PODPIS_OBOWIAZKOWY = false;
   false — podpis jest sprawdzany, ale nikogo nie blokuje. Działa jak
           dotąd, także dla osób na starszych wersjach.
-  true  — akcje puls, sesja, reset_hasla bez poprawnego podpisu dostają
-          „odmowa". Włącz, gdy w zakładce Uzytkownicy (kolumna „Wersja")
-          wszyscy mają 3.24.0 — WYDANIE.txt, KROK 8a.
+  true  — każda z pięciu akcji (także logowanie) bez poprawnego podpisu
+          dostaje „odmowa": wersje starsze niż 3.24.0 nie zalogują się.
+          Włącz, gdy w zakładce Uzytkownicy (kolumna „Wersja") wszyscy
+          mają 3.24.0 — WYDANIE.txt, KROK 8a.
 
   Program 3.24.0 czyta sekret z pliku sekret.txt w paczce; przy budowaniu
   na GitHubie powstaje on z sekretu repozytorium PMT_SEKRET. Ten sam
@@ -74,9 +75,9 @@ PODPIS: OKRES PRZEJŚCIOWY (wydanie 3.24.0)
   Wpis po wydaniu → sekret z paczki (_internal\sekret.txt) dopisz jako
   drugą pozycję SEKRETY_PMT — WYDANIE.txt, „GDY COŚ NIE GRA".
 
-  Paczka bez sekretu loguje się normalnie, ale po włączeniu podpisu jej
-  puls dostaje „odmowa"; w katalogu użytkownika plik
-  PMT_diagnostyka_animacji.txt ma wtedy wpis „brak sekretu aplikacji".
+  Paczka bez sekretu loguje się normalnie tylko w okresie przejściowym;
+  po włączeniu podpisu nie zaloguje się wcale. W katalogu użytkownika
+  plik PMT_diagnostyka_animacji.txt ma wtedy wpis „brak sekretu aplikacji".
 
 ───────────────────────────────────────────────────────────────────────
 OBRÓT SEKRETU (na przyszłość, gdy sekret trzeba będzie wymienić)
@@ -126,5 +127,5 @@ DAWNE DZIURY ZAMKNIĘTE PRZEZ WYCOFANIE TELEFONU
   Zostaje świadoma decyzja: nieznany kod przy pierwszym pulsie dostaje
   konto na DOMYSLNE_DNI_NOWEGO dni (tak dołączają nowe osoby); jeśli
   wolisz zakładać konta ręcznie, ustaw tam 0. Po włączeniu
-  PODPIS_OBOWIAZKOWY puls bez sekretu aplikacji nie przejdzie wcale.
+  PODPIS_OBOWIAZKOWY nic bez sekretu aplikacji nie przejdzie, także puls.
 ═══════════════════════════════════════════════════════════════════════

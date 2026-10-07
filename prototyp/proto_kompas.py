@@ -137,6 +137,7 @@ class Kompas(QAbstractButton):
 
     uruchom = pyqtSignal()      # klik w stanie 'gotowy' albo 'zmieniono'
     otworz = pyqtSignal()       # klik w stanie 'sukces'
+    przerwij = pyqtSignal()     # klik w stanie 'praca'
 
     def __init__(self, rodzic=None, srednica=120):
         super().__init__(rodzic)
@@ -375,10 +376,16 @@ class Kompas(QAbstractButton):
         return self._obrot
 
     def _na_klik(self):
+        # Jeden klik = jeden sygnał, wybrany po stanie SPRZED kliknięcia.
+        # Osobny odbiorca surowego „clicked" widziałby już stan po „uruchom"
+        # („praca") i tym samym kliknięciem przerywał świeżo ruszone
+        # generowanie.
         if self._stan in ("gotowy", "zmieniono"):
             self.uruchom.emit()
         elif self._stan == "sukces":
             self.otworz.emit()
+        elif self._stan == "praca":
+            self.przerwij.emit()
 
     def enterEvent(self, zdarzenie):
         self._pod_mysza = True

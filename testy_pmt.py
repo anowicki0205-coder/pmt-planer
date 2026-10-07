@@ -2806,6 +2806,81 @@ if not SZYBKO:
         sprawdz("zamknięte okno nowego wyglądu nie zostawia chodzących zegarów ani wątku",
                 not _chodzace and _okno8c._watek is None and not _okno8c._watki_zalegle,
                 str((len(_chodzace), _okno8c._watek, _okno8c._watki_zalegle)))
+
+        # ── start: miesiąc, który minął, i silnik powyżej 900 cm³ ─────
+        # Program wstaje na miesiącu PRZED dzisiejszym (ten się rozlicza),
+        # a pojemność silnika zawsze na „powyżej 900 cm³" — bez względu na
+        # zapis w profilu. Ręczna zmiana obowiązuje do końca sesji i to nią
+        # liczy się generowanie.
+        sprawdz("miesiac_poprzedni: październik → wrzesień, marzec → luty, styczeń → grudzień roku wcześniej",
+                _NW.miesiac_poprzedni(datetime.date(2026, 10, 7)) == (2026, 9)
+                and _NW.miesiac_poprzedni(datetime.date(2026, 3, 31)) == (2026, 2)
+                and _NW.miesiac_poprzedni(datetime.date(2026, 12, 1)) == (2026, 11)
+                and _NW.miesiac_poprzedni(datetime.date(2027, 1, 1)) == (2026, 12)
+                and _NW.miesiac_poprzedni(datetime.date(2027, 1, 31)) == (2026, 12))
+        _b8s, _p8s = _NW.miesiac_biezacy(), _NW.miesiac_poprzedni()
+        sprawdz("bez daty miesiac_poprzedni liczy od dziś — dokładnie miesiąc przed bieżącym",
+                _p8s[0] * 12 + _p8s[1] + 1 == _b8s[0] * 12 + _b8s[1], str((_p8s, _b8s)))
+        _IMIE8s, _PESEL8s = "Roman Silnikowy", "85010112345"
+        _ADRES8s = "ul. Kwiatowa 5, 26-600 Radom"
+        P.zapisz_profil(_IMIE8s, _PESEL8s, _ADRES8s, "KR", 0)
+        _zapis8s = P.wczytaj_profil(_IMIE8s, _PESEL8s)
+        _bylo_konto8s = P.online_imie_uzytkownika
+        P.online_imie_uzytkownika = lambda: _IMIE8s
+        _okna8s = []
+        try:
+            _okno8s = _NW.OknoNowegoWygladu()
+            _okna8s.append(_okno8s)
+            _okno8s.ustaw_animacje(False)
+            _start8s = _NW.miesiac_poprzedni()
+            sprawdz("okno bez wskazanego miesiąca wstaje na miesiącu, który minął (pasek, prototyp, generowanie)",
+                    (_okno8s.rok, _okno8s.miesiac) == _start8s
+                    and (_NW.OK.ROK, _NW.OK.MIESIAC) == _start8s
+                    and _okno8s.pasek.MIESIACE[1] == "%s %d" % (P.MIESIACE_PL[_start8s[1] - 1], _start8s[0]),
+                    str((_okno8s.rok, _okno8s.miesiac, _okno8s.pasek.MIESIACE)))
+            sprawdz("profil z dysku z silnikiem 0 i tak wstaje na „powyżej 900 cm³” (indeks 1, stawka 1,15 wszędzie)",
+                    _okno8s.profil.prawdziwy and _okno8s.profil.imie == _IMIE8s
+                    and _okno8s.k_parametry.pojemnosc.currentIndex() == 1
+                    and _okno8s.k_parametry.pojemnosc.currentText() == "powyżej 900 cm³"
+                    and _okno8s.profil.silnik_idx == 1 and _okno8s.profil.stawka == 1.15
+                    and _NW.D.STAWKA == 1.15 and _okno8s._profil_do_paneli()["silnik_idx"] == 1,
+                    str((_okno8s.k_parametry.pojemnosc.currentIndex(), _okno8s.profil.silnik_idx,
+                         _NW.D.STAWKA)))
+            sprawdz("sam start niczego nie zapisuje: profil na dysku dalej ma silnik 0",
+                    (_zapis8s or {}).get("silnik_idx") == 0
+                    and P.wczytaj_profil(_IMIE8s, _PESEL8s) == _zapis8s,
+                    str(P.wczytaj_profil(_IMIE8s, _PESEL8s)))
+            _okno8s.k_parametry.pojemnosc.setCurrentIndex(0)
+            _param8s, _powod8s = _okno8s._dane_do_generacji()
+            sprawdz("ręczna zmiana na „poniżej 900 cm³” obowiązuje: stawka 0,89 w profilu, podglądzie, panelach i generowaniu",
+                    _okno8s.profil.silnik_idx == 0 and _okno8s.profil.stawka == 0.89
+                    and _NW.D.STAWKA == 0.89 and _okno8s._profil_do_paneli()["silnik_idx"] == 0
+                    and _param8s is not None and _param8s["stawka"] == 0.89,
+                    str((_okno8s.profil.silnik_idx, _NW.D.STAWKA, _powod8s,
+                         _param8s and _param8s.get("stawka"))))
+            _okno8s.przejmij_konto()
+            sprawdz("po ponownym zalogowaniu profil osoby znów wchodzi z silnikiem „powyżej 900 cm³”",
+                    _okno8s.profil.imie == _IMIE8s
+                    and _okno8s.k_parametry.pojemnosc.currentIndex() == 1
+                    and _okno8s.profil.silnik_idx == 1 and _okno8s.profil.stawka == 1.15
+                    and _NW.D.STAWKA == 1.15,
+                    str((_okno8s.k_parametry.pojemnosc.currentIndex(), _okno8s.profil.silnik_idx,
+                         _NW.D.STAWKA)))
+            _okno8s2 = _NW.OknoNowegoWygladu(
+                profil=_NW.ProfilWidoku(_IMIE8s, _PESEL8s, _ADRES8s, "KR", 0), rok=2026, miesiac=10)
+            _okna8s.append(_okno8s2)
+            sprawdz("wskazany miesiąc zostaje wskazanym, a profil podany z zewnątrz też wstaje z silnikiem 1",
+                    (_okno8s2.rok, _okno8s2.miesiac) == (2026, 10)
+                    and _okno8s2.k_parametry.pojemnosc.currentIndex() == 1
+                    and _okno8s2.profil.stawka == 1.15,
+                    str((_okno8s2.rok, _okno8s2.miesiac, _okno8s2.k_parametry.pojemnosc.currentIndex())))
+        finally:
+            P.online_imie_uzytkownika = _bylo_konto8s
+            for _o8s in _okna8s:
+                _o8s.close()
+            _st8s = P._wczytaj_store()
+            if _st8s.pop(P._klucz_uzytkownika(_IMIE8s, _PESEL8s), None) is not None:
+                P._zapisz_store(_st8s)
     except Exception as _e:
         sprawdz("nowy wygląd: generowanie, podpis, wysyłka, miesiąc, profil", False, repr(_e))
 
@@ -2866,12 +2941,25 @@ if not SZYBKO:
             if etap and (not _etapy_w_toku or _etapy_w_toku[-1] != etap):
                 _etapy_w_toku.append(etap)
 
-        _okno8d.uruchom_pokaz()
+        # Klik MYSZĄ, jak człowiek — nie wywołanie uruchom_pokaz() wprost.
+        # Wersja testowa 3.24.0 przechodziła ten test, a u właściciela
+        # kliknięcie „nic nie robiło": drugi odbiorca surowego „clicked"
+        # widział już stan „praca" i tym samym kliknięciem przerywał silnik.
+        from PyQt6.QtTest import QTest
+        from PyQt6.QtCore import Qt as _Qt8d
+        _kompas8d = _okno8d.k_kompas.kompas
+        QTest.mouseClick(_kompas8d, _Qt8d.MouseButton.LeftButton,
+                         _Qt8d.KeyboardModifier.NoModifier, _kompas8d.rect().center())
         _zanotuj_etap()
         sprawdz("kliknięcie kompasu uruchamia PRAWDZIWY wątek silnika programu",
                 isinstance(_okno8d._watek, P.GeneratorThread)
                 and _okno8d.k_kompas.kompas.stan() == "praca"
                 and _okno8d.k_kompas.TYTUL == "Przerwij", str(_okno8d._watek))
+        sprawdz("to samo kliknięcie, które ruszyło silnik, go nie przerywa",
+                isinstance(_okno8d._watek, P.GeneratorThread)
+                and not _okno8d._watek._przerwac
+                and not _okno8d._watek.isInterruptionRequested(),
+                str(getattr(_okno8d._watek, "_przerwac", None)))
         _koniec8d = datetime.datetime.now() + datetime.timedelta(seconds=300)
         while _okno8d._watek is not None and datetime.datetime.now() < _koniec8d:
             _app.processEvents()
@@ -8329,6 +8417,19 @@ try:
                 and _okno25.k_kompas.kompas.stan() in ("gotowy", "sukces")
                 and _okno25.k_kompas.kompas.etap() != "przerywanie",
                 str((_okno25.k_kompas.kompas.stan(), _okno25.k_kompas.kompas.etap())))
+        # klik MYSZĄ w kompas w czasie pracy przerywa silnik — raz
+        from PyQt6.QtTest import QTest as _QTest25
+        _WatekAtrapa25.anulowano_razy = 0
+        _okno25._watek = _WatekAtrapa25()
+        _okno25.k_kompas.kompas.ustaw_stan("praca")
+        _kompas25 = _okno25.k_kompas.kompas
+        _QTest25.mouseClick(_kompas25, _Qt25.MouseButton.LeftButton,
+                            _Qt25.KeyboardModifier.NoModifier, _kompas25.rect().center())
+        sprawdz("klik w kompas w czasie generowania przerywa silnik (jeden raz)",
+                _WatekAtrapa25.anulowano_razy == 1, str(_WatekAtrapa25.anulowano_razy))
+        _okno25._watek = None
+        _okno25._anulowano_generacji()
+        _miel25(4)
 
         # wyłącznik animacji w trakcie lotu i przy starcie
         _okno25._zacznij_intro_generowania()

@@ -40,7 +40,8 @@ CO JEST PRAWDZIWE
     · podpis elektroniczny PMT.DialogPodpis nad modułem pmt_podpis
     · wysyłka pocztą       PMT.DialogWysylka nad modułem pmt_wysylka
     · dane pracownika      pola karty PRACOWNIK ↔ zapisz_profil / _wczytaj_store
-    · wybór miesiąca       zakładki paska górnego (także PgUp / PgDn); zakładka
+    · wybór miesiąca       start na miesiącu, który minął (miesiac_poprzedni);
+                           zakładki paska górnego (także PgUp / PgDn); zakładka
                            miesiąca, który minął bez wpisu w historii i bez
                            folderu z dokumentami, nosi kropkę (PasekMiesiecy.kropki)
                            — JEDNĄ regułą miesiac_nierozliczony / stan_miesiaca,
@@ -341,6 +342,14 @@ def waznosc_konta(pozostalo=None):
 def miesiac_biezacy():
     dzis = datetime.date.today()
     return dzis.year, dzis.month
+
+
+def miesiac_poprzedni(dzis=None):
+    """Miesiąc przed dzisiejszym — na nim program staje po starcie: rozlicza
+    się miesiąc, który już minął. Styczeń cofa się do grudnia roku wcześniej."""
+    dzis = dzis or datetime.date.today()
+    numer = dzis.year * 12 + (dzis.month - 1) - 1
+    return numer // 12, numer % 12 + 1
 
 
 def ikona_oka(odsloniete, bok=18):
@@ -2944,10 +2953,11 @@ class OknoNowegoWygladu(OknoPrototypu):
     USTAWIENIE_KARTKI = "nowy_kartka_zwinieta"
     PAMIEC_MIESIECY = 12          # ile miesięcy dni bez pracy zostaje w pliku
     CZAS_PODGLADU_PESEL = 4000    # ms: tyle cyfry PESEL stoją odsłonięte po kliknięciu oka
+    SILNIK_NA_START = 1           # pojemność po starcie i po wczytaniu profilu: powyżej 900 cm³
 
     def __init__(self, profil=None, rok=None, miesiac=None, rodzic=None,
                  stare_okno=None):
-        self.profil = profil or dane_pracownika()
+        self.profil = self._profil_na_ekran(profil or dane_pracownika())
         # Imię z konta wiąże TYLKO wtedy, gdy profil nie został podany z
         # zewnątrz (tak robi program po zalogowaniu) — dokument wystawia się
         # na siebie, nie na kolegę.
@@ -2958,9 +2968,9 @@ class OknoNowegoWygladu(OknoPrototypu):
         self._pozostalo_dni = None
         self._nieprzeczytane = 0
         self._dopasowane = False
-        biezacy = miesiac_biezacy()
-        self.rok = int(rok or biezacy[0])
-        self.miesiac = int(miesiac or biezacy[1])
+        start = miesiac_poprzedni()     # bez wskazania: miesiąc, który już minął
+        self.rok = int(rok or start[0])
+        self.miesiac = int(miesiac or start[1])
 
         self.folder_wyniku = ""
         self.pliki_wyniku = []
@@ -3070,9 +3080,10 @@ class OknoNowegoWygladu(OknoPrototypu):
         self.taca.pas.otwarty.connect(self._otworz_dokument_dnia)
         self.taca.b_folder.clicked.connect(self._otworz_folder)
         self.taca.wybrano_miesiac.connect(self._wybrano_miesiac_tacy)
-        # Klik w kompas W TRAKCIE pracy przerywa generowanie. Sygnał „uruchom"
-        # leci wyłącznie ze stanów spoczynkowych, więc bierzemy surowe „clicked".
-        self.k_kompas.kompas.clicked.connect(self._klik_kompasu)
+        # Klik w kompas W TRAKCIE pracy przerywa generowanie. Nie surowe
+        # „clicked": to samo kliknięcie, które ruszyło silnik („uruchom"),
+        # dochodziło tu już w stanie „praca" i od razu go przerywało.
+        self.k_kompas.kompas.przerwij.connect(self._klik_kompasu)
         karta = self.k_pracownik
         for pole in (karta.imie, karta.adres, self._pole_pesel):
             pole.editingFinished.connect(self._zapisz_pracownika)
@@ -3080,6 +3091,14 @@ class OknoNowegoWygladu(OknoPrototypu):
             lambda _i: self._zapisz_pracownika())
 
     # ── dane pracownika na ekranie ───────────────────────────────────
+    def _profil_na_ekran(self, profil):
+        """Profil wchodzi na ekran z silnikiem SILNIK_NA_START — przy każdym
+        starcie i po każdym zalogowaniu, bez względu na zapis w profilu.
+        Ręczny wybór w karcie PARAMETRY obowiązuje do końca sesji
+        (_silnik_zmieniony). Tu nic nie idzie na dysk."""
+        profil.silnik_idx = self.SILNIK_NA_START
+        return profil
+
     def _adres_rozpoznany(self):
         """Adres pracownika rozłożony na części — walidatorem z programu."""
         try:
@@ -4558,7 +4577,7 @@ class OknoNowegoWygladu(OknoPrototypu):
     def przejmij_konto(self):
         """Po zmianie konta ekran pokazuje dane NOWEJ osoby, nie poprzedniej."""
         self.zatrzymaj_watek()
-        self.profil = dane_pracownika()
+        self.profil = self._profil_na_ekran(dane_pracownika())
         self._konto_wiaze = True
         self._ustaw_baze_z_profilu()
         self._odswiez_karte_pracownika()

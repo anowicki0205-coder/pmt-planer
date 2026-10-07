@@ -10,13 +10,15 @@
 | Obszar | Zmiana |
 |---|---|
 | Wygląd | nowy ekran programu (`nowy_wyglad.py` na widżetach z `prototyp/`), stare okno App zostaje pod spodem tylko jako pojemnik na panele (przełącznik `--stary` zniknął) |
+| Start | program staje na miesiącu, który minął (w październiku — wrzesień), z pojemnością „powyżej 900 cm³”; ręczna zmiana pojemności obowiązuje do końca sesji |
+| Kompas | jedno kliknięcie uruchamia generowanie (w paczce testowej to samo kliknięcie od razu je przerywało); klik w trakcie pracy przerywa |
 | Logowanie | nowe okno logowania (`okno_logowania.py`); dokumenty, podpis i wysyłka w `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py` |
 | Mapa | mapa w skali regionu, kadr trasy dnia, podziałka mierząca prawdę |
 | Silnik | sufit rozciągania odcinków, nieprzekraczalna podłoga linii prostej, ostrzeżenie liczbą przy zbyt niskiej kwocie |
 | Budowanie | `build.yml` uruchamia `python zbuduj.py --folder` — jedno źródło prawdy dla CI i komputera; zbuduj.py sprawdza po budowie zawartość paczki i uzgadnia `wersja_exe.txt` ze źródłem |
 | Backend | `apps_script_POPRAWIONY_v2.gs`: numer telefonu ustawia hasło tylko na koncie bez hasła, limit prób resetu z dziennikiem, puls oddaje tylko własne nieobecności; podpis obejmuje wszystkie akcje, z okresem przejściowym (`PODPIS_OBOWIAZKOWY`) i wpisem `podpis_zly` przy rozjeździe sekretu |
 | Aplikacja na telefon | wycofana: z repozytorium zniknęły `pmt_wizyty.html`, `sw.js`, `manifest.webmanifest`, ikony PWA, `planogramy.json` i `produkty/`; z backendu — analiza zdjęć na klucz Anthropic, zgłoszenia i zdjęcia na Dysku, planogramy, wizyty i pulpit (1114 → 620 linii) |
-| Sekret aplikacji | klucz HMAC podpisu zapytań poza kodem — plik `sekret.txt` obok programu (sekret `PMT_SEKRET` przy budowaniu), jak `menedzer.txt`; bez niego puls, sesja i reset hasła dostają „odmowa”; ujawniony sekret wymienić — OBRÓT SEKRETU w `BACKEND_APPS_SCRIPT.txt` |
+| Sekret aplikacji | klucz HMAC podpisu zapytań poza kodem — plik `sekret.txt` obok programu (sekret `PMT_SEKRET` przy budowaniu), jak `menedzer.txt`; bez niego, po włączeniu `PODPIS_OBOWIAZKOWY`, program się nie zaloguje; ujawniony sekret wymienić — OBRÓT SEKRETU w `BACKEND_APPS_SCRIPT.txt` |
 | Testy | `testy_pmt.py` — pełny zestaw i `--szybko` (wcześniej wisiał na modalnym zaproszeniu testera) |
 | Wydanie | jedna instrukcja `WYDANIE.txt`; budowanie testowe (Actions → „Buduj wydanie” → Run workflow) daje paczkę do sprawdzenia bez wydania; paczka z tagu nie przejdzie z etykietą testową; macOS i Linux dostają nazwisko przełożonego |
 | Odporność | wersja.txt podmieniony przez stronę firmowego proxy nie oferuje fałszywej aktualizacji ani nie zdejmuje blokady; podniesienie progu `min=` daje zawsze 14 dni okresu przejściowego |

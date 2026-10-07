@@ -121,7 +121,7 @@ var SEKRETY_PMT = [
 //         jeszcze nie zaktualizowały programu.
 // true  = podpis obowiązkowy. Włącz, gdy cały zespół ma 3.24.0
 //         (kolumna „Wersja" w zakładce Uzytkownicy) — starsze wersje
-//         stracą wtedy puls, sesję i reset hasła.
+//         nie zalogują się wtedy wcale (podpis obejmuje też logowanie).
 var PODPIS_OBOWIAZKOWY = false;
 
 // Od tej wersji paczki niosą sekret (sekret.txt). Starsze podpisywały

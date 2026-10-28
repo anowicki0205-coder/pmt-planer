@@ -884,6 +884,394 @@ except Exception:
 
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("3b. Przejście na aplikację web: informacja dla każdego użytkownika (web= / wygaszenie=)")
+
+# Program na komputerze ma zostać zastąpiony aplikacją web. Informacja idzie tą samą drogą co obowiązkowa
+# aktualizacja — z wersja.txt. Dwa nowe wiersze: web= (adres; jest WŁĄCZNIKIEM) i wygaszenie= (data).
+
+_ADRES3b = "https://anowicki0205-coder.github.io/pmt-planer/"
+_PLIK3b = "3.25.0\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\nweb=%s\nwygaszenie=2099-12-20\n" % _ADRES3b
+
+
+def _zeruj_przejscie3b():
+    P.WERSJA_WYMAGANA = P.TERMIN_BLOKADY = P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
+    P.NAJPOZNIEJSZY_DZIEN = P.PIERWSZE_ZOBACZENIE = ""
+
+
+_zeruj_przejscie3b()
+_n3b, _o3b = P._czytaj_wymagania_z_tekstu(_PLIK3b)
+sprawdz("parser: numer, opis, min, blokada, web i wygaszenie czytane razem",
+        (_n3b, _o3b) == ("3.25.0", "Opis aktualizacji.") and P.WERSJA_WYMAGANA == "3.24.0"
+        and P.TERMIN_BLOKADY == "2099-12-01" and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20",
+        str((_n3b, _o3b, P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.ADRES_WEB, P.TERMIN_WYGASZENIA)))
+for _nazwa3b, _tresc3b in {
+        "wiersze web/wygaszenie przed opisem": "3.25.0\nweb=%s\nwygaszenie=2099-12-20\nOpis aktualizacji.\n" % _ADRES3b,
+        "spacje i wielkie litery": "3.25.0\nOpis aktualizacji.\nWEB = %s\nWYGASZENIE = 2099-12-20\n" % _ADRES3b,
+        "końce wierszy CRLF": _PLIK3b.replace("\n", "\r\n")}.items():
+    _zeruj_przejscie3b()
+    _n3b, _o3b = P._czytaj_wymagania_z_tekstu(_tresc3b)
+    sprawdz("parser: %s" % _nazwa3b, _n3b == "3.25.0" and _o3b == "Opis aktualizacji."
+            and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20", str((_n3b, _o3b, P.ADRES_WEB)))
+sprawdz("plik z wierszami web=/wygaszenie= nadal wygląda na plik wersji (także z web= w pierwszym wierszu)",
+        P._tresc_wyglada_na_wersje(_PLIK3b) and P._tresc_wyglada_na_wersje("web=%s\n3.25.0\nOpis" % _ADRES3b)
+        and not P._tresc_wyglada_na_wersje("web=%s\n<html>blokada proxy</html>" % _ADRES3b))
+for _zly3b in ("http://planer.example.pl/", "javascript:alert(1)", "file:///C:/Windows/", "https://planer/",
+               "https://planer.example.pl/?x=1", "https://u:p@planer.example.pl/", "https://planer.example.pl/ a",
+               "ftp://planer.example.pl/", "https://" + "a" * 250 + ".pl/"):
+    _zeruj_przejscie3b()
+    P._czytaj_wymagania_z_tekstu("3.25.0\nOpis.\nweb=%s\n" % _zly3b)
+    sprawdz("adres inny niż bezpieczny https jest odrzucany (wtedy informacja się nie włącza): %s" % _zly3b[:40],
+            P.ADRES_WEB == "" and P.przejscie_na_web_stan()[0] is False)
+sprawdz("poprawny adres z portem i ścieżką przechodzi",
+        P._adres_web_poprawny("https://planer.firma.pl:8443/pmt/") and P._adres_web_poprawny("https://x.github.io/pmt-planer/"))
+
+# ── stan przejścia ──
+_dz3b = datetime.date.today()
+_d3b = lambda n: (_dz3b + datetime.timedelta(days=n)).isoformat()
+_zeruj_przejscie3b()
+sprawdz("bez wiersza web= przejście jest nieaktywne (nic nie pokazujemy), nawet gdy jest data wygaszenia",
+        P.przejscie_na_web_stan() == (False, "", None, None, False)
+        and (setattr(P, "TERMIN_WYGASZENIA", _d3b(-5)) or P.przejscie_na_web_stan()[0] is False))
+P.ADRES_WEB = _ADRES3b
+P.TERMIN_WYGASZENIA = ""
+sprawdz("web= bez daty: aktywne, ale tylko przypomnienia (nikt nie jest odcięty)",
+        P.przejscie_na_web_stan() == (True, _ADRES3b, None, None, False))
+P.TERMIN_WYGASZENIA = "jutro-albo-pojutrze"
+sprawdz("data nie do odczytania = brak terminu, nie wyłączenie z dnia na dzień",
+        P.przejscie_na_web_stan()[2:] == (None, None, False))
+for _opis3b, _n3, _oczek3b in (("za 30 dni", 30, (30, False)), ("jutro", 1, (1, False)),
+                               ("dzisiaj", 0, (0, True)), ("wczoraj", -1, (0, True)), ("dawno temu", -90, (0, True))):
+    P.TERMIN_WYGASZENIA = _d3b(_n3)
+    _s3b = P.przejscie_na_web_stan()
+    sprawdz("termin %s: dni=%s, po terminie=%s" % (_opis3b, _oczek3b[0], _oczek3b[1]),
+            _s3b[0] is True and _s3b[3:] == _oczek3b, str(_s3b))
+P.TERMIN_WYGASZENIA = (_dz3b + datetime.timedelta(days=7)).strftime("%d.%m.%Y")
+sprawdz("data po polsku (DD.MM.RRRR) też jest rozumiana", P.przejscie_na_web_stan()[3:] == (7, False))
+P.TERMIN_WYGASZENIA = _d3b(3)
+P.NAJPOZNIEJSZY_DZIEN = _d3b(10)           # program widział już dzień po terminie → cofnięcie zegara nie pomaga
+sprawdz("cofnięcie zegara w systemie nie przedłuża programu po terminie wygaszenia",
+        P.przejscie_na_web_stan()[4] is True)
+_zeruj_przejscie3b()
+
+# ── pobieranie wersja.txt: zapis na dysk, odczyt offline, jedyne źródło prawdy ──
+_url3b, _open3b = P.URL_WERSJI, P.urllib.request.urlopen
+
+
+class _Odp3b(io.BytesIO):
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+try:
+    P.URL_WERSJI = "https://przyklad.invalid/wersja.txt"
+    try:
+        os.remove(P.PLIK_WYMAGAN)
+    except Exception:
+        pass
+    _zeruj_przejscie3b()
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(_PLIK3b.replace("3.25.0", "3.99.0", 1).encode("utf-8"))
+    _w3b = P.sprawdz_aktualizacje()
+    _zapis3b = json.load(open(P.PLIK_WYMAGAN, encoding="utf-8"))
+    sprawdz("pobrany wersja.txt zapisuje adres web i termin wygaszenia na dysk",
+            _w3b == (True, "3.99.0", "Opis aktualizacji.") and _zapis3b.get("web") == _ADRES3b
+            and _zapis3b.get("wygaszenie") == "2099-12-20", str((_w3b, _zapis3b)))
+    P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
+    P._wczytaj_wymagania()
+    sprawdz("po restarcie bez sieci informacja wraca z dysku (adres i termin)",
+            P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20")
+    # zapisany na dysku adres też przechodzi kontrolę (ręcznie podmieniony plik nie otworzy obcego schematu)
+    with open(P.PLIK_WYMAGAN, "w", encoding="utf-8") as _f3b:
+        json.dump({"web": "javascript:alert(1)", "wygaszenie": "2099-12-20"}, _f3b)
+    P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
+    P._wczytaj_wymagania()
+    sprawdz("zapisany na dysku adres z innym schematem niż https jest pomijany", P.ADRES_WEB == "")
+    # strona proxy pod adresem wersja.txt nie zdejmuje informacji
+    P.ADRES_WEB, P.TERMIN_WYGASZENIA = _ADRES3b, "2099-12-20"
+    P._zapisz_wymagania()
+    P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(b"403 Forbidden - polityka firmy")
+    P.sprawdz_aktualizacje()
+    sprawdz("strona firmowego proxy nie wyłącza informacji o przejściu", P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20")
+    # usunięcie web= z wersja.txt na GitHubie wyłącza informację wszystkim (plik jest jedynym źródłem prawdy)
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(b"3.25.0\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\n")
+    P.sprawdz_aktualizacje()
+    P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
+    P._wczytaj_wymagania()
+    sprawdz("usunięcie web= i wygaszenie= z wersja.txt wyłącza informację (także z dysku)",
+            P.ADRES_WEB == "" and P.TERMIN_WYGASZENIA == "" and P.przejscie_na_web_stan()[0] is False)
+finally:
+    P.URL_WERSJI, P.urllib.request.urlopen = _url3b, _open3b
+    _zeruj_przejscie3b()
+    try:
+        os.remove(P.PLIK_WYMAGAN)
+    except Exception:
+        pass
+
+# ── zgodność ze starszymi programami (już zainstalowane 3.21–3.24 nie znają nowych wierszy) ──
+_STARY_PARSER3b = '''
+import re
+WERSJA_WYMAGANA = ""
+TERMIN_BLOKADY = ""
+def _czytaj_wymagania_z_tekstu(tresc):
+    global WERSJA_WYMAGANA, TERMIN_BLOKADY
+    linie = [l.strip() for l in str(tresc).splitlines() if l.strip()]
+    nowa, opis = "", ""
+    for linia in linie:
+        klucz, znak, wartosc = linia.partition("=")
+        k = klucz.strip().lower()
+        if znak and k in ("min", "blokada"):
+            if k == "min":
+                WERSJA_WYMAGANA = wartosc.strip()
+            else:
+                TERMIN_BLOKADY = wartosc.strip()
+            continue
+        if not nowa:
+            nowa = linia
+        elif not opis:
+            opis = linia
+    return (nowa, opis or "Dostępna jest nowsza wersja programu.")
+def _tresc_wyglada_na_wersje(tresc):
+    for linia in str(tresc or "").splitlines():
+        l = linia.strip()
+        if not l:
+            continue
+        klucz, znak, _ = l.partition("=")
+        if znak and klucz.strip().lower() in ("min", "blokada"):
+            continue
+        return re.match(r"^\\d{1,4}(\\.\\d{1,4}){1,3}$", l) is not None
+    return False
+'''      # dosłowna kopia parsera z 3.24.0 (to on działa dziś u użytkowników)
+_ns3b = {}
+exec(_STARY_PARSER3b, _ns3b)
+_nowy3b, _opis3b = _ns3b["_czytaj_wymagania_z_tekstu"](_PLIK3b)
+sprawdz("stary program (3.24.0) czyta nowy wersja.txt po swojemu: numer, opis, min i blokada bez zmian, nowych wierszy nie bierze za opis",
+        (_nowy3b, _opis3b) == ("3.25.0", "Opis aktualizacji.") and _ns3b["WERSJA_WYMAGANA"] == "3.24.0"
+        and _ns3b["TERMIN_BLOKADY"] == "2099-12-01" and _ns3b["_tresc_wyglada_na_wersje"](_PLIK3b) is True)
+
+# ── wiersze web= i wygaszenie= przeżywają automatyczne podbicie wersja.txt po zbudowaniu paczki (build.yml) ──
+_yml3b = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encoding="utf-8").read()
+_poczatek3b = _yml3b.index("OPIS=${OPIS:-")
+_koniec3b = _yml3b.index('echo "--- wersja.txt po zapisie ---"')
+_skrypt3b = _yml3b[_poczatek3b:_koniec3b]
+sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie=",
+        all(("'^%s='" % k) in _skrypt3b and ('"$%s"' % z) in _skrypt3b
+            for k, z in (("min", "MIN"), ("blokada", "BLOKADA"), ("web", "WEB"), ("wygaszenie", "WYGASZENIE"))))
+_bash3b = shutil.which("bash")
+if _bash3b:
+    import subprocess as _sp3b
+    _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
+    with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
+        _f3b.write(_PLIK3b.replace("3.25.0", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
+    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.0; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
+                         cwd=_kat3b, capture_output=True, timeout=30)
+    _po3b = open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8")
+    _wiersze3b = [l for l in _po3b.replace("\r\n", "\n").split("\n") if l]
+    sprawdz("build.yml (uruchomiony w bashu na próbnym pliku): nowy numer i opis, a wiersze min=, blokada=, web=, wygaszenie= zostają, końce wierszy CRLF",
+            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.0", "Nowy opis."]
+            and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
+            and _po3b.count("\r\n") == len(_wiersze3b), repr(_po3b) + _wynik3b.stderr.decode()[:200])
+    shutil.rmtree(_kat3b, ignore_errors=True)
+
+# ── teksty i okno przy starcie ──
+_zeruj_przejscie3b()
+P.ADRES_WEB = _ADRES3b
+_t3b, _c3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 53, False)
+sprawdz("tekst przed terminem: data, liczba dni, adres, ten sam kod i hasło, dane nie przenoszą się same",
+        "20.12.2099" in _c3b and "za 53 dni" in _c3b and _ADRES3b in _c3b and "tym samym kodem i hasłem" in _c3b
+        and "nie przenoszą się same" in _c3b and "Moje dane" in _c3b, _c3b)
+_, _cj3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 1, False)
+_, _cb3b = P._tekst_przejscia_na_web(_ADRES3b, None, None, False)
+_tp3b, _cp3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 0, True)
+sprawdz("tekst: jutro / bez terminu / po terminie",
+        "jutro (20.12.2099)" in _cj3b and "Termin wyłączenia poda przełożony" in _cb3b
+        and "nie działa już od 20.12.2099" in _cp3b and _ADRES3b in _cp3b and "wyłączony" in _tp3b)
+sprawdz("tekst nie zawiera sekretów ani danych osobowych (tylko adres aplikacji)",
+        not re.search(r"sekret|menedzer|PESEL \d|haslo=", _c3b + _cp3b, re.I))
+
+_okna3b, _przegl3b = [], []
+_okno_orig3b, _web_orig3b = P._okno_pmt, P.webbrowser.open
+try:
+    P.webbrowser.open = lambda url, *a, **k: _przegl3b.append(url)
+    def _okno_stub3b(odpowiedz):
+        def _f(rodzic, tytul, tresc, **kw):
+            _okna3b.append((tytul, tresc, kw.get("etykieta_ok"), kw.get("etykieta_anuluj")))
+            return odpowiedz
+        return _f
+    # nieaktywne: żadnego okna
+    _zeruj_przejscie3b()
+    P._okno_pmt = _okno_stub3b(True)
+    sprawdz("bez web= program przy starcie niczego nie pokazuje i się nie zamyka",
+            P.przejscie_na_web_przy_starcie() is False and not _okna3b and not _przegl3b)
+    # przed terminem: raz dziennie, „Później" pozwala pracować
+    P.ADRES_WEB, P.TERMIN_WYGASZENIA = _ADRES3b, _d3b(20)
+    P.zapisz_ustawienie("przejscie_web_dnia", "")
+    P._okno_pmt = _okno_stub3b(False)
+    _z3b = P.przejscie_na_web_przy_starcie()
+    sprawdz("przed terminem: okno z „Otwórz aplikację” / „Później”, program działa dalej, przeglądarka się nie otwiera",
+            _z3b is False and len(_okna3b) == 1 and _okna3b[0][2:] == ("Otwórz aplikację", "Później")
+            and "za 20 dni" in _okna3b[0][1] and not _przegl3b, str(_okna3b))
+    sprawdz("przed terminem: drugi start tego samego dnia nie zawraca głowy (raz dziennie)",
+            P.przejscie_na_web_przy_starcie() is False and len(_okna3b) == 1)
+    P.zapisz_ustawienie("przejscie_web_dnia", (_dz3b - datetime.timedelta(days=1)).isoformat())
+    P._okno_pmt = _okno_stub3b(True)
+    sprawdz("przed terminem: następnego dnia okno wraca, a „Otwórz aplikację” otwiera właściwy adres",
+            P.przejscie_na_web_przy_starcie() is False and len(_okna3b) == 2 and _przegl3b == [_ADRES3b])
+    # po terminie: za każdym razem, koniec programu
+    _okna3b.clear(); _przegl3b.clear()
+    P.TERMIN_WYGASZENIA = _d3b(0)
+    P._okno_pmt = _okno_stub3b(False)
+    sprawdz("po terminie: okno „Otwórz aplikację” / „Zamknij” przy KAŻDYM starcie i program się zamyka",
+            P.przejscie_na_web_przy_starcie() is True and P.przejscie_na_web_przy_starcie() is True
+            and len(_okna3b) == 2 and _okna3b[0][2:] == ("Otwórz aplikację", "Zamknij") and not _przegl3b
+            and "nie działa już" in _okna3b[0][1], str(_okna3b))
+    P._okno_pmt = _okno_stub3b(True)
+    sprawdz("po terminie: „Otwórz aplikację” otwiera aplikację web i też kończy program",
+            P.przejscie_na_web_przy_starcie() is True and _przegl3b == [_ADRES3b])
+    # przeglądarka się nie otworzyła — program nie pada
+    P.webbrowser.open = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("brak przeglądarki"))
+    sprawdz("brak przeglądarki nie wywraca programu", P.przejscie_na_web_przy_starcie() is True)
+finally:
+    P._okno_pmt, P.webbrowser.open = _okno_orig3b, _web_orig3b
+    _zeruj_przejscie3b()
+    P.zapisz_ustawienie("przejscie_web_dnia", "")
+
+# prawdziwe okno (nie atrapa): napisy przycisków i kliknięcie
+try:
+    from PyQt6.QtWidgets import QApplication as _QA3b, QPushButton as _QB3b
+    from PyQt6.QtCore import QTimer as _QT3b
+    _app3b = _QA3b.instance() or _QA3b(sys.argv)
+    _widziane3b = {}
+
+    def _kliknij3b(napis):
+        def _f():
+            okno = _QA3b.activeModalWidget()
+            if okno is None:
+                _QT3b.singleShot(100, _f)
+                return
+            _widziane3b["przyciski"] = [b.text() for b in okno.findChildren(_QB3b)]
+            _widziane3b["wysokosc"] = (okno.height(), okno.layout().totalHeightForWidth(430))
+            for b in okno.findChildren(_QB3b):
+                if b.text() == napis:
+                    b.click()
+                    return
+        return _f
+
+    _QT3b.singleShot(100, _kliknij3b("Otwórz aplikację"))
+    _tdl3b, _cdl3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 53, False)
+    _wyn3b = P._okno_pmt(None, _tdl3b, _cdl3b, etykieta_ok="Otwórz aplikację", etykieta_anuluj="Później")
+    sprawdz("prawdziwe okno: przyciski mają własne napisy, a klik w „Otwórz aplikację” zwraca prawdę",
+            _wyn3b is True and "Później" in _widziane3b.get("przyciski", []) and "Otwórz aplikację" in _widziane3b.get("przyciski", []),
+            str(_widziane3b))
+    sprawdz("prawdziwe okno: długi tekst mieści się w całości (okno nie jest niższe niż potrzeba — wcześniej tekst był ucinany u góry i u dołu)",
+            _widziane3b.get("wysokosc") is not None and _widziane3b["wysokosc"][0] >= _widziane3b["wysokosc"][1] > 250,
+            str(_widziane3b.get("wysokosc")))
+    _QT3b.singleShot(100, _kliknij3b("Zamknij"))
+    sprawdz("prawdziwe okno: „Zamknij” (anulowanie) zwraca fałsz",
+            P._okno_pmt(None, "Program wyłączony", "Treść próbna.", etykieta_ok="Otwórz aplikację", etykieta_anuluj="Zamknij") is False)
+    _QT3b.singleShot(100, _kliknij3b("Tak"))
+    sprawdz("okno bez własnych napisów wygląda jak dotąd (Anuluj / Tak)",
+            P._okno_pmt(None, "Pytanie", "Czy na pewno?") is True and "Anuluj" in _widziane3b.get("przyciski", []))
+except Exception as _e3b:
+    sprawdz("prawdziwe okno informacji o przejściu", False, repr(_e3b))
+
+# ── gotowe teksty i wiersze dla zespołu: przygotuj_przejscie.py ──
+import importlib.util as _iu3c
+_spec3c = _iu3c.spec_from_file_location("przygotuj_przejscie", os.path.join(KATALOG, "przygotuj_przejscie.py"))
+_PP3c = _iu3c.module_from_spec(_spec3c)
+_spec3c.loader.exec_module(_PP3c)
+_dzis3c = datetime.date(2026, 10, 28)          # środa
+_w3c = _PP3c.przygotuj(_ADRES3b, "2026-12-21", dzis=_dzis3c)
+sprawdz("skrypt: cztery wiersze do wersja.txt — min= to numer wersji ze źródła, blokada = dziś + 14 dni, web=, wygaszenie=",
+        _w3c["wiersze"] == ["min=%s" % P.WERSJA_PROGRAMU, "blokada=2026-11-11", "web=" + _ADRES3b, "wygaszenie=2026-12-21"]
+        and _PP3c.numer_wersji() == P.WERSJA_PROGRAMU, str(_w3c["wiersze"]))
+_zeruj_przejscie3b()
+P._czytaj_wymagania_z_tekstu("%s\nOpis.\n%s\n" % (P.WERSJA_PROGRAMU, "\n".join(_w3c["wiersze"])))
+sprawdz("wiersze ze skryptu czyta prawdziwy parser programu: min, blokada, adres i termin zgadzają się",
+        P.WERSJA_WYMAGANA == P.WERSJA_PROGRAMU and P.TERMIN_BLOKADY == "2026-11-11"
+        and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2026-12-21")
+_zeruj_przejscie3b()
+sprawdz("wiadomości: adres, termin, ostatni dzień roboczy (piątek 18.12), ten sam kod i hasło, dane nie przenoszą się same",
+        all(_ADRES3b in _w3c[k] for k in ("krotka", "dluga", "przypomnienie", "dzien_wylaczenia"))
+        and "21 grudnia 2026 (poniedziałek)" in _w3c["krotka"] and "18 grudnia 2026 (piątek)" in _w3c["krotka"]
+        and "tym samym kodem" in _w3c["krotka"] and "nie przenoszą się same" in _w3c["krotka"]
+        and "11 listopada 2026 (środa)" in _w3c["dluga"] and "Nie pamiętam hasła" in _w3c["dluga"]
+        and ".pmt_" in _w3c["dluga"], _w3c["krotka"][:300])
+sprawdz("wiadomości nie zawierają sekretów ani danych osobowych ani nieuzupełnionych miejsc",
+        not re.search(r"sekret|menedzer|PMT-\d{4}-|\{[a-z_]+\}", "\n".join(_w3c[k] for k in ("krotka", "dluga", "przypomnienie", "dzien_wylaczenia")), re.I))
+_tekst3c = _PP3c.zloz_plik(_w3c)
+sprawdz("plik z gotowymi tekstami ma pięć części i wiersze do wersja.txt",
+        all(("%d. " % n) in _tekst3c for n in range(1, 6)) and "wygaszenie=2026-12-21" in _tekst3c)
+_odrzucone3c = []
+for _opis3c, _arg3c in (("adres z http://", dict(adres="http://planer.example.pl/", wygaszenie="2026-12-21")),
+                        ("adres z parametrami", dict(adres="https://planer.example.pl/?a=1", wygaszenie="2026-12-21")),
+                        ("data w złym formacie", dict(adres=_ADRES3b, wygaszenie="21.12.2026")),
+                        ("data z przeszłości", dict(adres=_ADRES3b, wygaszenie="2026-10-01")),
+                        ("wyłączenie przed blokadą", dict(adres=_ADRES3b, wygaszenie="2026-11-05")),
+                        ("wyłączenie zaraz po blokadzie (mniej niż 7 dni)", dict(adres=_ADRES3b, wygaszenie="2026-11-15")),
+                        ("blokada w złym formacie", dict(adres=_ADRES3b, wygaszenie="2026-12-21", blokada="jutro"))):
+    try:
+        _PP3c.przygotuj(dzis=_dzis3c, **_arg3c)
+        _odrzucone3c.append(_opis3c + " (przeszło!)")
+    except _PP3c.BladDanych as _e3c:
+        if not str(_e3c):
+            _odrzucone3c.append(_opis3c + " (pusty komunikat)")
+sprawdz("skrypt odrzuca zły adres i złe daty z czytelnym komunikatem (7 przypadków)", not _odrzucone3c, str(_odrzucone3c))
+_wk3c = _PP3c.przygotuj(_ADRES3b, "2026-12-19", dzis=_dzis3c)       # sobota
+sprawdz("skrypt ostrzega, gdy wyłączenie wypada w weekend (ale nie blokuje)", any("weekend" in u for u in _wk3c["uwagi"]))
+sprawdz("poprzedni dzień roboczy: poniedziałek → piątek, wtorek → poniedziałek",
+        _PP3c.poprzedni_roboczy(datetime.date(2026, 12, 21)) == datetime.date(2026, 12, 18)
+        and _PP3c.poprzedni_roboczy(datetime.date(2026, 12, 22)) == datetime.date(2026, 12, 21))
+_zgodnosc3c = []
+for _a3c in ("https://planer.firma.pl/", "https://a.github.io/pmt-planer/", "https://planer.firma.pl:8443/x/", "http://planer.firma.pl/",
+             "https://planer/", "https://planer.firma.pl/?x=1", "https://u:p@planer.firma.pl/", "javascript:alert(1)", "https://planer.firma.pl/a b",
+             "https://" + "a" * 250 + ".pl/", "https://-x.pl/", "https://x.p/"):
+    try:
+        _PP3c.sprawdz_adres(_a3c)
+        _skr3c = True
+    except _PP3c.BladDanych:
+        _skr3c = False
+    if _skr3c != P._adres_web_poprawny(_a3c):
+        _zgodnosc3c.append(_a3c[:40])
+sprawdz("adres: skrypt i program akceptują dokładnie te same adresy (wzorce się nie rozjechały)", not _zgodnosc3c, str(_zgodnosc3c))
+_kat3c = tempfile.mkdtemp(prefix="pmt_przejscie_")
+_wyj3c = os.path.join(_kat3c, "gotowe.txt")
+_out3c = io.StringIO()
+_stdout3c = sys.stdout
+try:
+    sys.stdout = _out3c
+    _kod_ok3c = _PP3c.main([_ADRES3b, "2026-12-21", "--dzis", "2026-10-28", "--wyjscie", _wyj3c])
+    _kod_zly3c = _PP3c.main(["http://x.pl/", "2026-12-21", "--wyjscie", _wyj3c + ".zly"])
+finally:
+    sys.stdout = _stdout3c
+sprawdz("skrypt z linii poleceń: poprawne dane → plik i kod 0; zły adres → kod 2 i brak pliku",
+        _kod_ok3c == 0 and open(_wyj3c, encoding="utf-8").read().count("wygaszenie=2026-12-21") >= 1
+        and _kod_zly3c == 2 and not os.path.exists(_wyj3c + ".zly"))
+shutil.rmtree(_kat3c, ignore_errors=True)
+sprawdz("skrypt nie zostawia pliku PRZEJSCIE_gotowe.txt w repozytorium po testach",
+        not os.path.exists(os.path.join(KATALOG, "PRZEJSCIE_gotowe.txt")))
+
+# ── zaczep na starcie programu i instrukcje ──
+_zrodlo3c = open(os.path.join(KATALOG, "PMT_Delegacje.py"), encoding="utf-8").read()
+_i_akt3c = _zrodlo3c.index("OBOWIĄZKOWA AKTUALIZACJA — sprawdzenie przed wejściem")
+_i_prz3c = _zrodlo3c.index("if przejscie_na_web_przy_starcie():")
+_i_odbl3c = _zrodlo3c.index("odblokuj_wlasny_folder()   # zdejmij")
+_i_log3c = _zrodlo3c.index("_kod, _imie_zal = dialog_logowania()")
+sprawdz("informacja o przejściu na web pokazuje się na starcie PO sprawdzeniu aktualizacji i PRZED logowaniem",
+        _i_akt3c < _i_prz3c < _i_odbl3c < _i_log3c)
+_instr3c = open(os.path.join(KATALOG, "PRZEJSCIE_NA_WEB.txt"), encoding="utf-8").read()
+sprawdz("instrukcja przejścia opisuje wiersze web= i wygaszenie=, skrypt, kontrolę, hamulec awaryjny i niczego nie obiecuje ponad kod",
+        all(s in _instr3c for s in ("web=", "wygaszenie=", "przygotuj_przejscie.py", "KROK 5 — KONTROLA", "HAMULEC AWARYJNY",
+                                    "BEZ_AKTUALIZACJI.txt", ".pmt_wymagania.json", "NIE przenoszą"))
+        and not re.search(r"sekret.txt\s*=|PMT-\d{4}-", _instr3c))
+sprawdz("WYDANIE.txt, START_TUTAJ.txt i README.md odsyłają do instrukcji przejścia",
+        all("PRZEJSCIE_NA_WEB.txt" in open(os.path.join(KATALOG, n), encoding="utf-8").read()
+            for n in ("WYDANIE.txt", "START_TUTAJ.txt", "README.md")))
+
+sprawdz("numer wersji 3.25.0 (wydanie z informacją o przejściu) zgadza się w źródle i w metadanych .exe",
+        P.WERSJA_PROGRAMU == "3.25.0" and "'3.25.0'" in open(os.path.join(KATALOG, "wersja_exe.txt"), encoding="utf-8").read())
+_zeruj_przejscie3b()
+
+# ══════════════════════════════════════════════════════════════════
 sekcja("4. Rozdzielenie danych między kontami")
 
 
@@ -1282,6 +1670,64 @@ try:
             and _d5.get("wersja") == P.WERSJA_PROGRAMU, str(_d5))
     sprawdz("inny sekret = inny podpis (klucz naprawdę wchodzi do HMAC)",
             _d5.get("podpis") != _hmac5.new(b"obok-exe-5", _baza5, _hashlib5.sha256).hexdigest())
+    # ── puls i sesja z podpisem KLUCZEM POCHODNYM OD HASŁA ──
+    # Puls nigdy nie sprawdzał hasła: znajomość samego 5-cyfrowego kodu dawała cudze imię, rejon i L4.
+    # Teraz program podpisuje puls i sesję HMAC-iem, którego kluczem jest skrót hasła z tego komputera
+    # (backend zna ten sam skrót z kolumny „Haslo hash”). Hasło nigdzie nie jedzie.
+    _skrot5 = P._hash_hasla("12345", "haslo123")
+    P._zapisz(P.PLIK_LOGOWAN, {"12345": {"imie": "Jan Testowy", "skrot": _skrot5, "ostatnio": "2026-10-28T10:00:00"}})
+    _dp5 = P._podpisz_zadanie({"akcja": "puls", "kod": "12345"})
+    _bp5 = ("12345|puls|%s" % _dp5.get("klucz_czas")).encode("utf-8")
+    sprawdz("puls niesie „podpis_hasla” = HMAC-SHA256(skrót hasła z tego komputera, kod|akcja|czas) — hasło nie jedzie",
+            _dp5.get("podpis_hasla") == _hmac5.new(_skrot5.encode("utf-8"), _bp5, _hashlib5.sha256).hexdigest()
+            and "haslo123" not in str(_dp5), str(_dp5)[:200])
+    _ds5 = P._podpisz_zadanie({"akcja": "sesja", "kod": "12345", "rodzaj": "wylogowanie"})
+    sprawdz("sesja też niesie „podpis_hasla” (akcja wchodzi do podstawy podpisu, więc podpis z pulsu nie otworzy sesji)",
+            _ds5.get("podpis_hasla") and _ds5["podpis_hasla"] != _hmac5.new(_skrot5.encode("utf-8"), _bp5, _hashlib5.sha256).hexdigest())
+    sprawdz("logowanie, zmiana i reset hasła NIE niosą „podpis_hasla” (tam hasło sprawdza serwer, a skrót jest zbędny)",
+            all("podpis_hasla" not in P._podpisz_zadanie({"akcja": a, "kod": "12345"}) for a in ("logowanie", "zmien_haslo", "reset_hasla")))
+    sprawdz("konto, które nie logowało się na tym komputerze (brak skrótu) nie dostaje „podpis_hasla” — backend odpowie zredukowanym pulsem",
+            "podpis_hasla" not in P._podpisz_zadanie({"akcja": "puls", "kod": "99999"}))
+    P._zapisz(P.PLIK_LOGOWAN, {})
+    P._zapisz(P.PLIK_STATUSU, {"kod": "12345", "skrot": _skrot5})
+    sprawdz("gdy historii logowań brak, skrót bierze z pliku statusu bieżącego konta (tylko dla tego samego kodu)",
+            "podpis_hasla" in P._podpisz_zadanie({"akcja": "puls", "kod": "12345"})
+            and "podpis_hasla" not in P._podpisz_zadanie({"akcja": "puls", "kod": "22222"}))
+    P._zapisz(P.PLIK_STATUSU, {})
+
+    # puls „zredukowany” (backend nie rozpoznał podpisu hasłem): imię, rejon i nieobecności z pamięci zostają, kolejka nie jest zerowana
+    class _Odp5:
+        def __init__(s, tresc): s._t = json.dumps(tresc).encode("utf-8")
+        def read(s): return s._t
+        def __enter__(s): return s
+        def __exit__(s, *a): return False
+    _stary_url5 = P.urllib.request.urlopen
+    try:
+        P.online_zapisz_kod("12345")
+        P._zapisz(P.PLIK_STATUSU, {"kod": "12345", "skrot": _skrot5, "imie": "Jan Testowy", "rejon": "mazowieckie",
+                                   "nieobecnosci": [{"kod": "12345", "od": "2099-01-01", "do": "2099-01-10", "typ": "L4"}]})
+        P._zapisz(P.PLIK_KOLEJKI, {"uruchomienia": 2, "dokumenty": 5, "minuty": 7})
+        P.urllib.request.urlopen = lambda *a, **k: _Odp5({"status": "ok", "imie": "", "rejon": "", "wazne_do": "2099-12-31", "nieobecnosci": [], "pelne": False})
+        _wyn5 = P.online_synchronizuj()
+        _st5 = P._wczytaj(P.PLIK_STATUSU, {})
+        sprawdz("puls zredukowany (pelne=false): zapamiętane imię, rejon i nieobecności NIE są nadpisywane pustymi, data ważności się odświeża",
+                _wyn5 is False and _st5.get("imie") == "Jan Testowy" and _st5.get("rejon") == "mazowieckie"
+                and len(_st5.get("nieobecnosci", [])) == 1 and _st5.get("wazne_do") == "2099-12-31", str(_st5))
+        sprawdz("puls zredukowany nie zeruje kolejki statystyk (serwer ich nie zapisał — dojdą przy następnym pulsie)",
+                P._wczytaj(P.PLIK_KOLEJKI, {}) == {"uruchomienia": 2, "dokumenty": 5, "minuty": 7}, str(P._wczytaj(P.PLIK_KOLEJKI, {})))
+        P.urllib.request.urlopen = lambda *a, **k: _Odp5({"status": "ok", "imie": "Jan Testowy", "rejon": "slaskie", "wazne_do": "2099-12-31", "nieobecnosci": [], "pelne": True})
+        _wyn5 = P.online_synchronizuj()
+        _st5 = P._wczytaj(P.PLIK_STATUSU, {})
+        sprawdz("puls pełny (pelne=true) działa jak dotąd: rejon i nieobecności z serwera, kolejka wyzerowana",
+                _wyn5 is True and _st5.get("rejon") == "slaskie" and _st5.get("nieobecnosci") == []
+                and P._wczytaj(P.PLIK_KOLEJKI, {}) == {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+        P.urllib.request.urlopen = lambda *a, **k: _Odp5({"status": "ok", "imie": "Anna", "rejon": "lodzkie", "wazne_do": "2099-12-31", "nieobecnosci": []})
+        _wyn5 = P.online_synchronizuj()
+        sprawdz("odpowiedź starszego backendu (bez pola „pelne”) traktowana jak pełna — nic się nie psuje przed wdrożeniem backendu",
+                _wyn5 is True and P._wczytaj(P.PLIK_STATUSU, {}).get("rejon") == "lodzkie")
+    finally:
+        P.urllib.request.urlopen = _stary_url5
+        P._zapisz(P.PLIK_STATUSU, {}); P._zapisz(P.PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
     P._sekret_aplikacji_dziennik()
     sprawdz("gdy sekret jest, dziennik nie dostaje nowych wpisów o jego braku — także po kliku Zaloguj",
             len(_wpisy5()) == 1, repr(_wpisy5())[:300])
@@ -6857,7 +7303,7 @@ try:
             and _rh21.count('_log(ss, kod, "reset_hasla"') >= 5
             and "RESET_PROB_NA_KOD_NA_GODZINE" in _rh21 and "RESET_PROB_LACZNIE_NA_GODZINE" in _rh21)
     sprawdz("backend: puls oddaje tylko nieobecności pytającego i osób, które zastępuje",
-            "nieobecnosci: _nieobecnosci(ss, kod)" in _gs21
+            "_nieobecnosci(ss, kod)" in _gs21
             and "if (czyj !== kod && zastepca !== kod) continue" in _gs21
             and "_nieobecnosci(ss)\n" not in _gs21)
     _wola21 = re.findall(r"^[^#\n]*?(?<!def )online_nieobecnosci\(", _zr21, re.M)

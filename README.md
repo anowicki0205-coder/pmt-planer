@@ -1,9 +1,19 @@
-# PMT — komplet systemu (program v3.24.0)
+# PMT — komplet systemu (program v3.25.0)
 
 > **Wydanie i wdrożenie krok po kroku: `WYDANIE.txt`.** Mapa plików: `START_TUTAJ.txt`.
 > Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
 > Blokowanie przez Windows: `BEZ_BLOKADY_WINDOWS.txt`
 > Testy przed wydaniem: `python testy_pmt.py`
+> Przejście na aplikację web (ostatnia wersja programu na komputerze): `PRZEJSCIE_NA_WEB.txt`
+
+## Co zmieniła wersja 3.25.0 (względem 3.24.0)
+
+| Obszar | Zmiana |
+|---|---|
+| Przejście na aplikację web | program na komputerze zostaje wyłączony, a jego użytkownicy przechodzą na aplikację w przeglądarce i na telefonie. Informacja dociera do każdego tą samą drogą co obowiązkowa aktualizacja — z `wersja.txt`: wiersz `web=` (adres aplikacji, jest też włącznikiem) i `wygaszenie=` (data). Do terminu okno z informacją pojawia się raz dziennie (można pracować dalej), od terminu — przy każdym starcie, po czym program się zamyka. Zły adres (nie https) albo nieczytelna data nikogo nie odcinają; zegar cofnięty w systemie nie przedłuża programu |
+| Wydanie | `build.yml` przy podbiciu `wersja.txt` zachowuje też wiersze `web=` i `wygaszenie=`; `przygotuj_przejscie.py` robi z adresu i daty gotowe wiersze do `wersja.txt` oraz gotowe wiadomości dla zespołu; procedura w `PRZEJSCIE_NA_WEB.txt` |
+| Hasło w pulsie i sesji | program podpisuje puls i sesję kluczem pochodnym od hasła (współpraca z backendem 3.25.0); puls „zredukowany” nie nadpisuje zapamiętanego imienia, rejonu ani nieobecności |
+| Testy | sekcja 3b: parser nowych wierszy, stan i terminy, zapis na dysk, zgodność ze starszymi programami (dosłowna kopia parsera z 3.24.0), build.yml uruchomiony w bashu, okna z własnymi napisami przycisków |
 
 ## Co zmieniła wersja 3.24.0 (względem 3.22.0)
 

@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.24.0 — START TUTAJ
+  PMT PLANER 3.25.0 — START TUTAJ
   Mapa plików: co gdzie leży i kiedy do tego zajrzeć.
 ═══════════════════════════════════════════════════════════════════════
 
@@ -10,6 +10,11 @@ WYDAJESZ NOWĄ WERSJĘ DLA ZESPOŁU?
 
 DLA WŁAŚCICIELA
   WYDANIE.txt               wydanie i wdrożenie (przeczytaj najpierw)
+  PRZEJSCIE_NA_WEB.txt      wyłączenie programu na komputerze i przejście
+                            zespołu na aplikację web: kolejność, terminy,
+                            wiadomość do każdego użytkownika
+  przygotuj_przejscie.py    robi z adresu i daty gotowe wiersze do wersja.txt
+                            i gotowe wiadomości (python przygotuj_przejscie.py)
   BACKEND_APPS_SCRIPT.txt   backend w arkuszu Google: wdrożenie skryptu,
                             wymiana sekretu, znane dziury
   apps_script_POPRAWIONY_v2.gs

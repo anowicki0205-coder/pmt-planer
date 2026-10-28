@@ -403,12 +403,17 @@ jobs:
           OPIS=$(gh release view "$TAG" --json body -q .body 2>/dev/null | tr -d '\r' | grep -m1 . || true)
           OPIS=${OPIS:-"Nowa wersja programu."}
           OPIS=${OPIS:0:160}
-          # Wiersze min= i blokada= steruja OBOWIAZKOWA AKTUALIZACJA - zostaja.
+          # Wiersze min= i blokada= steruja OBOWIAZKOWA AKTUALIZACJA, a web= i wygaszenie=
+          # - INFORMACJA O PRZEJSCIU NA APLIKACJE WEB (od 3.25.0). Wszystkie zostaja.
           MIN=$(grep -m1 '^min=' wersja.txt 2>/dev/null | tr -d '\r' || true)
           BLOKADA=$(grep -m1 '^blokada=' wersja.txt 2>/dev/null | tr -d '\r' || true)
+          WEB=$(grep -m1 '^web=' wersja.txt 2>/dev/null | tr -d '\r' || true)
+          WYGASZENIE=$(grep -m1 '^wygaszenie=' wersja.txt 2>/dev/null | tr -d '\r' || true)
           printf '%s\r\n%s\r\n' "$NUMER" "$OPIS" > wersja.txt
           if [ -n "$MIN" ]; then printf '%s\r\n' "$MIN" >> wersja.txt; fi
           if [ -n "$BLOKADA" ]; then printf '%s\r\n' "$BLOKADA" >> wersja.txt; fi
+          if [ -n "$WEB" ]; then printf '%s\r\n' "$WEB" >> wersja.txt; fi
+          if [ -n "$WYGASZENIE" ]; then printf '%s\r\n' "$WYGASZENIE" >> wersja.txt; fi
           echo "--- wersja.txt po zapisie ---"; cat wersja.txt
           git config user.name "pmt-bot"
           git config user.email "actions@users.noreply.github.com"

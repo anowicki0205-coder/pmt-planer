@@ -128,12 +128,12 @@ WYGLĄD, JAKOŚĆ I PŁYNNOŚĆ
   Gdy aplikacja wykryje grafikę liczoną procesorem (SwiftShader, llvmpipe, Basic Render), raz pokaże wiadomość z instrukcją włączenia.
 
 MOZAIKA PULPITU (jak we wzorze: pola w pionie i w poziomie)
-  Na komputerze (okno min. 1180×700) pulpit to mozaika 12 kolumn × 6 wierszy z kafli o różnych kształtach, bez jednolitych rzędów:
+  Na komputerze (okno min. 1100×520; wcześniej 1180×700, przez co w zwykłym oknie przeglądarki laptopa widać było stary układ poziomych rzędów) pulpit to mozaika 12 kolumn × 6 wierszy z kafli o różnych kształtach, bez jednolitych rzędów:
     pionowe — „Dziś” (z lewej, wysoki), Dokumenty (z prawej, wąski i wysoki, probówki rosną w górę), „Na telefon” (wąski, pod „Dziś”);
     poziome — kwota z wykresem dni (u góry, środek), Dzień z mapą (na dole, szeroki), Kalendarz (na dole, obok mapy), Kontrola (pod „Dziś”).
   Sąsiednie kafle mają różne barwy (czerwono-pomarańczowy, niebieski, zielony, turkusowy, fioletowy, złoty, magenta), w Nocy i w Dniu jednakowo nasycone.
   W wąskich kaflach drobiazgi ustępują miejsca: Dokumenty bez kwot i dat pod probówkami, „Dziś” z kartą następnego sklepu ułożoną pionowo, Kontrola z pierścieniem nad listą
-  (przy niskim oknie bez pierścienia). Podpowiedź przykładu stoi pod opisami kroków kafla kwoty. W oknach niższych lub węższych niż 1180×700 (np. tablet 1024×768) zostaje dotychczasowy układ
+  (przy niskim oknie bez pierścienia). Podpowiedź przykładu stoi pod opisami kroków kafla kwoty. W oknach niższych niż 520 px lub węższych niż 1100 px (np. tablet 1024×768) zostaje dotychczasowy układ
   trzech rzędów; na telefonie bez zmian (zakładki Dziś / Miesiąc / Dokumenty).
 
 KALENDARZ I WYKRES DNI (zamiast „fiolek”)
@@ -205,8 +205,8 @@ DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
   (PDF z wbudowanym podpisem, .xades, ZIP) — obsługuję wszystkie trzy; gdyby coś nie przeszło, pokaż mi plik (bez danych wrażliwych) albo komunikat z okna.
 
 PULPIT: KAFEL „NA TELEFON” Z KODEM QR
-  Na komputerze (okno min. 1180×780) w prawym dolnym rogu, obok „Kontroli”, jest fioletowy kafel z kodem QR adresu aplikacji: zeskanuj aparatem telefonu i otwórz stronę (instrukcja instalacji
-  na ekranie głównym — kliknij kafel). Na telefonie i w zainstalowanej aplikacji kafla nie ma. Kod prowadzi pod STAŁY, PUBLICZNY adres aplikacji (plik adres_aplikacji.txt obok index.html — jedna linia z adresem, np. https://nazwa.github.io/pmt-planer/), więc działa NIEZALEŻNIE OD KOMPUTERA:
+  Na komputerze (okno min. 1100×520) w lewym dolnym rogu, obok „Kontroli”, jest fioletowy kafel z kodem QR adresu aplikacji: zeskanuj aparatem telefonu i otwórz stronę (instrukcja instalacji
+  na ekranie głównym — kliknij kafel). Na telefonie (Android, iPhone) kafla nie ma; na komputerze jest także w zainstalowanej aplikacji (okno bez paska adresu). Kod prowadzi pod STAŁY, PUBLICZNY adres aplikacji (plik adres_aplikacji.txt obok index.html — jedna linia z adresem, np. https://nazwa.github.io/pmt-planer/), więc działa NIEZALEŻNIE OD KOMPUTERA:
   telefon łączy się z serwerem aplikacji, a nie z Twoim komputerem (nie musi być włączony ani w tej samej sieci). Wdrożenie na GitHub Pages (.github/workflows/web-pages.yml) wpisuje ten adres samo
   (albo własną domenę z opcjonalnego sekretu PMT_ADRES). Do czasu wdrożenia nie ma takiego adresu, więc kod pokazuje to, co się da: na serwerze (nie localhost) — adres bieżącej strony, a przy
   uruchomieniu lokalnym (serwer_lokalny.py) — adres komputera w sieci Wi-Fi (http://192.168.x.x:port/index.html; ten wariant WYMAGA włączonego komputera i tej samej sieci — służy tylko do prób).

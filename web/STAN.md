@@ -81,7 +81,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       własna kanonizacja XML sprawdzona względem lxml), imię i nazwisko + PESEL z certyfikatu; bez weryfikacji łańcucha zaufania. Testy na PDF-ach podpisanych pyHankiem i kontrola poppler (pdfsig).
 - [x] podpis odręczny na skanie (js/podpis_reczny.js): silnik zapisuje współrzędne miejsca „podpis pracownika” (silnik/most.py), przeglądarka wycina ten fragment i szuka śladu pisma (pomija proste
       kreski); 40/40 sztucznych skanów z podpisem i 40/40 bez (0 fałszywych alarmów), PDF ze skanem wielostronicowym rozdzielany na dokumenty; ręczne potwierdzenie jako zabezpieczenie.
-- [x] pulpit: kafel „Na telefon” z kodem QR (pomoc.js + index.html + css), tylko komputer ≥1180×780, obok „Kontroli”.
+- [x] pulpit: kafel „Na telefon” z kodem QR (pomoc.js + index.html + css), komputer ≥1100×520 (do v3.25.1: ≥1180×780, przez co kafel znikał w zwykłym oknie laptopa), obok „Kontroli”.
 - [ ] panel koordynatora (wymaga rozszerzenia backendu)
 - [x] nazwisko przełożonego: decyzja właściciela — menedzer.txt z sekretu repozytorium, jak w programie (na stronie będzie publicznie czytelny)
 - [ ] test na prawdziwym telefonie (Android i iPhone), w Edge z kartą graficzną i w Firefoksie (tu Chromium z grafiką programową i WebKit na Linuksie); wdrożenie na GitHub Pages dopiero po zielonym świetle
@@ -96,7 +96,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       (komputer Noc/Dzień, telefon). Na telefonie wykres dni dalej jest ukryty (jak dotąd).
 - [x] KOLORY v3 (wzór bento grid): nasycone, kryjące kafle, białe pastylki, kolorowe kroki podpisów — patrz CZYTAJ_TO.txt, sekcja KOLORY.
 
-- [x] MOZAIKA PULPITU (po uwadze „na wzorze pola były w pionie i w poziomie”): siatka 12×6 na komputerach ≥1180×700 — „Dziś” pionowo z lewej (4 wiersze), kwota z wykresem poziomo (7 kolumn × 3 wiersze), Dokumenty pionowo
+- [x] MOZAIKA PULPITU (po uwadze „na wzorze pola były w pionie i w poziomie”): siatka 12×6 na komputerach ≥1100×520 (do v3.25.1: ≥1180×700 — w oknie przeglądarki laptopa wracał stary układ poziomych rzędów; test web/testy/mozaika_app.js) — „Dziś” pionowo z lewej (4 wiersze), kwota z wykresem poziomo (7 kolumn × 3 wiersze), Dokumenty pionowo
       z prawej (2 kolumny × 3 wiersze), Kalendarz i Dzień na dole, Kontrola i „Na telefon” (pionowy) pod „Dziś”; barwy sąsiadów rozdzielone (kalendarz turkusowy, Dziś czerwono-pomarańczowe, Kontrola złota);
       dopasowania wnętrz w wąskich kaflach (container queries). Mniejsze okna i telefon bez zmian.
 

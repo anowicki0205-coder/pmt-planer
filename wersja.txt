@@ -1,4 +1,4 @@
-3.24.0
-Nowa wersja programu.
+3.25.0
+przygotowanie do przejścia na aplikację webową
 min=3.21.4
 blokada=2026-09-24

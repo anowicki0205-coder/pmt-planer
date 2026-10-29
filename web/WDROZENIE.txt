@@ -1,0 +1,75 @@
+PMT Planer (web) — jak postawić aplikację na zwykłym http (i na https)
+=====================================================================
+
+Aplikacja to same pliki statyczne (strona + silnik w przeglądarce). Nie ma w niej nic, co działa na serwerze —
+serwer ma tylko oddawać pliki. Dlatego wdrożenie to "skopiuj katalog na serwer".
+(Wdrożenie na GitHub Pages: .github/workflows/web-pages.yml — uruchamia się tylko ręcznie, Actions → „Web (GitHub Pages)” → Run workflow,
+po jednorazowym ustawieniu Settings → Pages → Source = „GitHub Actions” i sekretu PMT_MENEDZER.)
+
+1. CO KOPIUJESZ NA SERWER
+-------------------------
+Z rozpakowanego PMT_Planer_web wystarczy (reszta to testy i narzędzia):
+  index.html, manifest.webmanifest, sw.js
+  css/  js/  ikony/  silnik/  przyklad/
+  vendor/czcionki/  vendor/paczki/  vendor/pyodide/  vendor/qr/
+  odbiorca.txt  uwagi.txt  adres_aplikacji.txt
+Do tego DWA pliki, które celowo NIE są w paczce (ani w repozytorium) — tworzysz je na serwerze, obok index.html:
+  sekret.txt     jedna linia: sekret aplikacji (ten sam napis co w SEKRETY_PMT w Apps Script)
+  menedzer.txt   jedna linia: imię i nazwisko Kierownika regionu (bez niego generowanie dokumentów jest zablokowane)
+W odbiorca.txt wpisz w jednej linii adres e-mail Kierownika regionu (bez niego w oknie wysyłki pojawia się pole do wpisania).
+W adres_aplikacji.txt wpisz w jednej linii stały adres strony po wdrożeniu (np. https://planer.firma.pl/): pod niego prowadzi kod QR „Na telefon”, dzięki czemu działa niezależnie od komputera.
+  Bez tego wpisu kod prowadzi pod adres bieżącej strony (na serwerze), a przy uruchomieniu lokalnym — pod adres komputera w sieci.
+Zmieniłeś cokolwiek w js/, css/ lub silnik/? Wtedy przebuduj sw.js:  python narzedzia/zbuduj_sw.py  (to samo robi paczka z GitHuba).
+
+2. SERWER: DOWOLNY, KTÓRY ODDAJE PLIKI
+--------------------------------------
+Wymagania są dwa:
+  a) pliki .js oddawane jako text/javascript (nie text/plain) — inaczej przeglądarka odmówi uruchomienia modułów,
+  b) pliki .wasm jako application/wasm (bez tego silnik wstaje wolniej i przeglądarka pisze ostrzeżenie w konsoli).
+Przykłady:
+  - nginx:   w bloku server { root /var/www/pmt; } — typy .js i .wasm są domyślnie poprawne. Dla index.html i sw.js dodaj
+             add_header Cache-Control "no-cache";  (przeglądarka zawsze sprawdza, czy jest nowa wersja).
+  - Apache:  wrzuć katalog do htdocs; w razie potrzeby  AddType application/wasm .wasm  w .htaccess.
+  - IIS:     w web.config dodaj MIME  .wasm = application/wasm  oraz  .webmanifest = application/manifest+json.
+  - NAS / hosting współdzielony: wgraj pliki do katalogu publicznego; typy zwykle są ustawione poprawnie.
+  - bez żadnej instalacji (test w biurze): na komputerze z Pythonem uruchom  python serwer_lokalny.py 8080
+    (jest w paczce; ma poprawne typy plików). Telefon w tej samej sieci wejdzie na  http://<adres komputera>:8080/index.html.
+
+3. CO DZIAŁA NA ZWYKŁYM http, A CO NIE (sprawdzone testem na adresie http://pmt.example, nie "localhost")
+-------------------------------------------------------------------------------------------------------
+DZIAŁA:  logowanie, generowanie wszystkich dokumentów, dane przykładowe, podpisy (pobranie, wgranie, sprawdzenie podpisów
+         elektronicznych PAdES/XAdES — program ma własną kryptografię na tę okoliczność — i odręcznych), wysyłka paczki,
+         dane zapisane w przeglądarce, kod QR i otwarcie aplikacji na telefonie z tej samej strony.
+NIE DZIAŁA (to ograniczenie przeglądarek, nie programu — dotyczy każdej strony bez https):
+  - instalacja jako aplikacja z ikoną (Chrome/Edge/Android) — wymaga https; na iPhonie "Dodaj do ekranu początkowego"
+    zrobi skrót, który otwiera zwykłą stronę,
+  - praca bez internetu (service worker jest dozwolony tylko na https i localhost) — po wyjściu z zasięgu aplikacja
+    nie wystartuje, dane w przeglądarce zostają,
+  - systemowe "Udostępnij pliki" do aplikacji pocztowej na telefonie — zamiast niego program pobiera ZIP do załączenia.
+Wyjątek: adres http://localhost:... na TYM SAMYM komputerze przeglądarki traktują jak bezpieczny — tam działa wszystko.
+
+4. BEZPIECZEŃSTWO (ważne przy http)
+-----------------------------------
+  - sekret.txt i menedzer.txt leżą na stronie i każdy, kto zna adres, może je odczytać (tak jest przy każdym
+    wdrożeniu aplikacji webowej; sekret to filtr przed botami, nie tajemnica). Na http dodatkowo może je podejrzeć każdy
+    w tej samej sieci, dlatego przy http trzymaj stronę wyłącznie w sieci firmowej / za VPN, a nie w internecie.
+  - Hasło użytkownika nie jest zapisywane na urządzeniu (tylko skrót do wejścia bez sieci), ale DO BACKENDU WYCHODZI JAWNIE — w szyfrowanym zapytaniu https do Google (serwer liczy z niego
+    skrót). Przy stronie na http samo połączenie z Google jest nadal szyfrowane, lecz ktoś w sieci może podmienić STRONĘ i przechwycić hasło przy wpisywaniu — kolejny powód, by użyć https.
+    Pełny opis zabezpieczeń i ryzyk: BEZPIECZENSTWO.txt.
+  - PESEL i dokumenty zostają w przeglądarce użytkownika; nigdzie ich nie wysyłam (poza wiadomością, którą użytkownik wysyła sam).
+  - Połączenie ze skryptem Apps Script (https) z poziomu strony http jest dozwolone.
+
+5. JAK DOJŚĆ DO https ZA DARMO (zalecane docelowo)
+-------------------------------------------------
+  - GitHub Pages: gotowy workflow .github/workflows/web-pages.yml (start ręczny; tworzy sekret.txt/menedzer.txt z sekretów
+    repozytorium PMT_SEKRET i PMT_MENEDZER, opcjonalnie odbiorca.txt z PMT_ODBIORCA). Adres: https://<konto>.github.io/<repo>/ —
+    szablon wpisuje go sam do adres_aplikacji.txt (własną domenę podasz sekretem PMT_ADRES), więc kod QR od razu prowadzi na stronę.
+  - Cloudflare Pages albo Netlify (plan darmowy): wskaż katalog z plikami z punktu 1; https dostajesz automatycznie.
+  - Własny serwer: darmowy certyfikat Let's Encrypt (certbot) — o ile serwer ma nazwę widoczną z internetu.
+
+6. PO WDROŻENIU — SZYBKI SPRAWDZIAN (2 minuty)
+----------------------------------------------
+  1. Otwórz  <adres>/sekret.txt  i  <adres>/menedzer.txt  — mają pokazać jedną linię tekstu (404 = brak pliku).
+  2. Otwórz aplikację, zaloguj się, wygeneruj miesiąc przykładowy (kwota) — dokumenty powinny się utworzyć.
+  3. W oknie "Dokumenty do podpisu" pobierz ZIP z dokumentami — powinien się pobrać i rozpakować do 7 plików PDF.
+  4. Na https: wyłącz internet w przeglądarce i odśwież — aplikacja ma wstać (tryb offline).

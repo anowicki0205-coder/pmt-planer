@@ -1,0 +1,82 @@
+# Wdrożenie PMT Planera (web) na GitHub Pages. Uruchamia się WYŁĄCZNIE ręcznie (Actions → „Web (GitHub Pages)” → Run workflow), więc samo wypchnięcie kodu niczego nie publikuje.
+# Zielone światło na wdrożenie dał właściciel; workflow pojawi się na liście Actions dopiero po scaleniu do głównej gałęzi.
+# Wcześniej jednorazowo: Settings → Pages → Source = „GitHub Actions” oraz sekret PMT_MENEDZER (PMT_SEKRET już jest).
+#
+# Sekrety są te same, co przy budowaniu programu na komputer (nic nowego do wpisania):
+#   PMT_SEKRET    — sekret aplikacji (ten sam napis, co w SEKRETY_PMT w Apps Script)
+#   PMT_MENEDZER  — imię i nazwisko przełożonego
+#   PMT_ODBIORCA  — (opcjonalnie) adres e-mail Kierownika regionu dla wysyłki podpisanych dokumentów
+#   PMT_ADRES     — (opcjonalnie) własna domena strony, np. https://planer.firma.pl/ ; bez niego kod QR dostaje adres nadany przez GitHub Pages
+# Workflow zapisuje je jako pliki sekret.txt i menedzer.txt W PACZCE STRONY — nie w repozytorium. UWAGA: pliki na stronie są
+# czytelne dla każdego, kto zna jej adres (tak samo jak wszystko, co przeglądarka pobiera). Sekret to filtr przed botami,
+# nie tajemnica; nazwisko przełożonego też będzie publiczne. Pliki są na liście .gitignore i nigdy nie trafiają do commita.
+name: Web (GitHub Pages)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  wdroz:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.wdrozenie.outputs.page_url }}
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj Pythona 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Włącz Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Przygotuj paczkę strony
+        env:
+          PMT_ADRES_STRONY: ${{ steps.pages.outputs.base_url }}
+          PMT_ADRES: ${{ secrets.PMT_ADRES }}
+          PMT_SEKRET: ${{ secrets.PMT_SEKRET }}
+          PMT_MENEDZER: ${{ secrets.PMT_MENEDZER }}
+          PMT_ODBIORCA: ${{ secrets.PMT_ODBIORCA }}
+        run: |
+          set -e
+          mkdir -p strona
+          cp -r web/index.html web/manifest.webmanifest web/css web/js web/ikony web/silnik web/przyklad strona/
+          cp web/odbiorca.txt web/uwagi.txt web/adres_aplikacji.txt strona/
+          mkdir -p strona/vendor && cp -r web/vendor/czcionki web/vendor/paczki web/vendor/pyodide web/vendor/qr strona/vendor/
+          [ -n "$PMT_MENEDZER" ] || { echo "::error::Brak sekretu PMT_MENEDZER — generowanie dokumentów byłoby zablokowane."; exit 1; }
+          [ -n "$PMT_SEKRET" ] || { echo "::error::Brak sekretu PMT_SEKRET — backend odrzuci puls, sesję i reset hasła po włączeniu podpisu."; exit 1; }
+          printf '%s\n' "$PMT_MENEDZER" > strona/menedzer.txt
+          printf '%s\n' "$PMT_SEKRET" > strona/sekret.txt
+          # adres Kierownika regionu (opcjonalny sekret PMT_ODBIORCA): bez niego w oknie wysyłki jest pole do wpisania adresu
+          [ -z "$PMT_ODBIORCA" ] || printf '%s\n' "$PMT_ODBIORCA" > strona/odbiorca.txt
+          # stały adres strony dla kodu QR „Na telefon”: własna domena z sekretu PMT_ADRES (opcjonalnie), inaczej adres, który GitHub nadał stronie
+          ADRES="${PMT_ADRES:-$PMT_ADRES_STRONY}"
+          [ -z "$ADRES" ] || printf '%s/\n' "${ADRES%/}" > strona/adres_aplikacji.txt
+          # service worker liczy listę plików i wersję z zawartości katalogu strony
+          mkdir -p strona/narzedzia && cp web/narzedzia/sw.szablon.js web/narzedzia/zbuduj_sw.py strona/narzedzia/
+          python strona/narzedzia/zbuduj_sw.py
+          rm -rf strona/narzedzia
+          find strona -name '__pycache__' -prune -exec rm -rf {} +
+          touch strona/.nojekyll
+
+      - name: Wyślij paczkę
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: strona
+
+      - name: Wdróż
+        id: wdrozenie
+        uses: actions/deploy-pages@v4

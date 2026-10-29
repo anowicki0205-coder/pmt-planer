@@ -1,0 +1,114 @@
+PMT Planer (web) — bezpieczeństwo danych: co jest chronione, co jest jawne, co naprawiono, co zostaje
+====================================================================================================
+Krótko: PESEL, adres i dokumenty NIE trafiają na żaden serwer aplikacji — leżą tylko na urządzeniu użytkownika, i to ZASZYFROWANE kluczem, który odblokowuje hasło.
+Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecności i skrót hasła; puls i sesję przyjmuje w pełni tylko z podpisem hasłem. Sekret aplikacji NIE jest tajemnicą (szczegóły niżej) i nigdy nią nie będzie w aplikacji, którą otwiera się w przeglądarce.
+
+1. CO JEST JAWNE (każdy, kto ma adres strony albo repozytorium, może to odczytać)
+--------------------------------------------------------------------------------
+  • sekret.txt — po wdrożeniu leży na stronie obok index.html i przeglądarka musi go pobrać, żeby podpisać zapytanie. Dlatego odczyta go każdy, kto otworzy stronę
+    (nie tylko Ty). To FILTR PRZED BOTAMI (zapytania bez podpisu są odrzucane, gdy włączysz PODPIS_OBOWIAZKOWY), a nie zabezpieczenie danych. Danych broni hasło użytkownika
+    i limity prób po stronie backendu — nie ten sekret. Tak jest też w programie na komputerze (sekret siedzi w pliku obok programu).
+  • menedzer.txt (nazwisko Kierownika regionu) i odbiorca.txt (jego e-mail) — to dane osobowe; na stronie publicznej (GitHub Pages) będą czytelne dla każdego.
+    Gdyby to było niedopuszczalne: serwer za logowaniem (Cloudflare Access, VPN/sieć firmowa) zamiast publicznej strony.
+  • Adres backendu (…/exec) jest w kodzie w publicznym repozytorium — to adres, nie hasło; chroni go logika backendu (limity, podpis, hasła).
+  • REPOZYTORIUM JEST PUBLICZNE, a w jego historii (commity sprzed 3.24.0) jest STARY sekret aplikacji wpisany wprost w kod. Sprawdź w skrypcie Apps Script, że lista SEKRETY_PMT
+    zawiera tylko nowy sekret (stary ma zniknąć po aktualizacji zespołu) — wartość ze starej historii należy uznać za ujawnioną. Historii nie przepisuję (zniszczyłoby to repozytorium).
+  • GitHub Pages jest publiczne zawsze (także dla prywatnego repozytorium, poza planami Enterprise): wszystko na stronie widzi cały internet.
+  • Adres e-mail służbowy właściciela jest w kodzie programu (ADRES_ZGLOSZEN_DOMYSLNY) w publicznym repozytorium — to Twoja decyzja, czy ma tam zostać.
+
+2. CO NAPRAWDĘ CHRONI DANE
+--------------------------------------------------------------------------------
+  • PESEL, adres zamieszkania, kwoty, plan, dokumenty: tylko na urządzeniu (localStorage i IndexedDB przeglądarki), osobno dla każdego loginu i ZASZYFROWANE (AES-256 + podpis HMAC, klucz
+    danych chroniony hasłem przez PBKDF2 600 000 iteracji; szczegóły w punkcie „Szyfrowanie na urządzeniu” niżej). Do backendu nie idą nigdy.
+  • Wyjątek, o którym trzeba wiedzieć: adresy potrzebne do policzenia kilometrów (w tym adres zamieszkania i adresy sklepów, bez imienia i PESEL-u) wysyła silnik do publicznych
+    usług map (OpenStreetMap: Nominatim i OSRM) — tak samo jak program na komputerze. To dane osobowe wychodzące do podmiotu trzeciego; powiadom o tym użytkowników / inspektora danych.
+  • Hasło: wysyłane do backendu szyfrowanym połączeniem https (NIE jako skrót — wcześniejszy zapis w WDROZENIE.txt był nieprawdziwy i został poprawiony). Serwer liczy z niego skrót
+    SHA-256 („PMT|login|hasło”) i porównuje z kolumną „Haslo hash”. Przy stronie na zwykłym http połączenie z Google jest nadal szyfrowane, ale samą stronę może zmienić ktoś w sieci
+    (i wstrzyknąć skrypt przechwytujący hasło) — dlatego http wyłącznie w sieci firmowej, nigdy w internecie.
+  • Backend: limity zgadywania (8 prób / 15 min i 25 prób / 6 h na login), limit resetów hasła (5/h na login, 30/h łącznie), limity wpisów do dzienników, sprawdzanie ważności konta.
+  • Strona: polityka CSP (index.html) — skrypty tylko z własnej strony, połączenia tylko z własną stroną i z Google Apps Script; atrybuty onerror/onclick i skrypty wstrzyknięte do strony
+    są blokowane; brak <base>, wtyczek i wysyłania formularzy; aplikacja nie uruchamia się w cudzej ramce (clickjacking); nagłówek referrer: brak (uwaga: aplikacja osadzona jako ramka w innej stronie, np. zakładka w Teams/intranecie, zostanie ukryta — to celowe; gdyby było potrzebne, trzeba to poluzować). Dane z plików i z serwera są
+    zawsze wstawiane jako tekst (test wstrzykiwania kodu: testy/xss_app.js).
+  • Urządzenie: konta są rozdzielone (drugi login tej samej przeglądarki nie widzi cudzych danych); pamięć silnika (trasy, współrzędne) jest czyszczona przy wylogowaniu i zmianie konta;
+    „Moje dane” → „Usuń dane z urządzenia” kasuje profil z PESEL-em, miesiące, plan, PDF-y i zapamiętane konto.
+
+2b. SZYFROWANIE NA URZĄDZENIU (jak to działa i czego dotyczy)
+--------------------------------------------------------------------------------
+  • Każde konto ma losowy klucz danych (32 bajty). Nim szyfrowane są: profil z PESEL-em i adresem, miesiące, plan wizyt, ustawienia (localStorage „enc1:…”) oraz wygenerowane i wgrane PDF-y
+    (IndexedDB, koperta „PMT1…”). Szyfr: AES-256-CTR z nowym losowym wektorem przy każdym zapisie + podpis HMAC-SHA256: zmieniony choćby jeden bajt = odczyt odrzucony.
+  • Sam klucz danych leży na dysku tylko zaszyfrowany kluczem z hasła (PBKDF2-HMAC-SHA256, 600 000 iteracji, losowa sól). Hasła ani jego skrótu NA DYSKU NIE MA (dawniej był szybki do złamania
+    skrót) — poprawność hasła przy logowaniu bez sieci i autologowaniu sprawdza otwarcie sejfu. Kradzież profilu przeglądarki nie daje więc ani PESEL-u, ani szybkiego łamania hasła.
+  • Po zalogowaniu klucz danych i skrót hasła (do podpisu pulsu) są tylko w sessionStorage karty — giną z kartą. Wylogowanie i „Usuń dane z urządzenia” usuwają je od razu.
+  • Zmiana hasła w aplikacji przepisuje tylko zaszyfrowany klucz — dane zostają. Hasło zmienione na innym urządzeniu albo zresetowane („Nie pamiętam hasła”): dane z TEGO urządzenia są
+    zaszyfrowane starym hasłem, więc aplikacja pyta o poprzednie hasło albo pozwala usunąć dane i zacząć od nowa (dokumenty wygenerujesz ponownie po wpisaniu danych).
+    ZAPOMNIANE HASŁO = utrata danych lokalnych z tego urządzenia (nie ma tylnych drzwi — gdyby były, szyfrowanie nic by nie dawało).
+  • Dane sprzed szyfrowania (jawny JSON, surowe PDF-y, dawny skrót hasła) są przy pierwszym logowaniu zaszyfrowane / usuwane automatycznie.
+  • Uszkodzone lub zmienione dane (podpis się nie zgadza): aplikacja mówi o tym wprost i oferuje usunięcie — nie nadpisuje ich po cichu.
+  • Nadal jawne na dysku (świadomie, bez PESEL-u i adresu): login, data ważności i czas ostatniego kontaktu (potrzebne przed zalogowaniem), motyw i ustawienia wyglądu, znacznik wycieczki.
+    Imię z odpowiedzi serwera, rejon i nieobecności nie są już zapisywane na dysku (aplikacja ich nie używa).
+  • Czego szyfrowanie NIE załatwia: szkodnika działającego w tej samej przeglądarce, gdy użytkownik jest zalogowany (klucz jest wtedy w pamięci karty), ani słabego hasła (sól i 600 000 iteracji
+    spowalniają zgadywanie, ale hasło „123456” dalej padnie szybko).
+
+3. CO NAPRAWIONO W TEJ WERSJI (audyt)
+--------------------------------------------------------------------------------
+  KRYTYCZNE  Backend: dane od klienta trafiały do arkusza jako formuły. Wpis zaczynający się od = (np. w polu „system” pulsu) stawał się formułą =IMPORTXML(…), która wysyła treść arkusza
+             (kody, telefony, skróty haseł) pod obcy adres, gdy ktoś otworzy arkusz. Wywołać mógł to każdy znający adres /exec. Odtworzone testem na prawdziwym pliku .gs; naprawione.
+  WYSOKIE    Backend: brak limitu zgadywania haseł w logowaniu i zmianie hasła (można było próbować bez końca). Dodane limity.
+  WYSOKIE    Backend: puls z nieznanego kodu zakładał konto z 30 dniami dostępu — zasypywanie arkusza. Teraz odmowa; rejestr sesji i dzienniki mają limity.
+  ŚREDNIE    Strona: brak CSP i ochrony przed ramką. Dodane.
+  ŚREDNIE    Pamięć silnika (IndexedDB „/home/pyodide”) była wspólna dla wszystkich kont przeglądarki. Teraz czyszczona przy zmianie konta/wylogowaniu.
+  ŚREDNIE    Service worker trzymał na stałe pliki ustawień (odbiorca.txt, adres_aplikacji.txt…) — zmiana na serwerze nie działała. Teraz zawsze najpierw z sieci.
+  NISKIE     Serwer lokalny pokazywał listę katalogów; ostrzeżenie, że w sieci widać sekret.txt i menedzer.txt; tryb „lokalnie” (tylko ten komputer).
+  NISKIE     Budowanie paczki: wykluczane są też kopie plików poufnych (sekret.txt.bak, .pfx, .env…), a napis w kształcie sekretu w treści przerywa budowę.
+  Sprawdzone i w porządku: wstrzykiwanie kodu na wszystkich ekranach (imię z serwera, nazwy sklepów i adresy z pliku, nazwy wgrywanych plików, zapisany profil), podpis i hasło
+  nie trafiają do dziennika, brak plików z sekretami w repozytorium i w paczce, zapytania do backendu mają zawsze znacznik czasu (podpis ważny 10 minut).
+
+4. CO ZOSTAJE — RYZYKA RESZTKOWE I DECYZJE DLA CIEBIE
+--------------------------------------------------------------------------------
+  A. [NAPRAWIONE] „Puls” nigdy nie sprawdzał hasła — ufał samemu 5-cyfrowemu loginowi, więc każdy, kto go znał (lub wyliczył), dostawał imię, rejon i nieobecności (w tym L4 — dane o zdrowiu)
+     i mógł fałszować statystyki oraz rejestr sesji. Teraz puls i sesja są podpisywane KLUCZEM POCHODNYM OD HASŁA (HMAC, klucz = skrót hasła, który serwer ma w kolumnie „Haslo hash”; hasło
+     nigdzie nie jedzie). Bez poprawnego podpisu: tylko status i data ważności, nic nie jest zapisywane, wpis sesji pomijany. Zmiana lub reset hasła unieważnia stary klucz.
+     WYMAGA: nowego backendu (.gs), aplikacji web z tej paczki i programu na komputerze z tą zmianą (PMT_Delegacje.py) — starsze programy dostaną w pulsie puste imię/rejon/nieobecności
+     (logowanie i ważność dostępu działają jak dotąd); na czas przejścia WYMAGAJ_HASLA_W_PULSIE = false w skrypcie.
+     Zostaje drobiazg: login istnieje albo nie (puls i logowanie to zdradzają) — limit prób na login ogranicza wyliczanie haseł, nie kodów.
+  B. [NAPRAWIONE] Dane na urządzeniu były NIESZYFROWANE — zob. punkt 2b.
+  C. [ŚREDNIE] Skrót hasła w ARKUSZU (SHA-256, sól = 5-cyfrowy login) jest szybki do łamania, jeśli ktoś dostanie arkusz. Apps Script nie ma bcrypt/PBKDF2, a ten sam skrót służy teraz za klucz
+     podpisu pulsu. (Na urządzeniach skrótu hasła już nie ma — zob. 2b; program na komputerze nadal trzyma go lokalnie.)
+     Obrona: arkusz dostępny tylko dla administratora, hasła min. 6 znaków (zalecaj dłuższe), limity prób na backendzie.
+  D. [NISKIE] Blokada konta może być użyta złośliwie: znający cudzy login może go zablokować na 15 min–6 h (zgadując hasło). Odblokowuje „Nie pamiętam hasła” albo upływ czasu.
+  E. [NISKIE] Zapytania do backendu podpisuje jawny sekret (zob. pkt 1) — podpis obejmuje login, akcję i czas, nie całą treść; zapytanie można odtworzyć w ciągu 10 minut.
+     Chroni to szyfrowanie https, a nie sam podpis.
+  F. Strona na http (bez https): brak service workera i instalacji, a przy tym możliwość podmiany strony w sieci — używać wyłącznie w zamkniętej sieci firmowej.
+  G. [ŚWIADOMIE NIE ZMIENIAM] Program na komputerze (PMT_Delegacje.py) trzyma dane NIEZASZYFROWANE: profil z PESEL-em, plan, punkty, dziennik wizyt i adres bazy leżą jawnie w katalogu
+     domowym (pliki .pmt_*), a obok nich skrót hasła, który wystarcza do podpisania pulsu cudzym kontem. Szyfrowania tam nie dodaję, bo program ma zostać zastąpiony wersją web.
+     Do czasu wycofania: komputer z programem powinien mieć własne konto systemowe i blokadę ekranu; po przejściu na wersję web usuń z komputerów pliki ~/.pmt_* (po wyeksportowaniu danych).
+
+5. CO ZROBIĆ PO TEJ AKTUALIZACJI (kolejność)
+--------------------------------------------------------------------------------
+  1. Wklej nowy apps_script_POPRAWIONY_v2.gs do Code.gs (Ctrl+A, wklej), WPISZ sekret w SEKRETY_PMT w miejsce <NOWY_SEKRET> (plik w repozytorium go nie zawiera), Wdróż → Wdrożenia
+     → ołówek → Wersja: Nowa → Wdróż. Adres /exec zostaje ten sam. Otwórz adres /exec: ma pokazać „sekrety”:1.
+  2. Zaloguj się programem na komputerze i aplikacją webową; w zakładce Log ma przybyć wpis „logowanie_…”; w razie „podpis_zly” sekret w paczce różni się od SEKRETY_PMT.
+  3. Upewnij się, że stary sekret (z historii repozytorium) NIE stoi już w SEKRETY_PMT. Gdy cały zespół ma wersję 3.24.0+, ustaw PODPIS_OBOWIAZKOWY = true.
+  4. Przejrzyj zakładkę Uzytkownicy: każde konto ma mieć wypełnione „Wazne do” (pusta = wygasłe), „Telefon” (kolumna M) i nie ma kont, których nie znasz.
+  5. Wydaj nową wersję programu na komputerze (zmiany w PMT_Delegacje.py: podpis pulsu i sesji hasłem) i dopiero wtedy ewentualnie wymagaj hasła w pulsie na stałe (domyślnie już wymagane).
+     Aplikację web z tej paczki wdróż razem z backendem. Uprzedź użytkowników, że ZAPOMNIANE HASŁO oznacza utratę danych lokalnych na danym urządzeniu (patrz 2b).
+
+6. JAK TO SPRAWDZAŁEM
+--------------------------------------------------------------------------------
+  testy/backend_gs_test.js  — prawdziwy plik .gs uruchomiony w Node na atrapach usług Google: formuły w komórkach, limity prób, konta z pulsu, sesje, limity dzienników, podpis,
+                              opcja PULS_DANE_TYLKO_PO_LOGOWANIU. (Atrapa nie jest Google: faktyczne zachowanie apostrofu w komórce i CacheService sprawdź po wdrożeniu — wpis testowy w Log.)
+  testy/xss_app.js          — dane ze znacznikami i skryptami przez wszystkie ekrany; CSP; ramka (próba mutacyjna potwierdziła, że test wykrywa brak ucieczki).
+  testy/dane_na_urzadzeniu_app.js — wylogowanie, zmiana konta, „Usuń dane”, pliki ustawień a service worker.
+  testy/sejf_test.js        — własny AES-256, SHA-256, HMAC i PBKDF2 na wektorach z norm i w porównaniu z modułem crypto Node'a; koperta wykrywa każdą zmianę; sejf z hasłem.
+  testy/szyfrowanie_app.js  — prawdziwy przepływ: na dysku nie ma PESEL-u, adresu, PDF-ów ani skrótu hasła; odświeżenie, nowa karta, autologowanie, logowanie bez sieci, zmiana hasła,
+                              hasło zmienione gdzie indziej (okno odzyskiwania), migracja danych sprzed szyfrowania, uszkodzone dane.
+  Program na komputerze: testy_pmt.py (903 testy przechodzą, w tym nowe: podpis hasłem pulsu i sesji, puls zredukowany).
+  NIE sprawdziłem: prawdziwego backendu (z tego środowiska nie ma dostępu do script.google.com), wdrożonej strony, programu na komputerze na Windows z prawdziwym oknem (testy_pmt.py działają tu
+  bez okna) ani Edge/Firefoksa na prawdziwych przeglądarkach.
+
+PRZENIESIENIE DANYCH Z PROGRAMU NA KOMPUTERZE (plik .pmtdane)
+  Plik zawiera m.in. PESEL, więc nie leży jawnie: jest zaszyfrowany kluczem z kodu i hasła konta (PBKDF2-HMAC-SHA256, 100 000 iteracji, z tego samego skrótu „PMT|kod|hasło”, który zna backend
+  i aplikacja po zalogowaniu; strumień HMAC-SHA256 i podpis HMAC sprawdzany przed odszyfrowaniem). Zmiana choć jednego bajtu, inne konto albo inne hasło = odmowa, nie śmieci.
+  Co to daje: ktoś, kto znajdzie plik na dysku albo w pobranych, nie przeczyta go bez hasła konta. Czego nie daje: skrót hasła zna też administrator arkusza (kolumna „Haslo hash”) — administrator,
+  który dostałby plik, mógłby go odczytać; to samo ryzyko dotyczy zresztą podpisu pulsu. Zalecenie: po wczytaniu w aplikacji usunąć plik (okno z instrukcją mówi to wprost).
+  Program niczego nie wysyła do sieci przy eksporcie; plik powstaje tylko tam, gdzie użytkownik go zapisze. Niezależna kontrola: web/testy/przeniesienie_test.js (dwa osobne zapisy tego samego szyfru).

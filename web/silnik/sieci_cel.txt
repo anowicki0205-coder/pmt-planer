@@ -1,0 +1,26 @@
+# Lista sieci do pola „cel wyjazdu” (projekt: …) na dokumentach delegacji. Jedna sieć w wierszu; wiersze z # są pomijane.
+# Na KAŻDYM poleceniu program wpisuje zawsze Biedronkę i Żabkę oraz 3–4 losowe sieci z tej listy, w kolejności alfabetycznej.
+# Losowanie jest powtarzalne (zależy od PESEL-u, miesiąca i numeru polecenia): ponowne wygenerowanie daje te same sieci.
+# Listę można swobodnie edytować (po zmianie odśwież stronę dwa razy).
+Biedronka
+Stokrotka
+Żabka
+Maxi Zoo
+SO!COFFEE
+Costa Coffee
+Rossmann
+Auchan
+Carrefour
+Stacja Paliw
+Hebe
+Stacja Moya
+Dino
+Kaufland
+Netto
+Stacja Shell
+Aquael
+Kakadu Zoo
+Auchan Supermarket
+Media Expert
+Społem
+Eurocash

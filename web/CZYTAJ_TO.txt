@@ -1,0 +1,315 @@
+PMT Planer — wersja webowa (do testów, NIE wypuszczona na GitHub)
+==================================================================
+
+JAK URUCHOMIĆ NA KOMPUTERZE
+  1. Rozpakuj CAŁY folder PMT_Planer_web (nie uruchamiaj z poziomu archiwum).
+  2. Obok index.html utwórz dwa pliki tekstowe, każdy z jedną linią:
+       sekret.txt    — sekret aplikacji (ta sama wartość, co sekret repozytorium PMT_SEKRET / lista SEKRETY_PMT w Apps Script)
+       menedzer.txt  — imię i nazwisko przełożonego (to samo, co w programie)
+     Opcjonalnie odbiorca.txt (jest w paczce jako szablon) — adres e-mail Kierownika regionu do wysyłki podpisanych dokumentów.
+     (Notatnik → Zapisz jako → typ „Wszystkie pliki”, kodowanie UTF-8.) To pliki tylko do testów lokalnych — nie wrzucaj ich do repozytorium.
+  3. Windows: dwuklik URUCHOM_LOKALNIE.bat (otworzy przeglądarkę na http://localhost:8080; okno z napisami zostaw otwarte).
+     macOS / Linux: ./uruchom_lokalnie.sh, potem http://localhost:8080/index.html
+  Wymaga Pythona 3 (masz go z programu). Najlepiej Chrome albo Edge (pełne „ciekłe szkło”); Safari i Firefox działają ze zwykłym rozmyciem.
+  Pierwsze uruchomienie pobiera silnik (kilkanaście MB, ok. 8 s), kolejne są szybsze, a po pierwszym razie aplikacja działa także
+  bez internetu (wtedy kilometry z szacunku, a dokument to zaznacza).
+  TELEFON: komputer i telefon w tej samej sieci Wi-Fi → na telefonie wpisz http://<adres komputera>:8080/index.html (adres: ipconfig / ifconfig).
+  Po zwykłym http działa logowanie i cała aplikacja, ale bez instalacji jako aplikacja i bez pracy offline — to wymaga https (po wdrożeniu).
+
+JEDNA PEŁNA WERSJA
+  CZASOWO (test płynności, decyzja właściciela): ANIMACJE SĄ WYŁĄCZONE dla wszystkich. Wygląd zostaje ten sam, ale nic się nie rusza: zorza w tle jest narysowana raz (nieruchomo), nie ma
+  ruchu za kursorem (połysk krawędzi, przechylanie kafli, pył gwiezdny, magnetyczne przyciski, chlupot probówek, lupa w kalendarzu), ciągłych animacji (poświaty, pulsowanie, „oddychanie” przycisków,
+  demo w pustych stanach), przejść między miesiącami i dniami, staczania cyfr kwoty, konfetti i fanfar (zamiast fanfar — krótka informacja „Cały dzień zrobiony”). Okna otwierają się i zamykają od razu.
+  Zostaje wszystko, co robi aplikacja (generowanie, podpisy, trasy, plan, odhaczanie); zostają też krótkie przejścia po najechaniu myszą (zmiana koloru przycisku) i ▶ w trasie dnia (uruchamiasz je sam).
+  W spoczynku aplikacja nie żąda już ani jednej klatki animacji (test testy/spokoj_app.js). Jak sprawdzić płynność u siebie: dopisz do adresu  ?diag  (liczba klatek/s, nazwa karty, wersja).
+  PRZYWRÓCENIE PEŁNEGO RUCHU: w js/aplikacja.js linia  const spokoj = !window.__ruchPelny, …  zmienia się na  const spokoj = false, …  (cały kod ruchu został nietknięty; testy ruchu uruchamiane są z RUCH=pelny).
+  Poniższy opis dotyczy pełnej wersji (obecnie wyłączonej):
+  Aplikacja ma jedną, pełną wersję wizualną: zorza liczona na żywo (WebGL), szkło barwione (przezroczyste, bez rozmywania tła), pochylanie kafli, połysk krawędzi za kursorem,
+  pył gwiezdny, magnetyczne przyciski, rozbłyski i fanfary przy akcjach, przejścia (w Firefoksie i starszym Safari własne, bo nie mają View Transitions). Ruch jest ZAWSZE włączony —
+  nie zależy od ustawienia systemu „ogranicz animacje” ani od wykrytej grafiki, a użytkownik niczego nie wybiera ani nie przełącza.
+  Do testów: dopisz do adresu  ?diag  — w lewym dolnym rogu pojawi się liczba klatek/s i nazwa grafiki (jeśli grafika to „SwiftShader”/„Basic Render”/„llvmpipe”,
+  przeglądarka liczy obraz procesorem i będzie mulić; wtedy włącz w Edge: Ustawienia → System i wydajność → „Używaj przyspieszania sprzętowego”, i odśwież).
+  Po Twoich testach zdecydujemy, czy i co uprościć.
+
+ŻYWY INTERFEJS (co się dzieje po kliknięciu, najechaniu i przeciągnięciu)
+  Linia pod kwotą jest SUWAKIEM: złap ją i przeciągnij (albo strzałki; Shift = co 100 zł; Home/End = minimum/maksimum). Kwota rośnie od minimum do maksimum
+    dla wybranych dni, a w kalendarzu napełniają się cieczą dni robocze (po przekroczeniu maksimum ciecz robi się bursztynowa).
+  Kalendarz: dni pod kursorem rosną jak w doku systemu; kliknięcie dnia puszcza falę po sąsiadach; PRZECIĄGNIJ po kilku dniach (mysz), żeby jednym ruchem
+    oznaczyć urlop — przeciągnięcie od dnia wolnego przywraca dni do pracy. Na telefonie dotknięcie pojedynczego dnia działa jak dotąd.
+  Trasa dnia: przycisk ▶ odtwarza dzień — pojazd jedzie po mapie, na osi tyka zegar, minięte przystanki się zapalają, a kwota dnia rośnie od zera do sumy.
+    Samo przesuwanie kursora po osi podróży (w widoku rozwiniętym także po osi czasu) przewija dzień jak film; kliknięcie w mapę też włącza ▶.
+  Pusty stan: zamiast pustki widać „ducha” trasy i puste probówki, więc od razu wiadomo, co tu będzie.
+  Dokumenty: bąbelki w probówkach i chlupot cieczy, gdy przesuniesz kursor po probówkach. Kontrola: najechanie na punkt pokazuje, czego dotyczy (np. najdroższy dzień).
+  Paleta poleceń: Ctrl+K (Mac: Cmd+K) albo „/” albo lupa w nagłówku (na telefonie: menu konta → „Szukaj poleceń”). Wpisz „luty”, „14” (dzień), „3200” (kwota), „motyw”, „podpisz”…
+  Wycieczka: przy pierwszym uruchomieniu (na przykładowym miesiącu; kto ma już dane — po zapisaniu Moich danych) kilkanaście krótkich kroków z reflektorem; Esc pomija. Wróci z palety: „Pokaż wycieczkę po aplikacji”.
+  Telefon: przesunięcie palcem w bok zmienia zakładkę (Dziś ⇄ Miesiąc ⇄ Dokumenty).
+  Każdy kafel ma własny kolor akcentu (kropka przy tytule i poświata od dołu): Dziś — bursztyn, Kalendarz — cyjan, Trasa — fiolet, Dokumenty — zieleń.
+
+KWOTA — WPISYWANIE I POTWIERDZENIE
+  Kwotę się WPISUJE (pole z dużymi cyframi). Po wygenerowaniu dokumentów klik w dużą kwotę pyta „Zmienić kwotę?”: dokumenty powstały dla jednej kwoty, więc zmiana oznacza usunięcie ich (razem z wgranymi
+  podpisami) i ponowne generowanie — po potwierdzeniu kursor od razu stoi w polu kwoty (stara kwota jest zaznaczona). Suwak pod kwotą jest wyłączony (jedna stała SUWAK_KWOTY w js/zywe.js, gdyby miał wrócić), bo wpisanie jest bezpieczniejsze.
+  Poziom cieczy w dniach roboczych dalej rośnie wraz z wpisaną kwotą (przy maksimum robi się bursztynowy).
+  Przed generowaniem otwiera się arkusz „Sprawdź, zanim wygeneruję”: kwota, miesiąc, liczba dni pracy i dni wolne, tryb pracy, auto, start i meta trasy oraz osoba na dokumentach.
+  Dopiero „Potwierdzam i generuję” rusza silnik; „Popraw” wraca do ustawień. Można też zażądać ponownego wpisania kwoty — do ustalenia po testach.
+
+TRYB PRACY I SILNIK PO WYGENEROWANIU
+  Tryb pracy (Tydzień / Wieczory 16:30–22:00) i pojemność silnika (powyżej / do 900 cm³) zmieniają się: inny miesiąc, inne auto. Przed generowaniem przełączniki są w kaflu głównym; po wygenerowaniu
+  są zablokowane (dokumenty powstały dla konkretnych), ale da się je zmienić: kliknij znaczek „auto … ✎” pod liczbą kilometrów albo krok „Ustaw ✎” w pasku postępu. Otwiera się arkusz „Tryb pracy i auto”
+  z wyborem; dopiero „Zmień i usuń dokumenty” usuwa dokumenty tego miesiąca (razem z wgranymi podpisami), zostawia kwotę (i dni wolne, jeśli tryb się nie zmienił) i wraca do ustawiania miesiąca.
+  „Zostaw jak jest” niczego nie rusza. Wybór zapisuje się w profilu jako domyślny dla kolejnych miesięcy (każdy nowy miesiąc i tak zaczyna od widocznych przełączników). W przykładowym miesiącu zmiany nie ma.
+  Na telefonie znaczek jest schowany (brak miejsca), ale krok „Ustaw” działa tak samo. Test: testy/ustawienia_po_generowaniu_app.js.
+
+OKNO „DOKUMENTY DO PODPISU”: PIĘĆ KROKÓW
+  1 pobierz, 2 podpisz, 3 wgraj, (pole „albo przeciągnij tu podpisane pliki” — tuż pod krokiem 3, tam gdzie się wgrywa), 4 sprawdzenie, 5 wyślij. Krok 5 jest szary, a jego przycisk wyłączony, dopóki wszystkie
+  dokumenty nie są wgrane i sprawdzone; wtedy zapala się kolorem i przycisk „Wyślij” działa. Stopka okna ma już tylko „Zamknij”. Na ekranie dotykowym pola przeciągania nie ma (tam służy „Wybierz pliki”).
+
+WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
+  Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) przycisk „Przenieś dane” zapisuje plik PMT_dane_do_aplikacji.pmtdane:
+  imię, PESEL, adres, stanowisko, pojemność silnika i lista sklepów — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem: Moje dane → „Wczytaj dane z programu
+  na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”; lista sklepów czeka w oknie „Plan” (kafel Dziś → „Plan” → „Ułóż plan”). Plan wizyt, odhaczenia i historia
+  miesięcy się nie przenoszą. Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla nowych
+  użytkowników. Kod: js/przeniesienie.js (odczyt), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js i przeniesienie_app.js.
+
+ŻYCIE KALENDARZA I FIOLEK (RUCH TYLKO TAM)
+  Aplikacja jest w „trybie spokojnym” (po teście płynności), ale w dwóch kaflach „coś się dzieje”: w KALENDARZU dni z trasą lekko się unoszą, oddychają światłem i co kilka sekund przebiega po nich
+  błysk (każdy dzień w innej fazie), a wybrany dzień pulsuje (fala i pierścień); w FIOLKACH dokumentów ciecz się kołysze (pochylona powierzchnia), fiolki delikatnie się bujają, połysk faluje, bąbelki
+  idą w górę. Ruch to wyłącznie przesunięcia i przezroczystość (lekkie dla karty graficznej), kilkanaście drobnych animacji; dni bez trasy, wolne i cała reszta aplikacji stoją.
+  Gdy w systemie jest włączone „Ogranicz ruch” (Windows: Ustawienia → Ułatwienia dostępu → Efekty wizualne → Efekty animacji), nic się nie rusza.
+  Wyłączenie: w js/aplikacja.js zmień `const zycie = !window.__bezZycia;` na `const zycie = false;` (klasa html.zyje znika, wszystko staje). Kod animacji: koniec css/aplikacja.css („ŻYCIE”).
+  Test: testy/zycie_app.js (domyślnie testy wyłączają „życie”, bo Playwright nie klika poruszających się elementów; ZYCIE=tak włącza je w każdym teście).
+  NIE zmierzone: płynność na Twoim komputerze (w środowisku testowym jest grafika programowa) — jeśli coś mułu, wyłącz przełącznikiem powyżej i napisz.
+
+FIREFOX I EDGE: TEN SAM WYGLĄD
+  Porównanie zrzutów (Firefox 159 i Chromium, ten sam stan aplikacji, ciemny i jasny motyw) wykryło cztery różnice, wszystkie poprawione: (1) pierścień „0/23” w kaflu „Dziś” był w Firefoksie cały
+  zielony (Firefox nie przyjmuje `calc()` bez jednostki w stroke-dasharray); (2) na mapie dnia znikała nazwa „Glinojeck” (Firefox wlicza obrys napisu do jego prostokąta, więc nazwy „kolidowały”);
+  (3) litery z polskimi znakami (ł, ń, ą) na mapie były zamazane obrysem (Firefox rysuje obrys każdego fragmentu tekstu nad poprzednim przy paint-order:stroke) — obrys jest teraz osobnym napisem pod spodem;
+  (4) pod wykresem dni na granicy szerokości (okno 1440 px) Firefox pokazywał kwoty zamiast procent — próg przesunięty z 58 na 60 rem, żeby obie przeglądarki decydowały tak samo.
+  Zostaje różnica poza aplikacją: „ciekłe szkło” (załamanie światła na krawędziach szkła) jest tylko w Chrome/Edge — Firefox i Safari mają zwykłe rozmycie (to jest napisane też w oknie pomocy).
+
+ADRES BEZ ULICY (WIEŚ)
+  W „Moich danych” adres może być z ulicą (ul. Polna 5, 00-001 Warszawa) albo bez (Dębowa Wola 12, 26-660 Jedlińsk). Silnik (ten sam co w programie) rozpoznaje to sam;
+  gdy nazwa jest niejednoznaczna („Dębowa Wola”, „Zielona Ścieżka”), aplikacja pyta, czy to ulica, czy miejscowość — tak jak program na komputerze. Rozstrzygnięcie zapisuje się w profilu
+  i trafia do silnika: dla miejscowości bez ulicy start i meta trasy to nazwa wsi, dla ulicy — miejscowość poczty. Pod polem adresu widać rozpoznany rodzaj i „Start i meta trasy: …”,
+  a przełącznik „Ulica / Miejscowość bez ulicy” pozwala to poprawić jednym kliknięciem (np. jednowyrazowa wieś nieobecna w bazie jest na start brana za ulicę). Profil zapisany przed tą zmianą
+  zapyta o to przy pierwszym generowaniu.
+
+GDZIE ZAPISUJĄ SIĘ DANE UŻYTKOWNIKA
+  Na tym urządzeniu, w tej przeglądarce (nic nie jest synchronizowane między urządzeniami ani przeglądarkami), osobno dla każdego loginu:
+    • profil (imię, PESEL, adres, stanowisko, rodzaj adresu), kwoty, dni wolne, miesiące z wynikiem, podpisy, plan wizyt i odhaczone wizyty — localStorage, klucz pmt-web-v1:<login>, ZASZYFROWANE („enc1:…”, AES-256 + podpis);
+    • wygenerowane PDF-y i wgrane podpisy — IndexedDB, baza pmt-web-pliki:<login>, ZASZYFROWANE (koperta „PMT1…”);
+    • sejf konta (pmt-web-sejf:<login>) — losowy klucz danych zaszyfrowany kluczem z hasła (PBKDF2, 600 000 iteracji); hasła ani jego skrótu na dysku nie ma. Zapomniane hasło = utrata danych lokalnych (BEZPIECZENSTWO.txt, pkt 2b);
+    • pamięć podręczna kilometrów (silnik) — IndexedDB; ustawienia wyglądu (motyw, zakładka, wycieczka) — localStorage pmt-ui-*;
+    • dane dostępu (login, data ważności, czas ostatniego kontaktu z serwerem) — localStorage pmt-web-dostep-v1 (ani hasła, ani jego skrótu: poprawność hasła bez sieci sprawdza sejf).
+  Do serwera Google (Apps Script) trafia WYŁĄCZNIE: login i hasło (albo telefon przy pierwszym wejściu), zmiana/reset hasła, „puls” (liczba uruchomień, dokumentów i minut, system „Web”) oraz rejestr sesji. Imię, PESEL, adresy, kwoty i dokumenty NIE trafiają do serwera.
+  Do mapy (OpenStreetMap: wyszukiwanie adresów i trasy) idą adresy potrzebne do policzenia kilometrów — w tym adres zamieszkania i adresy sklepów, bez imienia i PESEL-u (tak samo robił program na komputerze).
+  Pamięć silnika (trasy, współrzędne) leży w IndexedDB „/home/pyodide” i jest wspólna dla kont przeglądarki — dlatego jest czyszczona przy wylogowaniu i zmianie konta.
+  „Moje dane” → „Usuń dane z urządzenia” kasuje z tego urządzenia profil z PESEL-em, miesiące, plan, PDF-y i zapamiętane konto (na serwerze niczego z tego nie ma).
+  Pełny opis zabezpieczeń, tego co jest jawne (sekret.txt!) i ryzyk resztkowych: BEZPIECZENSTWO.txt.
+  Skutki: wyczyszczenie danych przeglądarki, praca w oknie prywatnym albo „czyść dane po zamknięciu” usuwają te dane (aplikacja prosi przeglądarkę o trwały magazyn, ale nie wszystkie to honorują);
+  na innym komputerze trzeba zacząć od nowa. Kto ma dostęp do profilu przeglądarki tego użytkownika, NIE odczyta PESEL-u bez hasła (dane są zaszyfrowane); komputer i tak powinien mieć własne konto systemowe i blokadę ekranu.
+
+WYGLĄD, JAKOŚĆ I PŁYNNOŚĆ
+  Jedna wersja dla wszystkich: użytkownik nie wybiera trybów, a jakość pojedynczej klatki jest zawsze ta sama. Tło (zorza) jest liczone w natywnej rozdzielczości ekranu
+  (z uwzględnieniem skalowania systemu, do ok. 8 mln pikseli), pole świetlne liczy się w 0,3 piksela CSS — jest gładkie, więc różnica względem pełnej rozdzielczości mieści się w szumie rozpraszającym
+  (pomiar: średnio ok. 1/255) — a paralaksa i pozostałe efekty działają przy każdej klatce przeglądarki.
+  MULENIE — CO USTALIŁEM POMIAREM: największym kosztem było rozmywanie tła pod szkłem (filtr „backdrop-filter”): każda klatka tła zmuszała przeglądarkę do ponownego rozmycia całego szkła pod spodem
+  i opóźniała nawet wpisywanie liter. W środowisku testowym (grafika programowa, więc to tylko proporcje, nie liczby bezwzględne) bez tego rozmycia klatek było ok. 16 razy więcej, a opóźnienie
+  przy pisaniu spadło z ok. 1,6 s do ok. 0,3 s. Dlatego kafle, pigułki i okna mają teraz szkło barwione i przezroczyste (matowe dzięki gładkiej zorzy), bez rozmycia tła.
+  Zmiana wyglądu: tło za kaflami nie jest już rozmywane ani załamywane (gwiazdy i horyzont za szkłem są ostrzejsze). Do porównania możesz dopisać do adresu  ?szklo=blur  (stare rozmycie).
+  Ponadto: tło odświeża się 30 razy na sekundę, zorza i kurtyna w tych samych klatkach; w trakcie pisania i 1,1 s po nim tło stoi (litera pojawia się od razu);
+  pod otwartym oknem (logowanie, arkusze, paleta) i po minucie bezczynności tło odświeża się rzadziej; a gdy strona realnie nie nadąża (poniżej ok. 40 klatek/s przez kilka sekund)
+  tempo schodzi stopniowo do 20 → 15 → 10 klatek/s i w tej sesji już nie wraca. To jedyna automatyczna adaptacja i zmienia WYŁĄCZNIE tempo dryfu tła, nigdy jakość obrazu.
+  UWAGA UCZCIWIE: nie miałem dostępu do prawdziwej karty graficznej ani do Edge'a — pomiary robiłem w Chromium z grafiką programową. Kierunek (rozmycie tła = główny koszt) jest pewny, ale
+  bezwzględnej płynności na Twoim komputerze nie umiem obiecać; sprawdzisz ją przez  ?diag  (klatki/s, karta, wersja). Jeśli nadal będzie mulić, napisz, ile klatek pokazuje i jaką kartę.
+  Za sam rysunek odpowiada przeglądarka; o tym, czy używa karty graficznej, decyduje jej ustawienie „przyspieszanie sprzętowe” (Edge: Ustawienia → System i wydajność).
+  Gdy aplikacja wykryje grafikę liczoną procesorem (SwiftShader, llvmpipe, Basic Render), raz pokaże wiadomość z instrukcją włączenia.
+
+MOZAIKA PULPITU (jak we wzorze: pola w pionie i w poziomie)
+  Na komputerze (okno min. 1180×700) pulpit to mozaika 12 kolumn × 6 wierszy z kafli o różnych kształtach, bez jednolitych rzędów:
+    pionowe — „Dziś” (z lewej, wysoki), Dokumenty (z prawej, wąski i wysoki, probówki rosną w górę), „Na telefon” (wąski, pod „Dziś”);
+    poziome — kwota z wykresem dni (u góry, środek), Dzień z mapą (na dole, szeroki), Kalendarz (na dole, obok mapy), Kontrola (pod „Dziś”).
+  Sąsiednie kafle mają różne barwy (czerwono-pomarańczowy, niebieski, zielony, turkusowy, fioletowy, złoty, magenta), w Nocy i w Dniu jednakowo nasycone.
+  W wąskich kaflach drobiazgi ustępują miejsca: Dokumenty bez kwot i dat pod probówkami, „Dziś” z kartą następnego sklepu ułożoną pionowo, Kontrola z pierścieniem nad listą
+  (przy niskim oknie bez pierścienia). Podpowiedź przykładu stoi pod opisami kroków kafla kwoty. W oknach niższych lub węższych niż 1180×700 (np. tablet 1024×768) zostaje dotychczasowy układ
+  trzech rzędów; na telefonie bez zmian (zakładki Dziś / Miesiąc / Dokumenty).
+
+KALENDARZ I WYKRES DNI (zamiast „fiolek”)
+  Kalendarz: każdy dzień z trasą to płaska, kolorowa karta (numer dnia u góry, kwota na dole), a KOLOR niesie informację o kwocie dnia wobec limitu dnia (587,19 zł): żółty (do 30 %), bursztynowy,
+  pomarańczowy, koralowy, malinowy (od 86 %). Dni bez trasy mają kontur z kresek, urlop — kreskowanie, wybrany dzień — biała obwódka. Legenda przy tytule pokazuje skalę kolorów.
+  Przed wygenerowaniem (wpisywanie kwoty) dni robocze nadal pokazują podgląd — płaskie wypełnienie od dołu, które rośnie z wpisaną kwotą (po przekroczeniu maksimum robi się malinowe).
+  Kafel kwoty: pole kwoty (niebieskie) i wykres dni są rozdzielone — wykres leży w osobnym, pomarańczowym panelu (kontrast do niebieskiego kafla): białe, zaokrąglone słupki (wysokość = kwota dnia),
+  wybrany dzień jest niebieski, pod słupkami numery dni i paski poleceń P1…P6. Klik w słupek wybiera dzień (jak klik w kalendarzu), najechanie pokazuje dymek z kwotą. Słupki są zwykłym HTML-em
+  (wcześniejszy wykres WebGL w kształcie świecących promieni, podobny do probówek, został usunięty — lżej dla karty graficznej; probówki zostają tylko w kaflu Dokumenty).
+
+KOLORY (wzór: bento grid — płaskie, nasycone bloki, białe pastylki)
+  Kafle pulpitu mają pełne, kryjące kolory (nie dymne szkło): niebieski (kwota), pomarańczowy (Dziś), błękitny (miesiąc), fioletowy (dzień), zielony (dokumenty), bursztynowy (kontrola), magenta (QR).
+  Każdy ma jasną poświatę w rogu i duże koło w tle jak we wzorze; tekst na kolorze jest biały w Nocy i w Dniu (bursztyn zostaje z ciemnym tekstem), a znaczki i małe przyciski są białymi pastylkami
+  z tekstem w kolorze kafla. Kolorowe kafle nie liczą już rozmycia tła, więc są też lżejsze dla karty graficznej. Okna mają nasyconą fioletowo-niebieską (Noc) lub lawendowo-błękitną (Dzień) powierzchnię.
+  Okno „Dokumenty do podpisu”: cztery pełne kolory kroków (niebieski, fiolet, pomarańcz, zieleń), białe karty z opcjami podpisu, karty dokumentów w kolorze stanu (biała = czeka, zielona = sprawdzony,
+  czerwona = błąd, bursztynowa = do sprawdzenia). Kontrast białego tekstu na kolorach policzyłem (WCAG): ok. 3,1–6:1; najsłabsze są pomarańcz i jasne końce przejść kolorów (tam leżą głównie przyciski, a tekst ma delikatny cień) — jeśli komuś będzie za jasno, przyciemnię.
+
+TRYB PRACY, MOTYW, FANFARY, TRASA DNIA
+  Tryb pracy: pierwszy i domyślny jest „Tydzień” (dni robocze); „Wieczory 16:30–22:00 · sb” dopiero po świadomym wyborze (profil zapisany wcześniej bez wyboru też zaczyna od Tygodnia).
+  Zmiana motywu (Noc/Dzień): fala światła rozchodzi się od przełącznika. W Chrome, Edge i Safari 18 nowy wygląd odsłania się na żywo w rosnącym kole; w Firefoksie i starszym Safari/iOS koło wypełnia
+  się niebem nowego motywu, pod nim zmienia się wygląd, a potem niebo się rozpływa. Na krawędzi koła świeci pierścień światła z iskrami (złoty o świcie, turkusowy o zmierzchu).
+  Odhaczanie wizyt: lista Dziś nie wycieka poza swój kafel; po odhaczeniu WSZYSTKICH wizyt dnia (np. 24/24) pojawiają się fanfary: salwa konfetti, napis „Dzień zrobiony” i złota poświata kafla.
+  Trasa dnia: mapa jak ekran nawigacji — siatka, poziomice, wiązka radaru, opisy miejscowości z obwódką (nie nachodzą na siebie), a po ▶ kamera zbliża się do pojazdu, na trasie zostaje jasny ślad,
+  a przy pojeździe widać etykietę „→ cel · km”. Przeciąganie po osi podróży przewija dzień jak film.
+
+WDROŻENIE NA ZWYKŁYM http (i na https): osobna instrukcja w pliku WDROZENIE.txt — co skopiować na serwer, typy plików, co działa na http (wszystko oprócz instalacji, pracy offline i
+  systemowego „Udostępnij”), uwagi o bezpieczeństwie sekret.txt/menedzer.txt i darmowe drogi do https.
+
+INSTALACJA NA TELEFONIE (PWA) I iOS / SAFARI
+  Aplikacja jest instalowalna (manifest, ikony, service worker). Instalacja wymaga adresu https — czyli po wdrożeniu (GitHub Pages, po Twoim zielonym świetle). Z lokalnego http://… działa
+  logowanie i cała aplikacja w przeglądarce telefonu, ale bez instalacji i bez pracy offline.
+  Menu konta → „Na telefon” (w palecie poleceń: „Zainstaluj na telefonie”): pokazuje kroki dla bieżącego urządzenia — Chrome/Edge/Android: przycisk „Zainstaluj teraz” albo menu ⋮ → „Zainstaluj aplikację”;
+  iPhone/iPad: Safari → Udostępnij → „Dodaj do ekranu początkowego” (iOS 16.4+ pozwala to też w Chrome, Edge i Firefox); komputer: kod QR z adresem aplikacji do zeskanowania telefonem.
+  Zainstalowana aplikacja zachowuje dane; w samej karcie Safari iOS może wyczyścić dane po tygodniu nieużywania (aplikacja prosi o trwały magazyn, ale iOS decyduje sam).
+  iOS / Safari — co sprawdziłem: aplikację uruchomiłem w prawdziwym silniku WebKit (ten sam co w Safari; komputer i okno 390×844) testem testy/webkit_app.py — start, WebGL, silnik Pythona (Pyodide), generowanie dokumentów PDF, kalendarz, układ na telefonie;
+  znalazł i naprawił jeden błąd (sprawdzanie adresu). CZEGO NIE SPRAWDZIŁEM: fizycznego iPhone'a (limity pamięci iOS przy silniku Pythona w przeglądarce, instalacja jako aplikacja,
+  pobieranie PDF z karty „Pliki”) — to trzeba zobaczyć na prawdziwym urządzeniu. Minimum praktyczne: iOS 16.4+.
+
+DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
+  Okno „Dokumenty do podpisu” (przycisk „Podpisz …” albo probówki w kaflu Dokumenty) prowadzi czterema kolorowymi krokami; pod nimi są karty dokumentów (po jednej na polecenie i rozliczenie).
+  1. POBIERZ: „Wszystkie (ZIP)” albo „Osobne pliki” (7 zwykłych PDF-ów, bez rozpakowywania). Program NIE MOŻE wysłać plików na gov.pl sam: to osobna strona, na którą przeglądarka nie pozwala
+     cudzemu programowi nic wrzucić, a podpisu Profilem Zaufanym nie da się wykonać „zza kulis” — pliki muszą więc przejść przez Twój dysk.
+  2. PODPISZ: elektronicznie (przycisk otwiera gov.pl; strona przyjmuje naraz do 5 plików po 25 MB, więc przy 7 dokumentach podpisujesz w 2 turach — okno to podpowiada) albo odręcznie
+     („Wydrukuj” / „Pobierz PDF” — jeden plik ze wszystkimi dokumentami; podpis długopisem w miejscu „podpis pracownika”, potem skan aplikacją skanującą, najlepiej nie zdjęcie pod kątem).
+  3. WGRAJ: „Wybierz pliki” (albo przeciągnij) — WSZYSTKIE naraz, w dowolnej kolejności i w dowolnym rodzaju: PDF z podpisem, plik .xades, paczka ZIP z gov.pl (rozpakuję ją sama), skany i zdjęcia
+     (JPG, PNG, także jeden PDF ze skanem wielu stron — rozdzielę go na dokumenty). Pliki dopasowuję do dokumentów po zawartości, po nazwie, a w ostateczności po kolejności (wtedy zaznaczam „sprawdź”).
+  4. SPRAWDZENIE (automatyczne, na Twoim urządzeniu — nic nie jest nigdzie wysyłane). Dopiero dokument ze sprawdzonym podpisem liczy się jako podpisany; „Wyślij” pojawia się, gdy sprawdzone są wszystkie.
+     Podpis elektroniczny (PAdES w PDF-ie, XAdES w osobnym pliku): czy jest podpis; czy obejmuje CAŁY dokument (nic nie dopisano po podpisaniu); czy to ten sam dokument, który wygenerowałem;
+     czy dokument nie został zmieniony po podpisaniu (skrót); czy podpis jest matematycznie poprawny (klucz z certyfikatu; RSA, RSA-PSS i ECDSA); KTO podpisał — imię i nazwisko (kolejność dowolna,
+     bez względu na ogonki) oraz PESEL, jeśli certyfikat go zawiera; kiedy podpisano. Podpis innej osoby, zmieniony dokument i podpis niepełny są odrzucane i nie da się ich zatwierdzić ręcznie.
+     Sprawdzanie działa także na stronie bez https (zwykłe http), gdzie przeglądarka nie daje Web Crypto: program ma wtedy własną kryptografię (SHA-1/2, RSA, RSA-PSS, ECDSA P-256/384/521),
+     porównaną z Web Crypto na losowych podpisach (testy/krypto_js_test.js) i sprawdzoną na pełnym obiegu pod adresem http://pmt.example (HTTP_HOST=pmt.example).
+     NIE sprawdzam zaufania do urzędu certyfikacji (czy wystawca jest uznany) — pokazuję tylko, kto wystawił certyfikat; to potwierdza urzędowy walidator podpisu.
+     Podpis odręczny: program zna miejsce „podpis pracownika” na każdej stronie (silnik zapisuje jego współrzędne w milimetrach), wycina je ze skanu i szuka śladu pisma, pomijając proste kreski
+     (linia podpisu, ramki) i szum. To POMOC: ocenia obecność podpisu, nie jego autentyczność; imienia i nazwiska odręcznie nie da się odczytać, więc okno pokazuje wycinek skanu do obejrzenia
+     i przycisk „Potwierdzam, że podpis jest” (gdy program się pomyli albo skan jest zdjęciem pod kątem). Rozliczenie miesiąca nie ma wyznaczonego miejsca — szukam podpisu pod tabelą.
+     Na sztucznych skanach (przekrzywienie do 1,6°, szum, cień, JPEG) wykrywalność to 40/40 bez fałszywych alarmów, ale prawdziwych skanów z Twojego skanera jeszcze nie widziałem.
+  Gdy wszystko jest sprawdzone: „Wyślij” prowadzi do okna wysyłki. Adres Kierownika regionu aplikacja czyta z pliku odbiorca.txt obok index.html (jedna linia z adresem; linie z # są pomijane).
+  Bez tego pliku w oknie jest pole do wpisania adresu. Wysyłka: na telefonie „Udostępnij pliki” przekazuje je prosto do poczty; na komputerze „Otwórz pocztę” pobiera plik ZIP i otwiera nową wiadomość
+  z adresem i tematem — plik ZIP dołączasz sam (przeglądarka nie potrafi dołączyć pliku do wiadomości), a potem klikasz „Już wysłane”. Okno ostrzega, gdy załączniki ważą ponad 20 MB (limit poczty).
+  Dołączane są podpisane pliki (przy podpisie rozdzielnym .xades także oryginał). Wyniki sprawdzenia są zapamiętane razem z miesiącem.
+  NAZWY PLIKÓW: plik, który wraca z gov.pl, ze skanera albo z telefonu, może nazywać się jak chce („Podpisany dokument (1).pdf”, „IMG_0042.jpg”, „…_signed.pdf”). Program najpierw rozpoznaje, do jakiego
+  dokumentu należy (PDF po zawartości, plik .xades po skrócie dokumentu, skan po nazwie lub kolejności) i zapisuje go pod dokładnie taką nazwą, jaką miał przy generowaniu: PDF „delegacja_01_….pdf”,
+  podpis w osobnym pliku „delegacja_01_….pdf.xades”, skan „delegacja_01_….jpg” (przy kilku zdjęciach jednego dokumentu „…_str01.jpg”, „…_str02.jpg”). Pod tymi nazwami idą też załączniki do poczty.
+  W szczegółach dokumentu jest kontrola „nazwa”: „Nazwa pliku zgadza się z dokumentem” albo „Plik wrócił jako … — rozpoznałem dokument … i nazwałem go …” (z ostrzeżeniem, gdy nosił nazwę INNEGO
+  dokumentu). Lista dopasowań pokazuje przy zmienionych plikach „→ nowa nazwa”. Pierwotna nazwa jest zapamiętana razem z miesiącem.
+  PO TWOJEJ DECYZJI można dodać wysyłkę zupełnie bez poczty użytkownika (przez Twój skrypt Google Apps Script) — wtedy dokumenty z PESEL-em przechodziłyby przez Twoje konto Google, więc nie robię tego bez zgody.
+  UWAGA: podpisy z prawdziwego gov.pl sprawdziłem tylko na plikach, które sam podpisałem narzędziem pyHanko (certyfikaty testowe). Nie wiem, w jakiej postaci gov.pl oddaje podpisane pliki
+  (PDF z wbudowanym podpisem, .xades, ZIP) — obsługuję wszystkie trzy; gdyby coś nie przeszło, pokaż mi plik (bez danych wrażliwych) albo komunikat z okna.
+
+PULPIT: KAFEL „NA TELEFON” Z KODEM QR
+  Na komputerze (okno min. 1180×780) w prawym dolnym rogu, obok „Kontroli”, jest fioletowy kafel z kodem QR adresu aplikacji: zeskanuj aparatem telefonu i otwórz stronę (instrukcja instalacji
+  na ekranie głównym — kliknij kafel). Na telefonie i w zainstalowanej aplikacji kafla nie ma. Kod prowadzi pod STAŁY, PUBLICZNY adres aplikacji (plik adres_aplikacji.txt obok index.html — jedna linia z adresem, np. https://nazwa.github.io/pmt-planer/), więc działa NIEZALEŻNIE OD KOMPUTERA:
+  telefon łączy się z serwerem aplikacji, a nie z Twoim komputerem (nie musi być włączony ani w tej samej sieci). Wdrożenie na GitHub Pages (.github/workflows/web-pages.yml) wpisuje ten adres samo
+  (albo własną domenę z opcjonalnego sekretu PMT_ADRES). Do czasu wdrożenia nie ma takiego adresu, więc kod pokazuje to, co się da: na serwerze (nie localhost) — adres bieżącej strony, a przy
+  uruchomieniu lokalnym (serwer_lokalny.py) — adres komputera w sieci Wi-Fi (http://192.168.x.x:port/index.html; ten wariant WYMAGA włączonego komputera i tej samej sieci — służy tylko do prób).
+  Gdy adresu nie da się ustalić, kafel prosi o wpisanie adresu komputera w oknie po kliknięciu.
+
+„CEL WYJAZDU” NA DOKUMENCIE
+  Pole „projekt: …” na każdym poleceniu zawiera ZAWSZE Biedronkę i Żabkę oraz 3–4 sieci wylosowane z listy w pliku silnik/sieci_cel.txt (Twoja lista z Excela plus sieci, które były na dokumentach dotąd),
+  w kolejności alfabetycznej po polsku (Ż na końcu). Przykład: „projekt: Auchan, Biedronka, Costa Coffee, Dino, Media Expert, Żabka”.
+  Losowanie jest osobne dla KAŻDEGO polecenia (na dwóch poleceniach z jednego miesiąca zwykle stoją różne sieci) i POWTARZALNE: te same dane i ten sam numer polecenia dają zawsze ten sam zestaw,
+  więc ponowne wygenerowanie miesiąca nie zmienia dokumentów. Wylosowane sieci zapisują się też w danych miesiąca (pole „sieci”).
+  Listę zmieniasz zwykłym edytorem tekstu: plik silnik/sieci_cel.txt, jedna sieć w wierszu (wiersze z # to komentarze); Biedronka i Żabka są dodawane zawsze, więc nie muszą w nim być.
+  Po zmianie pliku odśwież stronę dwa razy (pierwsze odświeżenie pobiera nową wersję pliku do pamięci aplikacji). Zbyt długą listę aplikacja skraca czcionką, w ostateczności „… i inne”.
+  UWAGA: to zmiana względem programu na komputerze — wprowadzona w warstwie klejącej (silnik/most.py), bo silnik ma być wierną kopią programu; gdyby program też miał tak działać,
+  trzeba to zmienić w PMT_Delegacje.py. Dane pokazowe z pierwszego uruchomienia nie mają z tym nic wspólnego.
+
+PRZYKŁAD NA PIERWSZE URUCHOMIENIE (dane pokazowe)
+  Kto nie ma jeszcze żadnych danych (pierwsze logowanie na tym urządzeniu), widzi zamiast pustego programu PRZYKŁADOWY, w pełni wygenerowany miesiąc: kalendarz z trasami, trasę dnia z ▶ i mapą,
+  dokumenty, kontrolę i listę „Dziś” z przykładowego planu wizyt (można odhaczać i oglądać fanfary). Wszystko jest oznaczone „Przykład”.
+  DANE POKAZOWE NIE MAJĄ ŻADNEGO WPŁYWU NA LICZENIE DELEGACJI: nie są nigdzie zapisywane, nie wchodzą w generowanie ani na dokumenty (przycisk generowania w przykładzie prowadzi do własnych danych).
+  KWOTĘ DO ROZLICZENIA wpisujesz od razu: klik w dużą kwotę (albo główny przycisk „Wpisz swoją kwotę”) kończy przykład, pokazuje Twój miesiąc i ustawia kursor w polu kwoty.
+  Imię, PESEL i adres program poprosi o dopiero przy „Generuj dokumenty” (albo gdy sam otworzysz „Moje dane”); wpisana kwota czeka na to w pamięci urządzenia. Zmiana miesiąca też kończy przykład.
+  Po PIERWSZYM WYGENEROWANIU własnych dokumentów program pokazuje już wyłącznie dane z wygenerowanych delegacji — przykład znika także z menu konta i palety poleceń
+  (do tego momentu można do niego wrócić: menu konta → „Pokaż przykładowy miesiąc”).
+  Skąd dane: przykładowy miesiąc to prawdziwy wynik silnika dla wymyślonej osoby (przyklad/miesiac.json), a lista „Dziś” pochodzi z Twojego pliku lok_test.xlsx (przyklad/plan.json — widać tam około tuzina adresów).
+  Przebudowa (robię ją ja, wymaga Node + Playwright):
+    python narzedzia/przygotuj_liste_przykladu.py lok_test.xlsx lista.csv     (czyści dane pokazowe: tylko Mazowsze, bez „Test” i rzadkich sieci)
+    NODE_PATH=… node narzedzia/zbuduj_przyklad.js lista.csv [kwota]            (potem: python narzedzia/zbuduj_sw.py)
+
+UWAGI OD UŻYTKOWNIKÓW
+  Menu konta → „Napisz uwagę” (paleta: „Napisz uwagę”): okno z polem tekstu i danymi technicznymi (przeglądarka, karta graficzna, klatki/s, ostatnie błędy; BEZ imienia, PESEL-u, adresu i kwot) —
+  do skopiowania, udostępnienia (telefon) albo wysłania pocztą. Jeśli obok index.html leży uwagi.txt z jedną linią adresu e-mail, pojawia się przycisk „Wyślij e-mailem”.
+
+JEŚLI WIDZISZ STARĄ WERSJĘ (np. dawne ustawienia animacji)
+  Aplikacja zapisuje się w przeglądarce, żeby działać bez internetu. Od tej wersji kod aplikacji jest zawsze pobierany ŚWIEŻY, gdy jest internet,
+  ale starsza wersja (z poprzedniej paczki) mogła zostawić własną kopię. Wtedy: otwórz stronę, odśwież ją DWA razy (Ctrl+F5), a gdyby to nie pomogło:
+  F12 → Application (Aplikacja) → Storage → „Clear site data” (dane z „Moich danych” i dokumenty też znikną z tej przeglądarki — zrób to tylko, jeśli trzeba),
+  albo otwórz aplikację pod innym portem (np. python serwer_lokalny.py 8090). Którą wersję widzisz, mówi dopisek  ?diag  w adresie (numer „wersja …” przy liczbie klatek).
+
+LOGOWANIE
+  Ten sam backend (Google Apps Script) i te same konta co w programie na komputerze: login 5 cyfr + hasło. Logowanie rusza samo po wpisaniu hasła (bez Enter): hasło znane na urządzeniu od razu, nowe po ok. 1,3 s pauzy w pisaniu. Pierwsze logowanie:
+  numer telefonu z kartoteki zamiast hasła — aplikacja od razu proponuje ustawienie własnego. „Nie pamiętam hasła” resetuje je
+  telefonem z kartoteki. Zapytania podpisuje sekret z pliku sekret.txt (jedna linia) obok index.html — tak jak nazwisko
+  przełożonego w menedzer.txt; oba pliki są na liście ignorowanych i nie wolno ich wrzucać do repozytorium.
+  Bez sekret.txt aplikacja działa, ale podpis zapytań znika (backend z PODPIS_OBOWIAZKOWY=true odmówi).
+  Logowanie jest wymagane przy KAŻDYM uruchomieniu, tak jak w programie na komputerze: nowa karta, ponowne otwarcie przeglądarki albo okna po zamknięciu — okno logowania pojawia się zawsze i podpowiada ostatni
+  login (w Edge, Firefoksie i Chrome tak samo). Odświeżenie TEJ SAMEJ karty (F5) logowania nie powtarza. Hasło znane na tym urządzeniu loguje od razu po wpisaniu (bez Enter); dane (profil, PESEL, plan, dokumenty) zostają
+  na urządzeniu, osobno dla każdego konta. „Wyloguj” (menu konta) zamyka też sesję tej karty.
+  WAŻNOŚĆ DOSTĘPU sprawdzam od razu po poprawnym haśle (a nie dopiero po wejściu do aplikacji): jeśli kolumna „Ważne do” w arkuszu Użytkownicy jest PUSTA albo zawiera datę z przeszłości, konto jest dla programu wygasłe
+  (tak samo jak w programie na komputerze) — okno logowania mówi to wprost („ważny był do …” albo „kolumna Ważne do jest pusta”), zamiast wpuścić na kilka sekund i cofnąć na ekran logowania.
+  ADMINISTRATOR: nowemu użytkownikowi zawsze uzupełnij „Ważne do”.
+  menedzer.txt: plik jest czytany w chwili użycia, bez pamięci podręcznej. Gdy go brakuje, okno pokazuje dokładny adres, jakiej odpowiedzi udzielił serwer i najczęstszą pomyłkę (np. „menedzer.txt.txt”,
+  bo Notatnik dopisał rozszerzenie) oraz przycisk „Sprawdź ponownie” — bez odświeżania strony. Plik ma leżeć obok index.html (w TYM folderze, z którego działa serwer). Kodowanie bez znaczenia: UTF-8 (także z BOM), UTF-16 („Unicode” w Notatniku) i ANSI są rozpoznawane, liczy się pierwsza niepusta linia.
+  Bez internetu wchodzi tylko konto, które już raz zalogowało się na tym urządzeniu, i tylko do 45 dni od ostatniego kontaktu z serwerem.
+  Dane (profil, PESEL, plan, dokumenty) są rozdzielone na konta — drugi użytkownik tej samej przeglądarki ich nie zobaczy.
+  PIERWSZY TEST NA ŻYWO (nie dało się go zrobić bez dostępu do Google): zaloguj się swoim kontem i obejrzyj zakładkę Log w arkuszu
+  — wpis „logowanie_www” = działa; wpis „podpis_zly” = sekret.txt różni się od SEKRETY_PMT. Komunikat „CORS” w oknie logowania
+  znaczy: serwer odpowiada, ale przeglądarka blokuje odpowiedź — wdrożenie Apps Script musi mieć dostęp „Każdy”.
+
+PLAN WIZYT (kafel „Dziś")
+  Przycisk „Plan" → wczytaj listę sklepów (.xlsx albo .csv; kolumny: kod, miasto, ulica, numer, sieć) → wybierz układ
+  (zwykły albo cykliczny) → plan zapisuje się na urządzeniu. Dziś pokazuje wizyty z godzinami szacunkowymi, odhaczanie
+  i „Nawiguj" (otwiera Mapy Google). Lista sklepów nie opuszcza urządzenia.
+  Każda wizyta odhaczana jest OSOBNO (także gdy ten sam adres wystąpi w planie kilka razy tego dnia). Gdy odhaczysz wszystkie wizyty dnia, pojawia się baner „Gratulacje! Dzień zrobiony” (także w trybie spokojnym;
+  konfetti i zorza tylko przy włączonych animacjach).
+
+OKNA (np. „DOKUMENTY DO PODPISU”)
+  Gdy otwarte jest okno, pulpit pod spodem blaknie i się rozmywa (po zamknięciu wraca do normy), żeby nie zwracał na siebie uwagi. Okno logowania tego nie robi, bo samo jest tłem.
+
+PO ZMIANIE PLIKÓW APLIKACJI
+  python narzedzia/zbuduj_sw.py   (odświeża listę plików offline i wersję pamięci podręcznej)
+
+SILNIK
+  silnik/pmt_silnik.py to DOSŁOWNY wyciąg z PMT_Delegacje.py (narzedzia/wyciagnij_silnik.py). Nie edytować ręcznie:
+  zmiana silnika dzieje się w programie, potem ponowne wyciągnięcie.
+
+TESTY (wymagają Node + Playwright)
+  testy/silnik_przegladarka.js  — silnik w przeglądarce: kwota co do grosza, limity, 5 PDF
+  testy/przeplyw_app.js         — cały przepływ: dane → ustawienia → generowanie → widoki
+  testy/uklad_app.js            — układ w 8 rozdzielczościach i dwóch motywach
+  testy/logowanie_app.js        — logowanie, reset i zmiana hasła, konta, wygasanie, praca bez sieci (zamiennik backendu)
+  testy/logowanie_uklad.js      — układ okna logowania na telefonach i komputerze
+  testy/backend_gs_test.js      — PRAWDZIWY plik apps_script_POPRAWIONY_v2.gs w Node na atrapach usług Google: formuły w komórkach, limity prób logowania, konta z pulsu, sesje, limity dzienników, podpis
+  testy/xss_app.js              — dane ze znacznikami i skryptami (plik z planem, imię z serwera, nazwy wgrywanych plików, profil) na wszystkich ekranach; CSP i ochrona przed ramką
+  testy/dane_na_urzadzeniu_app.js — wylogowanie/zmiana konta czyszczą pamięć silnika, „Usuń dane z urządzenia”, pliki ustawień a service worker
+  testy/okno_tlo_app.js         — pulpit pod otwartym oknem („Moje dane”, „Dokumenty do podpisu”) jest rozmyty i wyciszony, po zamknięciu wraca do normy; okno logowania tego nie uruchamia (MOTYW=light, WYJ=zrzut.png)
+  testy/sejf_test.js            — szyfrowanie: własny AES-256-CTR, SHA-256, HMAC i PBKDF2 na wektorach z norm i w porównaniu z Node; koperta wykrywa zmiany; sejf z hasłem
+  testy/szyfrowanie_app.js      — dane na dysku są zaszyfrowane (PESEL, adres, PDF-y, brak skrótu hasła); odświeżenie/nowa karta/autologowanie/offline/zmiana hasła/okno odzyskiwania/migracja/uszkodzenie
+  testy/qr_kafel_app.js         — kafel „Na telefon”: kod QR od razu (stały adres z adres_aplikacji.txt ma pierwszeństwo przed adresem komputera w sieci z /__adres.json); kod odczytywany dekoderem OpenCV (QR_PYTHON=venv z opencv-python-headless, testy/dekoduj_qr.py)
+  testy/nakladanie_app.js       — wykrywa nachodzący i wystający tekst w wielu rozmiarach okna (STRES=1: szersze pismo)
+  testy/ruch_app.js             — jedna pełna wersja ruchu: zorza WebGL, pył, magnes, ?diag (bez wyboru trybów); uruchamiać z RUCH=pelny
+  testy/spokoj_app.js           — tryb spokojny (animacje wyłączone): brak animacji i klatek w spoczynku, kursor bez efektów, funkcje działają jak dotąd
+  testy/adres_app.js            — adres bez ulicy, pytanie o rodzaj adresu, arkusz potwierdzenia przed generowaniem
+  testy/wykres_kalendarz_app.js — kalendarz (kolorowe karty) i wykres dni: ta sama skala kolorów, klik/najechanie na słupek, kontrast panelu do kafla (MOTYW=light, W=390 H=844 MOB=1)
+  testy/zywe_app.js             — suwak kwoty, malowanie dni, teatr trasy (▶), paleta poleceń, wycieczka, przesuwanie zakładek (telefon)
+  testy/jakosc_app.js, menedzer_app.js, pomoc_app.js, motyw_app.js — jakość i regulator tła, diagnostyka menedzer.txt, instalacja/QR/uwagi, zmiana motywu
+  testy/kodowanie_menedzera.js  — menedzer.txt w kodowaniach Notatnika (UTF-8, z BOM, UTF-16, ANSI/Windows-1250): ten sam wynik
+  testy/pliki_test.js           — ZIP (zapis i odczyt, także z kompresją), scalanie PDF do wydruku (poppler), dopasowanie wgranych plików do dokumentów
+  testy/cel_app.js              — „cel wyjazdu” na prawdziwych PDF-ach: Biedronka + Żabka + 3–4 losowe sieci, alfabetycznie, różne na każdym poleceniu, powtarzalne
+  testy/wspolbieznosc_app.js    — wiele wywołań silnika naraz nie miesza argumentów (dawny sporadyczny „KeyError: 'rok'”)
+  testy/przyklad_app.js         — przykład na pierwsze uruchomienie: pokazanie, ▶, odhaczanie bez zapisu, wpisanie własnej kwoty, zmiana kwoty po wygenerowaniu
+  testy/podpis_offline_app.js   — cały obieg podpisów w przeglądarce: 4 kroki, prawdziwe podpisy elektroniczne i błędne (inna osoba, zmieniony, dopisek), skany odręczne, wysyłka, praca bez internetu
+  testy/krypto_js_test.js       — własna kryptografia (bez Web Crypto, dla http): skróty, RSA, RSA-PSS, ECDSA porównane z Web Crypto Node'a, podpisy zmienione muszą przepadać
+                                  (podobnie: BEZ_WEBCRYPTO=1 node weryfikacja_test.js; cały obieg na http: HTTP_HOST=pmt.example node podpis_offline_app.js; PMT_KORZEN=<katalog> — test na gotowej paczce strony)
+  testy/weryfikacja_test.js     — sprawdzanie podpisów elektronicznych (js/weryfikacja.js) na PDF-ach podpisanych pyHankiem i plikach XAdES; poppler (pdfsig) kontroluje te same pliki
+  testy/podpis_reczny_test.js   — wykrywanie podpisu odręcznego na 92 sztucznych skanach (js/podpis_reczny.js): z podpisem, bez, przekrzywione, na stole, PDF ze skanem
+  Dane testowe podpisów: testy/dane/podpisy (gotowe), generowane skrypty: dane/generuj_podpisy.py, podpisz_pliki.py (pip install pyhanko lxml), skany: dane/generuj_skany.py, skanuj_pliki.py (pillow, numpy)
+  testy/webkit_app.py           — ten sam przepływ w prawdziwym WebKit (Safari): xvfb-run python webkit_app.py (wymaga webkit2gtk-driver i selenium)
+  testy/plan_app.js             — import listy sklepów, plan, kafel Dziś (telefon: W=390 H=844 MOB=1 node plan_app.js)
+  testy/zgodnosc_silnika.py     — wyciąg kontra oryginał, bajt w bajt (python zgodnosc_silnika.py oryginal|wyciag)

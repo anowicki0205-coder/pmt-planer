@@ -145,6 +145,16 @@ MIN_ODLEGLOSC_OD_BAZY = 12.0   # km w linii prostej
 # plik) kończy się OKRESEM PRZEJŚCIOWYM, nigdy natychmiastowym odcięciem.
 WERSJA_WYMAGANA = ""
 TERMIN_BLOKADY = ""
+# PRZEJŚCIE NA APLIKACJĘ WEB. Program na komputerze ma zostać zastąpiony aplikacją w przeglądarce
+# i na telefonie. Informacja dociera do KAŻDEGO użytkownika tą samą drogą co obowiązkowa
+# aktualizacja — z pliku wersja.txt na GitHubie, dwoma dodatkowymi wierszami (po numerze
+# wersji i opisie):
+#     web=https://adres-aplikacji/        WŁĄCZNIK: bez tego wiersza program niczego nie pokazuje
+#     wygaszenie=RRRR-MM-DD               od tego dnia program tylko pokazuje informację i się zamyka
+# Zasada nadrzędna jak przy blokadzie: wątpliwy zapis (adres inny niż https, data nie do
+# odczytania) nigdy nikogo nie odcina — brak daty to same przypomnienia.
+ADRES_WEB = ""
+TERMIN_WYGASZENIA = ""
 # Kiedy program PIERWSZY RAZ zobaczył wymaganie — od tego liczymy okres
 # przejściowy, gdy w wersja.txt nie ma czytelnej daty blokady.
 PIERWSZE_ZOBACZENIE = ""
@@ -170,24 +180,39 @@ def _data_z_tekstu(txt):
     return None
 
 
+WIERSZE_KLUCZOWE_WERSJI = ("min", "blokada", "web", "wygaszenie")
+
+
+def _adres_web_poprawny(adres) -> bool:
+    """Adres aplikacji z wersja.txt: tylko https, sama nazwa serwera i ścieżka — bez
+    parametrów, haseł w adresie i innych schematów (file:, javascript:)."""
+    return re.match(r"^https://[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}(:\d{1,5})?(/[A-Za-z0-9._~%/-]*)?$",
+                    str(adres or "").strip()) is not None and len(str(adres).strip()) <= 200
+
+
 def _czytaj_wymagania_z_tekstu(tresc):
     """Czyta treść wersja.txt. Zwraca (numer_wersji, opis) i po drodze
-    ustawia WERSJA_WYMAGANA / TERMIN_BLOKADY.
+    ustawia WERSJA_WYMAGANA / TERMIN_BLOKADY (oraz ADRES_WEB / TERMIN_WYGASZENIA).
 
-    Wiersze „min=" i „blokada=" mogą stać w DOWOLNYM miejscu pliku —
-    wcześniej liczyła się kolejność i pominięcie linii z opisem po cichu
-    wyłączało całą blokadę."""
-    global WERSJA_WYMAGANA, TERMIN_BLOKADY
+    Wiersze „min=", „blokada=", „web=" i „wygaszenie=" mogą stać w DOWOLNYM
+    miejscu pliku — wcześniej liczyła się kolejność i pominięcie linii z opisem
+    po cichu wyłączało całą blokadę."""
+    global WERSJA_WYMAGANA, TERMIN_BLOKADY, ADRES_WEB, TERMIN_WYGASZENIA
     linie = [l.strip() for l in str(tresc).splitlines() if l.strip()]
     nowa, opis = "", ""
     for linia in linie:
         klucz, znak, wartosc = linia.partition("=")
         k = klucz.strip().lower()
-        if znak and k in ("min", "blokada"):
+        if znak and k in WIERSZE_KLUCZOWE_WERSJI:
+            w = wartosc.strip()
             if k == "min":
-                WERSJA_WYMAGANA = wartosc.strip()
+                WERSJA_WYMAGANA = w
+            elif k == "blokada":
+                TERMIN_BLOKADY = w
+            elif k == "web":
+                ADRES_WEB = w if _adres_web_poprawny(w) else ""
             else:
-                TERMIN_BLOKADY = wartosc.strip()
+                TERMIN_WYGASZENIA = w
             continue
         if not nowa:
             nowa = linia
@@ -225,6 +250,7 @@ def _zapisz_wymagania():
             NAJPOZNIEJSZY_DZIEN = dzis
         with open(PLIK_WYMAGAN, "w", encoding="utf-8") as f:
             json.dump({"min": WERSJA_WYMAGANA, "blokada": TERMIN_BLOKADY,
+                       "web": ADRES_WEB, "wygaszenie": TERMIN_WYGASZENIA,
                        "pierwsze": PIERWSZE_ZOBACZENIE,
                        "najpozniejszy_dzien": NAJPOZNIEJSZY_DZIEN}, f)
     except Exception:
@@ -233,12 +259,16 @@ def _zapisz_wymagania():
 
 def _wczytaj_wymagania():
     global WERSJA_WYMAGANA, TERMIN_BLOKADY, PIERWSZE_ZOBACZENIE, NAJPOZNIEJSZY_DZIEN
+    global ADRES_WEB, TERMIN_WYGASZENIA
     try:
         if os.path.exists(PLIK_WYMAGAN):
             with open(PLIK_WYMAGAN, encoding="utf-8") as f:
                 d = json.load(f)
             WERSJA_WYMAGANA = WERSJA_WYMAGANA or d.get("min", "")
             TERMIN_BLOKADY = TERMIN_BLOKADY or d.get("blokada", "")
+            _web_zapisany = str(d.get("web", "") or "")
+            ADRES_WEB = ADRES_WEB or (_web_zapisany if _adres_web_poprawny(_web_zapisany) else "")
+            TERMIN_WYGASZENIA = TERMIN_WYGASZENIA or str(d.get("wygaszenie", "") or "")
             PIERWSZE_ZOBACZENIE = PIERWSZE_ZOBACZENIE or d.get("pierwsze", "")
             NAJPOZNIEJSZY_DZIEN = max(NAJPOZNIEJSZY_DZIEN or "",
                                       d.get("najpozniejszy_dzien", "") or "")
@@ -284,6 +314,189 @@ def wersja_zablokowana():
         termin = najwczesniej
     zostalo = (termin - _dzisiaj_bez_cofania()).days
     return (zostalo <= 0, max(0, zostalo))
+
+
+def przejscie_na_web_stan():
+    """(aktywne, adres, termin, dni, po_terminie) — stan przejścia na aplikację web.
+
+    Aktywne jest WYŁĄCZNIE wtedy, gdy wersja.txt niesie poprawny wiersz „web=" (patrz ADRES_WEB).
+    „wygaszenie=" z datą, której nie da się odczytać, to brak terminu: same przypomnienia,
+    nikt nie zostaje odcięty. Dzień liczymy bez cofania (cofnięty zegar nie przedłuża programu)."""
+    if not ADRES_WEB:
+        return (False, "", None, None, False)
+    termin = _data_z_tekstu(TERMIN_WYGASZENIA)
+    if termin is None:
+        return (True, ADRES_WEB, None, None, False)
+    dni = (termin - _dzisiaj_bez_cofania()).days
+    return (True, ADRES_WEB, termin, max(0, dni), dni <= 0)
+
+
+def _tekst_przejscia_na_web(adres, termin, dni, po_terminie):
+    """(tytuł, treść) okna z informacją o przejściu na aplikację web."""
+    dane = ("Swoje dane (imię, PESEL, adres i listę sklepów) przeniesiesz jednym kliknięciem: "
+            "„Przenieś dane” zapisze plik, który wczytasz w aplikacji (Moje dane → Wczytaj dane "
+            "z programu). Dokumenty wygenerowane wcześniej zostają na dysku.")
+    if po_terminie:
+        data = (" od %s" % termin.strftime("%d.%m.%Y")) if termin else ""
+        return ("Program na komputerze jest wyłączony",
+                "Program na komputerze nie działa już%s. PMT Planer jest teraz aplikacją "
+                "w przeglądarce i na telefonie — logujesz się w niej tym samym kodem "
+                "i hasłem.\n\n%s\n\n%s" % (data, adres, dane))
+    if termin is None:
+        kiedy = "Termin wyłączenia poda przełożony."
+    elif dni == 1:
+        kiedy = "Program zostanie wyłączony jutro (%s)." % termin.strftime("%d.%m.%Y")
+    else:
+        kiedy = "Program zostanie wyłączony %s (za %d dni)." % (termin.strftime("%d.%m.%Y"), dni)
+    return ("Przechodzimy na aplikację w przeglądarce",
+            "%s PMT Planer działa teraz jako aplikacja w przeglądarce i na telefonie — "
+            "logujesz się w niej tym samym kodem i hasłem.\n\n%s\n\n%s" % (kiedy, adres, dane))
+
+
+def _punkty_konta_z_dysku(kod: str) -> list:
+    """Lista sklepów konta z dysku — tylko odczyt, te same reguły co przy logowaniu: własny plik
+    konta; wspólny plik sprzed 3.21.0 tylko wtedy, gdy wolno go przepisać na to konto."""
+    klucz = _klucz_konta_dla("", kod)
+    if not klucz:
+        return []
+    wlasny = os.path.join(os.path.expanduser("~"), ".pmt_punkty_%s.json" % klucz)
+    sciezka = wlasny
+    if not _plik_ma_tresc(wlasny) and _wolno_przejac_wspolne(kod):
+        sciezka = PUNKTY_STORE
+    try:
+        with open(sciezka, "r", encoding="utf-8") as f:
+            dane = json.load(f)
+    except Exception:
+        return []
+    return [{"adres": str(x.get("adres", "")), "siec": str(x.get("siec", "") or ""),
+             "miasto": str(x.get("miasto", "") or "")}
+            for x in (dane if isinstance(dane, list) else []) if isinstance(x, dict) and x.get("adres")]
+
+
+def _profil_konta_z_dysku(kod: str, imie: str):
+    """Profil (Moje dane) konta albo None. Dopasowanie po imieniu i nazwisku z historii logowań;
+    gdy to jedyne konto na komputerze, a profil jest jeden — ten profil. Nigdy nie zgadujemy
+    między kilkoma osobami: cudzy PESEL nie może trafić do pliku."""
+    prof = szukaj_profilu_po_nazwisku(imie) if imie else None
+    if prof:
+        return prof
+    try:
+        if _tylko_jedno_konto_na_komputerze(kod):
+            profile = [w.get("profil") for w in _wczytaj_store().values() if isinstance(w.get("profil"), dict)]
+            if len(profile) == 1:
+                return profile[0]
+    except Exception:
+        pass
+    return None
+
+
+def zbierz_dane_przeniesienia(kod: str, imie: str = "") -> dict:
+    """Dane konta do aplikacji web: Moje dane i lista sklepów (patrz pmt_przeniesienie.zloz_dane).
+    Plan wizyt, dziennik odhaczeń i historia miesięcy się nie przenoszą (aplikacja układa plan
+    od nowa z listy sklepów; dokumenty z poprzednich miesięcy zostają na dysku)."""
+    modul = modul_pomocniczy("pmt_przeniesienie")
+    if modul is None:
+        raise RuntimeError("brak modułu pmt_przeniesienie")
+    return modul.zloz_dane(_profil_konta_z_dysku(kod, imie), _punkty_konta_z_dysku(kod),
+                           WERSJA_PROGRAMU, datetime.date.today().isoformat())
+
+
+def zapisz_plik_przeniesienia(kod: str, imie: str, skrot: str, sciezka: str):
+    """Zapisuje zaszyfrowany plik .pmtdane. Zwraca (ok, komunikat, liczba_sklepow, czy_jest_profil)."""
+    modul = modul_pomocniczy("pmt_przeniesienie")
+    if modul is None:
+        return (False, "Brak modułu przeniesienia danych w tej instalacji programu.", 0, False)
+    try:
+        dane = zbierz_dane_przeniesienia(kod, imie)
+        if not dane["profil"] and not dane["sklepy"]:
+            return (False, "Nie znalazłem w programie zapisanych danych tego konta (Moje dane ani listy "
+                           "sklepów). W aplikacji wpiszesz je od początku.", 0, False)
+        tekst = modul.zaszyfruj(dane, kod, skrot)
+        tmp = sciezka + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(tekst)
+        os.replace(tmp, sciezka)
+        return (True, "", len(dane["sklepy"]), bool(dane["profil"]))
+    except Exception as e:
+        return (False, "Nie udało się zapisać pliku: %s" % e, 0, False)
+
+
+def przenies_dane_do_web(rodzic=None) -> bool:
+    """Okna przeniesienia danych do aplikacji web (przycisk w informacji o przejściu). Działa bez
+    logowania: konto bierze z historii logowań na tym komputerze (przy kilku — pyta, czyje).
+    Klucz pliku to skrót hasła zapamiętany po logowaniu; gdy go nie ma, prosi o hasło."""
+    from PyQt6.QtWidgets import QFileDialog, QInputDialog
+    modul = modul_pomocniczy("pmt_przeniesienie")
+    konta = historia_logowan(10)
+    if modul is None or not konta:
+        _okno_pmt(rodzic, "Przeniesienie danych",
+                  "Nie znalazłem na tym komputerze zapisanego konta, więc nie mam czego przenieść. "
+                  "W aplikacji wpiszesz swoje dane od początku.", tylko_ok=True)
+        return False
+    wybrane = konta[0]
+    if len(konta) > 1:
+        etykiety = ["%s (kod %s)" % (k["imie"] or "bez imienia", k["kod"]) for k in konta]
+        wybor, dalej = QInputDialog.getItem(rodzic, "Przenieś dane", "Czyje dane przenieść?", etykiety, 0, False)
+        if not dalej:
+            return False
+        wybrane = konta[etykiety.index(wybor)]
+    kod, imie = wybrane["kod"], wybrane["imie"]
+    skrot = _skrot_hasla_lokalny(kod)
+    if not skrot:
+        haslo = _okno_pmt(rodzic, "Hasło do aplikacji",
+                          "Podaj hasło, którym logujesz się do PMT Planer (kod %s). Wpisz je dokładnie — "
+                          "plik jest nim zaszyfrowany i aplikacja nie odczyta go przy innym haśle." % kod,
+                          pole=True, haslo=True)
+        if not haslo:
+            return False
+        skrot = _hash_hasla(kod, haslo)
+    domyslna = os.path.join(sciezka_pulpitu(), "PMT_dane_do_aplikacji" + modul.ROZSZERZENIE)
+    sciezka, _ = QFileDialog.getSaveFileName(rodzic, "Zapisz plik z danymi dla aplikacji", domyslna,
+                                             "Dane PMT (*%s)" % modul.ROZSZERZENIE)
+    if not sciezka:
+        return False
+    if not sciezka.lower().endswith(modul.ROZSZERZENIE):
+        sciezka += modul.ROZSZERZENIE
+    ok, komunikat, ile, jest_profil = zapisz_plik_przeniesienia(kod, imie, skrot, sciezka)
+    if not ok:
+        _okno_pmt(rodzic, "Przeniesienie danych", komunikat, tylko_ok=True)
+        return False
+    co = []
+    if jest_profil:
+        co.append("imię, PESEL, adres i stanowisko")
+    if ile:
+        co.append("listę %d sklepów" % ile)
+    _okno_pmt(rodzic, "Plik gotowy",
+              "Zapisałem plik z danymi (%s):\n%s\n\nW aplikacji zaloguj się tym samym kodem i hasłem, "
+              "wybierz „Moje dane” → „Wczytaj dane z programu na komputerze” i wskaż ten plik. "
+              "Plik jest zaszyfrowany Twoim kodem i hasłem, ale po wczytaniu i tak go usuń."
+              % (" oraz ".join(co), sciezka), tylko_ok=True)
+    return True
+
+
+def przejscie_na_web_przy_starcie():
+    """Informacja o przejściu na aplikację web, pokazywana PRZED logowaniem. Do terminu: raz
+    dziennie, z możliwością pracy dalej („Później"); od terminu: sama informacja i koniec
+    programu. Zwraca True, gdy program ma się zamknąć. Bez wiersza „web=" w wersja.txt
+    nic nie robi."""
+    aktywne, adres, termin, dni, po_terminie = przejscie_na_web_stan()
+    if not aktywne:
+        return False
+    tytul, tresc = _tekst_przejscia_na_web(adres, termin, dni, po_terminie)
+    if not po_terminie:
+        dzis = datetime.date.today().isoformat()
+        if ustawienie("przejscie_web_dnia", "") == dzis:
+            return False
+        zapisz_ustawienie("przejscie_web_dnia", dzis)
+    otworz = _okno_pmt(None, tytul, tresc, etykieta_ok="Otwórz aplikację",
+                       etykieta_anuluj="Zamknij" if po_terminie else "Później",
+                       dodatkowy=("Przenieś dane", przenies_dane_do_web))
+    if otworz:
+        try:
+            webbrowser.open(adres)
+        except Exception:
+            pass
+    return bool(po_terminie)
 
 PROCENT_WLASNE    = 0.50 
 PROCENT_SASIEDNIE = 0.50 
@@ -618,21 +831,34 @@ def online_synchronizuj() -> bool:
     if odp.get("status") not in ("ok", "wygasla"):
         return False           # np. zly_kod — kolejki nie zerujemy
 
+    # „pelne”: false = backend nie rozpoznał podpisu hasłem (np. hasło zmieniono na innym
+    # komputerze) i oddał tylko status i datę ważności — zapamiętanego imienia, rejonu
+    # i nieobecności NIE wolno wtedy nadpisać pustymi, a kolejki nie zerujemy (statystyki
+    # nie zostały zapisane). Starszy backend nie zna pola — wtedy dostajemy komplet.
+    _pelne = odp.get("pelne") is not False
     with _blokada:
-        _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
         st = _wczytaj(PLIK_STATUSU, {})
-        st.update({
-            "kod": kod,
-            "status": odp.get("status"),
-            "imie": odp.get("imie", ""),
-            "rejon": odp.get("rejon", ""),
-            "wazne_do": odp.get("wazne_do", ""),
-            "nieobecnosci": odp.get("nieobecnosci", []),
-            "ostatnia_synchronizacja": datetime.date.today().isoformat(),
-        })
+        if _pelne:
+            _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+            st.update({
+                "kod": kod,
+                "status": odp.get("status"),
+                "imie": odp.get("imie", ""),
+                "rejon": odp.get("rejon", ""),
+                "wazne_do": odp.get("wazne_do", ""),
+                "nieobecnosci": odp.get("nieobecnosci", []),
+                "ostatnia_synchronizacja": datetime.date.today().isoformat(),
+            })
+        else:
+            st.update({
+                "kod": kod,
+                "status": odp.get("status"),
+                "wazne_do": odp.get("wazne_do", ""),
+            })
         _zapisz(PLIK_STATUSU, st)
-    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""), odp.get("imie", ""), z_serwera=True)
-    return True
+    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""),
+                              odp.get("imie", "") if _pelne else st.get("imie", ""), z_serwera=True)
+    return _pelne
 
 def _rozgrzej_backend():
     """Budzi backend (Apps Script) w tle, gdy tylko pojawi się okno
@@ -905,8 +1131,35 @@ def mailto_zgloszenia(kod: str = "") -> str:
                                      quote(temat_zgloszenia(kod), safe=""))
 
 
+def _skrot_hasla_lokalny(kod) -> str:
+    """Skrót hasła konta zapisany na TYM komputerze po udanym logowaniu (ten sam
+    „PMT|kod|hasło”, który backend trzyma w kolumnie „Haslo hash”); pusty, gdy konto
+    nie logowało się tu jeszcze albo nie ma hasła. Samo hasło nigdy nie jest zapisywane."""
+    kod = str(kod or "").strip()
+    try:
+        skrot = (_wczytaj(PLIK_LOGOWAN, {}).get(kod, {}) or {}).get("skrot")
+        if skrot:
+            return str(skrot)
+        st = _wczytaj(PLIK_STATUSU, {})
+        if str(st.get("kod", "")) == kod and st.get("skrot"):
+            return str(st["skrot"])
+    except Exception:
+        pass
+    return ""
+
+
+# Akcje, które backend przyjmuje w pełni TYLKO z podpisem kluczem pochodnym od hasła
+# (puls i sesja). Bez tego znajomość samego 5-cyfrowego kodu dawała cudze imię, rejon i L4.
+AKCJE_Z_HASLEM = ("puls", "sesja")
+
+
 def _podpisz_zadanie(dane: dict) -> dict:
     """Dokłada znacznik czasu, wersję i podpis HMAC-SHA256 do zapytania.
+
+    Dla puls i sesja dokłada też „podpis_hasla”: HMAC-SHA256 TEJ SAMEJ podstawy
+    (kod|akcja|czas), ale kluczem = skrót hasła konta (backend zna go z kolumny
+    „Haslo hash”). Hasło nigdzie nie jedzie; bez poprawnego podpisu backend oddaje
+    w pulsie tylko status i datę ważności, a wpisu sesji nie zapisuje.
 
     Klucz to _sekret_aplikacji(). Bez sekretu pola „podpis" NIE dokłada:
     backend (weryfikujPodpis) porównuje String(d.podpis || '') z HMAC-em,
@@ -928,6 +1181,13 @@ def _podpisz_zadanie(dane: dict) -> dict:
                                       hashlib.sha256).hexdigest()
         else:
             dane.pop("podpis", None)
+        dane.pop("podpis_hasla", None)
+        if dane.get("akcja") in AKCJE_Z_HASLEM:
+            klucz_hasla = _skrot_hasla_lokalny(dane.get("kod", ""))
+            if klucz_hasla:
+                dane["podpis_hasla"] = hmac.new(klucz_hasla.encode("utf-8"),
+                                                baza.encode("utf-8"),
+                                                hashlib.sha256).hexdigest()
     except Exception:
         pass
     return dane
@@ -2545,7 +2805,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.24.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
+WERSJA_PROGRAMU = "3.25.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
                              # wersja_exe.txt uzgadnia zbuduj.py, wersja.txt podbija CI po zbudowaniu paczki
 # ETYKIETA WYDANIA — w wydaniu oficjalnym PUSTA (""), w paczce dla testera
 # niesie oznaczenie, ktore ma zobaczyc czlowiek. Dlaczego OSOBNA stala, a nie
@@ -3756,7 +4016,7 @@ def _tresc_wyglada_na_wersje(tresc) -> bool:
         if not l:
             continue
         klucz, znak, _ = l.partition("=")
-        if znak and klucz.strip().lower() in ("min", "blokada"):
+        if znak and klucz.strip().lower() in WIERSZE_KLUCZOWE_WERSJI:
             continue
         return re.match(r"^\d{1,4}(\.\d{1,4}){1,3}$", l) is not None
     return False
@@ -3786,9 +4046,11 @@ def sprawdz_aktualizacje():
         # zerujemy wymagania, więc usunięcie „min=" z pliku na GitHubie
         # naprawdę zdejmuje blokadę wszystkim (wcześniej nie dawało się
         # tego cofnąć — stary wpis wracał z dysku).
-        global WERSJA_WYMAGANA, TERMIN_BLOKADY
+        global WERSJA_WYMAGANA, TERMIN_BLOKADY, ADRES_WEB, TERMIN_WYGASZENIA
         WERSJA_WYMAGANA = ""
         TERMIN_BLOKADY = ""
+        ADRES_WEB = ""
+        TERMIN_WYGASZENIA = ""
         nowa, opis = _czytaj_wymagania_z_tekstu(tresc)
         if not nowa:
             _wczytaj_wymagania()          # nie psujemy stanu przy pustym pliku
@@ -15930,9 +16192,11 @@ def _styl_okna_pmt():
     '''
 
 
-def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
+def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
+              etykieta_ok=None, etykieta_anuluj=None, dodatkowy=None):
     """Nasze okno zamiast systemowego. Zwraca tekst z pola (gdy pole=True),
-    True/False przy pytaniu albo None po anulowaniu."""
+    True/False przy pytaniu albo None po anulowaniu.
+    dodatkowy=(napis, funkcja): trzeci przycisk z lewej, który NIE zamyka okna — woła funkcję(okno)."""
     from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame
     d = QDialog(rodzic)
     if rodzic is None:
@@ -15962,18 +16226,30 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False):
             we.setEchoMode(QLineEdit.EchoMode.Password)
         ukl.addSpacing(4); ukl.addWidget(we)
     ukl.addSpacing(6)
-    rzad = QHBoxLayout(); rzad.addStretch(1)
+    rzad = QHBoxLayout()
+    if dodatkowy:
+        b_dod = QPushButton(dodatkowy[0]); b_dod.setObjectName("anuluj")
+        b_dod.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        b_dod.clicked.connect(lambda _=False, f=dodatkowy[1]: f(d)); rzad.addWidget(b_dod)
+    rzad.addStretch(1)
     if not tylko_ok:
-        b_anuluj = QPushButton("Anuluj"); b_anuluj.setObjectName("anuluj")
+        b_anuluj = QPushButton(etykieta_anuluj or "Anuluj"); b_anuluj.setObjectName("anuluj")
         b_anuluj.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         b_anuluj.clicked.connect(d.reject); rzad.addWidget(b_anuluj); rzad.addSpacing(8)
-    b_ok = QPushButton("OK" if tylko_ok else ("Zapisz" if pole else "Tak"))
+    b_ok = QPushButton(etykieta_ok or ("OK" if tylko_ok else ("Zapisz" if pole else "Tak")))
     b_ok.setObjectName("ok"); b_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
     b_ok.clicked.connect(d.accept); rzad.addWidget(b_ok)
     ukl.addLayout(rzad)
     if we is not None:
         we.returnPressed.connect(d.accept)
         QTimer.singleShot(0, we.setFocus)
+    # Napis z zawijaniem podaje wysokość dla domyślnej szerokości, więc przy dłuższym tekście okno
+    # było za niskie i ucinało go u góry i u dołu. Wysokość liczymy dla prawdziwej szerokości (430).
+    try:
+        zewn.activate()
+        d.setFixedHeight(max(d.sizeHint().height(), zewn.totalHeightForWidth(430)))
+    except Exception:
+        pass
     wynik = d.exec()
     if pole:
         return we.text() if wynik else None
@@ -17578,6 +17854,17 @@ if __name__ == "__main__":
                               ("jutro" if _dni == 1 else "za %d dni" % _dni)),
                              WERSJA_WYMAGANA or "nowszej", URL_POBIERANIA),
                           tylko_ok=True)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+
+    # ── PRZEJŚCIE NA APLIKACJĘ WEB — informacja dla każdego użytkownika ──
+    # Do terminu raz dziennie (można pracować dalej), od terminu sama informacja i koniec programu.
+    # Działa tylko, gdy wersja.txt ma wiersz „web=" (patrz przejscie_na_web_stan).
+    try:
+        if przejscie_na_web_przy_starcie():
+            sys.exit(0)
     except SystemExit:
         raise
     except Exception:

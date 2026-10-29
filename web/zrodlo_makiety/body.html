@@ -1,0 +1,236 @@
+
+<div class="scena" aria-hidden="true">
+  <canvas id="zorza"></canvas>
+  <div class="gw" id="gw"><canvas id="gwiazdy"></canvas><canvas id="migot"></canvas></div>
+  <svg class="horyzont" id="horyzont" preserveAspectRatio="none"></svg>
+  <div class="mgla"></div>
+  <div class="ziarno-ekran"></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs id="filtry">
+    <filter id="goo" x="-30%" y="-80%" width="160%" height="260%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -10"/>
+    </filter>
+    <filter id="poswiata" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4"/></filter>
+    <linearGradient id="gr-obwod" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--biel)"/><stop offset=".5" style="stop-color:var(--mieta)"/><stop offset="1" style="stop-color:var(--cyan)"/></linearGradient>
+    <linearGradient id="gr-mieta" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--mieta)"/><stop offset="1" style="stop-color:var(--ziel)"/></linearGradient>
+    <linearGradient id="gr-linia" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--ziel)"/><stop offset=".6" style="stop-color:var(--cyan)"/><stop offset="1" style="stop-color:var(--mieta)"/></linearGradient>
+    <symbol id="i-ok" viewBox="0 0 24 24"><path d="M5 12.6l4.3 4.2L19 7.2"/></symbol>
+    <symbol id="i-lewo" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+    <symbol id="i-prawo" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-dzwonek" viewBox="0 0 24 24"><path d="M6.2 16.4V11a5.8 5.8 0 0 1 11.6 0v5.4l1.6 1.6H4.6z"/><path d="M10 20.6a2.2 2.2 0 0 0 4 0"/></symbol>
+    <symbol id="i-ksiezyc" viewBox="0 0 24 24"><path d="M19.5 14.8A7.8 7.8 0 1 1 9.2 4.5a6.2 6.2 0 0 0 10.3 10.3z"/></symbol>
+    <symbol id="i-slonce" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5l1.5 1.5M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5"/></symbol>
+    <symbol id="i-pioro" viewBox="0 0 24 24"><path d="M4 20h4.2L19.3 8.9a2.6 2.6 0 0 0-3.7-3.7L4.5 16.3z"/><path d="M14 6.8l3.6 3.6"/></symbol>
+    <symbol id="i-nawi" viewBox="0 0 24 24"><path d="M3.8 11 20 4l-7 16.2-2-7.2z"/></symbol>
+    <symbol id="i-rozwin" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M10 19.5H4.5V14M19.5 4.5 14 10M4.5 19.5 10 14"/></symbol>
+    <symbol id="i-zamknij" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+    <symbol id="i-dom" viewBox="0 0 24 24"><path d="M4.5 11.2 12 5l7.5 6.2V19.5h-15z"/></symbol>
+    <symbol id="i-kal" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="3.5"/><path d="M4 10.2h16M8.5 3.6v3.6M15.5 3.6v3.6"/></symbol>
+    <symbol id="i-dok" viewBox="0 0 24 24"><path d="M7 3.6h7.2l4.4 4.4v12.4H7z"/><path d="M14 3.8v4.4h4.4M10 13h5.6M10 16.4h3.6"/></symbol>
+    <symbol id="i-cel" viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="i-le" viewBox="0 0 24 24"><path d="M17.5 5 6.5 10.2l11 5.2M6.5 19.5h11"/></symbol>
+    <symbol id="i-prawie" viewBox="0 0 24 24"><path d="M5 9.6c2.3-2 4.7 2 7 0s4.7-2 7 0M5 14.6c2.3-2 4.7 2 7 0s4.7-2 7 0"/></symbol>
+    <symbol id="i-cofnij" viewBox="0 0 24 24"><path d="M9 6.5 4.8 10.7 9 15"/><path d="M5.2 10.7h9a5 5 0 0 1 0 10H11"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.8v.2"/></symbol>
+  </defs>
+</svg>
+
+<div class="aplikacja wejscie" id="aplikacja" data-tab="dzis">
+  <header class="naglowek">
+    <div class="marka" style="--i:0">
+      <img class="logo" src="data:image/webp;base64,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" alt="PMT Planer" width="36" height="36">
+      <span class="marka-nazwa">PMT Planer</span>
+    </div>
+    <div class="miesiac pigulka szklo" data-soczewka="pigulka" style="--i:1">
+      <button class="okr" type="button" id="m-wstecz" aria-label="Poprzedni miesiąc"><svg class="ik"><use href="#i-lewo"/></svg></button>
+      <span class="m-nazwa">Wrzesień 2026</span>
+      <button class="okr" type="button" id="m-dalej" aria-label="Następny miesiąc"><svg class="ik"><use href="#i-prawo"/></svg></button>
+      <i class="dziel" aria-hidden="true"></i>
+      <span class="status" id="status" role="status"><i></i><span>Wygenerowane</span></span>
+    </div>
+    <div class="prawa pigulka szklo" data-soczewka="pigulka" style="--i:2">
+      <button class="dzwonek ikb" type="button" id="dzwonek" aria-label="Powiadomienia: 2 nowe" aria-expanded="false" aria-controls="dymek"><svg class="ik"><use href="#i-dzwonek"/></svg><b>2</b></button>
+      <button class="uzytkownik" type="button" id="konto" aria-label="Konto: Jan Testowy" aria-expanded="false" aria-controls="konto-menu"><span class="awatar">JT</span><span class="imie">Jan Testowy</span></button>
+      <button class="motyw ikb" type="button" id="motyw" aria-label="Przełącz motyw: Noc / Dzień"><svg class="ik i-ksiezyc"><use href="#i-ksiezyc"/></svg><svg class="ik i-slonce"><use href="#i-slonce"/></svg></button>
+    </div>
+    <div class="dymek szklo dym" id="dymek" role="dialog" aria-label="Powiadomienia">
+      <div class="w">
+        <h3>Powiadomienia</h3>
+        <div class="pow"><i></i><div><b>Termin podpisu i wysyłki</b><span>sobota 10.10.2026 · za 3 dni</span></div></div>
+        <div class="pow"><i class="c"></i><div><b>Dokumenty za wrzesień gotowe</b><span>4 polecenia i rozliczenie · 3&nbsp;095,26 zł</span></div></div>
+      </div>
+    </div>
+    <div class="dymek szklo dym" id="konto-menu" role="dialog" aria-label="Konto">
+      <div class="w">
+        <div class="konto-dane"><span class="awatar">JT</span><div><b>Jan Testowy</b><span>auto powyżej 900 cm³ · 1,15 zł/km</span></div></div>
+        <h3>Motyw</h3>
+        <div class="przel" role="group" aria-label="Motyw">
+          <button type="button" data-motyw="dark" aria-pressed="true"><svg class="ik"><use href="#i-ksiezyc"/></svg>Noc</button>
+          <button type="button" data-motyw="light" aria-pressed="false"><svg class="ik"><use href="#i-slonce"/></svg>Dzień</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="bento" id="bento">
+    <!-- BOHATER · do zwrotu + kurtyna września + droga do pieniędzy -->
+    <section class="kafel szklo czyste k-bohater" id="kA" data-soczewka="czyste" data-polka=".proces" style="--i:0" aria-labelledby="a-tyt">
+      <div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="b-gora">
+          <div class="b-lewa">
+            <i class="cien-tekstu ct-kwota" aria-hidden="true"></i>
+            <p class="brew" id="a-tyt"><span>Do zwrotu · wrzesień 2026</span><span class="status-tel" id="status-tel"><i></i><span>Wygenerowane</span></span></p>
+            <p class="b-kwota num" aria-label="3 095,26 zł"><span class="cyfry" id="kwota" aria-hidden="true">3&nbsp;095,26</span><span class="waluta" aria-hidden="true">zł</span></p>
+            <p class="b-wzor num"><b>2&nbsp;691,53 km</b> × <b>1,15 zł/km</b><span class="znaczek">auto powyżej 900 cm³</span></p>
+            <ul class="b-staty num">
+              <li><b>14</b>dni z trasą</li>
+              <li><b>73</b>wizyty</li>
+            </ul>
+          </div>
+          <figure class="kurtyna" id="kurtyna">
+            <figcaption class="ku-gora"><span class="ku-st num"><b data-licz="14">14</b>dni z trasą · <b data-licz="73">73</b>wizyty</span><span class="ku-leg num"><i aria-hidden="true"></i>limit dnia 587,19 zł</span></figcaption>
+            <div class="ku-pole" id="ku-pole" role="img" aria-label="Kwoty dni września: najwyższa 10.09 — 331,61 zł, najniższa 15.09 — 108,42 zł; bez pracy 21–26.09">
+              <span class="ku-limit" aria-hidden="true"></span>
+              <canvas id="kurtyna-gl" aria-hidden="true"></canvas>
+              <div class="ku-zapas" id="ku-zapas" aria-hidden="true"></div>
+            </div>
+            <div class="ku-os num" id="ku-os" aria-hidden="true"></div>
+            <div class="ku-pol num" id="ku-pol" aria-hidden="true"></div>
+          </figure>
+        </div>
+        <div class="proces" aria-label="Proces rozliczenia, krok 3 z 4">
+          <i class="polka" aria-hidden="true"></i>
+          <button class="cofnij" type="button" id="cofnij"><svg class="ik"><use href="#i-cofnij"/></svg>Cofnij demo</button>
+          <ol class="kroki" id="kroki">
+            <li class="krok zrobiony" style="--k:0"><span class="wezel"><svg class="ik"><use href="#i-ok"/></svg></span><span class="k-tyt">Ustaw</span>
+              <span class="k-op"><span>powyżej 900 cm³</span><span>Wieczory 16:30–22:00 · sb</span><span>bez pracy 21–26.09</span></span></li>
+            <li class="krok zrobiony" style="--k:1"><span class="wezel"><svg class="ik"><use href="#i-ok"/></svg></span><span class="k-tyt">Generuj</span>
+              <span class="k-op"><span>4 polecenia</span><span>14 dni z trasą</span><span>73 wizyty</span></span></li>
+            <li class="krok aktywny" id="krok3" style="--k:2"><span class="wezel">3</span><span class="k-tyt">Podpisz</span>
+              <span class="k-op"><span><b id="k3-ile">0 z 5</b> dokumentów · Profil Zaufany</span></span></li>
+            <li class="krok" id="krok4" style="--k:3"><span class="wezel">4</span><span class="k-tyt">Wyślij</span>
+              <span class="k-op"><span>Kierownik regionu · do 10.10</span></span></li>
+          </ol>
+          <div class="akcja">
+            <button class="kropla" type="button" id="podpisz">
+              <span class="kropla-goo" aria-hidden="true"><span class="kropla-cialo"></span><span class="kropla-babel"></span><span class="kropla-kr"></span><span class="kropla-kr"></span><span class="kropla-kr"></span><span class="kropla-kr"></span><span class="kropla-kr"></span></span>
+              <span class="kropla-polysk" aria-hidden="true"></span>
+              <svg class="postep-k" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" pathLength="100" transform="rotate(-90 12 12)"/></svg>
+              <span class="licz-k num" id="licz-k" aria-hidden="true"></span>
+              <span class="kropla-tresc"><svg class="ik"><use href="#i-pioro"/></svg><span class="kropla-napis" id="kropla-napis">Podpisz 5 dokumentów</span></span>
+            </button>
+            <div class="termin" id="termin">
+              <p class="t-op num"><b>za 3 dni</b><span>termin wysyłki · sobota 10.10.2026</span></p>
+              <ol class="t-dni num" aria-label="Dni do terminu: dziś środa 7, czwartek 8, piątek 9, termin sobota 10">
+                <li class="dzis">śr<b>07</b></li><li>cz<b>08</b></li><li>pt<b>09</b></li><li class="cel">sb<b>10</b></li>
+              </ol>
+              <div class="t-pierscien" aria-hidden="true"><svg viewBox="0 0 40 40"><circle class="tlo-k" cx="20" cy="20" r="17"/><circle class="luk" cx="20" cy="20" r="17" pathLength="7" stroke-dasharray="3 7"/></svg><b>3</b></div>
+              <p class="t-tel num"><b>za 3 dni</b><span>sob. 10.10</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DZIŚ · oś dnia z następnym sklepem -->
+    <section class="kafel szklo dym k-dzis" id="kD" data-soczewka="dym" style="--i:1" aria-labelledby="d-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora">
+          <div class="d-pier" id="d-pier" aria-hidden="true"><svg viewBox="0 0 40 40"><circle class="tlo-k" cx="20" cy="20" r="16"/><circle class="luk" cx="20" cy="20" r="16" pathLength="100"/></svg><b class="num" id="d-pier-t">2/6</b></div>
+          <div class="d-glowa">
+            <h2 class="tyt" id="d-tyt">Dziś <span>· śr 07.10</span></h2>
+            <p class="d-meta num"><span><b id="d-ile">2 z 6</b> wizyt</span><span aria-label="trasa około 74 km">trasa<svg class="zn" aria-hidden="true"><use href="#i-prawie"/></svg><b>74 km</b></span><span>baza <b>52 sklepy</b></span></p>
+          </div>
+          <button class="rozwin" type="button" aria-label="Rozwiń kafel Dziś"><svg class="ik i-roz"><use href="#i-rozwin"/></svg><svg class="ik i-zam"><use href="#i-zamknij"/></svg></button>
+        </div>
+        <ol class="przystanki" id="przystanki" aria-live="polite"></ol>
+        <div class="d-plan" id="d-plan"></div>
+        <div class="d-os" id="d-os" aria-hidden="true"></div>
+      </div>
+    </section>
+
+    <!-- KALENDARZ -->
+    <section class="kafel szklo k-kal" id="kC" data-soczewka="mroz" style="--i:2" aria-labelledby="c-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora plyta" style="--pl-in:-60% -6% -90% -8%;--pl-o:.75">
+          <h2 class="tyt" id="c-tyt">Wrzesień <span>· 14 dni z trasą</span></h2>
+          <div class="kal-leg" aria-hidden="true"><span><i class="l1"></i>trasa</span><span><i class="l2"></i>bez trasy</span><span><i class="l3"></i>urlop</span></div>
+          <button class="rozwin" type="button" aria-label="Rozwiń kalendarz"><svg class="ik i-roz"><use href="#i-rozwin"/></svg><svg class="ik i-zam"><use href="#i-zamknij"/></svg></button>
+        </div>
+        <div class="tyg" aria-hidden="true"><span>pn</span><span>wt</span><span>śr</span><span>cz</span><span>pt</span><span>sb</span><span>nd</span></div>
+        <div class="siatka" id="siatka" role="group" aria-label="Dni września 2026 — poziom cieczy: kwota dnia wobec limitu 587,19 zł"></div>
+      </div>
+    </section>
+
+    <!-- WYBRANY DZIEŃ · podróż -->
+    <section class="kafel szklo k-dzien" id="kE" data-soczewka="mroz" style="--i:3" aria-labelledby="e-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora">
+          <h2 class="tyt" id="e-tyt">Czwartek, 3 września</h2>
+          <span class="znaczek num" id="e-pol">Polecenie 1</span>
+          <div class="de-nav">
+            <button class="okr" type="button" id="e-wstecz" aria-label="Poprzedni dzień z trasą"><svg class="ik"><use href="#i-lewo"/></svg></button>
+            <button class="okr" type="button" id="e-dalej" aria-label="Następny dzień z trasą"><svg class="ik"><use href="#i-prawo"/></svg></button>
+          </div>
+          <button class="rozwin" type="button" aria-label="Rozwiń wybrany dzień"><svg class="ik i-roz"><use href="#i-rozwin"/></svg><svg class="ik i-zam"><use href="#i-zamknij"/></svg></button>
+        </div>
+        <div class="dzien-tresc" id="dzien-tresc" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- DOKUMENTY · fiolki -->
+    <section class="kafel szklo k-dok" id="kF" data-soczewka="mroz" style="--i:4" aria-labelledby="f-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora">
+          <h2 class="tyt" id="f-tyt">Dokumenty</h2>
+          <p class="dok-podp num"><span class="dok-kolka" id="dok-kolka" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span><b><span id="podp-ile">0</span> z 5</b> podpisanych</span></p>
+        </div>
+        <div class="fiolki" id="fiolki"></div>
+        <p class="lim-leg num"><i aria-hidden="true"></i>limit polecenia 986,34 zł</p>
+      </div>
+    </section>
+
+    <!-- KONTROLA -->
+    <section class="kafel szklo k-kontrola" id="kK" data-soczewka="mroz" style="--i:5" aria-labelledby="k-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="ko-pierscien" aria-hidden="true"><svg viewBox="0 0 40 40"><circle class="tlo-k" cx="20" cy="20" r="17"/><circle class="luk" cx="20" cy="20" r="17" pathLength="100"/></svg><b>5/5</b></div>
+        <div class="ko-prawa">
+          <p class="ko-tyt"><b id="k-tyt">Kontrola</b><span>5 z 5 w porządku</span></p>
+          <ul class="ko-lista">
+            <li><svg class="ik"><use href="#i-ok"/></svg>Suma dni = kwota</li>
+            <li><svg class="ik"><use href="#i-ok"/></svg>Dzień<svg class="zn" aria-label="nie więcej niż" role="img"><use href="#i-le"/></svg>587,19&nbsp;zł</li>
+            <li><svg class="ik"><use href="#i-ok"/></svg>Polecenie<svg class="zn" aria-label="nie więcej niż" role="img"><use href="#i-le"/></svg>986,34&nbsp;zł</li>
+            <li><svg class="ik"><use href="#i-ok"/></svg>Bez tras 21–26.09</li>
+            <li><svg class="ik"><use href="#i-ok"/></svg>Bez tras w niedziele i święta</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="zakladki szklo" id="zakladki" role="tablist" aria-label="Widoki" data-soczewka="pasek" style="--i:7">
+    <span class="wskaznik" id="wskaznik" aria-hidden="true"></span>
+    <button class="zakladka" role="tab" type="button" data-tab="dzis" aria-selected="true"><svg class="ik"><use href="#i-cel"/></svg>Dziś</button>
+    <button class="zakladka" role="tab" type="button" data-tab="miesiac" aria-selected="false"><svg class="ik"><use href="#i-kal"/></svg>Miesiąc</button>
+    <button class="zakladka" role="tab" type="button" data-tab="dokumenty" aria-selected="false"><svg class="ik"><use href="#i-dok"/></svg>Dokumenty</button>
+  </nav>
+</div>
+
+<div class="podp" id="podp" aria-hidden="true"></div>
+<div class="toast szklo dym" id="toast" role="status" aria-live="polite"><i></i><span id="toast-tekst"></span></div>
+

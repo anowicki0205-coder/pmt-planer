@@ -1,0 +1,1 @@
+# Adres e-mail, na który mają trafiać uwagi z okna „Napisz uwagę” (jedna linia z adresem; bez adresu zostają przyciski Kopiuj i Udostępnij).

@@ -1,0 +1,12 @@
+# lokalne i poufne — nigdy do repozytorium
+vendor/node_modules/
+vendor/package.json
+vendor/package-lock.json
+menedzer.txt
+sekret.txt
+__pycache__/
+*.pyc
+
+# generowane, nie wchodzą do repozytorium
+dystrybucja/*.zip
+testy/dane/skany/

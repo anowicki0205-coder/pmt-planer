@@ -1,0 +1,52 @@
+// Przepływ w aplikacji: Moje dane → ustawienia → generowanie → widoki → dokumenty. NODE_PATH=/opt/node22/lib/node_modules node przeplyw_app.js [katalog-zrzutow]
+const { otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
+(async () => {
+  const wyj = process.argv[2] || '/tmp/app_zrzuty'; fs.mkdirSync(wyj, { recursive: true });
+  const t = await otworz({ w: 1440, h: 900, bezVT: !!process.env.BEZ_VT }); const p = t.p; let kod = 0;
+  const ok = (opis, warunek, szcz = '') => { console.log((warunek ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!warunek) kod = 1; };
+  const zrzut = n => p.screenshot({ path: `${wyj}/${n}.png` });
+  await p.goto(t.adres + '/index.html');
+  await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
+  ok('pierwsze uruchomienie pokazuje „Moje dane"', await p.locator('#ark-tyt').innerText() === 'Zacznijmy od Twoich danych');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 30000 });
+  ok('dane zapisane, nagłówek pokazuje imię', (await p.locator('#imie-pasek').innerText()) === 'Jan Testowy');
+  await p.waitForTimeout(4500); await zrzut('1_plan');
+  ok('stan „Do wygenerowania" przed generowaniem', (await p.locator('#status').innerText()).includes('Do wygenerowania'));
+  await p.fill('#kwota-in', '3095,26'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1500);
+  ok('poprawna kwota: pod polem nie ma zbędnych podsumowań', (await p.locator('#par-info').innerText()).trim() === '', JSON.stringify(await p.locator('#par-info').innerText()));
+  await p.fill('#kwota-in', '99999'); await p.press('#kwota-in', 'Enter'); await p.waitForFunction(() => /maksimum/.test(document.querySelector('#par-info').textContent), null, { timeout: 60000, polling: 200 });
+  ok('za duża kwota: tylko komunikat, co poprawić', /maksimum to 8\s?976/.test(await p.locator('#par-info').innerText()), (await p.locator('#par-info').innerText()).replace(/\n/g, ' | '));
+  await p.fill('#kwota-in', '3095,26'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
+  ok('domyślny tryb pracy to „Tydzień” (pierwszy przycisk, wciśnięty)', await p.evaluate(() => { const b = [...document.querySelectorAll('#parametry [data-tryb]')]; return b.length === 2 && b[0].dataset.tryb === 'tydzien' && b[0].getAttribute('aria-pressed') === 'true' && b[1].getAttribute('aria-pressed') === 'false'; }));
+  await wieczory(p);
+  // dni wolne: 21–26 września (tryb Wieczory: pracuje się także w soboty)
+  for (const d of [21, 22, 23, 24, 25, 26]) await p.click(`#siatka button.dz[data-d="${d}"]`, { force: true }); await p.waitForTimeout(400);
+  await p.waitForTimeout(1500); await zrzut('2_plan_wolne');
+  ok('dni wolne zaznaczone w kalendarzu', (await p.locator('#siatka .dz.urlop').count()) === 6);
+  await generuj(p);
+  await p.waitForTimeout(5000); await zrzut('3_gotowe');
+  ok('stan „Wygenerowane"', (await p.locator('#status').innerText()).includes('Wygenerowane'));
+  const kwota = await p.locator('#b-kwota-w').getAttribute('aria-label'); ok('kwota do zwrotu = zamówiona', kwota.replace(/\s/g, '') === '3095,26zł', kwota);
+  ok('4 fiolki poleceń + rozliczenie', (await p.locator('#fiolki .fiolka').count()) === 5);
+  ok('kontrola: 5 z 5', (await p.locator('#ko-podtyt').innerText()).includes('5 z 5'), await p.locator('#ko-podtyt').innerText());
+  const dni = await p.locator('#siatka button.dz.trasa').count(); ok('dni z trasą w kalendarzu', dni >= 10, String(dni));
+  await p.click('#siatka button.dz.trasa >> nth=2', { force: true });
+  if (process.env.BEZ_VT) { const ile = await p.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').length); ok('bez View Transitions zmiana dnia dalej ma ruch (animacje własne)', ile > 0, String(ile)); }
+  await p.waitForTimeout(2500); await zrzut('4_dzien');
+  ok('wybrany dzień pokazuje trasę', (await p.locator('#dzien-tresc .pr').count()) >= 5);
+  const przedOdswiezeniem = await p.locator('#b-kwota-w').getAttribute('aria-label');
+  await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(3000);
+  ok('po odświeżeniu strony miesiąc wraca z urządzenia', (await p.locator('#b-kwota-w').getAttribute('aria-label')) === przedOdswiezeniem);
+  await p.click('#podpisz'); await p.waitForSelector('#arkusz-tlo.otwarty'); await p.waitForTimeout(800); await zrzut('5_podpis');
+  ok('arkusz podpisu wymienia 5 dokumentów w siatce', (await p.locator('#dok-siatka .dok-k').count()) === 5);
+  await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('#arkusz-tlo.otwarty'), null, { timeout: 60000, polling: 200 });
+  const mnBiez = await p.locator('#m-nazwa').innerText();
+  await p.click('#m-nazwa', { force: true }); await p.waitForSelector('#rok-siatka'); await p.waitForTimeout(700); await zrzut('6_rok');
+  ok('przegląd roku: bieżący miesiąc „do podpisu" z kwotą', /do podpisu/.test(await p.locator('.rok-m[aria-current="true"]').innerText()) && /3\s?095,26/.test(await p.locator('.rok-m[aria-current="true"]').innerText()), (await p.locator('.rok-m[aria-current="true"]').innerText()).replace(/\n/g, ' · '));
+  ok('przegląd roku: suma w roku', /W 20\d\d: .*3\s?095,26 zł · 5 dokumentów/.test(await p.locator('.rok-razem').innerText()), await p.locator('.rok-razem').innerText());
+  await p.click('.rok-m[data-st="brak"] >> nth=0', { force: true }); await p.waitForFunction(() => !document.querySelector('#arkusz-tlo.otwarty'), null, { timeout: 60000, polling: 200 }); await p.waitForFunction(m => document.querySelector('#m-nazwa').textContent !== m, mnBiez, { timeout: 60000, polling: 200 }).catch(() => {});
+  ok('wybór miesiąca w przeglądzie roku przełącza miesiąc', (await p.locator('#m-nazwa').innerText()) === 'Styczeń 2026', await p.locator('#m-nazwa').innerText());
+  console.log('  błędy konsoli:', JSON.stringify(t.bledy.slice(0, 6))); if (t.bledy.length) kod = 1;
+  await t.zamknij(); process.exit(kod);
+})().catch(e => { console.error('PRZERWANO:', e.message); process.exit(2); });

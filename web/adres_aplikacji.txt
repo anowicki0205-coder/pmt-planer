@@ -1,0 +1,4 @@
+# Stały, publiczny adres aplikacji (jedna linia, np. https://nazwa.github.io/pmt-planer/) — pod niego prowadzi kod QR „Na telefon”.
+# Dzięki temu kod działa niezależnie od komputera: telefon łączy się wprost z serwerem aplikacji, a nie z Twoim komputerem.
+# Wiersze zaczynające się od # są pomijane. Wdrożenie na GitHub Pages (.github/workflows/web-pages.yml) wpisuje ten adres samo.
+# Bez adresu: na serwerze (nie localhost) kod prowadzi pod adres bieżącej strony, a przy uruchomieniu lokalnym — pod adres komputera w sieci Wi-Fi.

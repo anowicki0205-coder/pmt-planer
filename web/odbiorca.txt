@@ -1,0 +1,3 @@
+# Adres e-mail Kierownika regionu, na który wysyłane są podpisane dokumenty (wpisz go w jednej linii poniżej, np. kierownik@firma.pl).
+# Wiersze zaczynające się od # są pomijane. Bez adresu w oknie wysyłki pojawia się pole do wpisania adresu.
+# Uwaga: plik leży obok index.html, więc po wdrożeniu na GitHub Pages adres będzie publicznie czytelny (tak jak menedzer.txt).

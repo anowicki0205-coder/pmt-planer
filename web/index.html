@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<!-- Polityka bezpieczeństwa treści: skrypty tylko z tej strony (+ kompilacja WebAssembly silnika), połączenia tylko z tą stroną i backendem Google Apps Script,
+     bez wtyczek (object), bez <base> i bez wysyłania formularzy. Wstrzyknięty znacznik z cudzym skryptem nie ruszy ani PESEL-u, ani hasła. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; worker-src 'self' blob:; frame-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>PMT Planer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050A14">
+<meta name="color-scheme" content="dark light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="ikony/logo-128.webp" type="image/webp">
+<link rel="apple-touch-icon" href="ikony/ikona-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PMT Planer">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<link rel="preload" href="vendor/czcionki/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/aplikacja.css">
+</head>
+<body>
+
+<div class="scena" aria-hidden="true">
+  <canvas id="zorza"></canvas>
+  <div class="gw" id="gw"><canvas id="gwiazdy"></canvas><canvas id="migot"></canvas></div>
+  <svg class="horyzont" id="horyzont" preserveAspectRatio="none"></svg>
+  <div class="mgla"></div>
+  <div class="ziarno-ekran"></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs id="filtry">
+    <filter id="goo" x="-30%" y="-80%" width="160%" height="260%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -10"/>
+    </filter>
+    <filter id="poswiata" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4"/></filter>
+    <linearGradient id="gr-obwod" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--biel)"/><stop offset=".5" style="stop-color:var(--mieta)"/><stop offset="1" style="stop-color:var(--cyan)"/></linearGradient>
+    <linearGradient id="gr-mieta" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--mieta)"/><stop offset="1" style="stop-color:var(--ziel)"/></linearGradient>
+    <linearGradient id="gr-radar" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--cyan);stop-opacity:.42"/><stop offset="1" style="stop-color:var(--cyan);stop-opacity:0"/></linearGradient>
+    <linearGradient id="gr-linia" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--ziel)"/><stop offset=".6" style="stop-color:var(--cyan)"/><stop offset="1" style="stop-color:var(--mieta)"/></linearGradient>
+    <symbol id="i-ok" viewBox="0 0 24 24"><path d="M5 12.6l4.3 4.2L19 7.2"/></symbol>
+    <symbol id="i-lewo" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+    <symbol id="i-prawo" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-dzwonek" viewBox="0 0 24 24"><path d="M6.2 16.4V11a5.8 5.8 0 0 1 11.6 0v5.4l1.6 1.6H4.6z"/><path d="M10 20.6a2.2 2.2 0 0 0 4 0"/></symbol>
+    <symbol id="i-ksiezyc" viewBox="0 0 24 24"><path d="M19.5 14.8A7.8 7.8 0 1 1 9.2 4.5a6.2 6.2 0 0 0 10.3 10.3z"/></symbol>
+    <symbol id="i-slonce" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5l1.5 1.5M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5"/></symbol>
+    <symbol id="i-pioro" viewBox="0 0 24 24"><path d="M4 20h4.2L19.3 8.9a2.6 2.6 0 0 0-3.7-3.7L4.5 16.3z"/><path d="M14 6.8l3.6 3.6"/></symbol>
+    <symbol id="i-nawi" viewBox="0 0 24 24"><path d="M3.8 11 20 4l-7 16.2-2-7.2z"/></symbol>
+    <symbol id="i-rozwin" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M10 19.5H4.5V14M19.5 4.5 14 10M4.5 19.5 10 14"/></symbol>
+    <symbol id="i-zamknij" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+    <symbol id="i-dom" viewBox="0 0 24 24"><path d="M4.5 11.2 12 5l7.5 6.2V19.5h-15z"/></symbol>
+    <symbol id="i-kal" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="3.5"/><path d="M4 10.2h16M8.5 3.6v3.6M15.5 3.6v3.6"/></symbol>
+    <symbol id="i-dok" viewBox="0 0 24 24"><path d="M7 3.6h7.2l4.4 4.4v12.4H7z"/><path d="M14 3.8v4.4h4.4M10 13h5.6M10 16.4h3.6"/></symbol>
+    <symbol id="i-cel" viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="i-le" viewBox="0 0 24 24"><path d="M17.5 5 6.5 10.2l11 5.2M6.5 19.5h11"/></symbol>
+    <symbol id="i-prawie" viewBox="0 0 24 24"><path d="M5 9.6c2.3-2 4.7 2 7 0s4.7-2 7 0M5 14.6c2.3-2 4.7 2 7 0s4.7-2 7 0"/></symbol>
+    <symbol id="i-cofnij" viewBox="0 0 24 24"><path d="M9 6.5 4.8 10.7 9 15"/><path d="M5.2 10.7h9a5 5 0 0 1 0 10H11"/></symbol>
+    <symbol id="i-oko" viewBox="0 0 24 24"><path d="M2.8 12S6.2 5.6 12 5.6 21.2 12 21.2 12 17.8 18.4 12 18.4 2.8 12 2.8 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+    <symbol id="i-oko-zam" viewBox="0 0 24 24"><path d="M3.5 3.5l17 17M9.9 5.9A8.6 8.6 0 0 1 12 5.6c5.8 0 9.2 6.4 9.2 6.4a15.5 15.5 0 0 1-2.9 3.7M6.2 7.6A15.4 15.4 0 0 0 2.8 12s3.4 6.4 9.2 6.4c1.3 0 2.5-.3 3.5-.8M10 10a2.8 2.8 0 0 0 4 4"/></symbol>
+    <symbol id="i-klucz" viewBox="0 0 24 24"><circle cx="8" cy="15.5" r="3.7"/><path d="M10.6 12.9 19.6 4M16.4 7.2l2.6 2.6M14 9.6l1.8 1.8"/></symbol>
+    <symbol id="i-wyjdz" viewBox="0 0 24 24"><path d="M10 4.5H5.5v15H10M14.5 8l4 4-4 4M18.3 12H9.5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.8v.2"/></symbol>
+    <symbol id="i-graj" viewBox="0 0 24 24"><path d="M8.2 5.6v12.8L18.8 12z"/></symbol>
+    <symbol id="i-pauza" viewBox="0 0 24 24"><path d="M8.6 6.2v11.6M15.4 6.2v11.6"/></symbol>
+    <symbol id="i-pobierz" viewBox="0 0 24 24"><path d="M12 4v10M8 10.5l4 4 4-4M5 19h14"/></symbol>
+    <symbol id="i-szukaj" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="M15.6 15.6 20 20"/></symbol>
+    <symbol id="i-drukuj" viewBox="0 0 24 24"><path d="M7.5 9V4.5h9V9M7.5 17.5h-2a1.5 1.5 0 0 1-1.5-1.5v-5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a1.5 1.5 0 0 1-1.5 1.5h-2M7.5 14.5h9v5h-9z"/></symbol>
+    <symbol id="i-wyslij" viewBox="0 0 24 24"><path d="M20.5 4 3.5 10.8l6.3 2.6 2.6 6.3zM9.8 13.4 20.5 4"/></symbol>
+    <symbol id="i-skan" viewBox="0 0 24 24"><path d="M12 15.5V4.5M8 8.5l4-4 4 4M5 14v3.5A2 2 0 0 0 7 19.5h10a2 2 0 0 0 2-2V14"/></symbol>
+  </defs>
+</svg>
+
+<div class="aplikacja wejscie" id="aplikacja" data-tab="dzis">
+  <header class="naglowek">
+    <div class="marka" style="--i:0">
+      <img class="logo" src="ikony/logo-128.webp" alt="PMT Planer" width="36" height="36">
+      <span class="marka-nazwa">PMT Planer</span>
+    </div>
+    <div class="miesiac pigulka szklo" data-soczewka="pigulka" style="--i:1">
+      <button class="okr" type="button" id="m-wstecz" aria-label="Poprzedni miesiąc"><svg class="ik"><use href="#i-lewo"/></svg></button>
+      <button class="m-nazwa" type="button" id="m-nazwa" aria-haspopup="dialog" aria-label="Wybierz miesiąc z roku"></button>
+      <button class="okr" type="button" id="m-dalej" aria-label="Następny miesiąc"><svg class="ik"><use href="#i-prawo"/></svg></button>
+      <i class="dziel" aria-hidden="true"></i>
+      <span class="status" id="status" role="status"><i></i><span>Do wygenerowania</span></span>
+    </div>
+    <div class="prawa pigulka szklo" data-soczewka="pigulka" style="--i:2">
+      <button class="szukaj ikb" type="button" id="szukaj" aria-label="Szukaj poleceń (Ctrl+K)"><svg class="ik"><use href="#i-szukaj"/></svg></button>
+      <button class="dzwonek ikb" type="button" id="dzwonek" aria-label="Powiadomienia: 2 nowe" aria-expanded="false" aria-controls="dymek"><svg class="ik"><use href="#i-dzwonek"/></svg><b>2</b></button>
+      <button class="uzytkownik" type="button" id="konto" aria-label="Konto" aria-expanded="false" aria-controls="konto-menu"><span class="awatar" id="awatar">?</span><span class="imie" id="imie-pasek">Moje dane</span></button>
+      <button class="motyw ikb" type="button" id="motyw" aria-label="Przełącz motyw: Noc / Dzień"><svg class="ik i-ksiezyc"><use href="#i-ksiezyc"/></svg><svg class="ik i-slonce"><use href="#i-slonce"/></svg></button>
+    </div>
+    <div class="dymek szklo dym" id="dymek" role="dialog" aria-label="Powiadomienia">
+      <div class="w">
+        <h3>Powiadomienia</h3>
+        <div id="powiadomienia"></div>
+      </div>
+    </div>
+    <div class="dymek szklo dym" id="konto-menu" role="dialog" aria-label="Konto">
+      <div class="w">
+        <div class="konto-dane"><span class="awatar" id="awatar-menu">?</span><div><b id="konto-imie">Moje dane</b><span id="konto-opis"></span></div></div>
+        <button class="przycisk" type="button" id="moje-dane" style="width:100%">Moje dane</button>
+        <button class="przycisk konto-szukaj" type="button" id="szukaj-menu" style="width:100%"><svg class="ik"><use href="#i-szukaj"/></svg>Szukaj poleceń</button>
+        <button class="przycisk" type="button" id="pokaz-przyklad" style="width:100%"><svg class="ik"><use href="#i-oko"/></svg>Pokaż przykładowy miesiąc</button>
+        <div class="konto-akcje"><button class="przycisk" type="button" id="uwagi"><svg class="ik"><use href="#i-info"/></svg>Napisz uwagę</button><button class="przycisk" type="button" id="instaluj"><svg class="ik"><use href="#i-pobierz"/></svg>Na telefon</button></div>
+        <p class="konto-dostep" id="konto-dostep"></p>
+        <div class="konto-akcje"><button class="przycisk" type="button" id="zmien-haslo"><svg class="ik"><use href="#i-klucz"/></svg>Zmień hasło</button><button class="przycisk" type="button" id="wyloguj"><svg class="ik"><use href="#i-wyjdz"/></svg>Wyloguj</button></div>
+        <h3>Motyw</h3>
+        <div class="przel" role="group" aria-label="Motyw">
+          <button type="button" data-motyw="dark" aria-pressed="true"><svg class="ik"><use href="#i-ksiezyc"/></svg>Noc</button>
+          <button type="button" data-motyw="light" aria-pressed="false"><svg class="ik"><use href="#i-slonce"/></svg>Dzień</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="bento" id="bento">
+    <!-- BOHATER · do zwrotu + kurtyna września + droga do pieniędzy -->
+    <section class="kafel szklo czyste k-bohater przed" id="kA" data-soczewka="czyste" data-polka=".proces" style="--i:0" aria-labelledby="a-tyt">
+      <div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="b-gora">
+          <div class="b-lewa">
+            <i class="cien-tekstu ct-kwota" aria-hidden="true"></i>
+            <p class="brew" id="a-tyt"><span id="b-etyk">Kwota do rozliczenia</span><span class="status-tel" id="status-tel"><i></i><span>Do wygenerowania</span></span></p>
+            <p class="b-kwota num" id="b-kwota-w" aria-label=""><span class="cyfry" id="kwota" aria-hidden="true"></span><span class="waluta" aria-hidden="true">zł</span><svg class="ik b-edytuj" aria-hidden="true"><use href="#i-pioro"/></svg></p>
+            <label class="pole-kwota num"><input id="kwota-in" type="text" inputmode="decimal" autocomplete="off" aria-label="Kwota do rozliczenia w złotych" placeholder="0,00"><span class="waluta" aria-hidden="true">zł</span></label>
+            <p class="b-wzor num" id="b-wzor"></p>
+            <ul class="b-staty num" id="b-staty"></ul>
+          </div>
+          <figure class="kurtyna" id="kurtyna">
+            <figcaption class="ku-gora"><span class="ku-st num" id="ku-st"></span><span class="ku-leg num"><i aria-hidden="true"></i><span id="ku-limit"></span></span></figcaption>
+            <div class="ku-pole" id="ku-pole" role="img" aria-label="">
+              <span class="ku-limit" aria-hidden="true"></span>
+              <div class="ku-zapas" id="ku-zapas" aria-hidden="true"></div>
+            </div>
+            <div class="ku-os num" id="ku-os" aria-hidden="true"></div>
+            <div class="ku-pol num" id="ku-pol" aria-hidden="true"></div>
+          </figure>
+          <div class="parametry" id="parametry">
+            <div class="par-w"><span>Tryb pracy</span><div class="seg" role="group" aria-label="Tryb pracy">
+              <button type="button" data-tryb="tydzien" aria-pressed="true">Tydzień</button><button type="button" data-tryb="wieczory" aria-pressed="false">Wieczory 16:30–22:00</button></div></div>
+            <div class="par-w"><span>Silnik auta</span><div class="seg" role="group" aria-label="Pojemność silnika">
+              <button type="button" data-silnik="1" aria-pressed="true">powyżej 900 cm³</button><button type="button" data-silnik="0" aria-pressed="false">do 900 cm³</button></div></div>
+            <p class="par-info num" id="par-info" aria-live="polite"></p>
+          </div>
+        </div>
+        <div class="proces" aria-label="Proces rozliczenia">
+          <i class="polka" aria-hidden="true"></i>
+          <button class="cofnij" type="button" id="cofnij"><svg class="ik"><use href="#i-cofnij"/></svg>Cofnij wysłanie</button>
+          <button class="od-nowa" type="button" id="od-nowa">Wygeneruj od nowa</button>
+          <ol class="kroki" id="kroki">
+            <li class="krok aktywny" id="krok1" style="--k:0"><span class="wezel">1</span><span class="k-tyt">Ustaw</span><span class="k-op" id="k1-op"></span></li>
+            <li class="krok" id="krok2" style="--k:1"><span class="wezel">2</span><span class="k-tyt">Generuj</span><span class="k-op" id="k2-op"></span></li>
+            <li class="krok" id="krok3" style="--k:2"><span class="wezel">3</span><span class="k-tyt">Podpisz</span><span class="k-op" id="k3-op"></span></li>
+            <li class="krok" id="krok4" style="--k:3"><span class="wezel">4</span><span class="k-tyt">Wyślij</span><span class="k-op" id="k4-op"></span></li>
+          </ol>
+          <div class="akcja">
+            <button class="kropla" type="button" id="podpisz">
+              <span class="kropla-goo" aria-hidden="true"><span class="kropla-cialo"></span><span class="kropla-babel"></span><span class="kropla-kr"></span><span class="kropla-kr"></span><span class="kropla-kr"></span><span class="kropla-kr"></span><span class="kropla-kr"></span></span>
+              <span class="kropla-polysk" aria-hidden="true"></span>
+              <svg class="postep-k" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" pathLength="100" transform="rotate(-90 12 12)"/></svg>
+              <span class="licz-k num" id="licz-k" aria-hidden="true"></span>
+              <span class="kropla-tresc"><svg class="ik"><use href="#i-pioro"/></svg><span class="kropla-napis" id="kropla-napis">Generuj dokumenty</span></span>
+            </button>
+            <p class="przyklad-nota" id="przyklad-nota">Przykładowy miesiąc: tak będą wyglądać Twoje trasy, plan i dokumenty po wygenerowaniu. Kliknij kwotę i wpisz własną — przykład zniknie.</p>
+            <div class="termin" id="termin">
+              <p class="t-op num" id="t-op"></p>
+              <ol class="t-dni num" id="t-dni" aria-hidden="true"></ol>
+              <div class="t-pierscien" aria-hidden="true"><svg viewBox="0 0 40 40"><circle class="tlo-k" cx="20" cy="20" r="17"/><circle class="luk" id="t-luk" cx="20" cy="20" r="17" pathLength="7" stroke-dasharray="3 7"/></svg><b id="t-pier"></b></div>
+              <p class="t-tel num" id="t-tel"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DZIŚ · oś dnia z następnym sklepem -->
+    <section class="kafel szklo dym k-dzis" id="kD" data-soczewka="dym" style="--i:1" aria-labelledby="d-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora">
+          <div class="d-pier" id="d-pier" aria-hidden="true"><svg viewBox="0 0 40 40"><circle class="tlo-k" cx="20" cy="20" r="16"/><circle class="luk" cx="20" cy="20" r="16" pathLength="100"/></svg><b class="num" id="d-pier-t"></b></div>
+          <div class="d-glowa">
+            <h2 class="tyt" id="d-tyt">Dziś <span id="d-data"></span></h2>
+            <p class="d-meta num" id="d-meta"></p>
+          </div>
+          <button class="plan-btn" type="button" id="plan-btn" aria-label="Plan wizyt: wczytaj listę sklepów">Plan</button>
+          <button class="rozwin" type="button" aria-label="Rozwiń kafel Dziś"><svg class="ik i-roz"><use href="#i-rozwin"/></svg><svg class="ik i-zam"><use href="#i-zamknij"/></svg></button>
+        </div>
+        <ol class="przystanki" id="przystanki" aria-live="polite"></ol>
+        <div class="d-plan" id="d-plan"></div>
+        <div class="d-os" id="d-os" aria-hidden="true"></div>
+      </div>
+    </section>
+
+    <!-- KALENDARZ -->
+    <section class="kafel szklo k-kal" id="kC" data-soczewka="mroz" style="--i:2" aria-labelledby="c-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora plyta" style="--pl-in:-60% -6% -90% -8%;--pl-o:.75">
+          <h2 class="tyt" id="c-tyt">Wrzesień <span>· 14 dni z trasą</span></h2>
+          <div class="kal-leg" aria-hidden="true"><span><i class="l1"></i>trasa</span><span><i class="l2"></i>bez trasy</span><span><i class="l3"></i>urlop</span></div>
+          <button class="rozwin" type="button" aria-label="Rozwiń kalendarz"><svg class="ik i-roz"><use href="#i-rozwin"/></svg><svg class="ik i-zam"><use href="#i-zamknij"/></svg></button>
+        </div>
+        <div class="tyg" aria-hidden="true"><span>pn</span><span>wt</span><span>śr</span><span>cz</span><span>pt</span><span>sb</span><span>nd</span></div>
+        <div class="siatka" id="siatka" role="group" aria-label="Dni września 2026 — poziom cieczy: kwota dnia wobec limitu 587,19 zł"></div>
+      </div>
+    </section>
+
+    <!-- WYBRANY DZIEŃ · podróż -->
+    <section class="kafel szklo k-dzien" id="kE" data-soczewka="mroz" style="--i:3" aria-labelledby="e-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora">
+          <h2 class="tyt" id="e-tyt">Czwartek, 3 września</h2>
+          <span class="znaczek num" id="e-pol">Polecenie 1</span>
+          <div class="de-nav">
+            <button class="okr" type="button" id="e-wstecz" aria-label="Poprzedni dzień z trasą"><svg class="ik"><use href="#i-lewo"/></svg></button>
+            <button class="okr" type="button" id="e-dalej" aria-label="Następny dzień z trasą"><svg class="ik"><use href="#i-prawo"/></svg></button>
+          </div>
+          <button class="rozwin" type="button" aria-label="Rozwiń wybrany dzień"><svg class="ik i-roz"><use href="#i-rozwin"/></svg><svg class="ik i-zam"><use href="#i-zamknij"/></svg></button>
+        </div>
+        <div class="dzien-tresc" id="dzien-tresc" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- DOKUMENTY · fiolki -->
+    <section class="kafel szklo k-dok" id="kF" data-soczewka="mroz" style="--i:4" aria-labelledby="f-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="gora">
+          <h2 class="tyt" id="f-tyt">Dokumenty</h2>
+          <p class="dok-podp num"><span class="dok-kolka" id="dok-kolka" aria-hidden="true"></span><span><b><span id="podp-ile">0</span> z <span id="podp-ile-z">5</span></b> podpisanych</span></p>
+        </div>
+        <div class="fiolki" id="fiolki"></div>
+        <p class="lim-leg num"><i aria-hidden="true"></i><span id="lim-pol"></span></p>
+      </div>
+    </section>
+
+    <!-- KONTROLA -->
+    <section class="kafel szklo k-kontrola" id="kK" data-soczewka="mroz" style="--i:5" aria-labelledby="k-tyt">
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <div class="ko-pierscien" aria-hidden="true"><svg viewBox="0 0 40 40"><circle class="tlo-k" cx="20" cy="20" r="17"/><circle class="luk" id="ko-luk" cx="20" cy="20" r="17" pathLength="100"/></svg><b id="ko-licz">–</b></div>
+        <div class="ko-prawa">
+          <p class="ko-tyt"><b id="k-tyt">Kontrola</b><span id="ko-podtyt"></span></p>
+          <ul class="ko-lista" id="ko-lista"></ul>
+        </div>
+      </div>
+    </section>
+    <!-- NA TELEFON: kod QR do pobrania programu (tylko na komputerze) -->
+    <section class="kafel szklo k-qr" id="kQ" data-soczewka="mroz" style="--i:6" aria-labelledby="q-tyt" hidden>
+      <div class="pod" aria-hidden="true"></div><div class="blask" aria-hidden="true"></div>
+      <svg class="obwod" aria-hidden="true"><rect pathLength="100"/></svg><div class="szron" aria-hidden="true"></div>
+      <div class="w">
+        <button type="button" class="qr-kafel" id="qr-kafel" aria-label="Program na telefonie: pokaż kod QR i instrukcję instalacji"><span class="qr-pusty">QR</span></button>
+        <p class="qr-pod"><b id="q-tyt">Na telefon</b><span>zeskanuj aparatem</span></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="zakladki szklo" id="zakladki" role="tablist" aria-label="Widoki" data-soczewka="pasek" style="--i:7">
+    <span class="wskaznik" id="wskaznik" aria-hidden="true"></span>
+    <button class="zakladka" role="tab" type="button" data-tab="dzis" aria-selected="true"><svg class="ik"><use href="#i-cel"/></svg>Dziś</button>
+    <button class="zakladka" role="tab" type="button" data-tab="miesiac" aria-selected="false"><svg class="ik"><use href="#i-kal"/></svg>Miesiąc</button>
+    <button class="zakladka" role="tab" type="button" data-tab="dokumenty" aria-selected="false"><svg class="ik"><use href="#i-dok"/></svg>Dokumenty</button>
+  </nav>
+</div>
+
+<canvas class="pylek" id="pylek" width="520" height="520" aria-hidden="true"></canvas>
+<div class="diag" id="diag" hidden aria-hidden="true"></div>
+<div class="podp" id="podp" aria-hidden="true"></div>
+<div class="arkusz-tlo" id="arkusz-tlo"><div class="arkusz szklo dym" id="arkusz" role="dialog" aria-modal="true" aria-labelledby="ark-tyt"><div class="pod" aria-hidden="true"></div><div class="w" id="arkusz-tresc"></div></div></div>
+<div class="ladowanie" id="ladowanie" role="status"><img src="ikony/logo-128.webp" alt="" width="72" height="72" style="border-radius:50%"><div class="pasek"><i id="lad-pasek"></i></div><span id="lad-tekst">Uruchamianie…</span></div>
+<div class="toast szklo dym" id="toast" role="status" aria-live="polite"><i></i><span id="toast-tekst"></span></div>
+
+
+<script type="module" src="js/aplikacja.js"></script>
+</body>
+</html>

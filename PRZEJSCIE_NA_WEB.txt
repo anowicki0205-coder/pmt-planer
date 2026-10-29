@@ -1,0 +1,259 @@
+═══════════════════════════════════════════════════════════════════════
+  PRZEJŚCIE NA APLIKACJĘ WEB — WYŁĄCZENIE PROGRAMU NA KOMPUTERZE
+  Jak sprawić, żeby KAŻDY użytkownik się dowiedział, wiedział co robić
+  i zdążył. Rób od góry do dołu, przy każdym kroku sprawdź „CO ZOBACZYSZ".
+═══════════════════════════════════════════════════════════════════════
+
+CO TO JEST — W TRZECH ZDANIACH
+  · Program na komputerze zostaje wyłączony w dniu, który wybierasz.
+    Od tego dnia nikt nie pracuje już w programie, tylko w aplikacji
+    w przeglądarce i na telefonie (ten sam kod i to samo hasło).
+  · Informacja idzie do ludzi tą samą drogą co obowiązkowa aktualizacja:
+    plikiem wersja.txt na GitHubie. Dwie nowe linie w tym pliku —
+    web= (adres aplikacji) i wygaszenie= (data) — włączają okno
+    z informacją w każdym programie 3.25.0.
+  · Program 3.25.0 to OSTATNIA wersja na komputer. Niczego już nie
+    zmienia poza tym oknem; logowanie, plany i dokumenty działają do
+    dnia wyłączenia jak dotąd.
+
+
+SKĄD UŻYTKOWNIK SIĘ DOWIE — CZTERY DROGI, KAŻDA ŁAPIE KOGOŚ INNEGO
+  1. Okienko aktualizacji (po wydaniu 3.25.0). Każdy, kto uruchomi
+     program z internetem, zobaczy „Nowa wersja" z jednolinijkowym
+     opisem wydania: „Ostatnia wersja programu na komputerze. Dalej
+     pracujesz w aplikacji w przeglądarce i na telefonie." Przycisk
+     „Zaktualizuj teraz" podmienia program na 3.25.0.
+  2. Okno „Przechodzimy na aplikację w przeglądarce" (3.25.0, od chwili,
+     gdy włączysz web=). Raz dziennie przy starcie, PRZED logowaniem:
+     termin, adres i przycisk „Otwórz aplikację". Można kliknąć
+     „Później" i pracować dalej.
+  3. TWOJA WIADOMOŚĆ (KROK 4). Jedyna droga do osób, które programu
+     już nie uruchamiają albo nie aktualizują. Bez niej ktoś, kto
+     przez miesiąc nie otworzy programu, dowie się w dniu wyłączenia.
+  4. Od dnia wyłączenia: okno „Program na komputerze jest wyłączony"
+     przy KAŻDYM starcie — z adresem aplikacji. Program się zamyka.
+  Kto może nie dostać nic z dróg 1–2: kto nie otwiera programu albo
+  pracuje bez internetu. Dla nich jest droga 3 i kontrola w KROKU 5.
+
+  Czego to NIE robi (mów to ludziom wprost):
+  · Dane z programu przenoszą się PLIKIEM, na życzenie: w oknie z informacją
+    jest przycisk „Przenieś dane” — program zapisuje plik .pmtdane (imię,
+    PESEL, adres, stanowisko, lista sklepów), zaszyfrowany kodem i hasłem
+    konta; w aplikacji: Moje dane → „Wczytaj dane z programu na komputerze”.
+    Plan wizyt, odhaczenia i historia miesięcy NIE przenoszą się (plan
+    układa się od nowa jednym kliknięciem po wczytaniu listy sklepów).
+    Wygenerowane wcześniej dokumenty zostają na dysku, tam gdzie są.
+    Bez wczytania pliku wszystko działa jak dla nowego użytkownika.
+  · Przycisk działa bez logowania (okno pokazuje się przed nim) i także po terminie
+    wyłączenia — konto bierze z historii logowań na tym komputerze (przy kilku
+    pyta, czyje), klucz z zapamiętanego skrótu hasła, a gdy go nie ma, prosi o
+    hasło. Plik innego konta albo zrobiony innym hasłem aplikacja odrzuca
+    czytelnym komunikatem.
+  · Program nie przekazuje loginu ani hasła do przeglądarki.
+
+
+ZANIM ZACZNIESZ — LISTA KONTROLNA (adres musi działać, zanim ktoś go dostanie)
+  [ ] Backend (arkusz) wdrożony: WYDANIE.txt, KROK 4.
+  [ ] Aplikacja web wdrożona pod STAŁYM adresem https (web/WDROZENIE.txt).
+      Wdrożenie robimy osobno, na Twoje zielone światło.
+  [ ] Sprawdzone przez Ciebie na prawdziwych urządzeniach, swoim kodem
+      i hasłem: logowanie w Chrome/Edge na komputerze i na telefonie,
+      „Moje dane", wczytanie listy sklepów z Excela, wygenerowanie
+      dokumentu, instalacja na telefonie.
+  [ ] W arkuszu (zakładka Uzytkownicy) każdy ma kod, hasło lub telefon
+      oraz „Wazne do" — kto tego nie ma, nie zaloguje się w aplikacji.
+  [ ] Wybrana data wyłączenia: dzień roboczy, najlepiej poniedziałek,
+      zwykle 4–6 tygodni po wiadomości (to Twoja decyzja — im więcej
+      osób pracuje poza biurem, tym dłużej). Skrypt przygotuj_przejscie.py
+      wymaga, żeby wyłączenie było co najmniej 7 dni PO dacie blokady.
+  [ ] Ktoś pod telefonem w dniu wyłączenia i dzień po nim.
+
+
+OŚ CZASU (przykład dla wyłączenia w poniedziałek 21 grudnia)
+  Dzień 0    Wydanie 3.25.0 (KROK 1). Włączenie informacji (KROK 2).
+             Wiadomość do zespołu (KROK 4).
+  Dzień +7   Przypomnienie (tekst nr 4 z pliku z gotowymi tekstami).
+  Dzień +14  Blokada: kto nie zaktualizował, nie uruchomi starej
+             wersji — zobaczy okno aktualizacji. Kontrola (KROK 5).
+  Dzień +28  Druga kontrola, telefony do tych, którzy nie przeszli.
+  Dzień +42  21 grudnia: wyłączenie (KROK 6).
+
+
+KROK 1 — WYDAJ 3.25.0
+───────────────────────────────────────────────────────────────────────
+  Zrób KROKI 0–7 z WYDANIE.txt, z tą różnicą, że wiadomości z KROKU 7
+  tam jeszcze NIE wysyłasz (ta idzie w KROKU 4 poniżej).
+  KROK 8b z WYDANIE.txt (próg wersji min= i blokada=) robisz tutaj,
+  w KROKU 2 — od razu po wydaniu, razem z dwiema nowymi liniami.
+  KROK 8a (podpis obowiązkowy w backendzie) robisz dopiero PO dacie
+  blokady, gdy w arkuszu wszyscy mają 3.25.0 (zob. KROK 7).
+  CO ZOBACZYSZ: Releases → v3.25.0 z trzema paczkami; wersja.txt na
+  GitHubie zaczyna się od 3.25.0 (do 5 minut po budowie).
+  Od tej chwili programy 3.24.0 i starsze proponują aktualizację.
+
+
+KROK 2 — WŁĄCZ INFORMACJĘ (wiersze web= i wygaszenie=)
+───────────────────────────────────────────────────────────────────────
+  2a. Na komputerze, w folderze z programem, w oknie poleceń:
+        python przygotuj_przejscie.py  https://adres-aplikacji/  RRRR-MM-DD
+      (adres = stały adres aplikacji web, data = pierwszy dzień BEZ
+      programu). Skrypt sprawdza adres (tylko https) i daty, a potem
+      zapisuje plik PRZEJSCIE_gotowe.txt z czterema częściami:
+        1) wiersze do wersja.txt,
+        2) wiadomość do zespołu,
+        3) instrukcja i pytania,
+        4) przypomnienie i tekst na dzień wyłączenia.
+      Błąd (np. adres z http:// albo wyłączenie za blisko blokady) →
+      komunikat mówi, co poprawić. Niczego nie wysyła.
+      Własna data blokady:  --blokada RRRR-MM-DD  (domyślnie dziś + 14).
+  2b. GitHub → Code → gałąź main → wersja.txt → ołówek „Edit this file".
+      Pierwszych DWÓCH linii (numer wersji i opis) NIE ruszaj. Wszystko
+      od trzeciej linii zamień na cztery wiersze z części 1):
+          min=3.25.0
+          blokada=RRRR-MM-DD
+          web=https://adres-aplikacji/
+          wygaszenie=RRRR-MM-DD
+      „Commit changes…" → „Commit directly to the main branch" →
+      „Commit changes". Dalej niczego w tym pliku ręcznie nie zmieniasz;
+      robot po każdym wydaniu zachowuje te cztery linie.
+  2c. SPRAWDŹ (po 1–5 minutach):
+        https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt
+      Ma być sześć linii: numer, opis, min=, blokada=, web=, wygaszenie=.
+      Adres w web= zaczyna się od https:// i nie ma spacji. Z
+      http:// albo ze spacją program go odrzuci i okno się nie pokaże.
+
+  Co się stanie od tej chwili:
+  · program 3.25.0 przy najbliższym starcie z internetem pobiera
+    wersja.txt i zaczyna pokazywać okno informacji (raz dziennie),
+  · program 3.24.0 i starszy pokazuje okno aktualizacji; po dacie
+    blokada= nie uruchomi się bez aktualizacji,
+  · w dniu wygaszenie= program 3.25.0 pokazuje okno i się zamyka.
+  BEZ linii web= program niczego nie pokazuje — to jest wyłącznik.
+  Samo wygaszenie= bez web= nic nie robi.
+
+
+KROK 3 — SPRAWDŹ NA SOBIE, ZANIM NAPISZESZ DO ZESPOŁU
+───────────────────────────────────────────────────────────────────────
+  3a. Uruchom swój program 3.24.0 (jeśli jeszcze nie zaktualizowany):
+      ma zaproponować aktualizację z opisem wydania. Kliknij
+      „Zaktualizuj teraz".
+  3b. Uruchom 3.25.0. PRZED logowaniem ma się pojawić okno
+      „Przechodzimy na aplikację w przeglądarce": data wyłączenia
+      i liczba dni, adres aplikacji, przyciski „Otwórz aplikację"
+      i „Później". „Otwórz aplikację" ma otworzyć właściwą stronę.
+      Drugi start tego samego dnia: okna nie ma (raz dziennie).
+  3c. Sprawdzenie „po terminie" bez czekania na termin — na swoim
+      komputerze, w paczce testowej (WYDANIE.txt, KROK 5):
+        · obok PMT_Planer.exe połóż pusty plik BEZ_AKTUALIZACJI.txt
+          (wyłącza pobieranie wersja.txt),
+        · w %USERPROFILE% utwórz plik .pmt_wymagania.json o treści
+              {"web": "https://adres-aplikacji/", "wygaszenie": "2020-01-01"}
+          (przeszła data),
+        · uruchom: okno „Program na komputerze jest wyłączony" z
+          przyciskami „Otwórz aplikację" i „Zamknij"; po kliknięciu
+          program się zamyka.
+        · POTEM USUŃ BEZ_AKTUALIZACJI.txt i .pmt_wymagania.json.
+      Nie rób tego na zwykłym programie, którego używasz do pracy.
+  Nie widzisz okna → „GDY COŚ NIE GRA" niżej.
+
+
+KROK 4 — WIADOMOŚĆ DO ZESPOŁU
+───────────────────────────────────────────────────────────────────────
+  Z pliku PRZEJSCIE_gotowe.txt weź część 2) i wyślij ją KAŻDEMU
+  użytkownikowi z listy w arkuszu (zakładka Uzytkownicy): e-mailem
+  albo w komunikatorze, którym zwykle się z ludźmi kontaktujesz.
+  Część 3) (instrukcja i pytania) dołącz jako załącznik albo wyślij
+  drugą wiadomością. Wysyłasz sam — skrypt nic nie wysyła.
+  Wyślij w dniu wydania (po KROKU 2), nie wcześniej: adres w wiadomości
+  musi już działać, a okno w programie ma mówić to samo.
+  Dobrze też powiedzieć to na najbliższym spotkaniu zespołu.
+  Przypomnienie (część 4) — tydzień po wiadomości; tekst na dzień
+  wyłączenia — rano w dniu wyłączenia.
+
+
+KROK 5 — KONTROLA: KTO JESZCZE NIE PRZESZEDŁ
+───────────────────────────────────────────────────────────────────────
+  Arkusz → zakładka Uzytkownicy. Dla każdego widzisz „Ostatni kontakt",
+  „Wersja" i „System":
+    · System = Web → ostatni kontakt był z aplikacji w przeglądarce.
+    · System = Windows / macOS / Linux → ostatni kontakt był z programu.
+  Posortuj po „Ostatni kontakt". Do kogoś, kto po tygodniu od wiadomości
+  nadal loguje się tylko z programu albo nie ma świeżego kontaktu —
+  zadzwoń lub napisz osobno. Zwróć uwagę na wersje starsze niż 3.25.0:
+  to ludzie, którzy nie zaktualizowali programu i mogli w ogóle nie
+  zobaczyć okna.
+  (Uwaga: kolumna „System" pokazuje OSTATNI kontakt. Ktoś, kto używa
+  obu, pokaże się jako Web albo Windows zależnie od tego, co było
+  ostatnie. Sam kontakt z aplikacji web w ogóle nie dowodzi, że przeczytał
+  informację — dlatego telefon do tych, którzy milczą.)
+
+
+KROK 6 — DZIEŃ WYŁĄCZENIA
+───────────────────────────────────────────────────────────────────────
+  · Rano wyślij tekst z części 4) (dzień wyłączenia).
+  · Program 3.25.0 sam pokaże okno „Program na komputerze jest
+    wyłączony" i się zamknie. Nie robisz nic w kodzie.
+  · Zakładka Log i Uzytkownicy: po południu sprawdź, kto zalogował się
+    w aplikacji, a kto nie. Do pozostałych — telefon.
+  · NIE kasujesz wydania v3.25.0 ani wersja.txt: te cztery linie
+    muszą zostać, bo to one zamykają program u tych, którzy wracają
+    po dłuższej przerwie.
+
+
+KROK 7 — PO WYŁĄCZENIU (kiedy już nikt nie pracuje w programie)
+───────────────────────────────────────────────────────────────────────
+  · Przypomnij ludziom (część 3), że na ich komputerach leżą pliki
+    .pmt_* z zapisanym w programie PESEL-em i planem, NIEZASZYFROWANE.
+    Po przejściu na aplikację i wpisaniu „Moje dane" każdy może je
+    usunąć: Eksplorator → %USERPROFILE% → usuń pliki zaczynające się
+    od .pmt_ . Dokumentów w folderach nie ruszają.
+  · Backend: WYMAGAJ_HASLA_W_PULSIE był na czas przejścia false (WYDANIE.txt,
+    KROK 4c). Zmień go na true i włącz PODPIS_OBOWIAZKOWY (WYDANIE.txt, KROK 8a)
+    dopiero, gdy po dacie blokady w kolumnie „Wersja" wszyscy mają 3.25.0
+    albo już ich nie ma w programie (przeszli na Web). Do tego czasu każdy
+    puls z programu 3.24.0 i starszego jest przyjmowany, ale kto zna sam
+    5-cyfrowy kod, może odczytać cudze imię, rejon i nieobecności — to
+    świadomy kompromis na czas przejścia.
+  · Repozytorium: kod programu na komputerze może zostać jako archiwum.
+    Nie usuwaj go, dopóki ktoś może do niego wrócić.
+
+
+HAMULEC AWARYJNY
+───────────────────────────────────────────────────────────────────────
+  Przesunięcie terminu: edytuj w wersja.txt jedną linię wygaszenie=
+  (nowa data, format RRRR-MM-DD). Zadziała u każdego przy najbliższym
+  uruchomieniu z internetem. Nowa data ma być co najmniej 7 dni po
+  blokadzie.
+  Odwołanie okna: usuń linie web= i wygaszenie= z wersja.txt. Program
+  przestaje pokazywać informację po następnym kontakcie z internetem
+  (pobrany plik jest jedynym źródłem prawdy). Gdyby sieć odpowiedziała
+  zbyt wolno, program po terminie może jeszcze raz się zamknąć —
+  wtedy wystarczy uruchomić go ponownie.
+  Aplikacja web nie działa albo adres jest zły: NATYCHMIAST usuń linie
+  web= i wygaszenie=, napraw adres w skrypcie (KROK 2) i dopisz je
+  jeszcze raz. Adres wpisany w web= trafia do ludzi w oknie — zły adres
+  to pomyłka widoczna dla wszystkich.
+
+
+GDY COŚ NIE GRA
+───────────────────────────────────────────────────────────────────────
+  Okno informacji się nie pojawia
+      → otwórz wersja.txt (raw, adres w KROKU 2c): czy jest linia web=
+        i czy zaczyna się od https:// i nie ma spacji?
+      → czy program ma wersję 3.25.0? Starsze pokażą okno aktualizacji,
+        nie okno informacji (zakładka „O programie").
+      → czy komputer ma internet? Okno pojawia się po pierwszym
+        pobraniu wersja.txt; potem działa także bez internetu.
+      → okno raz dziennie: na drugi start tego samego dnia go nie ma.
+  Skrypt przygotuj_przejscie.py zgłasza błąd
+      → komunikat podaje powód. Najczęściej: adres bez https://,
+        data w złym formacie (ma być RRRR-MM-DD) albo wyłączenie za
+        blisko blokady.
+  Okno ma adres, który się nie otwiera
+      → patrz HAMULEC AWARYJNY.
+  Ktoś pisze, że „program nie chce się uruchomić"
+      → po dacie wygaszenia to zamierzone. Wyślij mu adres aplikacji
+        i ten sam kod/hasło.
+  Ktoś nie pamięta hasła
+      → „Nie pamiętam hasła" na ekranie logowania aplikacji (reset
+        numerem telefonu z arkusza).

@@ -1076,9 +1076,9 @@ if _bash3b:
 _zeruj_przejscie3b()
 P.ADRES_WEB = _ADRES3b
 _t3b, _c3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 53, False)
-sprawdz("tekst przed terminem: data, liczba dni, adres, ten sam kod i hasło, dane nie przenoszą się same",
+sprawdz("tekst przed terminem: data, liczba dni, adres, ten sam kod i hasło, dane przenosi przycisk „Przenieś dane”",
         "20.12.2099" in _c3b and "za 53 dni" in _c3b and _ADRES3b in _c3b and "tym samym kodem i hasłem" in _c3b
-        and "nie przenoszą się same" in _c3b and "Moje dane" in _c3b, _c3b)
+        and "Przenieś dane" in _c3b and "Wczytaj dane z programu" in _c3b and "Moje dane" in _c3b, _c3b)
 _, _cj3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 1, False)
 _, _cb3b = P._tekst_przejscia_na_web(_ADRES3b, None, None, False)
 _tp3b, _cp3b = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 0, True)
@@ -1190,10 +1190,10 @@ sprawdz("wiersze ze skryptu czyta prawdziwy parser programu: min, blokada, adres
         P.WERSJA_WYMAGANA == P.WERSJA_PROGRAMU and P.TERMIN_BLOKADY == "2026-11-11"
         and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2026-12-21")
 _zeruj_przejscie3b()
-sprawdz("wiadomości: adres, termin, ostatni dzień roboczy (piątek 18.12), ten sam kod i hasło, dane nie przenoszą się same",
+sprawdz("wiadomości: adres, termin, ostatni dzień roboczy (piątek 18.12), ten sam kod i hasło, jak przenieść dane (plik)",
         all(_ADRES3b in _w3c[k] for k in ("krotka", "dluga", "przypomnienie", "dzien_wylaczenia"))
         and "21 grudnia 2026 (poniedziałek)" in _w3c["krotka"] and "18 grudnia 2026 (piątek)" in _w3c["krotka"]
-        and "tym samym kodem" in _w3c["krotka"] and "nie przenoszą się same" in _w3c["krotka"]
+        and "tym samym kodem" in _w3c["krotka"] and "Przenieś dane" in _w3c["krotka"] and "Wczytaj dane z programu" in _w3c["krotka"]
         and "11 listopada 2026 (środa)" in _w3c["dluga"] and "Nie pamiętam hasła" in _w3c["dluga"]
         and ".pmt_" in _w3c["dluga"], _w3c["krotka"][:300])
 sprawdz("wiadomości nie zawierają sekretów ani danych osobowych ani nieuzupełnionych miejsc",
@@ -1272,6 +1272,253 @@ sprawdz("numer wersji 3.25.0 (wydanie z informacją o przejściu) zgadza się w 
 _zeruj_przejscie3b()
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("3d. Przeniesienie danych do aplikacji web (plik .pmtdane)")
+
+# Przycisk „Przenieś dane” w oknie informacji o przejściu: program zapisuje zaszyfrowany plik (Moje dane + lista sklepów), który aplikacja web wczytuje po zalogowaniu
+# tym samym kodem i hasłem. Format czyta też aplikacja (web/js/przeniesienie.js, test web/testy/przeniesienie_test.js — zgodność dwóch niezależnych zapisów).
+import pmt_przeniesienie as _PRZ3d
+
+
+def _wyczysc_dom3d():
+    for w in glob.glob(os.path.join(_TMP_HOME, ".pmt_*")):
+        try:
+            os.remove(w)
+        except Exception:
+            pass
+    P._ustawienia_reset()
+    P._resetuj_pamiec_kont()
+
+
+def _konto3d(imie, kod, haslo, pesel, adres, silnik_idx, stan, sklepy, logowano="2026-10-28T10:00:00"):
+    """Zakłada konto tak, jak robi to program: login, profil, lista sklepów, wpis w historii logowań."""
+    P.ustaw_uzytkownika_planu(imie, kod)
+    P.zapisz_profil(imie, pesel, adres, stan, silnik_idx)
+    P.zapisz_punkty(sklepy)
+    log = P._wczytaj(P.PLIK_LOGOWAN, {})
+    log[kod] = {"imie": imie, "skrot": P._hash_hasla(kod, haslo), "ostatnio": logowano}
+    P._zapisz(P.PLIK_LOGOWAN, log)
+
+
+_SKL_A3d = [{"adres": "Główna 1, Grodzisk Mazowiecki", "siec": "Żabka", "miasto": "Grodzisk Mazowiecki"},
+            {"adres": "Piękna 2, Żyrardów", "siec": "Biedronka", "miasto": "Żyrardów"}]
+_SKL_B3d = [{"adres": "Polna 9, Płock", "siec": "Lidl", "miasto": "Płock"}]
+
+# moduł: szyfr i podpis
+_dane3d = {"z": "program", "profil": {"imie": "Żółć Ł", "pesel": "90010112349"}, "sklepy": [{"adres": "ą ę ś", "siec": "", "miasto": "x"}]}
+_skr3d = P._hash_hasla("11111", "haslo A")
+_plik3d = _PRZ3d.zaszyfruj(_dane3d, "11111", _skr3d)
+sprawdz("moduł: odszyfrowanie oddaje to, co zaszyfrowano (polskie litery bez uszczerbku)", _PRZ3d.odszyfruj(_plik3d, _skr3d) == _dane3d)
+sprawdz("moduł: w pliku nie ma jawnie PESEL-u ani nazwiska", "90010112349" not in _plik3d and "Żółć" not in _plik3d, _plik3d[:80])
+_bledy3d = []
+for _opis3d, _zmien3d in (("zły skrót", lambda t: (t, P._hash_hasla("11111", "inne"))),
+                          ("zmieniony szyfrogram", lambda t: (t.replace('"dane":"', '"dane":"A', 1), _skr3d)),
+                          ("zmieniony kod", lambda t: (t.replace('"kod":"11111"', '"kod":"22222"'), _skr3d)),
+                          ("obcy format", lambda t: ('{"pmt":"inne"}', _skr3d)),
+                          ("śmieci", lambda t: ("to nie json", _skr3d))):
+    try:
+        _t3d, _k3d = _zmien3d(_plik3d)
+        _PRZ3d.odszyfruj(_t3d, _k3d)
+        _bledy3d.append(_opis3d + " (przeszło!)")
+    except ValueError:
+        pass
+sprawdz("moduł odrzuca (ValueError): zły klucz, zmieniony szyfrogram, zmieniony kod, obcy format, śmieci", not _bledy3d, str(_bledy3d))
+sprawdz("moduł: dwa zapisy tych samych danych różnią się (losowa sól i iv), a oba odczytują się tak samo",
+        _PRZ3d.zaszyfruj(_dane3d, "11111", _skr3d) != _plik3d and _PRZ3d.odszyfruj(_PRZ3d.zaszyfruj(_dane3d, "11111", _skr3d), _skr3d) == _dane3d)
+sprawdz("moduł: powtarzalny wynik dla zadanej soli i iv (wektor zgodny z aplikacją web)",
+        _PRZ3d.zaszyfruj({"a": 1}, "12345", "s", sol=bytes(range(16)), iv=bytes(range(16, 32)))
+        == _PRZ3d.zaszyfruj({"a": 1}, "12345", "s", sol=bytes(range(16)), iv=bytes(range(16, 32))))
+for _zly3d in (("1234", "s"), ("abcde", "s"), ("12345", "")):
+    try:
+        _PRZ3d.zaszyfruj({}, *_zly3d); _ok3d = False
+    except ValueError:
+        _ok3d = True
+    sprawdz("moduł: odmawia szyfrowania bez poprawnego kodu (5 cyfr) i skrótu hasła — %r" % (_zly3d,), _ok3d)
+_zl3d = _PRZ3d.zloz_dane({"imie": "  Ala   Ma ", "pesel": "9001-0112 349x", "adres": "a" * 500, "stanowisko": "kr", "silnik_idx": 0},
+                         [{"adres": " A  1 ", "siec": None, "miasto": 5}, {"adres": ""}, "x", None] + [{"adres": "S%d" % i} for i in range(6000)])
+sprawdz("zloz_dane: czyści pola (spacje, PESEL tylko cyfry, ≤200 znaków), stanowisko KR/merchandiser, silnik, pomija puste i obce wpisy, limit 5000 sklepów",
+        _zl3d["profil"]["imie"] == "Ala Ma" and _zl3d["profil"]["pesel"] == "90010112349" and len(_zl3d["profil"]["adres"]) == 200
+        and _zl3d["profil"]["stanowisko"] == "KR" and _zl3d["profil"]["silnik_powyzej_900"] is False
+        and _zl3d["sklepy"][0] == {"adres": "A 1", "siec": "", "miasto": "5"} and len(_zl3d["sklepy"]) == _PRZ3d.MAX_PUNKTOW)
+sprawdz("zloz_dane: brak profilu i brak listy nie psują niczego", _PRZ3d.zloz_dane(None, None)["profil"] is None and _PRZ3d.zloz_dane(None, None)["sklepy"] == [])
+
+# zbieranie danych konta z dysku: każda osoba dostaje WYŁĄCZNIE swoje
+_wyczysc_dom3d()
+_konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d, "2026-10-27T10:00:00")
+_konto3d("Bartosz Nowak", "22222", "haslo B", "85050512345", "ul. Bartka 2, 09-400 Płock", 1, "merchandiser", _SKL_B3d, "2026-10-28T10:00:00")
+_dA3d = P.zbierz_dane_przeniesienia("11111", "Anna Kowalska")
+_dB3d = P.zbierz_dane_przeniesienia("22222", "Bartosz Nowak")
+sprawdz("konto A: jej profil (PESEL, KR, silnik do 900 cm³) i jej dwa sklepy — niczego z konta B",
+        _dA3d["profil"]["imie"] == "Anna Kowalska" and _dA3d["profil"]["pesel"] == "90010112349" and _dA3d["profil"]["stanowisko"] == "KR"
+        and _dA3d["profil"]["silnik_powyzej_900"] is False and [s["adres"] for s in _dA3d["sklepy"]] == [s["adres"] for s in _SKL_A3d], str(_dA3d)[:200])
+sprawdz("konto B: jego profil (powyżej 900 cm³) i jeden sklep — niczego z konta A",
+        _dB3d["profil"]["pesel"] == "85050512345" and _dB3d["profil"]["silnik_powyzej_900"] is True and [s["adres"] for s in _dB3d["sklepy"]] == ["Polna 9, Płock"]
+        and "90010112349" not in json.dumps(_dB3d) and "Radom" not in json.dumps(_dB3d))
+sprawdz("konto bez imienia w historii i kilka profili na komputerze: profilu NIE zgadujemy (cudzy PESEL nie może trafić do pliku)",
+        P.zbierz_dane_przeniesienia("33333", "")["profil"] is None and P.zbierz_dane_przeniesienia("33333", "Ktoś Obcy")["profil"] is None
+        and P.zbierz_dane_przeniesienia("33333", "")["sklepy"] == [])
+_przed3d = (P.AKTYWNY_UZYTKOWNIK, open(P.PLIK_STATUSU, "rb").read() if os.path.exists(P.PLIK_STATUSU) else None,
+            open(P.PLIK_LOGOWAN, "rb").read(), open(P.USTAWIENIA_STORE, "rb").read() if os.path.exists(P.USTAWIENIA_STORE) else None)
+P.zbierz_dane_przeniesienia("11111", "Anna Kowalska"); P.zbierz_dane_przeniesienia("22222", "Bartosz Nowak")
+_po3d = (P.AKTYWNY_UZYTKOWNIK, open(P.PLIK_STATUSU, "rb").read() if os.path.exists(P.PLIK_STATUSU) else None,
+         open(P.PLIK_LOGOWAN, "rb").read(), open(P.USTAWIENIA_STORE, "rb").read() if os.path.exists(P.USTAWIENIA_STORE) else None)
+sprawdz("zbieranie danych tylko czyta: aktywne konto, status, historia logowań i ustawienia zostają bez zmian", _przed3d == _po3d)
+
+# jedyne konto na komputerze: profil znajdowany także bez imienia; wspólna lista sklepów sprzed 3.21.0 tylko dla niego
+_wyczysc_dom3d()
+P.zapisz_profil("Celina Jedyna", "92020212345", "ul. C 3, 00-001 Warszawa", "merchandiser", 1)
+P._zapisz(P.PLIK_LOGOWAN, {"44444": {"imie": "", "skrot": P._hash_hasla("44444", "x"), "ostatnio": "2026-10-28T09:00:00"}})
+with open(P.PUNKTY_STORE, "w", encoding="utf-8") as _f3d:
+    json.dump([{"adres": "Wspólna 1, Kutno", "siec": "Żabka", "miasto": "Kutno"}], _f3d)
+_dC3d = P.zbierz_dane_przeniesienia("44444", "")
+sprawdz("jedyne konto na komputerze: jedyny profil trafia do pliku, nawet gdy historia logowań nie ma imienia",
+        _dC3d["profil"] is not None and _dC3d["profil"]["pesel"] == "92020212345")
+sprawdz("jedyne konto na komputerze: wspólna lista sklepów sprzed 3.21.0 jest jego (tak samo jak przy logowaniu)", [s["adres"] for s in _dC3d["sklepy"]] == ["Wspólna 1, Kutno"])
+P._zapisz(P.PLIK_LOGOWAN, {"44444": {"imie": "", "skrot": "x", "ostatnio": "2026-10-28T09:00:00"}, "55555": {"imie": "Dorota", "skrot": "y", "ostatnio": "2026-10-28T08:00:00"}})
+sprawdz("komputer współdzielony: wspólna lista sklepów NIE jest przypisywana nikomu, a profil nie jest zgadywany",
+        P.zbierz_dane_przeniesienia("44444", "")["sklepy"] == [] and P.zbierz_dane_przeniesienia("44444", "")["profil"] is None)
+
+# zapis pliku
+_wyczysc_dom3d()
+_konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d)
+_sc3d = os.path.join(_TMP_HOME, "PMT_dane_do_aplikacji.pmtdane")
+_ok3d, _kom3d, _ile3d, _prof3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, _sc3d)
+_odp3d = _PRZ3d.odszyfruj(open(_sc3d, encoding="utf-8").read(), _skr3d) if _ok3d else {}
+sprawdz("plik zapisany: (ok, 2 sklepy, jest profil), odszyfrowuje się skrótem hasła tego konta, nie zostaje plik tymczasowy",
+        _ok3d and _ile3d == 2 and _prof3d and _odp3d.get("profil", {}).get("pesel") == "90010112349" and not os.path.exists(_sc3d + ".tmp"), str((_ok3d, _kom3d)))
+sprawdz("plik zapisany nie zawiera jawnie PESEL-u, nazwiska ani adresów", not re.search(r"90010112349|Kowalska|Radom|Żabka|Grodzisk", open(_sc3d, encoding="utf-8").read()))
+try:
+    _PRZ3d.odszyfruj(open(_sc3d, encoding="utf-8").read(), P._hash_hasla("11111", "zle")); _inne3d = False
+except ValueError:
+    _inne3d = True
+sprawdz("plik zapisany: inne hasło go nie otwiera", _inne3d)
+os.remove(_sc3d)
+_wyczysc_dom3d()
+_ok3d, _kom3d, _ile3d, _prof3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, _sc3d)
+sprawdz("konto bez żadnych danych: czytelny komunikat i żaden plik się nie tworzy", not _ok3d and "Nie znalazłem" in _kom3d and not os.path.exists(_sc3d), _kom3d)
+_konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d)
+_ok3d, _kom3d, *_ = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, os.path.join(_TMP_HOME, "brak_katalogu", "x.pmtdane"))
+sprawdz("zapis w nieistniejącym katalogu: komunikat o błędzie zamiast wyjątku", not _ok3d and "Nie udało się zapisać" in _kom3d, _kom3d)
+
+# okno „Przenieś dane”: atrapy okien systemowych
+_wyczysc_dom3d()
+_konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d, "2026-10-27T10:00:00")
+_okna3d, _pliki3d, _wybor3d = [], [], {}
+_okno_orig3d = P._okno_pmt
+try:
+    from PyQt6 import QtWidgets as _QW3d
+    _fd_orig3d, _id_orig3d = _QW3d.QFileDialog.getSaveFileName, _QW3d.QInputDialog.getItem
+    _odp_okna3d = {"haslo": "haslo B"}
+
+    def _okno_stub3d(rodzic, tytul, tresc, **kw):
+        _okna3d.append((tytul, tresc, kw))
+        return _odp_okna3d["haslo"] if kw.get("pole") else True
+    P._okno_pmt = _okno_stub3d
+    _QW3d.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (_wybor3d.get("plik", ""), ""))
+    _QW3d.QInputDialog.getItem = staticmethod(lambda r, t, e, lista, i, ed: (lista[_wybor3d.get("konto", 0)], _wybor3d.get("konto", 0) is not None))
+
+    # jedno konto: bez pytań o konto i hasło (skrót zapamiętany), plik w wybranym miejscu
+    _wybor3d["plik"] = os.path.join(_TMP_HOME, "wybrany.pmtdane")
+    sprawdz("okno „Przenieś dane” (jedno konto, hasło zapamiętane): zapisuje plik i mówi, co dalej (Moje dane → Wczytaj dane z programu)",
+            P.przenies_dane_do_web() is True and os.path.exists(_wybor3d["plik"]) and len(_okna3d) == 1
+            and "Plik gotowy" == _okna3d[0][0] and "Wczytaj dane z programu" in _okna3d[0][1] and "listę 2 sklepów" in _okna3d[0][1]
+            and _wybor3d["plik"] in _okna3d[0][1] and not any(k[2].get("pole") for k in _okna3d), str(_okna3d))
+    sprawdz("plik z okna odszyfrowuje się skrótem hasła konta A", _PRZ3d.odszyfruj(open(_wybor3d["plik"], encoding="utf-8").read(), _skr3d)["profil"]["imie"] == "Anna Kowalska")
+    # rozszerzenie dopisywane, gdy użytkownik go nie wpisał
+    _okna3d.clear(); _wybor3d["plik"] = os.path.join(_TMP_HOME, "bez_rozszerzenia")
+    P.przenies_dane_do_web()
+    sprawdz("brak rozszerzenia w nazwie: program dopisuje .pmtdane", os.path.exists(_wybor3d["plik"] + ".pmtdane") and not os.path.exists(_wybor3d["plik"]))
+    # anulowanie wyboru pliku
+    _okna3d.clear(); _wybor3d["plik"] = ""
+    sprawdz("anulowanie wyboru miejsca zapisu: nic się nie zapisuje, program nie pada", P.przenies_dane_do_web() is False and not _okna3d)
+    # dwa konta: pytanie „czyje dane”, hasło brakuje → prośba o hasło
+    _konto3d("Bartosz Nowak", "22222", "haslo B", "85050512345", "ul. Bartka 2, 09-400 Płock", 1, "merchandiser", _SKL_B3d, "2026-10-28T10:00:00")
+    _log3d = P._wczytaj(P.PLIK_LOGOWAN, {}); _log3d["22222"].pop("skrot"); _log3d["22222"]["skrot"] = ""; P._zapisz(P.PLIK_LOGOWAN, _log3d)
+    _wybor3d.update(plik=os.path.join(_TMP_HOME, "b.pmtdane"), konto=0)       # historia: najnowsze pierwsze → Bartosz
+    _okna3d.clear(); _odp_okna3d["haslo"] = "haslo B"
+    sprawdz("dwa konta: program pyta, czyje dane, a przy braku zapamiętanego skrótu prosi o hasło (okno z polem hasła)",
+            P.przenies_dane_do_web() is True and any(k[2].get("pole") and k[2].get("haslo") for k in _okna3d), str([k[0] for k in _okna3d]))
+    _plikB3d = open(_wybor3d["plik"], encoding="utf-8").read()
+    sprawdz("plik dla konta B otwiera się hasłem wpisanym w oknie (kod 22222) i zawiera dane Bartosza, nie Anny",
+            _PRZ3d.odszyfruj(_plikB3d, P._hash_hasla("22222", "haslo B"))["profil"]["pesel"] == "85050512345" and '"kod":"22222"' in _plikB3d)
+    _okna3d.clear(); _odp_okna3d["haslo"] = None; _wybor3d["plik"] = os.path.join(_TMP_HOME, "c.pmtdane")
+    sprawdz("anulowanie okna z hasłem: nic się nie zapisuje", P.przenies_dane_do_web() is False and not os.path.exists(_wybor3d["plik"]))
+    _wybor3d.update(konto=1, plik=os.path.join(_TMP_HOME, "a2.pmtdane"))                    # Anna (drugi na liście)
+    _okna3d.clear()
+    sprawdz("wybór drugiego konta z listy: plik z danymi Anny (kod 11111)",
+            P.przenies_dane_do_web() is True and '"kod":"11111"' in open(_wybor3d["plik"], encoding="utf-8").read())
+    # brak kont
+    _wyczysc_dom3d(); _okna3d.clear()
+    sprawdz("komputer bez zapisanych kont: informacja zamiast wyjątku", P.przenies_dane_do_web() is False and len(_okna3d) == 1 and "Nie znalazłem" in _okna3d[0][1])
+except Exception as _e3d:
+    sprawdz("okno „Przenieś dane” z atrapami okien systemowych", False, repr(_e3d))
+finally:
+    P._okno_pmt = _okno_orig3d
+    try:
+        _QW3d.QFileDialog.getSaveFileName, _QW3d.QInputDialog.getItem = _fd_orig3d, _id_orig3d
+    except Exception:
+        pass
+
+# informacja o przejściu: trzeci przycisk, który nie zamyka okna
+_widziano3d = []
+_okno_orig3d = P._okno_pmt
+try:
+    P._okno_pmt = lambda rodzic, tytul, tresc, **kw: (_widziano3d.append(kw), False)[1]
+    _zeruj_przejscie3b(); P.ADRES_WEB, P.TERMIN_WYGASZENIA = _ADRES3b, ""
+    P.zapisz_ustawienie("przejscie_web_dnia", "")
+    P.przejscie_na_web_przy_starcie()
+    P.TERMIN_WYGASZENIA = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    P.przejscie_na_web_przy_starcie()
+    sprawdz("informacja o przejściu ma przycisk „Przenieś dane” (wołający przenies_dane_do_web) zarówno przed terminem, jak i po nim",
+            len(_widziano3d) == 2 and all(k.get("dodatkowy") and k["dodatkowy"][0] == "Przenieś dane" and k["dodatkowy"][1] is P.przenies_dane_do_web for k in _widziano3d), str(_widziano3d))
+finally:
+    P._okno_pmt = _okno_orig3d
+    _zeruj_przejscie3b(); P.zapisz_ustawienie("przejscie_web_dnia", "")
+
+# prawdziwe okno z trzecim przyciskiem: nie zamyka okna, wywołuje funkcję, nic się nie ucina
+try:
+    from PyQt6.QtWidgets import QApplication as _QA3d, QPushButton as _QB3d
+    from PyQt6.QtCore import QTimer as _QT3d
+    _app3d = _QA3d.instance() or _QA3d(sys.argv)
+    _stan3d = {"klik": 0, "geom": None}
+
+    def _krok3d():
+        okno = _QA3d.activeModalWidget()
+        if okno is None:
+            _QT3d.singleShot(100, _krok3d)
+            return
+        przyciski = {b.text(): b for b in okno.findChildren(_QB3d)}
+        _stan3d["napisy"] = list(przyciski)
+        g = {n: b.geometry() for n, b in przyciski.items()}
+        _stan3d["geom"] = g
+        _stan3d["szer"] = okno.width()
+        przyciski["Przenieś dane"].click()
+        _stan3d["otwarte_po_kliku"] = _QA3d.activeModalWidget() is okno
+        przyciski["Później"].click()
+    _QT3d.singleShot(100, _krok3d)
+    _wywolania3d = []
+    _wyn3d = P._okno_pmt(None, "Tytuł", "Treść próbna.", etykieta_ok="Otwórz aplikację", etykieta_anuluj="Później",
+                         dodatkowy=("Przenieś dane", lambda okno: _wywolania3d.append(okno)))
+    sprawdz("prawdziwe okno: trzy przyciski, klik w „Przenieś dane” woła funkcję z oknem, NIE zamyka okna, a „Później” zwraca fałsz",
+            _wyn3d is False and len(_wywolania3d) == 1 and _stan3d.get("otwarte_po_kliku") is True
+            and {"Przenieś dane", "Później", "Otwórz aplikację"} <= set(_stan3d.get("napisy", [])), str(_stan3d.get("napisy")))
+    _g3d = sorted(_stan3d["geom"].values(), key=lambda r: r.left())
+    sprawdz("prawdziwe okno: trzy przyciski mieszczą się w oknie i nie nachodzą na siebie",
+            all(r.left() >= 0 and r.right() <= _stan3d["szer"] for r in _g3d) and all(_g3d[i].right() < _g3d[i + 1].left() for i in range(len(_g3d) - 1)),
+            str([(r.left(), r.right()) for r in _g3d]) + " / " + str(_stan3d["szer"]))
+except Exception as _e3d2:
+    sprawdz("prawdziwe okno z dodatkowym przyciskiem", False, repr(_e3d2))
+
+# dokumentacja
+_instr3d = open(os.path.join(KATALOG, "PRZEJSCIE_NA_WEB.txt"), encoding="utf-8").read()
+sprawdz("instrukcja przejścia opisuje przeniesienie danych: przycisk, plik .pmtdane, szyfrowanie kodem i hasłem, co się przenosi, a co nie",
+        all(s in _instr3d for s in ("Przenieś dane", ".pmtdane", "kodem i hasłem", "Plan wizyt, odhaczenia i historia miesięcy NIE przenoszą", "także po terminie")))
+sprawdz("moduł pmt_przeniesienie jest na liście modułów obowiązkowych i ukrytych importów budowania (inaczej paczka .exe zostałaby bez eksportu)",
+        "pmt_przeniesienie.py" in open(os.path.join(KATALOG, "zbuduj.py"), encoding="utf-8").read()
+        and "pmt_przeniesienie" in open(os.path.join(KATALOG, "zbuduj.py"), encoding="utf-8").read().split("UKRYTE =")[1][:400])
+_wyczysc_dom3d()
+_zeruj_przejscie3b()
+
+# ══════════════════════════════════════════════════════════════
 sekcja("4. Rozdzielenie danych między kontami")
 
 

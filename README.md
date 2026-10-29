@@ -12,8 +12,9 @@
 |---|---|
 | Przejście na aplikację web | program na komputerze zostaje wyłączony, a jego użytkownicy przechodzą na aplikację w przeglądarce i na telefonie. Informacja dociera do każdego tą samą drogą co obowiązkowa aktualizacja — z `wersja.txt`: wiersz `web=` (adres aplikacji, jest też włącznikiem) i `wygaszenie=` (data). Do terminu okno z informacją pojawia się raz dziennie (można pracować dalej), od terminu — przy każdym starcie, po czym program się zamyka. Zły adres (nie https) albo nieczytelna data nikogo nie odcinają; zegar cofnięty w systemie nie przedłuża programu |
 | Wydanie | `build.yml` przy podbiciu `wersja.txt` zachowuje też wiersze `web=` i `wygaszenie=`; `przygotuj_przejscie.py` robi z adresu i daty gotowe wiersze do `wersja.txt` oraz gotowe wiadomości dla zespołu; procedura w `PRZEJSCIE_NA_WEB.txt` |
+| Przeniesienie danych do aplikacji web | przycisk „Przenieś dane” w oknie informacji o przejściu (działa bez logowania, także po terminie wyłączenia) zapisuje plik `.pmtdane` z Moje dane (imię, PESEL, adres, stanowisko) i listą sklepów, zaszyfrowany kodem i hasłem konta; aplikacja web wczytuje go w oknie „Moje dane” (formularz wypełnia się sam, zapisujesz po sprawdzeniu), a lista sklepów czeka w oknie „Plan”. Nowy moduł `pmt_przeniesienie.py` (tylko biblioteka standardowa); plan wizyt, odhaczenia i historia miesięcy się nie przenoszą |
 | Hasło w pulsie i sesji | program podpisuje puls i sesję kluczem pochodnym od hasła (współpraca z backendem 3.25.0); puls „zredukowany” nie nadpisuje zapamiętanego imienia, rejonu ani nieobecności |
-| Testy | sekcja 3b: parser nowych wierszy, stan i terminy, zapis na dysk, zgodność ze starszymi programami (dosłowna kopia parsera z 3.24.0), build.yml uruchomiony w bashu, okna z własnymi napisami przycisków |
+| Testy | sekcja 3d: przeniesienie danych (szyfr i podpis, każda osoba dostaje tylko swoje dane, okna z atrapami i prawdziwe okno z trzecim przyciskiem); sekcja 3b: parser nowych wierszy, stan i terminy, zapis na dysk, zgodność ze starszymi programami (dosłowna kopia parsera z 3.24.0), build.yml uruchomiony w bashu, okna z własnymi napisami przycisków |
 
 ## Co zmieniła wersja 3.24.0 (względem 3.22.0)
 
@@ -78,7 +79,7 @@ Backend obsługuje pięć akcji programu: `logowanie`, `puls`, `sesja`,
   a program bez biblioteki PDF startuje i mówi, co zrobić. Szczegóły: BEZ_BLOKADY_WINDOWS.txt.
 - **Moduły obok programu są obowiązkowe** — pełna lista to `WYMAGANE` w `zbuduj.py`:
   `karta_testera.py`, `wyglad_3d.py`, `nowy_wyglad.py`,
-  `okno_logowania.py`, `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py`,
+  `okno_logowania.py`, `pmt_dokumenty.py`, `pmt_podpis.py`, `pmt_wysylka.py`, `pmt_przeniesienie.py`,
   `logo_retro.py` i katalog `prototyp/` z widżetami `proto_*.py`. Bez nich program
   nie wystartuje albo traci kartę testera i głębię —
   tak wyglądała paczka 3.22.0 z GitHuba (bez nowego wyglądu). Animacja startowa

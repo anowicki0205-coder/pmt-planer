@@ -333,9 +333,9 @@ def przejscie_na_web_stan():
 
 def _tekst_przejscia_na_web(adres, termin, dni, po_terminie):
     """(tytuł, treść) okna z informacją o przejściu na aplikację web."""
-    dane = ("Dane zapisane w tym programie nie przenoszą się same: w aplikacji wpisz swoje dane "
-            "raz (Moje dane) i wczytaj listę sklepów z Excela. Dokumenty wygenerowane wcześniej "
-            "zostają na dysku.")
+    dane = ("Swoje dane (imię, PESEL, adres i listę sklepów) przeniesiesz jednym kliknięciem: "
+            "„Przenieś dane” zapisze plik, który wczytasz w aplikacji (Moje dane → Wczytaj dane "
+            "z programu). Dokumenty wygenerowane wcześniej zostają na dysku.")
     if po_terminie:
         data = (" od %s" % termin.strftime("%d.%m.%Y")) if termin else ""
         return ("Program na komputerze jest wyłączony",
@@ -353,6 +353,127 @@ def _tekst_przejscia_na_web(adres, termin, dni, po_terminie):
             "logujesz się w niej tym samym kodem i hasłem.\n\n%s\n\n%s" % (kiedy, adres, dane))
 
 
+def _punkty_konta_z_dysku(kod: str) -> list:
+    """Lista sklepów konta z dysku — tylko odczyt, te same reguły co przy logowaniu: własny plik
+    konta; wspólny plik sprzed 3.21.0 tylko wtedy, gdy wolno go przepisać na to konto."""
+    klucz = _klucz_konta_dla("", kod)
+    if not klucz:
+        return []
+    wlasny = os.path.join(os.path.expanduser("~"), ".pmt_punkty_%s.json" % klucz)
+    sciezka = wlasny
+    if not _plik_ma_tresc(wlasny) and _wolno_przejac_wspolne(kod):
+        sciezka = PUNKTY_STORE
+    try:
+        with open(sciezka, "r", encoding="utf-8") as f:
+            dane = json.load(f)
+    except Exception:
+        return []
+    return [{"adres": str(x.get("adres", "")), "siec": str(x.get("siec", "") or ""),
+             "miasto": str(x.get("miasto", "") or "")}
+            for x in (dane if isinstance(dane, list) else []) if isinstance(x, dict) and x.get("adres")]
+
+
+def _profil_konta_z_dysku(kod: str, imie: str):
+    """Profil (Moje dane) konta albo None. Dopasowanie po imieniu i nazwisku z historii logowań;
+    gdy to jedyne konto na komputerze, a profil jest jeden — ten profil. Nigdy nie zgadujemy
+    między kilkoma osobami: cudzy PESEL nie może trafić do pliku."""
+    prof = szukaj_profilu_po_nazwisku(imie) if imie else None
+    if prof:
+        return prof
+    try:
+        if _tylko_jedno_konto_na_komputerze(kod):
+            profile = [w.get("profil") for w in _wczytaj_store().values() if isinstance(w.get("profil"), dict)]
+            if len(profile) == 1:
+                return profile[0]
+    except Exception:
+        pass
+    return None
+
+
+def zbierz_dane_przeniesienia(kod: str, imie: str = "") -> dict:
+    """Dane konta do aplikacji web: Moje dane i lista sklepów (patrz pmt_przeniesienie.zloz_dane).
+    Plan wizyt, dziennik odhaczeń i historia miesięcy się nie przenoszą (aplikacja układa plan
+    od nowa z listy sklepów; dokumenty z poprzednich miesięcy zostają na dysku)."""
+    modul = modul_pomocniczy("pmt_przeniesienie")
+    if modul is None:
+        raise RuntimeError("brak modułu pmt_przeniesienie")
+    return modul.zloz_dane(_profil_konta_z_dysku(kod, imie), _punkty_konta_z_dysku(kod),
+                           WERSJA_PROGRAMU, datetime.date.today().isoformat())
+
+
+def zapisz_plik_przeniesienia(kod: str, imie: str, skrot: str, sciezka: str):
+    """Zapisuje zaszyfrowany plik .pmtdane. Zwraca (ok, komunikat, liczba_sklepow, czy_jest_profil)."""
+    modul = modul_pomocniczy("pmt_przeniesienie")
+    if modul is None:
+        return (False, "Brak modułu przeniesienia danych w tej instalacji programu.", 0, False)
+    try:
+        dane = zbierz_dane_przeniesienia(kod, imie)
+        if not dane["profil"] and not dane["sklepy"]:
+            return (False, "Nie znalazłem w programie zapisanych danych tego konta (Moje dane ani listy "
+                           "sklepów). W aplikacji wpiszesz je od początku.", 0, False)
+        tekst = modul.zaszyfruj(dane, kod, skrot)
+        tmp = sciezka + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(tekst)
+        os.replace(tmp, sciezka)
+        return (True, "", len(dane["sklepy"]), bool(dane["profil"]))
+    except Exception as e:
+        return (False, "Nie udało się zapisać pliku: %s" % e, 0, False)
+
+
+def przenies_dane_do_web(rodzic=None) -> bool:
+    """Okna przeniesienia danych do aplikacji web (przycisk w informacji o przejściu). Działa bez
+    logowania: konto bierze z historii logowań na tym komputerze (przy kilku — pyta, czyje).
+    Klucz pliku to skrót hasła zapamiętany po logowaniu; gdy go nie ma, prosi o hasło."""
+    from PyQt6.QtWidgets import QFileDialog, QInputDialog
+    modul = modul_pomocniczy("pmt_przeniesienie")
+    konta = historia_logowan(10)
+    if modul is None or not konta:
+        _okno_pmt(rodzic, "Przeniesienie danych",
+                  "Nie znalazłem na tym komputerze zapisanego konta, więc nie mam czego przenieść. "
+                  "W aplikacji wpiszesz swoje dane od początku.", tylko_ok=True)
+        return False
+    wybrane = konta[0]
+    if len(konta) > 1:
+        etykiety = ["%s (kod %s)" % (k["imie"] or "bez imienia", k["kod"]) for k in konta]
+        wybor, dalej = QInputDialog.getItem(rodzic, "Przenieś dane", "Czyje dane przenieść?", etykiety, 0, False)
+        if not dalej:
+            return False
+        wybrane = konta[etykiety.index(wybor)]
+    kod, imie = wybrane["kod"], wybrane["imie"]
+    skrot = _skrot_hasla_lokalny(kod)
+    if not skrot:
+        haslo = _okno_pmt(rodzic, "Hasło do aplikacji",
+                          "Podaj hasło, którym logujesz się do PMT Planer (kod %s). Wpisz je dokładnie — "
+                          "plik jest nim zaszyfrowany i aplikacja nie odczyta go przy innym haśle." % kod,
+                          pole=True, haslo=True)
+        if not haslo:
+            return False
+        skrot = _hash_hasla(kod, haslo)
+    domyslna = os.path.join(sciezka_pulpitu(), "PMT_dane_do_aplikacji" + modul.ROZSZERZENIE)
+    sciezka, _ = QFileDialog.getSaveFileName(rodzic, "Zapisz plik z danymi dla aplikacji", domyslna,
+                                             "Dane PMT (*%s)" % modul.ROZSZERZENIE)
+    if not sciezka:
+        return False
+    if not sciezka.lower().endswith(modul.ROZSZERZENIE):
+        sciezka += modul.ROZSZERZENIE
+    ok, komunikat, ile, jest_profil = zapisz_plik_przeniesienia(kod, imie, skrot, sciezka)
+    if not ok:
+        _okno_pmt(rodzic, "Przeniesienie danych", komunikat, tylko_ok=True)
+        return False
+    co = []
+    if jest_profil:
+        co.append("imię, PESEL, adres i stanowisko")
+    if ile:
+        co.append("listę %d sklepów" % ile)
+    _okno_pmt(rodzic, "Plik gotowy",
+              "Zapisałem plik z danymi (%s):\n%s\n\nW aplikacji zaloguj się tym samym kodem i hasłem, "
+              "wybierz „Moje dane” → „Wczytaj dane z programu na komputerze” i wskaż ten plik. "
+              "Plik jest zaszyfrowany Twoim kodem i hasłem, ale po wczytaniu i tak go usuń."
+              % (" oraz ".join(co), sciezka), tylko_ok=True)
+    return True
+
+
 def przejscie_na_web_przy_starcie():
     """Informacja o przejściu na aplikację web, pokazywana PRZED logowaniem. Do terminu: raz
     dziennie, z możliwością pracy dalej („Później"); od terminu: sama informacja i koniec
@@ -368,7 +489,8 @@ def przejscie_na_web_przy_starcie():
             return False
         zapisz_ustawienie("przejscie_web_dnia", dzis)
     otworz = _okno_pmt(None, tytul, tresc, etykieta_ok="Otwórz aplikację",
-                       etykieta_anuluj="Zamknij" if po_terminie else "Później")
+                       etykieta_anuluj="Zamknij" if po_terminie else "Później",
+                       dodatkowy=("Przenieś dane", przenies_dane_do_web))
     if otworz:
         try:
             webbrowser.open(adres)
@@ -16071,9 +16193,10 @@ def _styl_okna_pmt():
 
 
 def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
-              etykieta_ok=None, etykieta_anuluj=None):
+              etykieta_ok=None, etykieta_anuluj=None, dodatkowy=None):
     """Nasze okno zamiast systemowego. Zwraca tekst z pola (gdy pole=True),
-    True/False przy pytaniu albo None po anulowaniu."""
+    True/False przy pytaniu albo None po anulowaniu.
+    dodatkowy=(napis, funkcja): trzeci przycisk z lewej, który NIE zamyka okna — woła funkcję(okno)."""
     from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame
     d = QDialog(rodzic)
     if rodzic is None:
@@ -16103,7 +16226,12 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
             we.setEchoMode(QLineEdit.EchoMode.Password)
         ukl.addSpacing(4); ukl.addWidget(we)
     ukl.addSpacing(6)
-    rzad = QHBoxLayout(); rzad.addStretch(1)
+    rzad = QHBoxLayout()
+    if dodatkowy:
+        b_dod = QPushButton(dodatkowy[0]); b_dod.setObjectName("anuluj")
+        b_dod.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        b_dod.clicked.connect(lambda _=False, f=dodatkowy[1]: f(d)); rzad.addWidget(b_dod)
+    rzad.addStretch(1)
     if not tylko_ok:
         b_anuluj = QPushButton(etykieta_anuluj or "Anuluj"); b_anuluj.setObjectName("anuluj")
         b_anuluj.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))

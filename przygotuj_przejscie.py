@@ -118,12 +118,13 @@ Od teraz pracujemy w aplikacji w przeglądarce i na telefonie:
 
     {adres}
 
-Co robisz:
-  1. Otwórz ten adres (Chrome, Edge albo Safari).
-  2. Zaloguj się tym samym kodem (5 cyfr) i tym samym hasłem co w programie. Nie pamiętasz hasła? Na ekranie logowania jest „Nie pamiętam hasła”.
-  3. Przy pierwszym wejściu wpisz swoje dane (Moje dane) i wczytaj listę sklepów z Excela.
+Co robisz (5 minut):
+  1. W programie na komputerze, w oknie z informacją przy starcie, kliknij „Przenieś dane” i zapisz plik z Twoimi danymi (imię, PESEL, adres, lista sklepów). Okno wraca przy każdym uruchomieniu programu, także po terminie.
+  2. Otwórz adres aplikacji (Chrome, Edge albo Safari) i zaloguj się tym samym kodem (5 cyfr) i tym samym hasłem co w programie. Nie pamiętasz hasła? Na ekranie logowania jest „Nie pamiętam hasła”.
+  3. W oknie „Moje dane” kliknij „Wczytaj dane z programu na komputerze”, wskaż zapisany plik i kliknij „Zapisz”. Potem usuń plik z komputera.
+  4. W kaflu Dziś kliknij „Plan” i „Ułóż plan” — lista sklepów jest już wczytana.
 
-Dane zapisane w programie na komputerze nie przenoszą się same. Dokumenty wygenerowane wcześniej zostają na dysku, tam gdzie są.
+Plan wizyt, odhaczenia i historia miesięcy nie przenoszą się (plan ułożysz od nowa jednym kliknięciem). Dokumenty wygenerowane wcześniej zostają na dysku, tam gdzie są.
 Jeśli program poprosi o aktualizację do wersji {wersja} — zaktualizuj: to ostatnia wersja i pokaże ten sam adres.
 
 Jeśli coś nie działa albo adres się nie otwiera — napisz do mnie, zanim minie termin.
@@ -147,12 +148,13 @@ TELEFON
   (iPhone: Safari → Udostępnij → Dodaj do ekranu początkowego.) Po pierwszym wejściu działa też bez internetu; wtedy kilometry są z szacunku, a dokument to zaznacza.
 
 PIERWSZE WEJŚCIE — CO ZROBIĆ
-  1. Moje dane: imię i nazwisko, PESEL, adres, stanowisko. Wpisujesz raz.
-  2. Lista sklepów: wczytaj plik z Excela (.xlsx) albo .csv — ten sam, którego używasz w programie. Kolumny rozpoznam po nagłówkach.
+  1. Przenieś dane z programu: w programie na komputerze kliknij „Przenieś dane” (okno z informacją przy starcie) i zapisz plik. W aplikacji: Moje dane → „Wczytaj dane z programu na komputerze” → wskaż plik → „Zapisz”. Plik jest zaszyfrowany Twoim kodem i hasłem; po wczytaniu go usuń.
+  2. Plan wizyt: w kaflu Dziś kliknij „Plan” — lista sklepów z programu jest już wczytana, zostaje „Ułóż plan”. (Lista z Excela — .xlsx albo .csv — jest potrzebna tylko wtedy, gdy zaczynasz od zera.)
   3. Wybierz kwotę i dni, sprawdź podsumowanie i wygeneruj dokumenty, jak dotąd.
 
 PYTANIA
-  Czy moje dane z programu przeniosą się same?  Nie. Moje dane i listę sklepów wpisujesz raz. Wygenerowane wcześniej dokumenty zostają na dysku.
+  Czy moje dane z programu się przeniosą?  Tak, jednym plikiem: imię, PESEL, adres, stanowisko i lista sklepów. Plan wizyt, odhaczenia i historia miesięcy nie — plan układasz od nowa jednym kliknięciem. Wygenerowane wcześniej dokumenty zostają na dysku.
+  Program nie ma mojego hasła w oknie „Przenieś dane” — co wpisać?  Hasło, którym logujesz się do PMT Planer. Wpisz je dokładnie: plik jest nim zaszyfrowany i aplikacja nie odczyta go przy innym haśle.
   Gdzie są moje PESEL i dokumenty?  Na Twoim urządzeniu, w przeglądarce, zaszyfrowane Twoim hasłem. Nie wysyłamy ich na serwer. Do map wychodzą tylko adresy potrzebne do policzenia kilometrów (bez imienia i PESEL-u).
   Zmieniłem hasło na innym urządzeniu — i co?  Aplikacja zapyta o poprzednie hasło albo pozwoli zacząć od nowa na tym urządzeniu (dokumenty wygenerujesz ponownie). Zapomniane hasło oznacza utratę danych zapisanych na TYM urządzeniu.
   Sieć w firmie blokuje adres.  Napisz do mnie — poszukamy innego sposobu. Spróbuj też na telefonie w sieci komórkowej.
@@ -169,7 +171,7 @@ przypominam: ostatni dzień roboczy z programem PMT Planer na komputerze to {ost
 
     {adres}
 
-Kod i hasło masz te same co w programie. Jeśli jeszcze nie logujesz się do aplikacji, zrób to dziś: wpisz Moje dane i wczytaj listę sklepów, żeby nie zostawiać tego na ostatni dzień.
+Kod i hasło masz te same co w programie. Jeśli jeszcze nie przeniosłeś danych, zrób to dziś: w programie kliknij „Przenieś dane”, a w aplikacji Moje dane → „Wczytaj dane z programu na komputerze”. Nie zostawiaj tego na ostatni dzień.
 Jak coś nie działa — napisz.
 """.format(**t)
 

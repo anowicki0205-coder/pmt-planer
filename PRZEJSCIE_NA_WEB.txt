@@ -36,10 +36,19 @@ SKĄD UŻYTKOWNIK SIĘ DOWIE — CZTERY DROGI, KAŻDA ŁAPIE KOGOŚ INNEGO
   pracuje bez internetu. Dla nich jest droga 3 i kontrola w KROKU 5.
 
   Czego to NIE robi (mów to ludziom wprost):
-  · Dane z programu (PESEL, adres, lista sklepów, plan) NIE przenoszą
-    się same do aplikacji. Każdy wpisuje „Moje dane" i wczytuje listę
-    sklepów z Excela JEDEN raz. Wygenerowane wcześniej dokumenty
-    zostają na dysku, tam gdzie są.
+  · Dane z programu przenoszą się PLIKIEM, na życzenie: w oknie z informacją
+    jest przycisk „Przenieś dane” — program zapisuje plik .pmtdane (imię,
+    PESEL, adres, stanowisko, lista sklepów), zaszyfrowany kodem i hasłem
+    konta; w aplikacji: Moje dane → „Wczytaj dane z programu na komputerze”.
+    Plan wizyt, odhaczenia i historia miesięcy NIE przenoszą się (plan
+    układa się od nowa jednym kliknięciem po wczytaniu listy sklepów).
+    Wygenerowane wcześniej dokumenty zostają na dysku, tam gdzie są.
+    Bez wczytania pliku wszystko działa jak dla nowego użytkownika.
+  · Przycisk działa bez logowania (okno pokazuje się przed nim) i także po terminie
+    wyłączenia — konto bierze z historii logowań na tym komputerze (przy kilku
+    pyta, czyje), klucz z zapamiętanego skrótu hasła, a gdy go nie ma, prosi o
+    hasło. Plik innego konta albo zrobiony innym hasłem aplikacja odrzuca
+    czytelnym komunikatem.
   · Program nie przekazuje loginu ani hasła do przeglądarki.
 
 

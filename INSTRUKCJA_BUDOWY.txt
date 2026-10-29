@@ -4,7 +4,7 @@ JAK ZBUDOWAC PROGRAM OD ZERA (3.25.0)
 1. Rozpakuj CALA paczke do jednego, pustego folderu (np. C:\PMT\build).
    Musza w nim lezec co najmniej: PMT_Delegacje.py,
    karta_testera.py, wyglad_3d.py, nowy_wyglad.py, okno_logowania.py,
-   pmt_dokumenty.py, pmt_podpis.py, pmt_wysylka.py, logo_retro.py,
+   pmt_dokumenty.py, pmt_podpis.py, pmt_wysylka.py, pmt_przeniesienie.py, logo_retro.py,
    podfolder prototyp\ (proto_*.py), zbuduj.py, wersja_exe.txt,
    pmt_logo_retro.ico. Pelna lista: WYMAGANE w zbuduj.py — brak
    ktoregokolwiek pliku zatrzymuje budowanie.

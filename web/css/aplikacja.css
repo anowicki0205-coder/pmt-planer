@@ -1876,7 +1876,7 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 .qr-kafel:hover,.qr-kafel:focus-visible{transform:scale(1.04)}
 .qr-kafel svg{width:100%;height:100%;display:block}
 .qr-pusty{color:#2A1058;font-size:.62rem;font-weight:700;text-align:center;line-height:1.2;padding:.2rem}
-.qr-pod{margin:0;display:grid;gap:0;text-align:center;line-height:1.15}
+.qr-pod{margin:0;display:grid;gap:2px;text-align:center;line-height:1.25}      /* tytuł i podpis nie stykają się polami tekstu nawet w najniższym oknie */
 .qr-pod b{font-size:clamp(.66rem,12.5cqi,.8rem);font-weight:720;white-space:nowrap}
 .qr-pod span{font-size:clamp(.52rem,10cqi,.66rem);color:var(--t2);white-space:nowrap}
 .kafel.szklo.k-qr{--tn-a:216 64 200;--tn-b:96 76 255;--tn-s0:.92;--tinta:rgb(20 0 50/.1)}

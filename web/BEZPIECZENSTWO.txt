@@ -107,8 +107,11 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
   bez okna) ani Edge/Firefoksa na prawdziwych przeglądarkach.
 
 PRZENIESIENIE DANYCH Z PROGRAMU NA KOMPUTERZE (plik .pmtdane)
-  Plik zawiera m.in. PESEL, więc nie leży jawnie: jest zaszyfrowany kluczem z kodu i hasła konta (PBKDF2-HMAC-SHA256, 100 000 iteracji, z tego samego skrótu „PMT|kod|hasło”, który zna backend
+  Plik zawiera m.in. PESEL, adresy sklepów i plan wizyt, więc nie leży jawnie: jest zaszyfrowany kluczem z kodu i hasła konta (PBKDF2-HMAC-SHA256, 100 000 iteracji, z tego samego skrótu „PMT|kod|hasło”, który zna backend
   i aplikacja po zalogowaniu; strumień HMAC-SHA256 i podpis HMAC sprawdzany przed odszyfrowaniem). Zmiana choć jednego bajtu, inne konto albo inne hasło = odmowa, nie śmieci.
   Co to daje: ktoś, kto znajdzie plik na dysku albo w pobranych, nie przeczyta go bez hasła konta. Czego nie daje: skrót hasła zna też administrator arkusza (kolumna „Haslo hash”) — administrator,
   który dostałby plik, mógłby go odczytać; to samo ryzyko dotyczy zresztą podpisu pulsu. Zalecenie: po wczytaniu w aplikacji usunąć plik (okno z instrukcją mówi to wprost).
+  Prywatność eksportu (poprawka 3.25.1): okno „Przenieś dane” NIE pokazuje listy kont ani czyichkolwiek danych — wymaga własnego kodu i hasła, sprawdzanych ze skrótem zapisanym na komputerze; błędne dane
+  dają ogólny komunikat (bez ujawniania, czy konto istnieje). Do pliku trafiają dane tylko tego jednego konta. Zostaje ograniczenie starego programu: jego pliki (.pmt_*.json) w katalogu użytkownika Windows
+  może odczytać każdy, kto ma dostęp do tego konta Windows — program web tego problemu nie ma (dane są szyfrowane hasłem). Wersja 3.25.0 z listą kont jest już rozesłana: dlatego wymagana jest 3.25.1.
   Program niczego nie wysyła do sieci przy eksporcie; plik powstaje tylko tam, gdzie użytkownik go zapisze. Niezależna kontrola: web/testy/przeniesienie_test.js (dwa osobne zapisy tego samego szyfru).

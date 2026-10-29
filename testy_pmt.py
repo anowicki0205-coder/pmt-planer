@@ -890,7 +890,7 @@ sekcja("3b. Przejście na aplikację web: informacja dla każdego użytkownika (
 # aktualizacja — z wersja.txt. Dwa nowe wiersze: web= (adres; jest WŁĄCZNIKIEM) i wygaszenie= (data).
 
 _ADRES3b = "https://anowicki0205-coder.github.io/pmt-planer/"
-_PLIK3b = "3.25.0\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\nweb=%s\nwygaszenie=2099-12-20\n" % _ADRES3b
+_PLIK3b = "3.25.1\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\nweb=%s\nwygaszenie=2099-12-20\n" % _ADRES3b
 
 
 def _zeruj_przejscie3b():
@@ -901,25 +901,25 @@ def _zeruj_przejscie3b():
 _zeruj_przejscie3b()
 _n3b, _o3b = P._czytaj_wymagania_z_tekstu(_PLIK3b)
 sprawdz("parser: numer, opis, min, blokada, web i wygaszenie czytane razem",
-        (_n3b, _o3b) == ("3.25.0", "Opis aktualizacji.") and P.WERSJA_WYMAGANA == "3.24.0"
+        (_n3b, _o3b) == ("3.25.1", "Opis aktualizacji.") and P.WERSJA_WYMAGANA == "3.24.0"
         and P.TERMIN_BLOKADY == "2099-12-01" and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20",
         str((_n3b, _o3b, P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.ADRES_WEB, P.TERMIN_WYGASZENIA)))
 for _nazwa3b, _tresc3b in {
-        "wiersze web/wygaszenie przed opisem": "3.25.0\nweb=%s\nwygaszenie=2099-12-20\nOpis aktualizacji.\n" % _ADRES3b,
-        "spacje i wielkie litery": "3.25.0\nOpis aktualizacji.\nWEB = %s\nWYGASZENIE = 2099-12-20\n" % _ADRES3b,
+        "wiersze web/wygaszenie przed opisem": "3.25.1\nweb=%s\nwygaszenie=2099-12-20\nOpis aktualizacji.\n" % _ADRES3b,
+        "spacje i wielkie litery": "3.25.1\nOpis aktualizacji.\nWEB = %s\nWYGASZENIE = 2099-12-20\n" % _ADRES3b,
         "końce wierszy CRLF": _PLIK3b.replace("\n", "\r\n")}.items():
     _zeruj_przejscie3b()
     _n3b, _o3b = P._czytaj_wymagania_z_tekstu(_tresc3b)
-    sprawdz("parser: %s" % _nazwa3b, _n3b == "3.25.0" and _o3b == "Opis aktualizacji."
+    sprawdz("parser: %s" % _nazwa3b, _n3b == "3.25.1" and _o3b == "Opis aktualizacji."
             and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20", str((_n3b, _o3b, P.ADRES_WEB)))
 sprawdz("plik z wierszami web=/wygaszenie= nadal wygląda na plik wersji (także z web= w pierwszym wierszu)",
-        P._tresc_wyglada_na_wersje(_PLIK3b) and P._tresc_wyglada_na_wersje("web=%s\n3.25.0\nOpis" % _ADRES3b)
+        P._tresc_wyglada_na_wersje(_PLIK3b) and P._tresc_wyglada_na_wersje("web=%s\n3.25.1\nOpis" % _ADRES3b)
         and not P._tresc_wyglada_na_wersje("web=%s\n<html>blokada proxy</html>" % _ADRES3b))
 for _zly3b in ("http://planer.example.pl/", "javascript:alert(1)", "file:///C:/Windows/", "https://planer/",
                "https://planer.example.pl/?x=1", "https://u:p@planer.example.pl/", "https://planer.example.pl/ a",
                "ftp://planer.example.pl/", "https://" + "a" * 250 + ".pl/"):
     _zeruj_przejscie3b()
-    P._czytaj_wymagania_z_tekstu("3.25.0\nOpis.\nweb=%s\n" % _zly3b)
+    P._czytaj_wymagania_z_tekstu("3.25.1\nOpis.\nweb=%s\n" % _zly3b)
     sprawdz("adres inny niż bezpieczny https jest odrzucany (wtedy informacja się nie włącza): %s" % _zly3b[:40],
             P.ADRES_WEB == "" and P.przejscie_na_web_stan()[0] is False)
 sprawdz("poprawny adres z portem i ścieżką przechodzi",
@@ -969,7 +969,7 @@ try:
     except Exception:
         pass
     _zeruj_przejscie3b()
-    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(_PLIK3b.replace("3.25.0", "3.99.0", 1).encode("utf-8"))
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(_PLIK3b.replace("3.25.1", "3.99.0", 1).encode("utf-8"))
     _w3b = P.sprawdz_aktualizacje()
     _zapis3b = json.load(open(P.PLIK_WYMAGAN, encoding="utf-8"))
     sprawdz("pobrany wersja.txt zapisuje adres web i termin wygaszenia na dysk",
@@ -993,7 +993,7 @@ try:
     P.sprawdz_aktualizacje()
     sprawdz("strona firmowego proxy nie wyłącza informacji o przejściu", P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20")
     # usunięcie web= z wersja.txt na GitHubie wyłącza informację wszystkim (plik jest jedynym źródłem prawdy)
-    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(b"3.25.0\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\n")
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(b"3.25.1\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\n")
     P.sprawdz_aktualizacje()
     P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
     P._wczytaj_wymagania()
@@ -1045,7 +1045,7 @@ _ns3b = {}
 exec(_STARY_PARSER3b, _ns3b)
 _nowy3b, _opis3b = _ns3b["_czytaj_wymagania_z_tekstu"](_PLIK3b)
 sprawdz("stary program (3.24.0) czyta nowy wersja.txt po swojemu: numer, opis, min i blokada bez zmian, nowych wierszy nie bierze za opis",
-        (_nowy3b, _opis3b) == ("3.25.0", "Opis aktualizacji.") and _ns3b["WERSJA_WYMAGANA"] == "3.24.0"
+        (_nowy3b, _opis3b) == ("3.25.1", "Opis aktualizacji.") and _ns3b["WERSJA_WYMAGANA"] == "3.24.0"
         and _ns3b["TERMIN_BLOKADY"] == "2099-12-01" and _ns3b["_tresc_wyglada_na_wersje"](_PLIK3b) is True)
 
 # ── wiersze web= i wygaszenie= przeżywają automatyczne podbicie wersja.txt po zbudowaniu paczki (build.yml) ──
@@ -1061,13 +1061,13 @@ if _bash3b:
     import subprocess as _sp3b
     _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
     with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
-        _f3b.write(_PLIK3b.replace("3.25.0", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
-    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.0; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
+        _f3b.write(_PLIK3b.replace("3.25.1", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
+    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
                          cwd=_kat3b, capture_output=True, timeout=30)
     _po3b = open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8")
     _wiersze3b = [l for l in _po3b.replace("\r\n", "\n").split("\n") if l]
     sprawdz("build.yml (uruchomiony w bashu na próbnym pliku): nowy numer i opis, a wiersze min=, blokada=, web=, wygaszenie= zostają, końce wierszy CRLF",
-            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.0", "Nowy opis."]
+            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
             and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
             and _po3b.count("\r\n") == len(_wiersze3b), repr(_po3b) + _wynik3b.stderr.decode()[:200])
     shutil.rmtree(_kat3b, ignore_errors=True)
@@ -1114,8 +1114,8 @@ try:
             P.przejscie_na_web_przy_starcie() is False and len(_okna3b) == 1)
     P.zapisz_ustawienie("przejscie_web_dnia", (_dz3b - datetime.timedelta(days=1)).isoformat())
     P._okno_pmt = _okno_stub3b(True)
-    sprawdz("przed terminem: następnego dnia okno wraca, a „Otwórz aplikację” otwiera właściwy adres",
-            P.przejscie_na_web_przy_starcie() is False and len(_okna3b) == 2 and _przegl3b == [_ADRES3b])
+    sprawdz("przed terminem: następnego dnia okno wraca, a „Otwórz aplikację” otwiera właściwy adres i ZAMYKA program (nie zasłania przeglądarki)",
+            P.przejscie_na_web_przy_starcie() is True and len(_okna3b) == 2 and _przegl3b == [_ADRES3b])
     # po terminie: za każdym razem, koniec programu
     _okna3b.clear(); _przegl3b.clear()
     P.TERMIN_WYGASZENIA = _d3b(0)
@@ -1267,8 +1267,8 @@ sprawdz("WYDANIE.txt, START_TUTAJ.txt i README.md odsyłają do instrukcji przej
         all("PRZEJSCIE_NA_WEB.txt" in open(os.path.join(KATALOG, n), encoding="utf-8").read()
             for n in ("WYDANIE.txt", "START_TUTAJ.txt", "README.md")))
 
-sprawdz("numer wersji 3.25.0 (wydanie z informacją o przejściu) zgadza się w źródle i w metadanych .exe",
-        P.WERSJA_PROGRAMU == "3.25.0" and "'3.25.0'" in open(os.path.join(KATALOG, "wersja_exe.txt"), encoding="utf-8").read())
+sprawdz("numer wersji 3.25.1 (wydanie z informacją o przejściu) zgadza się w źródle i w metadanych .exe",
+        P.WERSJA_PROGRAMU == "3.25.1" and "'3.25.1'" in open(os.path.join(KATALOG, "wersja_exe.txt"), encoding="utf-8").read())
 _zeruj_przejscie3b()
 
 # ══════════════════════════════════════════════════════════════════
@@ -1353,6 +1353,27 @@ sprawdz("konto A: jej profil (PESEL, KR, silnik do 900 cm³) i jej dwa sklepy �
 sprawdz("konto B: jego profil (powyżej 900 cm³) i jeden sklep — niczego z konta A",
         _dB3d["profil"]["pesel"] == "85050512345" and _dB3d["profil"]["silnik_powyzej_900"] is True and [s["adres"] for s in _dB3d["sklepy"]] == ["Polna 9, Płock"]
         and "90010112349" not in json.dumps(_dB3d) and "Radom" not in json.dumps(_dB3d))
+# plan i odhaczenia konta czytane z dysku: każda osoba tylko swoje
+_dzis3d = datetime.date.today()
+_klA3d = P._klucz_konta_dla("", "11111"); _klB3d = P._klucz_konta_dla("", "22222")
+_dzien3d = _dzis3d.isoformat()
+with open(os.path.join(_TMP_HOME, ".pmt_plan_%s.json" % _klA3d), "w", encoding="utf-8") as _f3d:
+    json.dump({"rok": _dzis3d.year, "miesiac": _dzis3d.month, "cykliczny": False, "adres_bazy": "ul. Anny 1, 26-600 Radom", "miesiace": [{"rok": _dzis3d.year, "miesiac": _dzis3d.month, "dni": [
+        {"data": _dzien3d, "km": 40.5, "minuty": 120, "wizyty": [{"nazwa": "Żabka — Grodzisk", "adres": "Główna 1, Grodzisk Mazowiecki", "siec": "Żabka", "lat": 52.1, "lng": 20.6, "miasto": "Grodzisk Mazowiecki"}]}]}]}, _f3d)
+with open(os.path.join(_TMP_HOME, ".pmt_plan_%s.json" % _klB3d), "w", encoding="utf-8") as _f3d:
+    json.dump({"miesiace": [{"dni": [{"data": _dzien3d, "km": 9, "minuty": 30, "wizyty": [{"nazwa": "Lidl — Płock", "adres": "Polna 9, Płock", "miasto": "Płock"}]}]}]}, _f3d)
+with open(os.path.join(_TMP_HOME, ".pmt_wizyty_%s.json" % _klA3d), "w", encoding="utf-8") as _f3d:
+    json.dump({_dzien3d + "|główna 1, grodzisk mazowiecki": {"czas": "29.10.2026 09:05", "notatka": "tajna notatka"}}, _f3d)
+_dA3d = P.zbierz_dane_przeniesienia("11111", "Anna Kowalska"); _dB3d = P.zbierz_dane_przeniesienia("22222", "Bartosz Nowak")
+sprawdz("konto A: jego plan (jedna wizyta, 40,5 km) i jego odhaczenie; konto B: wyłącznie swój plan, bez odhaczeń A",
+        _dA3d["plan"]["miesiace"][0]["dni"][0]["wizyty"][0]["adres"] == "Główna 1, Grodzisk Mazowiecki" and _dA3d["plan"]["miesiace"][0]["dni"][0]["km"] == 40.5
+        and len(_dA3d["odhaczenia"]) == 1 and _dB3d["plan"]["miesiace"][0]["dni"][0]["wizyty"][0]["adres"] == "Polna 9, Płock" and _dB3d["odhaczenia"] == {})
+sprawdz("notatki z wizyt NIE trafiają do pliku (tylko czas odhaczenia)", "tajna notatka" not in json.dumps(_dA3d))
+_ok3d, _kom3d, _ile3d, _prof3d, _plan3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, os.path.join(_TMP_HOME, "z_planem.pmtdane"))
+sprawdz("zapis pliku zwraca liczbę dni planu (1) i plik niesie plan po odszyfrowaniu", _ok3d and _plan3d == 1
+        and _PRZ3d.odszyfruj(open(os.path.join(_TMP_HOME, "z_planem.pmtdane"), encoding="utf-8").read(), _skr3d)["plan"]["miesiace"][0]["dni"][0]["km"] == 40.5)
+sprawdz("konto bez planu i bez profilu, ale z planem wystarcza do pliku (komunikat „brak danych” tylko, gdy nie ma nic)",
+        P.zbierz_dane_przeniesienia("33333", "")["plan"] is None)
 sprawdz("konto bez imienia w historii i kilka profili na komputerze: profilu NIE zgadujemy (cudzy PESEL nie może trafić do pliku)",
         P.zbierz_dane_przeniesienia("33333", "")["profil"] is None and P.zbierz_dane_przeniesienia("33333", "Ktoś Obcy")["profil"] is None
         and P.zbierz_dane_przeniesienia("33333", "")["sklepy"] == [])
@@ -1362,6 +1383,39 @@ P.zbierz_dane_przeniesienia("11111", "Anna Kowalska"); P.zbierz_dane_przeniesien
 _po3d = (P.AKTYWNY_UZYTKOWNIK, open(P.PLIK_STATUSU, "rb").read() if os.path.exists(P.PLIK_STATUSU) else None,
          open(P.PLIK_LOGOWAN, "rb").read(), open(P.USTAWIENIA_STORE, "rb").read() if os.path.exists(P.USTAWIENIA_STORE) else None)
 sprawdz("zbieranie danych tylko czyta: aktywne konto, status, historia logowań i ustawienia zostają bez zmian", _przed3d == _po3d)
+
+# plan wizyt i odhaczenia: moduł (oczyszczanie) i zbieranie z dysku
+_dniplanu3d = [_dzis3d - datetime.timedelta(days=60), _dzis3d - datetime.timedelta(days=2), _dzis3d, _dzis3d + datetime.timedelta(days=1)]
+_plan_surowy3d = {"cykliczny": True, "cykl_domyslny": 99, "zapisano": "x", "miesiace": [
+    {"rok": 1999, "miesiac": 1, "suma_km": 1e9, "dni": [
+        {"data": d.isoformat(), "km": 12.34567, "minuty": 95, "wizyty": [
+            {"nazwa": " Żabka — Grodzisk ", "adres": "Główna 1, Grodzisk Mazowiecki", "siec": "Żabka", "lat": 52.1, "lng": 20.6, "miasto": "Grodzisk Mazowiecki"},
+            {"nazwa": "", "adres": "Piękna 2, Żyrardów", "lat": "nie liczba", "lng": 999, "miasto": "Żyrardów"},
+            {"nazwa": "bez adresu", "adres": ""}, "śmieć", None]}
+        for d in _dniplanu3d] + [{"data": "nie data", "wizyty": [{"adres": "x"}]}, {"data": _dzis3d.isoformat(), "wizyty": []}, "śmieć"]}, "śmieć"]}
+_pl3d = _PRZ3d._plan(_plan_surowy3d, _dzis3d)
+_dni3d = [d["data"] for m in _pl3d["miesiace"] for d in m["dni"]]
+sprawdz("plan: dni starsze niż 31 dni odpadają, zostają trzy; rok i miesiąc liczone z dat dni (nie z surowych pól); śmieci w listach pomijane",
+        _dni3d == [x.isoformat() for x in _dniplanu3d[1:]] and _pl3d["miesiace"][0]["rok"] == _dniplanu3d[1].year and len(_pl3d["miesiace"]) == 1, str(_dni3d))
+_w3d = _pl3d["miesiace"][0]["dni"][0]["wizyty"]
+sprawdz("plan: wizyty bez adresu odpadają, nazwa pusta → adres, współrzędne spoza zakresu i nie-liczby → None, cykl w granicach 1–52, km zaokrąglone",
+        len(_w3d) == 2 and _w3d[0]["nazwa"] == "Żabka — Grodzisk" and _w3d[1]["nazwa"] == "Piękna 2, Żyrardów" and _w3d[1]["lat"] is None and _w3d[1]["lng"] is None
+        and _w3d[0]["lat"] == 52.1 and _pl3d["cykl_domyslny"] == 52 and _pl3d["cykliczny"] is True and _pl3d["miesiace"][0]["dni"][0]["km"] == 12.3457)
+sprawdz("plan: wyłącznie przeszłe dni albo brak planu → None (aplikacja nie dostaje nieaktualnego planu)",
+        _PRZ3d._plan({"miesiace": [{"dni": [{"data": (_dzis3d - datetime.timedelta(days=90)).isoformat(), "wizyty": [{"adres": "x"}]}]}]}, _dzis3d) is None
+        and _PRZ3d._plan(None, _dzis3d) is None and _PRZ3d._plan({}, _dzis3d) is None and _PRZ3d._plan("x", _dzis3d) is None)
+_dz3d = {_dzis3d.isoformat() + "|główna 1, grodzisk mazowiecki": {"czas": "28.10.2026 10:15"}, "2000-01-01|stary": {"czas": "x"}, "bez-daty": {}, "x" * 400: {}}
+_od3d = _PRZ3d._odhaczenia(_dz3d, _pl3d)
+sprawdz("odhaczenia: tylko dla dni, które weszły do planu; czas przepisany, klucze zbyt długie i śmieci pominięte",
+        list(_od3d) == [_dzis3d.isoformat() + "|główna 1, grodzisk mazowiecki"] and _od3d[list(_od3d)[0]]["czas"] == "28.10.2026 10:15" and _PRZ3d._odhaczenia(None, _pl3d) == {} and _PRZ3d._odhaczenia(_dz3d, None) == {})
+_z3d = _PRZ3d.zloz_dane(None, None, "3.25.1", _dzis3d.isoformat(), plan=_plan_surowy3d, dziennik=_dz3d)
+sprawdz("zloz_dane niesie plan i odhaczenia (a bez nich — None i pusty słownik)",
+        _z3d["plan"] is not None and len(_z3d["odhaczenia"]) == 1 and _PRZ3d.zloz_dane(None, None)["plan"] is None and _PRZ3d.zloz_dane(None, None)["odhaczenia"] == {})
+_wielki3d = {"miesiace": [{"dni": [{"data": (_dzis3d + datetime.timedelta(days=i)).isoformat(), "km": 1, "minuty": 1, "wizyty": [{"adres": "A%d" % j} for j in range(100)]} for i in range(450)]} for _ in range(30)]}
+_pw3d = _PRZ3d._plan(_wielki3d, _dzis3d)
+sprawdz("plan: limity (14 miesięcy, 400 dni, 60 wizyt w dniu) chronią przed rozdmuchanym plikiem",
+        len(_pw3d["miesiace"]) <= _PRZ3d.MAX_MIESIECY and sum(len(m["dni"]) for m in _pw3d["miesiace"]) <= _PRZ3d.MAX_DNI
+        and all(len(d["wizyty"]) <= _PRZ3d.MAX_WIZYT_W_DNIU for m in _pw3d["miesiace"] for d in m["dni"]))
 
 # jedyne konto na komputerze: profil znajdowany także bez imienia; wspólna lista sklepów sprzed 3.21.0 tylko dla niego
 _wyczysc_dom3d()
@@ -1381,7 +1435,7 @@ sprawdz("komputer współdzielony: wspólna lista sklepów NIE jest przypisywana
 _wyczysc_dom3d()
 _konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d)
 _sc3d = os.path.join(_TMP_HOME, "PMT_dane_do_aplikacji.pmtdane")
-_ok3d, _kom3d, _ile3d, _prof3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, _sc3d)
+_ok3d, _kom3d, _ile3d, _prof3d, _plan3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, _sc3d)
 _odp3d = _PRZ3d.odszyfruj(open(_sc3d, encoding="utf-8").read(), _skr3d) if _ok3d else {}
 sprawdz("plik zapisany: (ok, 2 sklepy, jest profil), odszyfrowuje się skrótem hasła tego konta, nie zostaje plik tymczasowy",
         _ok3d and _ile3d == 2 and _prof3d and _odp3d.get("profil", {}).get("pesel") == "90010112349" and not os.path.exists(_sc3d + ".tmp"), str((_ok3d, _kom3d)))
@@ -1393,62 +1447,79 @@ except ValueError:
 sprawdz("plik zapisany: inne hasło go nie otwiera", _inne3d)
 os.remove(_sc3d)
 _wyczysc_dom3d()
-_ok3d, _kom3d, _ile3d, _prof3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, _sc3d)
+_ok3d, _kom3d, _ile3d, _prof3d, _plan3d = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, _sc3d)
 sprawdz("konto bez żadnych danych: czytelny komunikat i żaden plik się nie tworzy", not _ok3d and "Nie znalazłem" in _kom3d and not os.path.exists(_sc3d), _kom3d)
 _konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d)
 _ok3d, _kom3d, *_ = P.zapisz_plik_przeniesienia("11111", "Anna Kowalska", _skr3d, os.path.join(_TMP_HOME, "brak_katalogu", "x.pmtdane"))
 sprawdz("zapis w nieistniejącym katalogu: komunikat o błędzie zamiast wyjątku", not _ok3d and "Nie udało się zapisać" in _kom3d, _kom3d)
 
-# okno „Przenieś dane”: atrapy okien systemowych
+# okno „Przenieś dane”: atrapy okien systemowych — bez listy kont, kod i hasło WŁAŚCICIELA (prywatność: nikt nie przenosi cudzych danych)
 _wyczysc_dom3d()
 _konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. Anny 1, 26-600 Radom", 0, "KR", _SKL_A3d, "2026-10-27T10:00:00")
-_okna3d, _pliki3d, _wybor3d = [], [], {}
+_konto3d("Bartosz Nowak", "22222", "haslo B", "85050512345", "ul. Bartka 2, 09-400 Płock", 1, "merchandiser", _SKL_B3d, "2026-10-28T10:00:00")
+_okna3d, _wybor3d = [], {}
 _okno_orig3d = P._okno_pmt
 try:
     from PyQt6 import QtWidgets as _QW3d
     _fd_orig3d, _id_orig3d = _QW3d.QFileDialog.getSaveFileName, _QW3d.QInputDialog.getItem
-    _odp_okna3d = {"haslo": "haslo B"}
+    _odp3d = []                 # kolejne odpowiedzi okien z polem (kod, hasło, kod, hasło…); None = Anuluj
+    _wybrano_konto3d = []
 
     def _okno_stub3d(rodzic, tytul, tresc, **kw):
         _okna3d.append((tytul, tresc, kw))
-        return _odp_okna3d["haslo"] if kw.get("pole") else True
+        if kw.get("pole"):
+            return _odp3d.pop(0) if _odp3d else None
+        return True
     P._okno_pmt = _okno_stub3d
     _QW3d.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (_wybor3d.get("plik", ""), ""))
-    _QW3d.QInputDialog.getItem = staticmethod(lambda r, t, e, lista, i, ed: (lista[_wybor3d.get("konto", 0)], _wybor3d.get("konto", 0) is not None))
+    _QW3d.QInputDialog.getItem = staticmethod(lambda *a, **k: (_wybrano_konto3d.append(1) or ("", False)))
 
-    # jedno konto: bez pytań o konto i hasło (skrót zapamiętany), plik w wybranym miejscu
-    _wybor3d["plik"] = os.path.join(_TMP_HOME, "wybrany.pmtdane")
-    sprawdz("okno „Przenieś dane” (jedno konto, hasło zapamiętane): zapisuje plik i mówi, co dalej (Moje dane → Wczytaj dane z programu)",
-            P.przenies_dane_do_web() is True and os.path.exists(_wybor3d["plik"]) and len(_okna3d) == 1
-            and "Plik gotowy" == _okna3d[0][0] and "Wczytaj dane z programu" in _okna3d[0][1] and "listę 2 sklepów" in _okna3d[0][1]
-            and _wybor3d["plik"] in _okna3d[0][1] and not any(k[2].get("pole") for k in _okna3d), str(_okna3d))
-    sprawdz("plik z okna odszyfrowuje się skrótem hasła konta A", _PRZ3d.odszyfruj(open(_wybor3d["plik"], encoding="utf-8").read(), _skr3d)["profil"]["imie"] == "Anna Kowalska")
-    # rozszerzenie dopisywane, gdy użytkownik go nie wpisał
-    _okna3d.clear(); _wybor3d["plik"] = os.path.join(_TMP_HOME, "bez_rozszerzenia")
+    # poprawny kod i hasło Anny → plik z JEJ danymi; żadne okno nie pokazuje cudzych kont
+    _wybor3d["plik"] = os.path.join(_TMP_HOME, "wybrany.pmtdane"); _odp3d[:] = ["11111", "haslo A"]
+    sprawdz("„Przenieś dane”: kod i hasło właściciela → plik z jego danymi i okno „Plik gotowy” z instrukcją",
+            P.przenies_dane_do_web() is True and os.path.exists(_wybor3d["plik"])
+            and _okna3d[-1][0] == "Plik gotowy" and "Wczytaj dane z programu" in _okna3d[-1][1] and "listę 2 sklepów" in _okna3d[-1][1], str([o[:2] for o in _okna3d]))
+    sprawdz("plik z okna odszyfrowuje się skrótem hasła konta A i zawiera dane Anny, nie Bartosza",
+            _PRZ3d.odszyfruj(open(_wybor3d["plik"], encoding="utf-8").read(), _skr3d)["profil"]["imie"] == "Anna Kowalska"
+            and "85050512345" not in open(_wybor3d["plik"], encoding="utf-8").read())
+    _teksty3d = " ".join(o[0] + " " + o[1] for o in _okna3d)
+    sprawdz("żadne okno nie wymienia innych kont ani ich kodów (nie ma listy „czyje dane”), a lista wyboru konta w ogóle się nie otwiera",
+            not re.search(r"Bartosz|Nowak|22222", _teksty3d) and not _wybrano_konto3d, _teksty3d[:200])
+    # zły kod, zła hasło, cudze hasło → odmowa i brak pliku
+    for _opis3d, _kod3d, _has3d in (("błędne hasło", "11111", "zle"), ("cudze hasło do swojego kodu", "11111", "haslo B"), ("nieznany kod", "99999", "haslo A"), ("kod nie z cyfr", "abcde", "haslo A")):
+        _okna3d.clear(); _wybor3d["plik"] = os.path.join(_TMP_HOME, "nie_powstanie.pmtdane")
+        _odp3d[:] = [_kod3d, _has3d] * 3
+        _wynik3d = P.przenies_dane_do_web()
+        sprawdz("odmowa: %s — trzy próby, komunikat bez zdradzania, które konta istnieją, i żaden plik" % _opis3d,
+                _wynik3d is False and not os.path.exists(_wybor3d["plik"])
+                and sum(1 for o in _okna3d if "Nieprawidłowy kod lub hasło" in o[1]) == 3 and "Zbyt wiele prób" in _okna3d[-1][1]
+                and not re.search(r"Anna|Kowalska|Bartosz|Nowak", " ".join(o[1] for o in _okna3d)), str([o[1][:60] for o in _okna3d]))
+    # druga próba po pomyłce działa
+    _okna3d.clear(); _wybor3d["plik"] = os.path.join(_TMP_HOME, "po_pomylce.pmtdane"); _odp3d[:] = ["11111", "zle", "11111", "haslo A"]
+    sprawdz("po jednej pomyłce druga próba z dobrymi danymi kończy się plikiem", P.przenies_dane_do_web() is True and os.path.exists(_wybor3d["plik"]))
+    # anulowanie na każdym etapie
+    for _opis3d, _lista3d in (("anulowanie przy kodzie", [None]), ("anulowanie przy haśle", ["11111", None]), ("puste hasło", ["11111", ""])):
+        _okna3d.clear(); _odp3d[:] = list(_lista3d); _wybor3d["plik"] = os.path.join(_TMP_HOME, "anul.pmtdane")
+        sprawdz("%s: nic się nie zapisuje" % _opis3d, P.przenies_dane_do_web() is False and not os.path.exists(_wybor3d["plik"]))
+    _okna3d.clear(); _odp3d[:] = ["11111", "haslo A"]; _wybor3d["plik"] = ""
+    sprawdz("anulowanie wyboru miejsca zapisu: nic się nie zapisuje, program nie pada", P.przenies_dane_do_web() is False)
+    # rozszerzenie dopisywane
+    _okna3d.clear(); _odp3d[:] = ["11111", "haslo A"]; _wybor3d["plik"] = os.path.join(_TMP_HOME, "bez_rozszerzenia")
     P.przenies_dane_do_web()
     sprawdz("brak rozszerzenia w nazwie: program dopisuje .pmtdane", os.path.exists(_wybor3d["plik"] + ".pmtdane") and not os.path.exists(_wybor3d["plik"]))
-    # anulowanie wyboru pliku
-    _okna3d.clear(); _wybor3d["plik"] = ""
-    sprawdz("anulowanie wyboru miejsca zapisu: nic się nie zapisuje, program nie pada", P.przenies_dane_do_web() is False and not _okna3d)
-    # dwa konta: pytanie „czyje dane”, hasło brakuje → prośba o hasło
-    _konto3d("Bartosz Nowak", "22222", "haslo B", "85050512345", "ul. Bartka 2, 09-400 Płock", 1, "merchandiser", _SKL_B3d, "2026-10-28T10:00:00")
-    _log3d = P._wczytaj(P.PLIK_LOGOWAN, {}); _log3d["22222"].pop("skrot"); _log3d["22222"]["skrot"] = ""; P._zapisz(P.PLIK_LOGOWAN, _log3d)
-    _wybor3d.update(plik=os.path.join(_TMP_HOME, "b.pmtdane"), konto=0)       # historia: najnowsze pierwsze → Bartosz
-    _okna3d.clear(); _odp_okna3d["haslo"] = "haslo B"
-    sprawdz("dwa konta: program pyta, czyje dane, a przy braku zapamiętanego skrótu prosi o hasło (okno z polem hasła)",
-            P.przenies_dane_do_web() is True and any(k[2].get("pole") and k[2].get("haslo") for k in _okna3d), str([k[0] for k in _okna3d]))
-    _plikB3d = open(_wybor3d["plik"], encoding="utf-8").read()
-    sprawdz("plik dla konta B otwiera się hasłem wpisanym w oknie (kod 22222) i zawiera dane Bartosza, nie Anny",
-            _PRZ3d.odszyfruj(_plikB3d, P._hash_hasla("22222", "haslo B"))["profil"]["pesel"] == "85050512345" and '"kod":"22222"' in _plikB3d)
-    _okna3d.clear(); _odp_okna3d["haslo"] = None; _wybor3d["plik"] = os.path.join(_TMP_HOME, "c.pmtdane")
-    sprawdz("anulowanie okna z hasłem: nic się nie zapisuje", P.przenies_dane_do_web() is False and not os.path.exists(_wybor3d["plik"]))
-    _wybor3d.update(konto=1, plik=os.path.join(_TMP_HOME, "a2.pmtdane"))                    # Anna (drugi na liście)
-    _okna3d.clear()
-    sprawdz("wybór drugiego konta z listy: plik z danymi Anny (kod 11111)",
-            P.przenies_dane_do_web() is True and '"kod":"11111"' in open(_wybor3d["plik"], encoding="utf-8").read())
-    # brak kont
+    # konto bez zapamiętanego skrótu nie ma z czym porównać hasła: odmowa
+    _log3d = P._wczytaj(P.PLIK_LOGOWAN, {}); _log3d["22222"]["skrot"] = ""; P._zapisz(P.PLIK_LOGOWAN, _log3d)
+    _okna3d.clear(); _odp3d[:] = ["22222", "haslo B"] * 3; _wybor3d["plik"] = os.path.join(_TMP_HOME, "b.pmtdane")
+    sprawdz("konto bez zapamiętanego skrótu hasła: odmowa (nie da się sprawdzić, że to właściciel), żaden plik",
+            P.przenies_dane_do_web() is False and not os.path.exists(_wybor3d["plik"]))
+    # konto bez danych (kod i hasło poprawne, ale nic zapisanego)
     _wyczysc_dom3d(); _okna3d.clear()
-    sprawdz("komputer bez zapisanych kont: informacja zamiast wyjątku", P.przenies_dane_do_web() is False and len(_okna3d) == 1 and "Nie znalazłem" in _okna3d[0][1])
+    sprawdz("komputer bez zapisanych kont: odmowa jak przy złym haśle (nic nie zdradza), bez wyjątku", P.przenies_dane_do_web() is False and len(_okna3d) >= 1)
+    # skrót zweryfikowany: porównanie stałoczasowe, sprawdza cyfry kodu
+    _konto3d("Anna Kowalska", "11111", "haslo A", "90010112349", "ul. A 1, 00-001 Warszawa", 0, "KR", _SKL_A3d)
+    sprawdz("_skrot_zweryfikowany: tylko dla zgodnego kodu i hasła; kod ze spacjami i literami jest oczyszczany z nie-cyfr",
+            P._skrot_zweryfikowany("11111", "haslo A") == _skr3d and P._skrot_zweryfikowany(" 11111 ", "haslo A") == _skr3d
+            and P._skrot_zweryfikowany("11111", "haslo a") == "" and P._skrot_zweryfikowany("1111", "haslo A") == "" and P._skrot_zweryfikowany("11111", "") == "")
 except Exception as _e3d:
     sprawdz("okno „Przenieś dane” z atrapami okien systemowych", False, repr(_e3d))
 finally:
@@ -1458,7 +1529,7 @@ finally:
     except Exception:
         pass
 
-# informacja o przejściu: trzeci przycisk, który nie zamyka okna
+# informacja o przejściu: trzeci przycisk (główny), a „Otwórz aplikację” zamyka program
 _widziano3d = []
 _okno_orig3d = P._okno_pmt
 try:
@@ -1468,18 +1539,19 @@ try:
     P.przejscie_na_web_przy_starcie()
     P.TERMIN_WYGASZENIA = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     P.przejscie_na_web_przy_starcie()
-    sprawdz("informacja o przejściu ma przycisk „Przenieś dane” (wołający przenies_dane_do_web) zarówno przed terminem, jak i po nim",
-            len(_widziano3d) == 2 and all(k.get("dodatkowy") and k["dodatkowy"][0] == "Przenieś dane" and k["dodatkowy"][1] is P.przenies_dane_do_web for k in _widziano3d), str(_widziano3d))
+    sprawdz("informacja o przejściu ma przycisk „Przenieś dane” (wołający przenies_dane_do_web) jako GŁÓWNY, przed terminem i po nim",
+            len(_widziano3d) == 2 and all(k.get("dodatkowy") and k["dodatkowy"][0] == "Przenieś dane" and k["dodatkowy"][1] is P.przenies_dane_do_web
+                                          and k.get("dodatkowy_glowny") is True for k in _widziano3d), str(_widziano3d))
 finally:
     P._okno_pmt = _okno_orig3d
     _zeruj_przejscie3b(); P.zapisz_ustawienie("przejscie_web_dnia", "")
 
-# prawdziwe okno z trzecim przyciskiem: nie zamyka okna, wywołuje funkcję, nic się nie ucina
+# prawdziwe okno z trzecim przyciskiem: nie zamyka okna, wywołuje funkcję, nic się nie ucina, główny jest wyróżniony
 try:
     from PyQt6.QtWidgets import QApplication as _QA3d, QPushButton as _QB3d
     from PyQt6.QtCore import QTimer as _QT3d
     _app3d = _QA3d.instance() or _QA3d(sys.argv)
-    _stan3d = {"klik": 0, "geom": None}
+    _stan3d = {}
 
     def _krok3d():
         okno = _QA3d.activeModalWidget()
@@ -1488,16 +1560,17 @@ try:
             return
         przyciski = {b.text(): b for b in okno.findChildren(_QB3d)}
         _stan3d["napisy"] = list(przyciski)
-        g = {n: b.geometry() for n, b in przyciski.items()}
-        _stan3d["geom"] = g
+        _stan3d["geom"] = {n: b.geometry() for n, b in przyciski.items()}
         _stan3d["szer"] = okno.width()
+        _stan3d["za_waskie"] = [n for n, b in przyciski.items() if b.width() < b.sizeHint().width()]
+        _stan3d["obiekty"] = {n: b.objectName() for n, b in przyciski.items()}
         przyciski["Przenieś dane"].click()
         _stan3d["otwarte_po_kliku"] = _QA3d.activeModalWidget() is okno
         przyciski["Później"].click()
     _QT3d.singleShot(100, _krok3d)
     _wywolania3d = []
     _wyn3d = P._okno_pmt(None, "Tytuł", "Treść próbna.", etykieta_ok="Otwórz aplikację", etykieta_anuluj="Później",
-                         dodatkowy=("Przenieś dane", lambda okno: _wywolania3d.append(okno)))
+                         dodatkowy=("Przenieś dane", lambda okno: _wywolania3d.append(okno)), dodatkowy_glowny=True)
     sprawdz("prawdziwe okno: trzy przyciski, klik w „Przenieś dane” woła funkcję z oknem, NIE zamyka okna, a „Później” zwraca fałsz",
             _wyn3d is False and len(_wywolania3d) == 1 and _stan3d.get("otwarte_po_kliku") is True
             and {"Przenieś dane", "Później", "Otwórz aplikację"} <= set(_stan3d.get("napisy", [])), str(_stan3d.get("napisy")))
@@ -1505,13 +1578,30 @@ try:
     sprawdz("prawdziwe okno: trzy przyciski mieszczą się w oknie i nie nachodzą na siebie",
             all(r.left() >= 0 and r.right() <= _stan3d["szer"] for r in _g3d) and all(_g3d[i].right() < _g3d[i + 1].left() for i in range(len(_g3d) - 1)),
             str([(r.left(), r.right()) for r in _g3d]) + " / " + str(_stan3d["szer"]))
+    sprawdz("prawdziwe okno: żaden przycisk nie jest węższy niż jego napis wymaga (wcześniej „Otwórz aplikację” był ucinany)", not _stan3d["za_waskie"], str(_stan3d["za_waskie"]))
+    sprawdz("prawdziwe okno: „Przenieś dane” ma osobny styl akcji (wyraźna zieleń), a „Otwórz aplikację” i „Później” są zwykłe",
+            _stan3d["obiekty"].get("Przenieś dane") == "akcja" and _stan3d["obiekty"].get("Otwórz aplikację") == "anuluj" and _stan3d["obiekty"].get("Później") == "anuluj", str(_stan3d["obiekty"]))
+    # bez „dodatkowy_glowny” okno wygląda jak dotąd (ok = główny)
+    _QT3d.singleShot(100, _krok3d)
+    P._okno_pmt(None, "Tytuł", "Treść próbna.", etykieta_ok="Otwórz aplikację", etykieta_anuluj="Później", dodatkowy=("Przenieś dane", lambda okno: None))
+    sprawdz("styl okien ma zieloną „akcję” (#16A34A) obok zwykłego głównego przycisku (cyjan) — kolory się różnią",
+            "QPushButton#akcja" in P._styl_okna_pmt() and "#16A34A" in P._styl_okna_pmt() and "QPushButton#ok" in P._styl_okna_pmt())
+    sprawdz("bez dodatkowy_glowny „ok” zostaje głównym przyciskiem (dotychczasowy wygląd)", _stan3d["obiekty"].get("Otwórz aplikację") == "ok" and _stan3d["obiekty"].get("Przenieś dane") == "anuluj", str(_stan3d["obiekty"]))
+    # realny tekst przejścia i trzy przyciski: szerokość okna rośnie, gdy przyciski się nie mieszczą
+    _tdl3d, _cdl3d = P._tekst_przejscia_na_web(_ADRES3b, datetime.date(2099, 12, 20), 53, False)
+    _QT3d.singleShot(100, _krok3d)
+    P._okno_pmt(None, _tdl3d, _cdl3d, etykieta_ok="Otwórz aplikację", etykieta_anuluj="Później", dodatkowy=("Przenieś dane", lambda okno: None), dodatkowy_glowny=True)
+    sprawdz("okno przejścia z prawdziwym tekstem: nic nie ucięte, szerokość ≥ 430 (rośnie, gdy trzeba)", not _stan3d["za_waskie"] and _stan3d["szer"] >= 430, "szer=%s" % _stan3d["szer"])
 except Exception as _e3d2:
     sprawdz("prawdziwe okno z dodatkowym przyciskiem", False, repr(_e3d2))
+
 
 # dokumentacja
 _instr3d = open(os.path.join(KATALOG, "PRZEJSCIE_NA_WEB.txt"), encoding="utf-8").read()
 sprawdz("instrukcja przejścia opisuje przeniesienie danych: przycisk, plik .pmtdane, szyfrowanie kodem i hasłem, co się przenosi, a co nie",
-        all(s in _instr3d for s in ("Przenieś dane", ".pmtdane", "kodem i hasłem", "Plan wizyt, odhaczenia i historia miesięcy NIE przenoszą", "także po terminie")))
+        all(s in " ".join(_instr3d.split()) for s in ("Przenieś dane", ".pmtdane", "kodem i hasłem", "Historia miesięcy i wygenerowane wcześniej trasy i dokumenty NIE przenoszą", "także po terminie", "plan wizyt")))
+sprawdz("instrukcja przejścia mówi o prywatności przenoszenia (kod i hasło każdego, brak listy kont) i o zamknięciu programu po „Otwórz aplikację”",
+        all(s in " ".join(_instr3d.split()) for s in ("NIE pokazuje listy kont", "WŁASNY kod", "ZAMYKA program")))
 sprawdz("moduł pmt_przeniesienie jest na liście modułów obowiązkowych i ukrytych importów budowania (inaczej paczka .exe zostałaby bez eksportu)",
         "pmt_przeniesienie.py" in open(os.path.join(KATALOG, "zbuduj.py"), encoding="utf-8").read()
         and "pmt_przeniesienie" in open(os.path.join(KATALOG, "zbuduj.py"), encoding="utf-8").read().split("UKRYTE =")[1][:400])

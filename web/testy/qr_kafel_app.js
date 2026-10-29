@@ -43,5 +43,19 @@ const odczytaj = async (p, sel, plik) => { if (!DEKODER) return null; await p.lo
     console.log('  błędy konsoli:', JSON.stringify(t.bledy.slice(0, 4))); if (t.bledy.length) kod = 1;
     await t.zamknij();
   }
+  /* aplikacja ZAINSTALOWANA (okno bez paska adresu, display-mode: standalone): na komputerze kafel z kodem QR zostaje (stąd telefon i tak się zaczyna),
+     na telefonie znika (aplikacja już na nim jest). Wcześniej znikał w każdej zainstalowanej aplikacji, także na komputerze. */
+  for (const [nazwa, ua, widoczny] of [['zainstalowana na komputerze', null, true], ['zainstalowana na telefonie (Android)', 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36', false], ['zwykła przeglądarka na komputerze', 'zwykla', true]]) {
+    const t = await otworz({ w: 1440, h: 900, opcjeSerwera: { adresPubliczny: PUB }, przyklad: true }); const p = t.p;
+    await t.ctx.addInitScript(({ ua, std }) => {
+      if (ua && ua !== 'zwykla') Object.defineProperty(navigator, 'userAgent', { get: () => ua });
+      if (std) { const m = window.matchMedia.bind(window); window.matchMedia = q => /display-mode:\s*standalone/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } : m(q); }
+    }, { ua, std: ua !== 'zwykla' });
+    await p.goto(t.adres + '/index.html'); await p.waitForFunction(() => !document.querySelector('#ladowanie.widoczny') && !document.querySelector('#aplikacja.czeka'), null, { timeout: 120000 }).catch(() => {});
+    await p.waitForTimeout(3500);
+    const stan = await p.evaluate(() => ({ kafel: !document.querySelector('#kQ').hidden, klasa: document.documentElement.classList.contains('ma-qr'), standalone: matchMedia('(display-mode: standalone)').matches }));
+    ok(`kafel „Na telefon” — ${nazwa}: ${widoczny ? 'jest' : 'nie ma'}`, stan.kafel === widoczny && stan.klasa === widoczny && (ua === 'zwykla' ? !stan.standalone : stan.standalone), JSON.stringify(stan));
+    await t.zamknij();
+  }
   process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.stack); process.exit(2); });

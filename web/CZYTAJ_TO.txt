@@ -64,11 +64,14 @@ OKNO „DOKUMENTY DO PODPISU”: PIĘĆ KROKÓW
   dokumenty nie są wgrane i sprawdzone; wtedy zapala się kolorem i przycisk „Wyślij” działa. Stopka okna ma już tylko „Zamknij”. Na ekranie dotykowym pola przeciągania nie ma (tam służy „Wybierz pliki”).
 
 WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
-  Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) przycisk „Przenieś dane” zapisuje plik PMT_dane_do_aplikacji.pmtdane:
-  imię, PESEL, adres, stanowisko, pojemność silnika i lista sklepów — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem: Moje dane → „Wczytaj dane z programu
-  na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”; lista sklepów czeka w oknie „Plan” (kafel Dziś → „Plan” → „Ułóż plan”). Plan wizyt, odhaczenia i historia
-  miesięcy się nie przenoszą. Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla nowych
-  użytkowników. Kod: js/przeniesienie.js (odczyt), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js i przeniesienie_app.js.
+  Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) zielony przycisk „Przenieś dane” pyta o WŁASNY kod i hasło
+  (programem nie da się pobrać cudzych danych: nie ma listy kont, a kod i hasło są sprawdzane ze skrótem zapisanym na komputerze) i zapisuje plik PMT_dane_do_aplikacji.pmtdane: imię, PESEL, adres,
+  stanowisko, pojemność silnika, lista sklepów, plan wizyt i odhaczone wizyty (dni od 31 dni wstecz) — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem:
+  Moje dane → „Wczytaj dane z programu na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”: plan wizyt trafia do kafla Dziś (wizyty odhaczone w programie są
+  odhaczone), a gdy plik miał tylko listę sklepów, otwiera się okno „Plan” z gotową listą (zostaje „Ułóż plan”). Historia miesięcy i wygenerowane wcześniej trasy się nie przenoszą (wygenerowane
+  dokumenty zostają na dysku). Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla
+  nowych użytkowników. Kod: js/przeniesienie.js (odczyt i oczyszczanie), silnik/most.py plan_z_programu (sumy i godziny), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js
+  (Python↔JS, plan, odhaczenia) i przeniesienie_app.js (przepływ w przeglądarce, kafel Dziś).
 
 ŻYCIE KALENDARZA I FIOLEK (RUCH TYLKO TAM)
   Aplikacja jest w „trybie spokojnym” (po teście płynności), ale w dwóch kaflach „coś się dzieje”: w KALENDARZU dni z trasą lekko się unoszą, oddychają światłem i co kilka sekund przebiega po nich

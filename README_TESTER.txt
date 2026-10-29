@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.25.0 — LISTA SPRAWDZEŃ
+  PMT PLANER 3.25.1 — LISTA SPRAWDZEŃ
   krótka instrukcja dla testera
 ═══════════════════════════════════════════════════════════════════════
 
@@ -7,7 +7,7 @@ CO TO ZA LISTA
   Sprawdzenia do zrobienia na paczce z BUDOWANIA TESTOWEGO (WYDANIE.txt,
   KROK 5), zanim wersja trafi do zespołu. Paczka testowa nie jest
   wydaniem: nie ma jej w Releases i nikt poza Tobą jej nie dostaje.
-  Numer wersji: 3.25.0.
+  Numer wersji: 3.25.1.
 
 URUCHOMIENIE ZE ŹRÓDEŁ (Windows)
   1. Zainstaluj Pythona 3.13 (nie 3.14). W instalatorze zaznacz
@@ -142,7 +142,7 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
       dane, plan i adres — nie cudze i nie puste.
   19. Zamknij program i uruchom ponownie. Oczekiwane: okno logowania od
       razu, a po zalogowaniu od razu ekran programu (bez animacji).
-  20. Wejdź w „O programie". Oczekiwane: numer wersji 3.25.0.
+  20. Wejdź w „O programie". Oczekiwane: numer wersji 3.25.1.
 
 
   ── NOWY WYGLĄD ───────────────────────────────────────────────────────
@@ -175,6 +175,10 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
   30. W pasku górnym kliknij dzwonek, „Zgłoś błąd" i swoje inicjały.
       Oczekiwane: lista komunikatów, nowa wiadomość do zgłoszeń oraz menu
       z pozycjami: hasło, karta testera, wylogowanie.
+  31. Okno przejścia na aplikację (pojawia się przy starcie, gdy w wersja.txt są wiersze web= i wygaszenie=). Oczekiwane: trzy przyciski, żaden nie
+      jest ucięty; „Przenieś dane" jest zielony. Kliknij „Przenieś dane": program prosi o Twój kod i hasło (żadnej listy kont), po poprawnych
+      zapisuje plik .pmtdane. W aplikacji w przeglądarce: Moje dane → „Wczytaj dane z programu na komputerze" → plik → „Zapisz": plan wizyt jest
+      w kaflu Dziś. Kliknij „Otwórz aplikację": otwiera się strona, a program się zamyka.
 
   Co zgłaszać: numer punktu, co kliknąłeś, co się stało, a czego
   oczekiwałeś. Jeśli program się zamknął, dołącz plik

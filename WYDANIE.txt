@@ -1,5 +1,5 @@
 ═══════════════════════════════════════════════════════════════════════
-  PMT PLANER 3.25.0 — WYDANIE I WDROŻENIE, KROK PO KROKU
+  PMT PLANER 3.25.1 — WYDANIE I WDROŻENIE, KROK PO KROKU
   Jedyna instrukcja, której potrzebujesz. Rób od góry do dołu,
   niczego nie pomijaj, przy każdym kroku sprawdź „CO ZOBACZYSZ".
 ═══════════════════════════════════════════════════════════════════════
@@ -33,7 +33,7 @@ NAJPIERW TO (2 minuty czytania)
       „PMT → Odśwież pulpit" po KROKU 4 zniknie — tak ma być.
 
   CO JUŻ JEST ZROBIONE
-    · Kod 3.25.0 leży na GitHubie, na gałęzi
+    · Kod 3.25.1 leży na GitHubie, na gałęzi
       claude/retro-futurystyczne-logo-pmt-yoz8bz. Pull Request otworzę
       na Twoje zielone światło — dopiero wtedy robisz KROK 3.
     · Paczka buduje się poprawnie na komputerze. Pierwsze budowanie na
@@ -131,7 +131,7 @@ KROK 3 — SCAL ZMIANY DO MAIN                                   2 minuty
   To jeszcze NIE jest wydanie. Zespół niczego nie zobaczy — plik, którym
   programy sprawdzają aktualizacje (wersja.txt), się nie zmienia.
 
-  3a. Zakładka „Pull requests" → „PMT Planer 3.25.0: przejście na
+  3a. Zakładka „Pull requests" → „PMT Planer 3.25.1: przejście na
       aplikację web, hasło w pulsie i sesji" (numer podam przy otwarciu).
   3b. Przewiń na dół. W ramce sprawdzeń ma być „All checks have passed"
       (zielony ptaszek).
@@ -183,12 +183,12 @@ KROK 4 — APPS SCRIPT: NOWY SKRYPT                    15 min, KOMPUTER
       ZOSTAW false.
       Jeszcze niżej (Ctrl+F → var WYMAGAJ_HASLA_W_PULSIE) jest:
           var WYMAGAJ_HASLA_W_PULSIE = true;
-      ZMIEŃ NA false — NA CZAS PRZEJŚCIA. Programy starsze niż 3.25.0 nie
+      ZMIEŃ NA false — NA CZAS PRZEJŚCIA. Programy starsze niż 3.25.1 nie
       podpisują pulsu hasłem; przy true backend ich puls przyjmuje, ale
       NIC z niego nie zapisuje (kolumny „Ostatni kontakt”, „Wersja”,
       „System” i liczniki stoją w miejscu) — przestałbyś widzieć, kto
       pracuje w programie, i KROK 4f wyglądałby jak awaria. Na true
-      zmieniasz z powrotem w KROKU 8a, gdy wszyscy mają 3.25.0 albo
+      zmieniasz z powrotem w KROKU 8a, gdy wszyscy mają 3.25.1 albo
       pracują już w aplikacji web.
 
   4d. Zapisz: Ctrl+S (albo ikona dyskietki).
@@ -216,7 +216,7 @@ KROK 4 — APPS SCRIPT: NOWY SKRYPT                    15 min, KOMPUTER
       Treści sekretu nie widać nigdy, tylko liczbę.
 
   4f. CZY DZIAŁA TO, CO DZIAŁAŁO: uruchom swój obecny PMT Planer
-      (3.25.0) i zaloguj się. W arkuszu: zakładka Uzytkownicy → wiersz
+      (3.25.1) i zaloguj się. W arkuszu: zakładka Uzytkownicy → wiersz
       z Twoim kodem → „Ostatni kontakt" = przed chwilą.
       Nie działa → COFNIJ: „Wdróż" → „Zarządzaj wdrożeniami" →
       wdrożenie → ołówek → Wersja: numer zapisany w 0c → „Wdróż".
@@ -257,10 +257,10 @@ KROK 5 — BUDOWANIE TESTOWE I SPRAWDZENIE      15 min + 30 min, KOMPUTER
 
   5f. SPRAWDŹ PO KOLEI:
         1) Logowanie działa.
-        2) „O programie" pokazuje 3.25.0; w pasku okna NIE ma napisu
+        2) „O programie" pokazuje 3.25.1; w pasku okna NIE ma napisu
            „WERSJA TESTOWA".
         3) Arkusz → zakładka Uzytkownicy → Twój wiersz: „Ostatni
-           kontakt" = przed chwilą, „Wersja" = 3.25.0.
+           kontakt" = przed chwilą, „Wersja" = 3.25.1.
         4) NAJWAŻNIEJSZE — SEKRET: arkusz → zakładka Log → ostatnie
            wiersze. NIE MOŻE być wiersza ze zdarzeniem  podpis_zly.
              · nie ma → sekret w paczce zgadza się z Apps Script. Dalej.
@@ -277,7 +277,7 @@ KROK 5 — BUDOWANIE TESTOWE I SPRAWDZENIE      15 min + 30 min, KOMPUTER
            miejscowości na zielonych tabliczkach.
 
   5g. Zamknij program testowy. Możesz znów używać swojego zwykłego
-      programu (w arkuszu wróci Wersja 3.25.0 — to normalne).
+      programu (w arkuszu wróci Wersja 3.25.1 — to normalne).
       Program testowy NIE zaproponuje aktualizacji — tak ma być.
       Zwykły program zachowuje się dziwnie → zamknij go → skopiuj pliki
       z C:\PMT_KOPIA_DANYCH z powrotem do %USERPROFILE% (Zamień).
@@ -291,9 +291,9 @@ KROK 5 — BUDOWANIE TESTOWE I SPRAWDZENIE      15 min + 30 min, KOMPUTER
 KROK 6 — WYDANIE DLA ZESPOŁU                           5 min + 20 min
 ───────────────────────────────────────────────────────────────────────
   6a. Zakładka „Code" → po prawej „Releases" → „Draft a new release".
-  6b. „Choose a tag" → wpisz  v3.25.0  → kliknij „Create new tag:
-      v3.25.0 on publish". Obok „Target": main.
-  6c. „Release title":  PMT Planer 3.25.0
+  6b. „Choose a tag" → wpisz  v3.25.1  → kliknij „Create new tag:
+      v3.25.1 on publish". Obok „Target": main.
+  6c. „Release title":  PMT Planer 3.25.1
   6d. W polu opisu wklej JEDNĄ linię, bez spacji na początku:
 Ostatnia wersja programu na komputerze. Dalej pracujesz w aplikacji w przeglądarce i na telefonie.
       Tę linię zobaczą wszyscy w okienku aktualizacji.
@@ -302,16 +302,16 @@ Ostatnia wersja programu na komputerze. Dalej pracujesz w aplikacji w przegląda
         · „Set as a pre-release" — NIE zaznaczone,
         · „Set as the latest release" — ZAZNACZONE,
       → zielony „Publish release" (NIE „Save draft").
-      CO ZOBACZYSZ: strona v3.25.0 z zieloną etykietą „Latest" i na
+      CO ZOBACZYSZ: strona v3.25.1 z zieloną etykietą „Latest" i na
       razie tylko dwoma plikami „Source code". Paczki dojdą same.
-  6f. Zakładka „Actions" → przebieg „Buduj wydanie" z etykietą v3.25.0.
+  6f. Zakładka „Actions" → przebieg „Buduj wydanie" z etykietą v3.25.1.
       Joby po kolei: windows → dwa razy „pozostale" (macOS, Linux) →
       „wersja". Całość ok. 20 minut, ma być zielona.
   6g. SPRAWDŹ:
-        · Releases → v3.25.0: trzy pliki .zip, pierwszy
+        · Releases → v3.25.1: trzy pliki .zip, pierwszy
           PMT_Planer.Windows.zip.
         · https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt
-          pierwsza linia = 3.25.0 (może potrwać do 5 min).
+          pierwsza linia = 3.25.1 (może potrwać do 5 min).
       Od tej chwili programy u ludzi proponują aktualizację.
 
   CZERWONY PRZEBIEG W 6f — zobacz, który job jest czerwony:
@@ -335,14 +335,14 @@ KROK 7 — WIADOMOŚĆ DO ZESPOŁU                                  2 minuty
   uda, program wróci w starej wersji bez komunikatu.)
 
   W KOLEJNYCH DNIACH zaglądaj raz na jakiś czas do zakładki Log:
-  wiersz  podpis_zly  od kogoś z 3.25.0 → patrz „GDY COŚ NIE GRA".
+  wiersz  podpis_zly  od kogoś z 3.25.1 → patrz „GDY COŚ NIE GRA".
 
 
 ───────────────────────────────────────────────────────────────────────
-HAMULEC AWARYJNY — tylko gdy 3.25.0 okaże się zepsuta
+HAMULEC AWARYJNY — tylko gdy 3.25.1 okaże się zepsuta
 ───────────────────────────────────────────────────────────────────────
   GitHub → Code → kliknij wersja.txt (gałąź main) → ołówek „Edit this
-  file" → w PIERWSZEJ linii zamień 3.25.0 na 3.25.0 (reszty nie ruszaj)
+  file" → w PIERWSZEJ linii zamień 3.25.1 na 3.25.0 (reszty nie ruszaj)
   → „Commit changes…" → „Commit changes".
   Od tej chwili nikt nowy nie dostaje propozycji aktualizacji; kto ma
   3.25.0, zostaje na niej. Wydania i tagu NIE kasuj. Napisz do mnie.
@@ -353,7 +353,7 @@ HAMULEC AWARYJNY — tylko gdy 3.25.0 okaże się zepsuta
 KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
 ───────────────────────────────────────────────────────────────────────
   ZANIM ZACZNIESZ: arkusz → zakładka Uzytkownicy → kolumna „Wersja":
-  wszyscy mają 3.25.0. Kto nie ma — najpierw do niego zadzwoń.
+  wszyscy mają 3.25.1. Kto nie ma — najpierw do niego zadzwoń.
   I w zakładce Log nie ma świeżych wierszy  podpis_zly.
 
   8a. WŁĄCZ PODPIS. Apps Script → Code.gs → Ctrl+F →
@@ -368,10 +368,10 @@ KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
           var WYMAGAJ_HASLA_W_PULSIE = false;
       z powrotem na true (zob. 4c). Od tej chwili puls i sesja przyjmują
       tylko podpis hasłem: kto zna sam 5-cyfrowy kod, nie dostanie
-      cudzego imienia, rejonu ani nieobecności. Programy starsze niż 3.25.0
+      cudzego imienia, rejonu ani nieobecności. Programy starsze niż 3.25.1
       (a takich po 8a już nie ma) wróciłyby do niewidzialności w arkuszu.
       SPRAWDZENIE: adres /exec pokazuje "podpis_obowiazkowy":true.
-      Potem: zaloguj się w programie 3.25.0 → zakładka Uzytkownicy,
+      Potem: zaloguj się w programie 3.25.1 → zakładka Uzytkownicy,
       Twój wiersz: „Ostatni kontakt" = przed chwilą.
       Coś nie działa → zmień z powrotem na false → Ctrl+S → Wdróż →
       Nowa wersja. Napisz do mnie.
@@ -379,14 +379,14 @@ KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
         · stary klucz (z historii repozytorium) nic nie daje,
         · bez sekretu aplikacji nie da się przez adres /exec ani
           zalogować, ani zmienić, ani wyzerować hasła,
-        · programy starsze niż 3.25.0 NIE ZALOGUJĄ SIĘ — dlatego
+        · programy starsze niż 3.25.1 NIE ZALOGUJĄ SIĘ — dlatego
           najpierw sprawdzasz kolumnę „Wersja".
 
   8b. PRÓG WERSJI (komputer albo telefon w trybie komputerowym).
       GitHub → Code → gałąź main → kliknij wersja.txt → ołówek „Edit
       this file". Plik ma 4 linie. Pierwszych dwóch NIE ruszaj. Trzecią
       i czwartą zamień w JEDNYM zapisie na:
-          min=3.25.0
+          min=3.25.1
           blokada=RRRR-MM-DD
       Data = dziś + 14 dni, dokładnie w formacie RRRR-MM-DD
       (np. 2026-11-09). Sprawdź w kalendarzu, że taki dzień istnieje.
@@ -394,7 +394,7 @@ KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
       branch" → „Commit changes".
       SPRAWDZENIE (po 1–5 min): otwórz
         https://raw.githubusercontent.com/anowicki0205-coder/pmt-planer/main/wersja.txt
-      → 4 linie: trzecia min=3.25.0, czwarta blokada=Twoja data.
+      → 4 linie: trzecia min=3.25.1, czwarta blokada=Twoja data.
       UWAGA: wersje 3.22.0 i starsze nie mają bezpiecznika — zmiana
       samego min= albo zła data odcięłaby je OD RAZU. Dlatego obie
       linie naraz i poprawna data.
@@ -405,7 +405,7 @@ KROK 8 — PO 14 DNIACH: DOMKNIĘCIE                    15 min, KOMPUTER
       okienko z przyciskiem „Zaktualizuj teraz"; po tej dacie starsza
       wersja przestanie się uruchamiać.
 
-      PRZY TYM WYDANIU (3.25.0) nie czekasz 14 dni: robisz 8b od razu po
+      PRZY TYM WYDANIU (3.25.1) nie czekasz 14 dni: robisz 8b od razu po
       wydaniu i w tym samym zapisie dopisujesz jeszcze dwie linie
       (web= i wygaszenie=) — o przejściu na aplikację w przeglądarce.
       Gotowe cztery linie z poprawnymi datami robi
@@ -446,7 +446,7 @@ GDY COŚ NIE GRA
       PRZED wydaniem (KROK 5): popraw sekret w GitHubie albo w Apps
         Script (ma być znak w znak ten sam), zbuduj test jeszcze raz.
       PO wydaniu: NIE buduj i NIE wydawaj ponownie. Zamiast tego:
-        1) Releases → v3.25.0 → pobierz PMT_Planer.Windows.zip →
+        1) Releases → v3.25.1 → pobierz PMT_Planer.Windows.zip →
            rozpakuj → PMT_Planer\_internal\sekret.txt → otwórz
            Notatnikiem → skopiuj jedyną linię.
         2) Apps Script → var SEKRETY_PMT → dopisz ją jako DRUGĄ
@@ -467,7 +467,7 @@ GDY COŚ NIE GRA
         (Numer telefonu nie wystarcza do zmiany hasła na koncie, które
         hasło ma — to ochrona przed przejęciem konta.)
 
-  Po KROKU 8a puls nie przybywa tylko u JEDNEJ osoby z 3.25.0
+  Po KROKU 8a puls nie przybywa tylko u JEDNEJ osoby z 3.25.1
       → sprawdź godzinę na jej komputerze: różnica ponad 10 minut
         psuje podpis. Windows: Ustawienia → Czas → „Ustaw czas
         automatycznie".

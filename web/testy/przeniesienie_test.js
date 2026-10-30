@@ -12,7 +12,7 @@ import sys, json; sys.path.insert(0, sys.argv[1]); import pmt_przeniesienie as P
 dane = json.loads(sys.stdin.read()); print(P.zaszyfruj(dane, sys.argv[2], P.hash_hasla(sys.argv[2], sys.argv[3])))`, JSON.stringify(dane), kodKonta, haslo);
   const skrot = (k, h) => require('crypto').createHash('sha256').update(`PMT|${k}|${h}`).digest('hex');
 
-  const dane = { z: 'program', wersja_programu: '3.25.1', data: '2026-10-29', profil: { imie: 'Jan Żółć-Łódzki', pesel: '90010112349', adres: 'ul. Polna 5, 00-001 Warszawa', stanowisko: 'KR', silnik_powyzej_900: false },
+  const dane = { z: 'program', wersja_programu: '3.25.0', data: '2026-10-29', profil: { imie: 'Jan Żółć-Łódzki', pesel: '90010112349', adres: 'ul. Polna 5, 00-001 Warszawa', stanowisko: 'KR', silnik_powyzej_900: false },
     sklepy: [{ adres: 'Główna 1, Grodzisk Mazowiecki', siec: 'Żabka', miasto: 'Grodzisk Mazowiecki' }, { adres: 'Dębowa Wola 12, Jedlińsk', siec: '', miasto: 'Jedlińsk' }] };
   const plik = wytworz(dane, '12345', 'haslo123');
   ok('plik z programu nie zawiera PESEL-u ani nazwiska jawnym tekstem', !plik.includes('90010112349') && !/Żółć|Polna|Żabka/.test(plik) && P.kodZPliku(plik) === '12345', plik.slice(0, 90) + '…');
@@ -61,7 +61,7 @@ dane = json.loads(sys.stdin.read()); print(P.zaszyfruj(dane, sys.argv[2], P.hash
   const zPlanem = JSON.parse(py(`
 import sys, json; sys.path.insert(0, sys.argv[1]); import pmt_przeniesienie as P
 w = json.loads(sys.stdin.read())
-dane = P.zloz_dane(w["profil"], w["sklepy"], "3.25.1", "2026-10-29", plan=w["plan"], dziennik=w["dziennik"])
+dane = P.zloz_dane(w["profil"], w["sklepy"], "3.25.0", "2026-10-29", plan=w["plan"], dziennik=w["dziennik"])
 print(json.dumps({"dane": dane, "plik": P.zaszyfruj(dane, "12345", P.hash_hasla("12345", "haslo123"))}))`, JSON.stringify({ profil: dane.profil, sklepy: dane.sklepy, plan: planWej, dziennik: dzienikWej })));
   const pp = zPlanem.dane.plan;
   const dniPy = pp ? pp.miesiace.flatMap(m => m.dni.map(d => d.data)) : [];

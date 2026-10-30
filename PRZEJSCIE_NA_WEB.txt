@@ -11,19 +11,19 @@ CO TO JEST — W TRZECH ZDANIACH
   · Informacja idzie do ludzi tą samą drogą co obowiązkowa aktualizacja:
     plikiem wersja.txt na GitHubie. Dwie nowe linie w tym pliku —
     web= (adres aplikacji) i wygaszenie= (data) — włączają okno
-    z informacją w każdym programie 3.25.1.
-  · Program 3.25.1 to OSTATNIA wersja na komputer. Niczego już nie
+    z informacją w każdym programie 3.25.0.
+  · Program 3.25.0 to OSTATNIA wersja na komputer. Niczego już nie
     zmienia poza tym oknem; logowanie, plany i dokumenty działają do
     dnia wyłączenia jak dotąd.
 
 
 SKĄD UŻYTKOWNIK SIĘ DOWIE — CZTERY DROGI, KAŻDA ŁAPIE KOGOŚ INNEGO
-  1. Okienko aktualizacji (po wydaniu 3.25.1). Każdy, kto uruchomi
+  1. Okienko aktualizacji (po wydaniu 3.25.0). Każdy, kto uruchomi
      program z internetem, zobaczy „Nowa wersja" z jednolinijkowym
      opisem wydania: „Ostatnia wersja programu na komputerze. Dalej
      pracujesz w aplikacji w przeglądarce i na telefonie." Przycisk
-     „Zaktualizuj teraz" podmienia program na 3.25.1.
-  2. Okno „Przechodzimy na aplikację w przeglądarce" (3.25.1, od chwili,
+     „Zaktualizuj teraz" podmienia program na 3.25.0.
+  2. Okno „Przechodzimy na aplikację w przeglądarce" (3.25.0, od chwili,
      gdy włączysz web=). Raz dziennie przy starcie, PRZED logowaniem:
      termin, adres, przycisk „Przenieś dane" (wyróżniony kolorem) oraz
      „Otwórz aplikację" i „Później". „Otwórz aplikację" otwiera stronę
@@ -78,7 +78,7 @@ ZANIM ZACZNIESZ — LISTA KONTROLNA (adres musi działać, zanim ktoś go dostan
 
 
 OŚ CZASU (przykład dla wyłączenia w poniedziałek 21 grudnia)
-  Dzień 0    Wydanie 3.25.1 (KROK 1). Włączenie informacji (KROK 2).
+  Dzień 0    Wydanie 3.25.0 (KROK 1). Włączenie informacji (KROK 2).
              Wiadomość do zespołu (KROK 4).
   Dzień +7   Przypomnienie (tekst nr 4 z pliku z gotowymi tekstami).
   Dzień +14  Blokada: kto nie zaktualizował, nie uruchomi starej
@@ -87,16 +87,16 @@ OŚ CZASU (przykład dla wyłączenia w poniedziałek 21 grudnia)
   Dzień +42  21 grudnia: wyłączenie (KROK 6).
 
 
-KROK 1 — WYDAJ 3.25.1
+KROK 1 — WYDAJ 3.25.0
 ───────────────────────────────────────────────────────────────────────
   Zrób KROKI 0–7 z WYDANIE.txt, z tą różnicą, że wiadomości z KROKU 7
   tam jeszcze NIE wysyłasz (ta idzie w KROKU 4 poniżej).
   KROK 8b z WYDANIE.txt (próg wersji min= i blokada=) robisz tutaj,
   w KROKU 2 — od razu po wydaniu, razem z dwiema nowymi liniami.
   KROK 8a (podpis obowiązkowy w backendzie) robisz dopiero PO dacie
-  blokady, gdy w arkuszu wszyscy mają 3.25.1 (zob. KROK 7).
-  CO ZOBACZYSZ: Releases → v3.25.1 z trzema paczkami; wersja.txt na
-  GitHubie zaczyna się od 3.25.1 (do 5 minut po budowie).
+  blokady, gdy w arkuszu wszyscy mają 3.25.0 (zob. KROK 7).
+  CO ZOBACZYSZ: Releases → v3.25.0 z trzema paczkami; wersja.txt na
+  GitHubie zaczyna się od 3.25.0 (do 5 minut po budowie).
   Od tej chwili programy 3.24.0 i starsze proponują aktualizację.
 
 
@@ -117,7 +117,7 @@ KROK 2 — WŁĄCZ INFORMACJĘ (wiersze web= i wygaszenie=)
   2b. GitHub → Code → gałąź main → wersja.txt → ołówek „Edit this file".
       Pierwszych DWÓCH linii (numer wersji i opis) NIE ruszaj. Wszystko
       od trzeciej linii zamień na cztery wiersze z części 1):
-          min=3.25.1
+          min=3.25.0
           blokada=RRRR-MM-DD
           web=https://adres-aplikacji/
           wygaszenie=RRRR-MM-DD
@@ -131,11 +131,11 @@ KROK 2 — WŁĄCZ INFORMACJĘ (wiersze web= i wygaszenie=)
       http:// albo ze spacją program go odrzuci i okno się nie pokaże.
 
   Co się stanie od tej chwili:
-  · program 3.25.1 przy najbliższym starcie z internetem pobiera
+  · program 3.25.0 przy najbliższym starcie z internetem pobiera
     wersja.txt i zaczyna pokazywać okno informacji (raz dziennie),
   · program 3.24.0 i starszy pokazuje okno aktualizacji; po dacie
     blokada= nie uruchomi się bez aktualizacji,
-  · w dniu wygaszenie= program 3.25.1 pokazuje okno i się zamyka.
+  · w dniu wygaszenie= program 3.25.0 pokazuje okno i się zamyka.
   BEZ linii web= program niczego nie pokazuje — to jest wyłącznik.
   Samo wygaszenie= bez web= nic nie robi.
 
@@ -145,7 +145,7 @@ KROK 3 — SPRAWDŹ NA SOBIE, ZANIM NAPISZESZ DO ZESPOŁU
   3a. Uruchom swój program 3.24.0 (jeśli jeszcze nie zaktualizowany):
       ma zaproponować aktualizację z opisem wydania. Kliknij
       „Zaktualizuj teraz".
-  3b. Uruchom 3.25.1. PRZED logowaniem ma się pojawić okno
+  3b. Uruchom 3.25.0. PRZED logowaniem ma się pojawić okno
       „Przechodzimy na aplikację w przeglądarce": data wyłączenia
       i liczba dni, adres aplikacji, przyciski „Otwórz aplikację"
       i „Później". „Otwórz aplikację" ma otworzyć właściwą stronę.
@@ -187,7 +187,7 @@ KROK 5 — KONTROLA: KTO JESZCZE NIE PRZESZEDŁ
     · System = Windows / macOS / Linux → ostatni kontakt był z programu.
   Posortuj po „Ostatni kontakt". Do kogoś, kto po tygodniu od wiadomości
   nadal loguje się tylko z programu albo nie ma świeżego kontaktu —
-  zadzwoń lub napisz osobno. Zwróć uwagę na wersje starsze niż 3.25.1:
+  zadzwoń lub napisz osobno. Zwróć uwagę na wersje starsze niż 3.25.0:
   to ludzie, którzy nie zaktualizowali programu i mogli w ogóle nie
   zobaczyć okna.
   (Uwaga: kolumna „System" pokazuje OSTATNI kontakt. Ktoś, kto używa
@@ -199,11 +199,11 @@ KROK 5 — KONTROLA: KTO JESZCZE NIE PRZESZEDŁ
 KROK 6 — DZIEŃ WYŁĄCZENIA
 ───────────────────────────────────────────────────────────────────────
   · Rano wyślij tekst z części 4) (dzień wyłączenia).
-  · Program 3.25.1 sam pokaże okno „Program na komputerze jest
+  · Program 3.25.0 sam pokaże okno „Program na komputerze jest
     wyłączony" i się zamknie. Nie robisz nic w kodzie.
   · Zakładka Log i Uzytkownicy: po południu sprawdź, kto zalogował się
     w aplikacji, a kto nie. Do pozostałych — telefon.
-  · NIE kasujesz wydania v3.25.1 ani wersja.txt: te cztery linie
+  · NIE kasujesz wydania v3.25.0 ani wersja.txt: te cztery linie
     muszą zostać, bo to one zamykają program u tych, którzy wracają
     po dłuższej przerwie.
 
@@ -217,7 +217,7 @@ KROK 7 — PO WYŁĄCZENIU (kiedy już nikt nie pracuje w programie)
     od .pmt_ . Dokumentów w folderach nie ruszają.
   · Backend: WYMAGAJ_HASLA_W_PULSIE był na czas przejścia false (WYDANIE.txt,
     KROK 4c). Zmień go na true i włącz PODPIS_OBOWIAZKOWY (WYDANIE.txt, KROK 8a)
-    dopiero, gdy po dacie blokady w kolumnie „Wersja" wszyscy mają 3.25.1
+    dopiero, gdy po dacie blokady w kolumnie „Wersja" wszyscy mają 3.25.0
     albo już ich nie ma w programie (przeszli na Web). Do tego czasu każdy
     puls z programu 3.24.0 i starszego jest przyjmowany, ale kto zna sam
     5-cyfrowy kod, może odczytać cudze imię, rejon i nieobecności — to
@@ -248,7 +248,7 @@ GDY COŚ NIE GRA
   Okno informacji się nie pojawia
       → otwórz wersja.txt (raw, adres w KROKU 2c): czy jest linia web=
         i czy zaczyna się od https:// i nie ma spacji?
-      → czy program ma wersję 3.25.1? Starsze pokażą okno aktualizacji,
+      → czy program ma wersję 3.25.0? Starsze pokażą okno aktualizacji,
         nie okno informacji (zakładka „O programie").
       → czy komputer ma internet? Okno pojawia się po pierwszym
         pobraniu wersja.txt; potem działa także bez internetu.

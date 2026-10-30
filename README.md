@@ -1,4 +1,4 @@
-# PMT — komplet systemu (program v3.25.1)
+# PMT — komplet systemu (program v3.25.0)
 
 > **Wydanie i wdrożenie krok po kroku: `WYDANIE.txt`.** Mapa plików: `START_TUTAJ.txt`.
 > Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
@@ -6,7 +6,7 @@
 > Testy przed wydaniem: `python testy_pmt.py`
 > Przejście na aplikację web (ostatnia wersja programu na komputerze): `PRZEJSCIE_NA_WEB.txt`
 
-## Co zmieniły wersje 3.25.0 i 3.25.1 (względem 3.24.0)
+## Co zmieniła wersja 3.25.0 (względem 3.24.0)
 
 | Obszar | Zmiana |
 |---|---|

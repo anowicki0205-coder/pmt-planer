@@ -890,7 +890,7 @@ sekcja("3b. Przejście na aplikację web: informacja dla każdego użytkownika (
 # aktualizacja — z wersja.txt. Dwa nowe wiersze: web= (adres; jest WŁĄCZNIKIEM) i wygaszenie= (data).
 
 _ADRES3b = "https://anowicki0205-coder.github.io/pmt-planer/"
-_PLIK3b = "3.25.1\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\nweb=%s\nwygaszenie=2099-12-20\n" % _ADRES3b
+_PLIK3b = "3.25.0\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\nweb=%s\nwygaszenie=2099-12-20\n" % _ADRES3b
 
 
 def _zeruj_przejscie3b():
@@ -901,25 +901,25 @@ def _zeruj_przejscie3b():
 _zeruj_przejscie3b()
 _n3b, _o3b = P._czytaj_wymagania_z_tekstu(_PLIK3b)
 sprawdz("parser: numer, opis, min, blokada, web i wygaszenie czytane razem",
-        (_n3b, _o3b) == ("3.25.1", "Opis aktualizacji.") and P.WERSJA_WYMAGANA == "3.24.0"
+        (_n3b, _o3b) == ("3.25.0", "Opis aktualizacji.") and P.WERSJA_WYMAGANA == "3.24.0"
         and P.TERMIN_BLOKADY == "2099-12-01" and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20",
         str((_n3b, _o3b, P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.ADRES_WEB, P.TERMIN_WYGASZENIA)))
 for _nazwa3b, _tresc3b in {
-        "wiersze web/wygaszenie przed opisem": "3.25.1\nweb=%s\nwygaszenie=2099-12-20\nOpis aktualizacji.\n" % _ADRES3b,
-        "spacje i wielkie litery": "3.25.1\nOpis aktualizacji.\nWEB = %s\nWYGASZENIE = 2099-12-20\n" % _ADRES3b,
+        "wiersze web/wygaszenie przed opisem": "3.25.0\nweb=%s\nwygaszenie=2099-12-20\nOpis aktualizacji.\n" % _ADRES3b,
+        "spacje i wielkie litery": "3.25.0\nOpis aktualizacji.\nWEB = %s\nWYGASZENIE = 2099-12-20\n" % _ADRES3b,
         "końce wierszy CRLF": _PLIK3b.replace("\n", "\r\n")}.items():
     _zeruj_przejscie3b()
     _n3b, _o3b = P._czytaj_wymagania_z_tekstu(_tresc3b)
-    sprawdz("parser: %s" % _nazwa3b, _n3b == "3.25.1" and _o3b == "Opis aktualizacji."
+    sprawdz("parser: %s" % _nazwa3b, _n3b == "3.25.0" and _o3b == "Opis aktualizacji."
             and P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20", str((_n3b, _o3b, P.ADRES_WEB)))
 sprawdz("plik z wierszami web=/wygaszenie= nadal wygląda na plik wersji (także z web= w pierwszym wierszu)",
-        P._tresc_wyglada_na_wersje(_PLIK3b) and P._tresc_wyglada_na_wersje("web=%s\n3.25.1\nOpis" % _ADRES3b)
+        P._tresc_wyglada_na_wersje(_PLIK3b) and P._tresc_wyglada_na_wersje("web=%s\n3.25.0\nOpis" % _ADRES3b)
         and not P._tresc_wyglada_na_wersje("web=%s\n<html>blokada proxy</html>" % _ADRES3b))
 for _zly3b in ("http://planer.example.pl/", "javascript:alert(1)", "file:///C:/Windows/", "https://planer/",
                "https://planer.example.pl/?x=1", "https://u:p@planer.example.pl/", "https://planer.example.pl/ a",
                "ftp://planer.example.pl/", "https://" + "a" * 250 + ".pl/"):
     _zeruj_przejscie3b()
-    P._czytaj_wymagania_z_tekstu("3.25.1\nOpis.\nweb=%s\n" % _zly3b)
+    P._czytaj_wymagania_z_tekstu("3.25.0\nOpis.\nweb=%s\n" % _zly3b)
     sprawdz("adres inny niż bezpieczny https jest odrzucany (wtedy informacja się nie włącza): %s" % _zly3b[:40],
             P.ADRES_WEB == "" and P.przejscie_na_web_stan()[0] is False)
 sprawdz("poprawny adres z portem i ścieżką przechodzi",
@@ -969,7 +969,7 @@ try:
     except Exception:
         pass
     _zeruj_przejscie3b()
-    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(_PLIK3b.replace("3.25.1", "3.99.0", 1).encode("utf-8"))
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(_PLIK3b.replace("3.25.0", "3.99.0", 1).encode("utf-8"))
     _w3b = P.sprawdz_aktualizacje()
     _zapis3b = json.load(open(P.PLIK_WYMAGAN, encoding="utf-8"))
     sprawdz("pobrany wersja.txt zapisuje adres web i termin wygaszenia na dysk",
@@ -993,7 +993,7 @@ try:
     P.sprawdz_aktualizacje()
     sprawdz("strona firmowego proxy nie wyłącza informacji o przejściu", P.ADRES_WEB == _ADRES3b and P.TERMIN_WYGASZENIA == "2099-12-20")
     # usunięcie web= z wersja.txt na GitHubie wyłącza informację wszystkim (plik jest jedynym źródłem prawdy)
-    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(b"3.25.1\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\n")
+    P.urllib.request.urlopen = lambda *a, **k: _Odp3b(b"3.25.0\nOpis aktualizacji.\nmin=3.24.0\nblokada=2099-12-01\n")
     P.sprawdz_aktualizacje()
     P.ADRES_WEB = P.TERMIN_WYGASZENIA = ""
     P._wczytaj_wymagania()
@@ -1045,7 +1045,7 @@ _ns3b = {}
 exec(_STARY_PARSER3b, _ns3b)
 _nowy3b, _opis3b = _ns3b["_czytaj_wymagania_z_tekstu"](_PLIK3b)
 sprawdz("stary program (3.24.0) czyta nowy wersja.txt po swojemu: numer, opis, min i blokada bez zmian, nowych wierszy nie bierze za opis",
-        (_nowy3b, _opis3b) == ("3.25.1", "Opis aktualizacji.") and _ns3b["WERSJA_WYMAGANA"] == "3.24.0"
+        (_nowy3b, _opis3b) == ("3.25.0", "Opis aktualizacji.") and _ns3b["WERSJA_WYMAGANA"] == "3.24.0"
         and _ns3b["TERMIN_BLOKADY"] == "2099-12-01" and _ns3b["_tresc_wyglada_na_wersje"](_PLIK3b) is True)
 
 # ── wiersze web= i wygaszenie= przeżywają automatyczne podbicie wersja.txt po zbudowaniu paczki (build.yml) ──
@@ -1061,13 +1061,13 @@ if _bash3b:
     import subprocess as _sp3b
     _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
     with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
-        _f3b.write(_PLIK3b.replace("3.25.1", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
-    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
+        _f3b.write(_PLIK3b.replace("3.25.0", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
+    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.0; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
                          cwd=_kat3b, capture_output=True, timeout=30)
     _po3b = open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8")
     _wiersze3b = [l for l in _po3b.replace("\r\n", "\n").split("\n") if l]
     sprawdz("build.yml (uruchomiony w bashu na próbnym pliku): nowy numer i opis, a wiersze min=, blokada=, web=, wygaszenie= zostają, końce wierszy CRLF",
-            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
+            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.0", "Nowy opis."]
             and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
             and _po3b.count("\r\n") == len(_wiersze3b), repr(_po3b) + _wynik3b.stderr.decode()[:200])
     shutil.rmtree(_kat3b, ignore_errors=True)
@@ -1267,8 +1267,8 @@ sprawdz("WYDANIE.txt, START_TUTAJ.txt i README.md odsyłają do instrukcji przej
         all("PRZEJSCIE_NA_WEB.txt" in open(os.path.join(KATALOG, n), encoding="utf-8").read()
             for n in ("WYDANIE.txt", "START_TUTAJ.txt", "README.md")))
 
-sprawdz("numer wersji 3.25.1 (wydanie z informacją o przejściu) zgadza się w źródle i w metadanych .exe",
-        P.WERSJA_PROGRAMU == "3.25.1" and "'3.25.1'" in open(os.path.join(KATALOG, "wersja_exe.txt"), encoding="utf-8").read())
+sprawdz("numer wersji 3.25.0 (wydanie z informacją o przejściu) zgadza się w źródle i w metadanych .exe",
+        P.WERSJA_PROGRAMU == "3.25.0" and "'3.25.0'" in open(os.path.join(KATALOG, "wersja_exe.txt"), encoding="utf-8").read())
 _zeruj_przejscie3b()
 
 # ══════════════════════════════════════════════════════════════════
@@ -1408,7 +1408,7 @@ _dz3d = {_dzis3d.isoformat() + "|główna 1, grodzisk mazowiecki": {"czas": "28.
 _od3d = _PRZ3d._odhaczenia(_dz3d, _pl3d)
 sprawdz("odhaczenia: tylko dla dni, które weszły do planu; czas przepisany, klucze zbyt długie i śmieci pominięte",
         list(_od3d) == [_dzis3d.isoformat() + "|główna 1, grodzisk mazowiecki"] and _od3d[list(_od3d)[0]]["czas"] == "28.10.2026 10:15" and _PRZ3d._odhaczenia(None, _pl3d) == {} and _PRZ3d._odhaczenia(_dz3d, None) == {})
-_z3d = _PRZ3d.zloz_dane(None, None, "3.25.1", _dzis3d.isoformat(), plan=_plan_surowy3d, dziennik=_dz3d)
+_z3d = _PRZ3d.zloz_dane(None, None, "3.25.0", _dzis3d.isoformat(), plan=_plan_surowy3d, dziennik=_dz3d)
 sprawdz("zloz_dane niesie plan i odhaczenia (a bez nich — None i pusty słownik)",
         _z3d["plan"] is not None and len(_z3d["odhaczenia"]) == 1 and _PRZ3d.zloz_dane(None, None)["plan"] is None and _PRZ3d.zloz_dane(None, None)["odhaczenia"] == {})
 _wielki3d = {"miesiace": [{"dni": [{"data": (_dzis3d + datetime.timedelta(days=i)).isoformat(), "km": 1, "minuty": 1, "wizyty": [{"adres": "A%d" % j} for j in range(100)]} for i in range(450)]} for _ in range(30)]}

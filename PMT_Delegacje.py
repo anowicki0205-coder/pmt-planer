@@ -2851,7 +2851,7 @@ def odblokuj_licencje_na_stale():
 #       https://github.com/TWOJ_LOGIN/TWOJE_REPO/releases/latest
 #  Dopóki URL_WERSJI jest puste, sprawdzanie jest wyłączone (nic się nie dzieje).
 # =============================================================================
-WERSJA_PROGRAMU = "3.25.1"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
+WERSJA_PROGRAMU = "3.25.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
                              # wersja_exe.txt uzgadnia zbuduj.py, wersja.txt podbija CI po zbudowaniu paczki
 # ETYKIETA WYDANIA — w wydaniu oficjalnym PUSTA (""), w paczce dla testera
 # niesie oznaczenie, ktore ma zobaczyc czlowiek. Dlaczego OSOBNA stala, a nie

@@ -11,7 +11,7 @@ import sys, json; sys.path.insert(0, sys.argv[1]); import pmt_przeniesienie as P
 print(P.zaszyfruj(json.loads(sys.stdin.read()), sys.argv[2], P.hash_hasla(sys.argv[2], sys.argv[3])))`, korzen, kodKonta, haslo], { encoding: 'utf8', input: JSON.stringify(dane) }).trim();
     const f = path.join(tmp, nazwa); fs.writeFileSync(f, wyj); return f;
   };
-  const dane = P => ({ z: 'program', wersja_programu: '3.25.1', data: '2026-10-29', profil: { imie: 'Jan Testowy', pesel: '90010112349', adres: 'ul. Testowa 1, 00-001 Warszawa', stanowisko: 'KR', silnik_powyzej_900: false },
+  const dane = P => ({ z: 'program', wersja_programu: '3.25.0', data: '2026-10-29', profil: { imie: 'Jan Testowy', pesel: '90010112349', adres: 'ul. Testowa 1, 00-001 Warszawa', stanowisko: 'KR', silnik_powyzej_900: false },
     sklepy: [{ adres: 'Główna 1, Grodzisk Mazowiecki', siec: 'Żabka', miasto: 'Grodzisk Mazowiecki' }, { adres: 'Piękna 2, Żyrardów', siec: 'Biedronka', miasto: 'Żyrardów' }, { adres: 'Dębowa Wola 12, Jedlińsk', siec: '', miasto: 'Jedlińsk' }] });
   const dobry = zrob('dobry.pmtdane', dane(), '12345', 'haslo123');
   const innyKod = zrob('inne_konto.pmtdane', dane(), '54321', 'haslo123');

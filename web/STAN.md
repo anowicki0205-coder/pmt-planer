@@ -177,8 +177,10 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       sumy i godziny, a po „Zapisz” kafel Dziś ma wizyty; plik bez planu → okno „Plan” otwiera się samo z gotową listą. Wygenerowane wcześniej trasy i historia miesięcy NIE przenoszą się (zostają na dysku). (5) kod QR: kafel „Na telefon” znikał w zainstalowanej aplikacji na komputerze (okno standalone) — teraz chowa się tylko na telefonie/iOS (przyczyna to hipoteza, do potwierdzenia
       przez właściciela). Testy: testy_pmt.py sekcja 3d, przeniesienie_test.js, przeniesienie_app.js (dwa scenariusze), qr_kafel_app.js.
       NIEZWERYFIKOWANE: wygląd okna na prawdziwym Windows; przejście na produkcyjną stronę github.io; wydanie v3.25.0 zbudowane PRZED tą poprawką ma jeszcze okno z listą kont — trzeba je zbudować od nowa z tego kodu (opis w PR).
-- [x] WYSYŁKA ZAHASŁOWANĄ PACZKĄ (po uwadze właściciela: „zahasłować dokumenty z PESEL-em i zapanować nad spamem”; wersja lekka, bez serwera): okno „Wyślij” prosi o hasło do paczki (≥8 znaków, uzgodnione
-      z Kierownikiem poza pocztą, pamiętane zaszyfrowane na koncie), robi jedną paczkę ZIP z AES-256 (js/zipaes.js) i plik wiadomości .eml z adresatem, tematem „[PMT] Delegacje — …”, krótką treścią i załącznikiem
-      (js/poczta.js, nagłówek X-Unsent: 1); zapasowo „Otwórz pocztę (dołączę sam)” i „Udostępnij pliki” (telefon) — też z zahasłowaną paczką. Spam: stały początek tematu → reguła w poczcie Kierownika.
-      Testy: paczka_test.js (pyzipper + prawdziwy 7-Zip + parser poczty), podpis_offline_app.js. NIEZWERYFIKOWANE: otwieranie .eml w prawdziwym Outlooku/Thunderbirdzie/Poczcie Windows (poczta w przeglądarce
-      go nie otworzy — jest ścieżka zapasowa); Eksplorator Windows często nie otwiera AES-256 (potrzebny 7-Zip/WinRAR). NIE zrobione (świadomie): kolejka na serwerze z wysyłką o 14:00.
+- [x] WYSYŁKA ZAHASŁOWANĄ PACZKĄ (po uwagach właściciela: zahasłować dokumenty z PESEL-em, zapanować nad spamem; hasło nadaje administrator z terminem ważności; wysyłka na wskazany adres, jeden moduł w oknie
+      dokumentów, bez opcji dodatkowych): krok 5 „Wyślij” w oknie „Dokumenty do podpisu” pobiera hasło ze skryptu (akcja haslo_paczki; zakładka „Ustawienia”: haslo_paczki + haslo_paczki_wazne_do; po terminie
+      skrypt hasła nie wydaje), robi jedną paczkę ZIP z AES-256 (js/zipaes.js) i plik wiadomości .eml z adresatem z odbiorca.txt, tematem „[PMT] Delegacje — …”, krótką treścią i załącznikiem (js/poczta.js,
+      nagłówek X-Unsent: 1); na telefonie systemowe udostępnianie. Spam: stały początek tematu → reguła w poczcie odbiorcy. Testy: paczka_test.js (pyzipper + prawdziwy 7-Zip + parser poczty), backend_gs_test.js
+      (sekcja 7), podpis_offline_app.js. NIEZWERYFIKOWANE: otwieranie .eml w prawdziwym Outlooku/Thunderbirdzie/Poczcie Windows (poczta w przeglądarce go nie otworzy — świadomie bez ścieżki zapasowej, na prośbę
+      właściciela); backend na prawdziwym Apps Script (wymaga wklejenia nowej wersji skryptu i „Wdróż → Nowa wersja”); Eksplorator Windows często nie otwiera AES-256 (potrzebny 7-Zip/WinRAR).
+      NIE zrobione (świadomie): kolejka na serwerze z wysyłką o stałej godzinie.

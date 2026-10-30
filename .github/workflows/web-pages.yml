@@ -5,7 +5,7 @@
 # Sekrety są te same, co przy budowaniu programu na komputer (nic nowego do wpisania):
 #   PMT_SEKRET    — sekret aplikacji (ten sam napis, co w SEKRETY_PMT w Apps Script)
 #   PMT_MENEDZER  — imię i nazwisko przełożonego
-#   PMT_ODBIORCA  — (opcjonalnie) adres e-mail Kierownika regionu dla wysyłki podpisanych dokumentów
+#   PMT_ODBIORCA  — adres e-mail, na który aplikacja wysyła paczki z podpisanymi dokumentami (bez niego wysyłka jest wyłączona)
 #   PMT_ADRES     — (opcjonalnie) własna domena strony, np. https://planer.firma.pl/ ; bez niego kod QR dostaje adres nadany przez GitHub Pages
 # Workflow zapisuje je jako pliki sekret.txt i menedzer.txt W PACZCE STRONY — nie w repozytorium. UWAGA: pliki na stronie są
 # czytelne dla każdego, kto zna jej adres (tak samo jak wszystko, co przeglądarka pobiera). Sekret to filtr przed botami,
@@ -60,8 +60,8 @@ jobs:
           [ -n "$PMT_SEKRET" ] || { echo "::error::Brak sekretu PMT_SEKRET — backend odrzuci puls, sesję i reset hasła po włączeniu podpisu."; exit 1; }
           printf '%s\n' "$PMT_MENEDZER" > strona/menedzer.txt
           printf '%s\n' "$PMT_SEKRET" > strona/sekret.txt
-          # adres Kierownika regionu (opcjonalny sekret PMT_ODBIORCA): bez niego w oknie wysyłki jest pole do wpisania adresu
-          [ -z "$PMT_ODBIORCA" ] || printf '%s\n' "$PMT_ODBIORCA" > strona/odbiorca.txt
+          # adres odbiorcy paczek z dokumentami (sekret PMT_ODBIORCA): bez niego wysyłka w aplikacji jest wyłączona
+          if [ -n "$PMT_ODBIORCA" ]; then printf '%s\n' "$PMT_ODBIORCA" > strona/odbiorca.txt; else echo "::warning::Brak sekretu PMT_ODBIORCA — przycisk Wyślij w aplikacji będzie wyłączony (brak adresu odbiorcy)."; fi
           # stały adres strony dla kodu QR „Na telefon”: własna domena z sekretu PMT_ADRES (opcjonalnie), inaczej adres, który GitHub nadał stronie
           ADRES="${PMT_ADRES:-$PMT_ADRES_STRONY}"
           [ -z "$ADRES" ] || printf '%s/\n' "${ADRES%/}" > strona/adres_aplikacji.txt

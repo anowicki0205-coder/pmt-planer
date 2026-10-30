@@ -16,7 +16,7 @@ Z rozpakowanego PMT_Planer_web wystarczy (reszta to testy i narzędzia):
 Do tego DWA pliki, które celowo NIE są w paczce (ani w repozytorium) — tworzysz je na serwerze, obok index.html:
   sekret.txt     jedna linia: sekret aplikacji (ten sam napis co w SEKRETY_PMT w Apps Script)
   menedzer.txt   jedna linia: imię i nazwisko Kierownika regionu (bez niego generowanie dokumentów jest zablokowane)
-W odbiorca.txt wpisz w jednej linii adres e-mail Kierownika regionu (bez niego w oknie wysyłki pojawia się pole do wpisania).
+W odbiorca.txt wpisz w jednej linii adres e-mail, na który aplikacja wysyła paczki z dokumentami (bez niego przycisk „Wyślij” jest wyłączony). Hasło do paczek nadajesz w arkuszu, w zakładce „Ustawienia” (BACKEND_APPS_SCRIPT.txt).
 W adres_aplikacji.txt wpisz w jednej linii stały adres strony po wdrożeniu (np. https://planer.firma.pl/): pod niego prowadzi kod QR „Na telefon”, dzięki czemu działa niezależnie od komputera.
   Bez tego wpisu kod prowadzi pod adres bieżącej strony (na serwerze), a przy uruchomieniu lokalnym — pod adres komputera w sieci.
 Zmieniłeś cokolwiek w js/, css/ lub silnik/? Wtedy przebuduj sw.js:  python narzedzia/zbuduj_sw.py  (to samo robi paczka z GitHuba).

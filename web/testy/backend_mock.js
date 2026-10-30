@@ -16,6 +16,8 @@ class BackendMock {
       '22222': { imie: 'Anna Nowa', telefon: '501502503', hash: '', wazne_do: '2099-12-31' },
       '33333': { imie: 'Ewa Wygasla', telefon: '700800900', hash: hash('33333', 'haslo123'), wazne_do: '2020-01-01' },
     };
+    this.paczka = opcje.paczka || null;           // hasło do paczek z dokumentami nadane przez administratora: { haslo, wazne_do } (zakładka „Ustawienia” w arkuszu)
+    this.pobraniaHasla = 0;
     this.log = []; this.sesje = []; this.pulsy = []; this.proby = {};
   }
   podpisPoprawny(d) {
@@ -27,6 +29,16 @@ class BackendMock {
   hasloOk(d, u) {
     const czas = Number(d.klucz_czas || 0); if (!u.hash || !czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
     return crypto.createHmac('sha256', u.hash).update(`${d.kod || ''}|${d.akcja || ''}|${czas}`).digest('hex') === String(d.podpis_hasla || '');
+  }
+  /** Jak hasloPaczki w .gs: tylko konto z podpisem swojego hasła i ważną sesją; hasło i termin ustawia administrator; po terminie hasła nie ma w odpowiedzi. */
+  hasloPaczki(d) {
+    const u = this.uzytkownicy[String(d.kod || '')];
+    if (!u || !this.hasloOk(d, u)) { this.zapisz(String(d.kod || '?'), 'haslo_paczki_odmowa'); return { status: 'odmowa' }; }
+    if (u.wazne_do < iso(new Date())) return { status: 'wygasla' };
+    const p = this.paczka; if (!p || !String(p.haslo || '').trim() || !p.wazne_do) return { status: 'brak' };
+    if (p.wazne_do < iso(new Date())) return { status: 'wygaslo', wazne_do: p.wazne_do };
+    this.pobraniaHasla++; this.zapisz(String(d.kod), 'haslo_paczki', `wazne do ${p.wazne_do}`);
+    return { status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do };
   }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
   obsluz(tekst) {
@@ -41,6 +53,7 @@ class BackendMock {
       case 'sesja': { const u = this.uzytkownicy[String(d.kod || '')]; if (u && this.hasloOk(d, u)) this.sesje.push(d); else this.sesjeOdrzucone = (this.sesjeOdrzucone || 0) + 1; return { status: 'ok' }; }
       case 'zmien_haslo': return this.zmienHaslo(d);
       case 'reset_hasla': return this.reset(d);
+      case 'haslo_paczki': return this.hasloPaczki(d);
       default: return { status: 'blad', opis: 'Nieznana akcja' };
     }
   }

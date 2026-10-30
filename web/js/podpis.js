@@ -5,7 +5,7 @@
 //   3. Wgraj podpisane pliki (PDF z podpisem, plik .xades, paczka ZIP, skany i zdjęcia — wszystkie naraz; aplikacja sama dopasowuje je do dokumentów),
 //   4. Sprawdzenie: dla każdego dokumentu — czy jest podpis, czy obejmuje całość, czy dokument nie został zmieniony, czy podpisała właściwa osoba (imię i nazwisko, PESEL),
 //      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane,
-//   5. Wyślij: wysyłka na adres Kierownika regionu. Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
+//   5. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
 import { zipujAes } from './zipaes.js';
 import { zbudujEml } from './poczta.js';
@@ -79,9 +79,14 @@ export function zainstalujPodpis(k) {
     if (!wgr) return `${razem} ${liczba(razem, 'dokument czeka', 'dokumenty czekają', 'dokumentów czeka')} na podpis`;
     return wszystkoPodpisane() ? `<b>Wszystkie ${razem} dokumentów sprawdzone — możesz wysłać</b>` : `<b>${ok} z ${razem}</b> sprawdzonych pozytywnie${wgr - ok > 0 ? ` · ${wgr - ok} do poprawy lub potwierdzenia` : ''}`;
   }
-  /** Krok 5: do czasu, aż wszystkie dokumenty są wgrane i sprawdzone, przycisk jest wyszarzony i NIE niesie data-akcja (nic go nie uruchomi). */
-  const przyciskWyslij = () => wszystkoPodpisane() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij">${ik('i-wyslij')}Wyślij</button>` : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik('i-wyslij')}Wyślij</button>`;
-  const opisWyslij = () => wszystkoPodpisane() ? 'Wszystkie dokumenty sprawdzone — możesz wysłać je Kierownikowi regionu.' : 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.';
+  /** Krok 5: do czasu, aż wszystkie dokumenty są wgrane i sprawdzone (i znamy adres odbiorcy), przycisk jest wyszarzony i NIE niesie data-akcja (nic go nie uruchomi). */
+  let adresZnany;                 // undefined = jeszcze nie wiadomo, '' = w odbiorca.txt nie ma adresu
+  let stanWysylki = '';           // komunikat pod krokiem 5 po kliknięciu „Wyślij” (html)
+  const mozeWyslac = () => wszystkoPodpisane() && adresZnany !== '';
+  const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij">${ik('i-wyslij')}Wyślij</button>` : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik('i-wyslij')}Wyślij</button>`;
+  const opisWyslij = () => !wszystkoPodpisane() ? 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.'
+    : adresZnany === '' ? 'Brak adresu odbiorcy — napisz do administratora.'
+    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i przygotuje wiadomość${adresZnany ? ` do <span class="adr">${esc(adresZnany)}</span>` : ''}`;
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
     return `${nagl('Dokumenty do podpisu')}
@@ -97,7 +102,7 @@ export function zainstalujPodpis(k) {
           <span class="kk-akcje"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span></li>
         <li class="krok-strefa"><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></li>
         <li class="krok-k k4"><span class="kk-nr">4</span><div class="kk-tresc"><b>Sprawdzenie</b><small class="podp-licznik" id="podp-licznik">${podsumowanie()}</small></div></li>
-        <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">5</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small></div>
+        <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">5</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small><small class="podp-stan" id="podp-wyslij-stan" aria-live="polite">${stanWysylki}</small></div>
           <span class="kk-akcje" id="podp-wyslij-akcje">${przyciskWyslij()}</span></li>
       </ol>
       <div id="podp-odrzucone" aria-live="polite"></div>
@@ -110,30 +115,12 @@ export function zainstalujPodpis(k) {
     const s = $('#dok-siatka', arkTresc); if (s) s.outerHTML = kartyDok();
     const l = $('#podp-licznik', arkTresc); if (l) l.innerHTML = podsumowanie();
     const k5 = $('.krok-k.k5', arkTresc);
-    if (k5) { const akt = wszystkoPodpisane(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).textContent = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
+    if (k5) { const akt = mozeWyslac(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).innerHTML = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
     pokazWyniki();
-  }
-  async function widokWyslij() {
-    const adres = await adresOdbiorcy(), zal = await zalaczniki(), odb = magUst.daj('odbiorca', ''), razemB = zal.reduce((a, z) => a + z.bajty.length, 0), haslo = magUst.daj('haslo-paczki', ''), dotyk = matchMedia('(pointer:coarse)').matches;
-    const pole = adres ? `<p class="ark-opis">Adresat: <b id="w-adres">${esc(adres)}</b></p>`
-      : `<label class="pole"><span>Adres Kierownika regionu</span><input id="w-odb" type="email" inputmode="email" autocomplete="email" value="${esc(odb)}" placeholder="adres@firma.pl" data-pierwsze><small></small></label>`;
-    const przyciskiGlowne = dotyk
-      ? `<button type="button" class="przycisk glowny" id="w-udostepnij">${ik('i-wyslij')}Wyślij pocztą</button>`
-      : `<button type="button" class="przycisk glowny" id="w-eml">${ik('i-wyslij')}Wyślij pocztą</button>`;
-    return `${nagl('Wyślij do Kierownika regionu', true)}
-      <p class="ark-opis">Zrobię <b>jedną paczkę ZIP zahasłowaną</b> (szyfrowanie AES-256) z <b>${zal.length} ${liczba(zal.length, 'plikiem', 'plikami', 'plikami')}</b> (${mb(razemB)}) — w dokumentach jest PESEL, więc nie idą pocztą jawnie. Poczta otworzy się z gotową wiadomością: adresat, temat, krótka treść i paczka w załączniku; Ty tylko klikasz „Wyślij”.</p>
-      ${razemB > LIMIT_POCZTY ? `<p class="ark-opis zle" id="w-duze">Załączniki ważą ${mb(razemB)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skan do PDF (np. w aplikacji skanującej na telefonie) albo wyślij dokumenty w dwóch wiadomościach.</p>` : ''}
-      ${pole}
-      <label class="pole"><span>Hasło do paczki</span><input id="w-haslo" type="password" autocomplete="off" value="${esc(haslo)}" placeholder="co najmniej 8 znaków"${adres ? ' data-pierwsze' : ''}><small id="w-haslo-opis">Uzgodnij je z Kierownikiem poza pocztą (np. telefonicznie) — to samo hasło dla wszystkich; nie wysyłam go pocztą. Zapamiętam je tylko na tym urządzeniu.</small></label>
-      <label class="pokaz-haslo"><input type="checkbox" id="w-pokaz"> pokaż hasło</label>
-      <div class="ark-dol"><button type="button" class="przycisk" data-akcja="glowny">Wstecz</button><button type="button" class="przycisk" id="w-mailto">Otwórz pocztę (dołączę sam)</button>${dotyk ? '' : '<button type="button" class="przycisk" id="w-udostepnij">Udostępnij pliki</button>'}${przyciskiGlowne}</div>
-      <div class="ark-opis podp-pod" id="w-info" aria-live="polite">${dotyk ? '„Wyślij pocztą” przekazuje zahasłowaną paczkę prosto do aplikacji pocztowej w telefonie. Gdyby nie zadziałało, „Otwórz pocztę” pobiera paczkę, a Ty dołączasz ją do wiadomości.' : '„Wyślij pocztą” pobiera plik wiadomości (.eml): kliknij go, a otworzy się Outlook, Thunderbird lub Poczta w Windows z adresatem, tematem, treścią i załączoną paczką. Poczty w przeglądarce (Gmail, Outlook w internecie) nie umieją otworzyć takiego pliku — użyj „Otwórz pocztę (dołączę sam)”: pobiorę paczkę, a Ty dołączysz ją do nowej wiadomości.'}</div>
-      <div class="ark-dol"><button type="button" class="przycisk" id="w-oznacz">Już wysłane — oznacz</button></div>`;
   }
   function pokaz(nowy) {
     widok = nowy;
     const wstaw = html => { k.zmienArkusz(html); const a = $('#arkusz'); a.classList.remove('widok-wejscie'); void a.offsetWidth; a.classList.add('widok-wejscie'); };
-    if (nowy === 'wyslij') { widokWyslij().then(wstaw); return; }
     wstaw(widokGlowny()); pokazWyniki();
   }
 
@@ -271,7 +258,7 @@ export function zainstalujPodpis(k) {
     const w = weryfikacje()[i]; if (!w) return;
     zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
-    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać do Kierownika regionu'); }
+    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać dokumenty'); }
   }
 
   /* ---------------------------------- wgrywanie ---------------------------------- */
@@ -323,7 +310,7 @@ export function zainstalujPodpis(k) {
     for (const i of dotkniete) await sprawdz(i);
     const ok = [...dotkniete].filter(i => M().podpisane[i]).length;
     if (k.zorza() && ok) k.zorza().flara(.22);
-    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać do Kierownika regionu'); }
+    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać dokumenty'); }
     else if (!dotkniete.size) pokazToast('Żaden plik nie został przyjęty — powody są pod krokami');
     else pokazToast(ok === dotkniete.size ? `Sprawdzono ${ok} ${liczba(ok, 'dokument', 'dokumenty', 'dokumentów')} — podpisy w porządku` : `Sprawdzono ${dotkniete.size}: ${ok} w porządku, ${dotkniete.size - ok} do poprawy — szczegóły w kartach dokumentów`);
   }
@@ -349,45 +336,44 @@ export function zainstalujPodpis(k) {
     }
     return wyn;
   }
-  const temat = () => `[PMT] Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;      // stały początek „[PMT]” pozwala Kierownikowi ustawić regułę poczty (osobny folder)
+  const temat = () => `[PMT] Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;      // stały początek „[PMT]” pozwala odbiorcy ustawić regułę poczty (osobny folder)
   const miesiacTekst = () => { const m = String(k.MIES[M().mies - 1]); return m.charAt(0).toUpperCase() + m.slice(1); };
-  const trescWiad = n => `Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami delegacyjnymi za ${miesiacTekst()} ${M().rok} (${n} ${liczba(n, 'plik', 'pliki', 'plików')}). Hasło zostało uzgodnione osobno.\n\nPozdrawiam\n${k.PROFIL().imie}`;
-  const MIN_HASLO = 8;
-  /** Sprawdza adres i hasło w oknie, zapamiętuje je i robi zahasłowaną paczkę: { adres, zal, blob } albo null (błąd pokazany przy polu). */
-  async function przygotujPaczke() {
-    const pole = $('#w-odb', arkTresc), wh = $('#w-haslo', arkTresc), adres = (await adresOdbiorcy()) || (pole ? pole.value.trim() : ''), haslo = wh ? wh.value : '';
-    const blad = (el, tekst) => { const s = el.parentElement.querySelector('small'); if (s) { s.textContent = tekst; s.classList.add('zle'); } k.potrzasnij && k.potrzasnij(el); el.focus(); return null; };
-    if (!EMAIL.test(adres)) return pole ? blad(pole, 'Wpisz poprawny adres e-mail') : (pokazToast('Brak adresu Kierownika regionu — wpisz go w oknie') , null);
-    if ([...haslo].length < MIN_HASLO) return blad(wh, `Hasło ma mieć co najmniej ${MIN_HASLO} znaków (uzgodnij je z Kierownikiem)`);
-    if (pole) magUst.ustaw('odbiorca', adres);
-    magUst.ustaw('haslo-paczki', haslo);
-    const s = wh.parentElement.querySelector('small'); if (s) s.classList.remove('zle');
-    const zal = await zalaczniki(); if (!zal.length) { pokazToast('Nie ma plików do wysłania'); return null; }
-    arkTresc.querySelectorAll('#w-eml,#w-mailto,#w-udostepnij').forEach(b => { b.disabled = true; }); pokazToast('Przygotowuję zahasłowaną paczkę…');
-    await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
-    try { return { adres, zal, blob: zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), haslo) }; }
-    catch (e) { console.error('paczka', e); pokazToast('Nie udało się przygotować paczki'); return null; }
-    finally { arkTresc.querySelectorAll('#w-eml,#w-mailto,#w-udostepnij').forEach(b => { b.disabled = false; }); }
+  const trescWiad = n => `Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami delegacyjnymi za ${miesiacTekst()} ${M().rok} (${n} ${liczba(n, 'plik', 'pliki', 'plików')}). Hasło zostało przekazane osobno.\n\nPozdrawiam\n${k.PROFIL().imie}`;
+  const stanW = (html, zle = false) => { stanWysylki = html ? (zle ? `<span class="zle">${html}</span>` : html) : ''; const s = $('#podp-wyslij-stan', arkTresc); if (s) s.innerHTML = stanWysylki; };
+  /** Hasło do paczek nadaje administrator (nie użytkownik): pobieramy je z serwera tuż przed wysyłką; bez internetu wystarcza zapamiętane, o ile jeszcze nie wygasło. */
+  async function hasloDoPaczki() {
+    const o = await k.hasloPaczki();
+    if (o.ok) { magUst.ustaw('paczka', { haslo: o.haslo, wazne_do: o.wazneDo }); return o; }
+    if (o.powod === 'siec') { const c = magUst.daj('paczka', null); if (c && c.haslo && c.wazne_do >= k.isoDzis()) return { ok: true, haslo: c.haslo, wazneDo: c.wazne_do }; }
+    if (o.powod === 'brak' || o.powod === 'wygaslo') magUst.ustaw('paczka', null);
+    return o;
   }
-  async function wyslij(tryb) {
-    const paczka = await przygotujPaczke(); if (!paczka) return;
-    const { adres, zal, blob } = paczka, tr = trescWiad(zal.length);
-    if (tryb === 'share') {
-      const plik = new File([blob], nazwaZip(), { type: 'application/zip' });
-      if (navigator.canShare && navigator.canShare({ files: [plik] })) { try { await navigator.share({ files: [plik], title: temat(), text: tr }); oznaczWyslane(); } catch (e) { if (e.name !== 'AbortError') pokazToast('Nie udało się udostępnić plików'); } }
-      else { k.pobierzBlob(blob, nazwaZip()); pokazToast('Ta przeglądarka nie udostępnia plików do poczty — pobrałem zahasłowaną paczkę, dołącz ją do wiadomości'); }
-      return;
-    }
-    if (tryb === 'eml') {
-      const eml = zbudujEml({ adres, temat: temat(), tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
+  const OZNACZ = '<button type="button" class="przycisk" id="w-oznacz">Oznacz jako wysłane</button>';
+  let wysylanie = false;
+  /** Przycisk „Wyślij” w kroku 5: hasło od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie do poczty). */
+  async function wyslij() {
+    if (wysylanie) return; wysylanie = true;
+    const przycisk = () => $('#podp-wyslij-akcje button', arkTresc); if (przycisk()) przycisk().disabled = true;
+    try {
+      const adres = await adresOdbiorcy();
+      if (!EMAIL.test(adres || '')) { stanW('Brak adresu odbiorcy — napisz do administratora.', true); return; }
+      stanW('Pobieram hasło do paczki…');
+      const h = await hasloDoPaczki(); if (!h.ok) { stanW(esc(h.komunikat), true); return; }
+      stanW('Przygotowuję zahasłowaną paczkę…'); await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
+      const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
+      const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
+      const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
+      if (matchMedia('(pointer:coarse)').matches && navigator.canShare && navigator.canShare({ files: [plik] })) {      // telefon: systemowe udostępnianie prosto do aplikacji pocztowej (adresat do wpisania)
+        try { await navigator.share({ files: [plik], title: tem, text: tr }); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}<br>${OZNACZ}`); }
+        catch (e) { if (e.name !== 'AbortError') stanW('Nie udało się przekazać paczki do poczty.', true); else stanW(''); }
+        return;
+      }
+      const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
       k.pobierzBlob(new Blob([eml], { type: 'message/rfc822' }), 'PMT_wiadomosc_do_wyslania.eml');
-      const info = $('#w-info', arkTresc); if (info) info.innerHTML = 'Pobrałem plik <b>PMT_wiadomosc_do_wyslania.eml</b>. <b>Kliknij go</b> (na pasku pobierania przeglądarki albo w folderze Pobrane): otworzy się poczta z gotową wiadomością i zahasłowaną paczką — sprawdź i kliknij „Wyślij”, potem „Już wysłane — oznacz”. Jeśli plik otworzył się w innym programie albo nic się nie stało, użyj „Otwórz pocztę (dołączę sam)”.';
-      pokazToast('Pobrałem wiadomość — kliknij pobrany plik .eml, a otworzy się poczta z załączoną paczką');
-      return;
-    }
-    k.pobierzBlob(blob, nazwaZip());
-    location.href = `mailto:${encodeURIComponent(adres)}?subject=${encodeURIComponent(temat())}&body=${encodeURIComponent(tr + '\n\n(Dołącz pobrany plik ZIP z dokumentami.)')}`;
-    pokazToast('Poczta otwarta — dołącz pobrany plik ZIP i wyślij wiadomość, potem kliknij „Już wysłane”');
+      stanW(`Pobrałem wiadomość <span class="adr">PMT_wiadomosc_do_wyslania.eml</span>. <span class="adr">Kliknij ją</span> (pasek pobierania przeglądarki albo folder Pobrane) — otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.${duza}<br>${OZNACZ}`);
+      pokazToast('Wiadomość gotowa — kliknij pobrany plik .eml, żeby ją wysłać');
+    } catch (e) { console.error('wysyłka', e); stanW('Nie udało się przygotować wiadomości. Spróbuj jeszcze raz.', true); }
+    finally { wysylanie = false; if (przycisk()) przycisk().disabled = false; }
   }
   function oznaczWyslane() { const m = M(); m.wyslane = true; k.zapiszRekord(); k.odswiezHero(); k.zamknijArkusz(); k.zorza() && k.zorza().flara(.7); pokazToast('Oznaczono jako wysłane. Gdyby nie poszło, kliknij „Cofnij wysłanie".'); }
 
@@ -399,7 +385,7 @@ export function zainstalujPodpis(k) {
     else if (a === 'zip') zip();
     else if (a === 'osobno') pobierzOsobno();
     else if (a === 'glowny') pokaz('glowny');
-    else if (a === 'wyslij') pokaz('wyslij');
+    else if (a === 'wyslij') wyslij();
     else if (a === 'drukuj') drukuj();
     else if (a === 'pdf-wydruk') pobierzWydruk();
     else if (a === 'cofnij') cofnij(Number(b.dataset.i));
@@ -408,14 +394,8 @@ export function zainstalujPodpis(k) {
   });
   arkTresc.addEventListener('click', e => {
     if (e.target.closest('.dok-k-g') && widok === 'glowny') { const kt = e.target.closest('.dok-k'); const i = Number(kt && kt.dataset.i); if (kt && !kt.classList.contains('st-czeka') && !kt.classList.contains('st-trwa')) { if (otwarte.has(i)) otwarte.delete(i); else otwarte.add(i); odswiezWidok(); } }
-    if (widok !== 'wyslij') return;
-    if (e.target.closest('#w-udostepnij')) wyslij('share');
-    else if (e.target.closest('#w-eml')) wyslij('eml');
-    else if (e.target.closest('#w-mailto')) wyslij('poczta');
-    else if (e.target.closest('#w-oznacz')) { const p = $('#w-odb', arkTresc); p && p.value.trim() && magUst.ustaw('odbiorca', p.value.trim()); oznaczWyslane(); }
+    if (e.target.closest('#w-oznacz')) oznaczWyslane();
   });
-  arkTresc.addEventListener('change', e => { if (e.target.id === 'w-pokaz') { const h = $('#w-haslo', arkTresc); if (h) h.type = e.target.checked ? 'text' : 'password'; } });
-  arkTresc.addEventListener('input', e => { if (e.target.id === 'w-haslo') { const s = e.target.parentElement.querySelector('small'); if (s) s.classList.remove('zle'); } });
   arkTresc.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('wyniki-det') && !e.target.querySelector('.wynik.zle,.wynik.brak,.wynik small.uwaga')) wynikiOtwarte = e.target.open; }, true);
   arkTresc.addEventListener('change', async e => {
     const inp = e.target.closest('[data-wgraj]');
@@ -435,7 +415,7 @@ export function zainstalujPodpis(k) {
 
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
-    otworz() { widok = 'glowny'; wgrane = []; otwarte = new Set(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
-    otworzWyslij() { wgrane = []; widok = 'wyslij'; k.otworzArkusz('', null, { szeroki: true }); pokaz('wyslij'); },
+    otworz() { widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; adresOdbiorcy().then(a => { adresZnany = a; odswiezWidok(); }); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
+    otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };
 }

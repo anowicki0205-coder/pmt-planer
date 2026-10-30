@@ -118,7 +118,10 @@ PRZENIESIENIE DANYCH Z PROGRAMU NA KOMPUTERZE (plik .pmtdane)
 
 WYSYŁKA PODPISANYCH DOKUMENTÓW POCZTĄ (zahasłowana paczka)
   Dokumenty zawierają PESEL, więc do poczty idą wyłącznie w paczce ZIP z szyfrowaniem AES-256 (format WinZip AES-2: klucz z hasła przez PBKDF2-HMAC-SHA1 i losową sól na plik, AES-CTR, kod HMAC-SHA1 —
-  zmieniony bajt jest wykrywany). Paczkę robi przeglądarka na urządzeniu użytkownika; nic nie przechodzi przez nasz serwer. Hasło jest wspólne, uzgadniane z odbiorcą POZA pocztą, więc przejęcie skrzynki
-  z załącznikiem nie ujawnia dokumentów; aplikacja zapamiętuje je w zaszyfrowanym magazynie konta (jak PESEL) i nigdy nie dodaje go do wiadomości. Ograniczenia: hasło zna każdy użytkownik, więc jego
-  wyciek wymaga uzgodnienia nowego; nazwy plików w paczce są widoczne bez hasła (to nazwy nadane przy generowaniu: numer dokumentu, imię i nazwisko, miesiąc — bez PESEL-u); słabe hasło osłabia paczkę
-  (aplikacja wymaga co najmniej 8 znaków). Plik wiadomości .eml zawiera adres odbiorcy, temat i paczkę — jest czystym ASCII i nie zawiera hasła; po wysłaniu warto go usunąć z Pobranych.
+  zmieniony bajt jest wykrywany). Paczkę robi przeglądarka na urządzeniu użytkownika; dokumenty nie przechodzą przez nasz serwer.
+  Hasło nadaje ADMINISTRATOR (zakładka „Ustawienia” w arkuszu, z obowiązkowym terminem ważności); jedno hasło dla wszystkich paczek, odbiorca dostaje je od administratora POZA pocztą, więc przejęcie
+  skrzynki z załącznikiem nie ujawnia dokumentów. Skrypt wydaje hasło tylko istniejącemu kontu z ważną sesją, które potwierdzi się podpisem SWOJEGO hasła (sam 5-cyfrowy kod nie wystarcza), i nie wydaje go
+  po terminie ważności; każde wydanie jest w zakładce Log. Użytkownik nie widzi hasła ani nie wymyśla własnego. Ograniczenia: aplikacja trzyma pobrane hasło zaszyfrowane na urządzeniu (żeby wysłać dokumenty
+  bez internetu do terminu), więc to ochrona poczty, a nie tajemnica wobec biegłego użytkownika aplikacji; wyciek hasła wymaga wpisania nowego w arkuszu; nazwy plików w paczce są widoczne bez hasła
+  (numer dokumentu, imię i nazwisko, miesiąc — bez PESEL-u); adres odbiorcy (odbiorca.txt) jest publicznie czytelny razem ze stroną; słabe hasło osłabia paczkę (aplikacja odrzuca krótsze niż 8 znaków).
+  Plik wiadomości .eml zawiera adres odbiorcy, temat i paczkę — jest czystym ASCII i nie zawiera hasła; po wysłaniu warto go usunąć z Pobranych.

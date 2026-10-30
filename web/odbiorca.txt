@@ -1,3 +1,4 @@
-# Adres e-mail Kierownika regionu, na który wysyłane są podpisane dokumenty (wpisz go w jednej linii poniżej, np. kierownik@firma.pl).
-# Wiersze zaczynające się od # są pomijane. Bez adresu w oknie wysyłki pojawia się pole do wpisania adresu.
+# Adres e-mail, na który aplikacja wysyła paczki z podpisanymi dokumentami (wpisz go w jednej linii poniżej, np. rozliczenia@firma.pl).
+# Wiersze zaczynające się od # są pomijane. BEZ TEGO ADRESU wysyłka jest wyłączona (przycisk „Wyślij” jest szary, a krok 5 mówi, że brakuje adresu odbiorcy).
+# Hasło do paczek nadajesz w arkuszu (zakładka „Ustawienia”), nie tutaj — zob. BACKEND_APPS_SCRIPT.txt.
 # Uwaga: plik leży obok index.html, więc po wdrożeniu na GitHub Pages adres będzie publicznie czytelny (tak jak menedzer.txt).

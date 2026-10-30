@@ -928,7 +928,7 @@ function odswiezHero() {
   $('#k2-op').innerHTML = gotowe ? `<span>${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'}</span><span>${M.dniT.length} ${M.dniT.length === 1 ? 'dzień' : 'dni'} z trasą</span><span>${wizytRazem} ${wizyt(wizytRazem)}</span>` : '<span>do wygenerowania</span>';
   const razem = razemDok(), t = terminMiesiaca();
   $('#k3-op').innerHTML = gotowe ? `<span><b id="k3-ile">${ilePodpisanych()} z ${razem}</b> dokumentów · Profil Zaufany</span>` : '<span>Profil Zaufany</span>';
-  $('#k4-op').innerHTML = `<span>Kierownik regionu · do ${dwa(t.getDate())}.${dwa(t.getMonth() + 1)}</span>`;
+  $('#k4-op').innerHTML = `<span>Pocztą e-mail · do ${dwa(t.getDate())}.${dwa(t.getMonth() + 1)}</span>`;
   const e = etapMiesiaca(), nr = { ustaw: 1, podpisz: 3, przyklad: 3, wyslij: 4, wyslane: 5 }[e];
   [1, 2, 3, 4].forEach(i => {
     const kr = $('#krok' + i), zrob = i < nr || e === 'wyslane';
@@ -940,7 +940,7 @@ function odswiezHero() {
   const k1 = $('#krok1'), mozeUst = gotowe && !M.demo;
   k1.classList.toggle('zmien', mozeUst); $('.k-tyt', k1).innerHTML = mozeUst ? `Ustaw${ik('i-pioro')}` : 'Ustaw';
   if (mozeUst) { k1.setAttribute('role', 'button'); k1.tabIndex = 0; k1.title = 'Zmień tryb pracy lub silnik (usunie wygenerowane dokumenty)'; } else { k1.removeAttribute('role'); k1.removeAttribute('tabindex'); k1.removeAttribute('title'); }
-  const nap = { ustaw: ['Generuj dokumenty', 'i-pioro'], podpisz: [`Podpisz ${razem} ${razem === 1 ? 'dokument' : razem < 5 ? 'dokumenty' : 'dokumentów'}`, 'i-pioro'], wyslij: ['Wyślij do Kierownika regionu', 'i-nawi'], wyslane: ['Wysłano do Kierownika regionu', 'i-ok'], przyklad: [PROFIL ? 'Wróć do swojego miesiąca' : 'Wpisz swoją kwotę', 'i-pioro'] }[e];
+  const nap = { ustaw: ['Generuj dokumenty', 'i-pioro'], podpisz: [`Podpisz ${razem} ${razem === 1 ? 'dokument' : razem < 5 ? 'dokumenty' : 'dokumentów'}`, 'i-pioro'], wyslij: ['Wyślij dokumenty', 'i-nawi'], wyslane: ['Dokumenty wysłane', 'i-ok'], przyklad: [PROFIL ? 'Wróć do swojego miesiąca' : 'Wpisz swoją kwotę', 'i-pioro'] }[e];
   napis.textContent = nap[0]; $('.kropla-tresc use', btn).setAttribute('href', '#' + nap[1]);
   btn.classList.toggle('wyslij', e === 'wyslij'); btn.classList.toggle('gotowe', e === 'wyslane');
   $('#kA').classList.toggle('po', e === 'wyslane');
@@ -1923,7 +1923,7 @@ const bezOgonkow = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '
 function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = URL.createObjectURL(blob); a.download = bezOgonkow(nazwa); doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
 async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if (!b) { pokazToast('Nie znalazłem pliku — wygeneruj dokumenty ponownie'); return; } const u = URL.createObjectURL(blobPdf(b)); const w = window.open(u, '_blank'); if (!w) pobierzBlob(blobPdf(b), nazwa); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 /* okno „Dokumenty do podpisu”, podpis elektroniczny / odręczny i wysyłka: js/podpis.js */
-const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
+const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, isoDzis, hasloPaczki: () => dostep.pobierzHasloPaczki(), magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = () => M && M.demo ? demoToast() : podpis.otworz(), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();

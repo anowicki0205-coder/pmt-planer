@@ -117,6 +117,37 @@ ZMIANY W SKRYPCIE OD 3.22.0 (już w pliku, nic do zrobienia ręcznie)
     podpisu; przełącznik PODPIS_OBOWIAZKOWY (okres przejściowy);
     /exec pokazuje liczbę wpisanych sekretów i stan przełącznika.
 
+
+──────────────────────────────────────────────────────────────────────
+HASŁO DO PACZEK Z DOKUMENTAMI (wysyłka pocztą z aplikacji web)
+──────────────────────────────────────────────────────────────────────
+  Aplikacja web zahasłowuje paczkę z podpisanymi dokumentami (jest w nich
+  PESEL) przed wysłaniem. Hasła NIE wymyśla użytkownik: nadajesz je Ty,
+  z terminem ważności, a odbiorca poczty czyta paczki od WSZYSTKICH
+  użytkowników jednym hasłem. Aplikacja pobiera hasło z tego skryptu tuż
+  przed wysyłką (użytkownik go nie widzi).
+  Co robisz (po wklejeniu nowej wersji skryptu — kroki 1–3 powyżej):
+  1. W edytorze Apps Script uruchom RAZ funkcję inicjalizuj — zakłada ona
+     zakładkę „Ustawienia” (A = klucz, B = wartość, C = opis) z dwoma
+     wierszami: haslo_paczki i haslo_paczki_wazne_do. (Samo wdrożenie też
+     zakłada zakładkę, gdy ktoś pierwszy raz poprosi o hasło.)
+  2. W zakładce „Ustawienia”:  haslo_paczki → wpisz hasło (min. 8 znaków,
+     nie zaczynaj od = + - @; komórkę warto ustawić jako zwykły tekst),
+     haslo_paczki_wazne_do → ostatni dzień ważności, np. 2026-12-31.
+  3. Hasło przekaż odbiorcy poczty POZA pocztą (telefon, komunikator).
+  Termin ważności jest obowiązkowy. Po tej dacie skrypt hasła NIE wydaje
+  (aplikacja pokazuje „hasło wygasło”, a wysyłka stoi), dopóki nie wpiszesz
+  nowego hasła i nowej daty — zmiana działa od razu, bez ruszania aplikacji.
+  Puste hasło albo brak daty = wysyłka wyłączona. Każde wydanie hasła
+  zostaje w zakładce Log (zdarzenie haslo_paczki, kto i do kiedy ważne).
+  Hasło dostaje tylko istniejące konto z ważną sesją, które potwierdzi się
+  podpisem SWOJEGO hasła (sam kod nie wystarcza). Uwaga: aplikacja przechowuje
+  pobrane hasło zaszyfrowane na urządzeniu, żeby wysłać dokumenty bez
+  internetu do terminu ważności — to ochrona poczty, nie tajemnica wobec
+  samych użytkowników aplikacji (ktoś biegły mógłby je wydobyć z przeglądarki).
+  Adres odbiorcy: plik odbiorca.txt obok index.html (sekret PMT_ODBIORCA we
+  wdrożeniu strony), nie zakładka „Ustawienia”.
+
 ───────────────────────────────────────────────────────────────────────
 DAWNE DZIURY ZAMKNIĘTE PRZEZ WYCOFANIE TELEFONU
 ───────────────────────────────────────────────────────────────────────

@@ -425,7 +425,7 @@ export function zainstalujZywe(k) {
     const et = M ? k.etapMiesiaca() : 'ustaw';
     dodaj('Generuj dokumenty', 'Zrobię je na tym urządzeniu', 'i-pioro', 'wygeneruj delegacje start', () => k.klikGlowny(), plan && !!PROFIL);
     dodaj('Podpisz dokumenty', 'Profil Zaufany, krok po kroku', 'i-pioro', 'podpis profil zaufany pdf', () => k.arkuszPodpis(), gotowe && et !== 'wyslane');
-    dodaj('Wyślij do Kierownika regionu', 'Gdy wszystko podpisane', 'i-nawi', 'wysylka mail poczta', () => k.klikGlowny(), gotowe && et === 'wyslij');
+    dodaj('Wyślij dokumenty pocztą', 'Gdy wszystko podpisane', 'i-nawi', 'wysylka mail poczta', () => k.klikGlowny(), gotowe && et === 'wyslij');
     dodaj('Odtwórz trasę dnia', 'Pojazd przejedzie cały dzień na mapie', 'i-graj', 'film pokaz mapa jazda play', () => { idz('#kE', 'miesiac'); setTimeout(startFilmu, telefon() ? 700 : 250); }, gotowe && !graj.disabled);
     dodaj('Dziś — plan wizyt', 'Lista sklepów na dziś', 'i-cel', 'dzis dzisiaj sklepy nawiguj', () => idz('#kD', 'dzis'));
     dodaj('Kalendarz miesiąca', 'Dni, urlop, poziom kwoty', 'i-kal', 'dni miesiac wolne urlop', () => idz('#kC', 'miesiac'));
@@ -515,7 +515,7 @@ export function zainstalujZywe(k) {
         { cel: '#kD', tab: 'dzis', tytul: 'Dziś w terenie', tekst: 'Wczytaj listę sklepów z Excela (przycisk „Plan”), a ułożę trasy na kolejne dni. Odhaczaj odwiedzone sklepy — po ostatnim aplikacja uczci cały dzień.' },
         { cel: telefon() ? '#konto' : '#szukaj', tab: null, tytul: 'Wszystko pod ręką', tekst: telefon() ? 'W menu konta jest „Szukaj poleceń”: wpisz, co chcesz zrobić — „luty”, „14”, „motyw”.' : 'Naciśnij Ctrl+K albo ten przycisk i wpisz, co chcesz zrobić: „luty”, „14”, „motyw”.' },
         ...(telefon() ? [] : [{ cel: '#motyw', tab: null, tytul: 'Noc czy Dzień', tekst: 'Ten przycisk przełącza wygląd między ciemnym (Noc) a jasnym (Dzień). Aplikacja pamięta wybór; bez wyboru idzie za ustawieniem systemu.' }]),
-        { cel: '#dzwonek', tab: null, tytul: 'Ważne informacje', tekst: 'Dzwonek zbiera to, o czym warto pamiętać: termin wysyłki do Kierownika regionu, wygasanie dostępu i inne komunikaty.' },
+        { cel: '#dzwonek', tab: null, tytul: 'Ważne informacje', tekst: 'Dzwonek zbiera to, o czym warto pamiętać: termin wysyłki dokumentów, wygasanie dostępu i inne komunikaty.' },
         { cel: '#konto', tab: null, tytul: 'Uwagi, telefon i wygląd', tekst: telefon() ? 'W menu konta: „Napisz uwagę” (zgłoś problem lub pomysł — dołączę dane techniczne), „Na telefon” (instalacja jak zwykła aplikacja), Moje dane oraz przełącznik Noc / Dzień.' : 'W menu konta: „Napisz uwagę” (zgłoś problem lub pomysł — dołączę dane techniczne), „Na telefon” (instalacja i kod QR), Moje dane i zmiana hasła.' }
       ];
     };

@@ -420,3 +420,36 @@ def plan_generuj(p, postep=None):
     plan["cykliczny"] = bool(p.get("cykliczny"))
     cb("Gotowe!", 1.0)
     return _plan_json(plan, baza, p.get("tryb", "tydzien"))
+
+
+def plan_z_programu(p):
+    """Plan wizyt z programu na komputerze (przeniesienie danych) → ten sam słownik co plan_generuj. Dni i wizyty są gotowe (ułożył je program);
+    liczymy tylko to, czego plik nie niesie: sumy, punkt startowy i szacowane godziny kolejnych wizyt (jak przy własnym planie).
+    Wejście: {miesiace:[{dni:[{data, km, minuty, wizyty:[{nazwa, adres, siec, miasto, lat, lng}]}]}], cykliczny, adres_bazy, tryb}."""
+    tryb = "wieczory" if str(p.get("tryb", "")).startswith("wiecz") else "tydzien"
+    miesiace = []
+    for m in p.get("miesiace") or []:
+        dni = []
+        for d in m.get("dni") or []:
+            try:
+                dz = S.DzienPlanu(datetime.date.fromisoformat(str(d["data"])))
+            except (KeyError, ValueError):
+                continue
+            dz.km = float(d.get("km") or 0); dz.minuty = float(d.get("minuty") or 0)
+            for w in d.get("wizyty") or []:
+                if w.get("adres"):
+                    dz.wizyty.append(S.PunktWizyty(w.get("nazwa") or w["adres"], w["adres"], siec=w.get("siec") or "",
+                                                   lat=w.get("lat"), lng=w.get("lng"), miasto=w.get("miasto") or ""))
+            if dz.wizyty:
+                dni.append(dz)
+        if dni:
+            miesiace.append({"rok": dni[0].data.year, "miesiac": dni[0].data.month, "dni": dni,
+                             "suma_km": sum(x.km for x in dni), "suma_wizyt": sum(len(x.wizyty) for x in dni)})
+    if not miesiace:
+        return {"ok": False, "blad": "Plan z programu nie zawiera ani jednej wizyty."}
+    plan = {"miesiace": miesiace, "suma_km": sum(m["suma_km"] for m in miesiace), "suma_wizyt": sum(m["suma_wizyt"] for m in miesiace),
+            "cykliczny": bool(p.get("cykliczny"))}
+    USTAWIENIA_WEB["plan_godziny"] = 5.5 if tryb == "wieczory" else 8.0
+    w = _plan_json(plan, _baza_planu(str(p.get("adres_bazy") or "").strip()), tryb)
+    w["ok"] = True
+    return w

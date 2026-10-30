@@ -100,7 +100,7 @@ const SBOX = new Uint8Array(256), TE0 = new Uint32Array(256), TE1 = new Uint32Ar
 })();
 const RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40];
 /** Harmonogram kluczy AES-256: 60 słów. */
-function rozwinKlucz(k) {
+export function rozwinKlucz(k) {
   if (k.length !== 32) throw new Error('klucz AES-256 ma 32 bajty');
   const w = new Uint32Array(60), dv = new DataView(k.buffer, k.byteOffset, 32); for (let i = 0; i < 8; i++) w[i] = dv.getUint32(i * 4);
   const sub = x => ((SBOX[x >>> 24] << 24) | (SBOX[(x >>> 16) & 255] << 16) | (SBOX[(x >>> 8) & 255] << 8) | SBOX[x & 255]) >>> 0;
@@ -140,6 +140,16 @@ export function ctr(rk, iv, dane) {
   return out;
 }
 export const aesCtr = (klucz, iv, dane) => ctr(rozwinKlucz(klucz), iv, dane);
+/** AES-256-CTR w odmianie z archiwów ZIP z szyfrowaniem WinZip AES: licznik 128-bitowy w zapisie little-endian, pierwszy blok ma numer 1. Ten sam wynik przy szyfrowaniu i odszyfrowaniu. */
+export function ctrLE(rk, dane) {
+  const out = new Uint8Array(dane.length), s = new Uint32Array(4);
+  for (let o = 0, n = 1; o < dane.length; o += 16, n++) {
+    s[0] = (((n & 255) << 24) | (((n >>> 8) & 255) << 16) | (((n >>> 16) & 255) << 8) | (n >>> 24)) >>> 0; s[1] = 0; s[2] = 0; s[3] = 0; blokAes(rk, s);
+    const m = Math.min(16, dane.length - o);
+    for (let i = 0; i < m; i++) out[o + i] = dane[o + i] ^ ((s[i >> 2] >>> (24 - 8 * (i & 3))) & 255);
+  }
+  return out;
+}
 
 /* ---------------------------------- koperta: MAGIA | iv | szyfrogram | podpis ---------------------------------- */
 const MAGIA = new Uint8Array([0x50, 0x4d, 0x54, 0x31]);      // „PMT1”

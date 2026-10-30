@@ -1513,6 +1513,18 @@ arkTresc.addEventListener('click', e => { if (e.target.closest('[data-zamknij]')
 const naglowekArkusza = (tytul) => `<div class="ark-gora"><h2 id="ark-tyt">${tytul}</h2><button type="button" class="ark-zam" data-zamknij aria-label="Zamknij">${ik('i-zamknij')}</button></div>`;
 const bezZnacznikow = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** Plan wizyt z programu na komputerze: silnik dolicza sumy, punkt startowy i godziny, plan trafia do magazynu konta (kafel Dziś ma od razu wizyty),
+    odhaczone w programie wizyty zostają odhaczone. Zwraca liczbę dni planu (0 = nie udało się; wtedy zostaje sama lista sklepów). */
+async function wgrajPlanZProgramu(plan, odhaczenia, sklepy) {
+  const w = await silnik.planZProgramu({ ...plan, adres_bazy: PROFIL.adres, tryb: trybDom(PROFIL) });
+  if (!w || !w.ok) return 0;
+  const dni = w.miesiace.reduce((a, m) => a + m.dni.length, 0);
+  const unikalne = new Map(); for (const m of plan.miesiace) for (const d of m.dni) for (const x of d.wizyty) if (!unikalne.has(x.adres)) unikalne.set(x.adres, { adres: x.adres, siec: x.siec, miasto: x.miasto });
+  w.pozycje = sklepy && sklepy.length ? sklepy : [...unikalne.values()]; w.zapisano = new Date().toISOString(); w.zProgramu = true;
+  magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null);
+  for (const m of plan.miesiace) for (const d of m.dni) for (const x of d.wizyty) { const o = (odhaczenia || {})[`${d.data}|${x.adres.trim().toLowerCase()}`]; if (o) magWizyty.ustaw(d.data, x.adres, true, o.godz); }
+  return dni;
+}
 /* ====================== Moje dane ====================== */
 const peselPoprawny = p => { p = String(p).replace(/\s/g, ''); if (!/^\d{11}$/.test(p)) return false; const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]; let s = 0; for (let i = 0; i < 10; i++) s += w[i] * +p[i]; return (10 - s % 10) % 10 === +p[10]; };
 function otworzMojeDane(pierwsze) {
@@ -1551,7 +1563,7 @@ function otworzMojeDane(pierwsze) {
   $('#d-adres', arkTresc).addEventListener('input', () => { wybor = null; clearTimeout(tAdres); tAdres = setTimeout(sprawdzAdres, 450); });
   if (p.adres) sprawdzAdres();
   /* dane z programu na komputerze: plik jest zaszyfrowany kodem i hasłem tego konta; wypełniamy formularz (nic nie zapisuje się samo — sprawdzasz i klikasz „Zapisz”), a lista sklepów czeka w oknie „Plan” */
-  let silnikZPliku = null, sklepyZPliku = null;
+  let silnikZPliku = null, sklepyZPliku = null, planZPliku = null, odhaczeniaZPliku = {};
   const infoPrzenos = (html, klasa = '') => { const i = $('#przenos-info', arkTresc); if (i) { i.innerHTML = html; i.className = klasa; } };
   const wczytajZProgramu = async plik => {
     infoPrzenos('Odczytuję plik…');
@@ -1567,8 +1579,10 @@ function otworzMojeDane(pierwsze) {
       silnikZPliku = d.profil.silnik_powyzej_900; wybor = null; sprawdzAdres(); czesci.push('imię, PESEL, adres i stanowisko');
     }
     if (d.sklepy.length) { sklepyZPliku = d.sklepy; czesci.push(`listę <b>${d.sklepy.length}</b> sklepów`); }
+    const dniPlanu = d.plan ? d.plan.miesiace.reduce((a, m) => a + m.dni.length, 0) : 0;
+    if (d.plan) { planZPliku = d.plan; odhaczeniaZPliku = d.odhaczenia || {}; czesci.push(`plan wizyt (<b>${dniPlanu}</b> ${dniPlanu === 1 ? 'dzień' : 'dni'})`); }
     if (!czesci.length) return infoPrzenos('W pliku nie ma niczego do wczytania (program nie miał zapisanych danych tego konta).', 'zle');
-    infoPrzenos(`Wczytano: ${czesci.join(' oraz ')}. Sprawdź dane i kliknij <b>Zapisz</b>.${d.sklepy.length ? ' Lista sklepów czeka w oknie „Plan”.' : ''} Po zapisaniu możesz usunąć plik z komputera.`, 'ok');
+    infoPrzenos(`Wczytano: ${czesci.join(', ')}. Sprawdź dane i kliknij <b>Zapisz</b>.${d.plan ? ' Plan pojawi się w kaflu Dziś.' : d.sklepy.length ? ' Lista sklepów czeka w oknie „Plan”.' : ''} Po zapisaniu możesz usunąć plik z komputera.`, 'ok');
   };
   $('#plik-program', arkTresc).addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) wczytajZProgramu(f); });
   const zle = (id, t) => { const s = $('#' + id, arkTresc).parentElement.querySelector('small'); s.textContent = t || ''; s.classList.toggle('zle', !!t); if (t) potrzasnij($('#' + id, arkTresc)); return !t; };
@@ -1587,9 +1601,12 @@ function otworzMojeDane(pierwsze) {
     PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? p.silnik_powyzej_900 ?? true, tryb: trybDom(p), tryb_wybrany: !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
     magProfil.zapisz(PROFIL);
     if (sklepyZPliku && sklepyZPliku.length) magUst.ustaw('sklepy-z-programu', { pozycje: sklepyZPliku, zapisano: new Date().toISOString() });      // czeka w oknie „Plan wizyt”, aż ułożysz plan
+    let planDni = 0; if (planZPliku) { try { planDni = await wgrajPlanZProgramu(planZPliku, odhaczeniaZPliku, sklepyZPliku); } catch (err) { planDni = 0; } }      // gotowy plan z programu: kafel Dziś od razu ma wizyty
     if (M && M.stan === 'plan') { M.silnik = PROFIL.silnik_powyzej_900; M.tryb = trybDom(PROFIL); }
     zamknijArkusz(); odswiezProfilWNaglowku(); if (M && M.demo) await wyjdzZPrzykladu(true); else await przeladujMiesiac(M.rok, M.mies, true);
-    pokazToast(sklepyZPliku && sklepyZPliku.length ? `Zapisano Twoje dane. Lista ${sklepyZPliku.length} sklepów z programu czeka — kliknij „Plan” w kaflu Dziś i ułóż plan.` : 'Zapisano Twoje dane'); sygnal('profil');
+    if (planDni) rysujDzis();
+    pokazToast(planDni ? `Zapisano Twoje dane. Plan wizyt z programu (${planDni} ${planDni === 1 ? 'dzień' : 'dni'}) jest już w kaflu Dziś.` : sklepyZPliku && sklepyZPliku.length ? `Zapisano Twoje dane. Lista ${sklepyZPliku.length} sklepów z programu jest gotowa — ułóż z niej plan.` : 'Zapisano Twoje dane'); sygnal('profil');
+    if (!planDni && sklepyZPliku && sklepyZPliku.length) setTimeout(() => { if (!arkuszOtwarty) arkuszPlan(); }, 900);      // lista sklepów z programu: od razu pokazujemy okno „Plan wizyt” z gotową listą (zostaje „Ułóż plan”)
   });
 }
 function odswiezProfilWNaglowku() {
@@ -1906,7 +1923,7 @@ const bezOgonkow = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '
 function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = URL.createObjectURL(blob); a.download = bezOgonkow(nazwa); doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
 async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if (!b) { pokazToast('Nie znalazłem pliku — wygeneruj dokumenty ponownie'); return; } const u = URL.createObjectURL(blobPdf(b)); const w = window.open(u, '_blank'); if (!w) pobierzBlob(blobPdf(b), nazwa); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 /* okno „Dokumenty do podpisu”, podpis elektroniczny / odręczny i wysyłka: js/podpis.js */
-const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
+const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = () => M && M.demo ? demoToast() : podpis.otworz(), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();

@@ -112,7 +112,7 @@ export function zainstalujPomoc(k) {
   /* ---------------- kafel z kodem QR na pulpicie (komputer): zeskanowanie otwiera aplikację na telefonie ---------------- */
   async function odswiezKafelQr() {
     const kafel = $('#kQ'), box = $('#qr-kafel'); if (!kafel || !box) return;
-    const pokaz = !(czyIOS() || czyAndroid() || czyZainstalowana());      // na telefonie i w zainstalowanej aplikacji kod QR byłby bez sensu
+    const pokaz = !(czyIOS() || czyAndroid());      // na telefonie kod QR byłby bez sensu; w aplikacji zainstalowanej NA KOMPUTERZE (okno bez paska adresu) zostaje — stąd telefon i tak się zaczyna
     kafel.hidden = !pokaz; doc.documentElement.classList.toggle('ma-qr', pokaz);
     if (!pokaz) return;
     const publiczny = await adresPubliczny();

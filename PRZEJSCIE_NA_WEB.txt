@@ -25,8 +25,10 @@ SKĄD UŻYTKOWNIK SIĘ DOWIE — CZTERY DROGI, KAŻDA ŁAPIE KOGOŚ INNEGO
      „Zaktualizuj teraz" podmienia program na 3.25.0.
   2. Okno „Przechodzimy na aplikację w przeglądarce" (3.25.0, od chwili,
      gdy włączysz web=). Raz dziennie przy starcie, PRZED logowaniem:
-     termin, adres i przycisk „Otwórz aplikację". Można kliknąć
-     „Później" i pracować dalej.
+     termin, adres, przycisk „Przenieś dane" (wyróżniony kolorem) oraz
+     „Otwórz aplikację" i „Później". „Otwórz aplikację" otwiera stronę
+     i ZAMYKA program (nie zasłania przeglądarki); „Później" pozwala
+     pracować dalej.
   3. TWOJA WIADOMOŚĆ (KROK 4). Jedyna droga do osób, które programu
      już nie uruchamiają albo nie aktualizują. Bez niej ktoś, kto
      przez miesiąc nie otworzy programu, dowie się w dniu wyłączenia.
@@ -38,17 +40,23 @@ SKĄD UŻYTKOWNIK SIĘ DOWIE — CZTERY DROGI, KAŻDA ŁAPIE KOGOŚ INNEGO
   Czego to NIE robi (mów to ludziom wprost):
   · Dane z programu przenoszą się PLIKIEM, na życzenie: w oknie z informacją
     jest przycisk „Przenieś dane” — program zapisuje plik .pmtdane (imię,
-    PESEL, adres, stanowisko, lista sklepów), zaszyfrowany kodem i hasłem
-    konta; w aplikacji: Moje dane → „Wczytaj dane z programu na komputerze”.
-    Plan wizyt, odhaczenia i historia miesięcy NIE przenoszą się (plan
-    układa się od nowa jednym kliknięciem po wczytaniu listy sklepów).
-    Wygenerowane wcześniej dokumenty zostają na dysku, tam gdzie są.
+    PESEL, adres, stanowisko, lista sklepów, a także plan wizyt i odhaczone
+    wizyty z ostatnich 31 dni oraz z przyszłości), zaszyfrowany kodem i hasłem
+    konta; w aplikacji: Moje dane → „Wczytaj dane z programu na komputerze”
+    → „Zapisz”. Po zapisaniu kafel Dziś od razu pokazuje wizyty z planu,
+    a odhaczone w programie zostają odhaczone.
+    Historia miesięcy i wygenerowane wcześniej trasy i dokumenty NIE przenoszą
+    się (dokumenty zostają na dysku, tam gdzie są). Plan, którego wszystkie dni
+    są starsze niż 31 dni, też się nie przenosi (zostaje lista sklepów).
     Bez wczytania pliku wszystko działa jak dla nowego użytkownika.
   · Przycisk działa bez logowania (okno pokazuje się przed nim) i także po terminie
-    wyłączenia — konto bierze z historii logowań na tym komputerze (przy kilku
-    pyta, czyje), klucz z zapamiętanego skrótu hasła, a gdy go nie ma, prosi o
-    hasło. Plik innego konta albo zrobiony innym hasłem aplikacja odrzuca
-    czytelnym komunikatem.
+    wyłączenia. PRYWATNOŚĆ: program NIE pokazuje listy kont ani niczyich danych —
+    każdy musi wpisać WŁASNY kod i WŁASNE hasło; program sprawdza je ze skrótem
+    zapisanym na tym komputerze i dopiero wtedy zbiera dane tego jednego konta.
+    Błędny kod albo hasło daje komunikat bez ujawniania, czy takie konto istnieje.
+    Plik innego konta albo zrobiony innym hasłem aplikacja odrzuca czytelnym
+    komunikatem. Uwaga: pliki programu na dysku (.pmt_*.json) może przeczytać każdy,
+    kto ma dostęp do konta Windows — to ograniczenie starego programu.
   · Program nie przekazuje loginu ani hasła do przeglądarki.
 
 

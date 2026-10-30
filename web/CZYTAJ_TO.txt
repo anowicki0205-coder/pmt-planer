@@ -64,11 +64,14 @@ OKNO „DOKUMENTY DO PODPISU”: PIĘĆ KROKÓW
   dokumenty nie są wgrane i sprawdzone; wtedy zapala się kolorem i przycisk „Wyślij” działa. Stopka okna ma już tylko „Zamknij”. Na ekranie dotykowym pola przeciągania nie ma (tam służy „Wybierz pliki”).
 
 WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
-  Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) przycisk „Przenieś dane” zapisuje plik PMT_dane_do_aplikacji.pmtdane:
-  imię, PESEL, adres, stanowisko, pojemność silnika i lista sklepów — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem: Moje dane → „Wczytaj dane z programu
-  na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”; lista sklepów czeka w oknie „Plan” (kafel Dziś → „Plan” → „Ułóż plan”). Plan wizyt, odhaczenia i historia
-  miesięcy się nie przenoszą. Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla nowych
-  użytkowników. Kod: js/przeniesienie.js (odczyt), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js i przeniesienie_app.js.
+  Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) zielony przycisk „Przenieś dane” pyta o WŁASNY kod i hasło
+  (programem nie da się pobrać cudzych danych: nie ma listy kont, a kod i hasło są sprawdzane ze skrótem zapisanym na komputerze) i zapisuje plik PMT_dane_do_aplikacji.pmtdane: imię, PESEL, adres,
+  stanowisko, pojemność silnika, lista sklepów, plan wizyt i odhaczone wizyty (dni od 31 dni wstecz) — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem:
+  Moje dane → „Wczytaj dane z programu na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”: plan wizyt trafia do kafla Dziś (wizyty odhaczone w programie są
+  odhaczone), a gdy plik miał tylko listę sklepów, otwiera się okno „Plan” z gotową listą (zostaje „Ułóż plan”). Historia miesięcy i wygenerowane wcześniej trasy się nie przenoszą (wygenerowane
+  dokumenty zostają na dysku). Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla
+  nowych użytkowników. Kod: js/przeniesienie.js (odczyt i oczyszczanie), silnik/most.py plan_z_programu (sumy i godziny), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js
+  (Python↔JS, plan, odhaczenia) i przeniesienie_app.js (przepływ w przeglądarce, kafel Dziś).
 
 ŻYCIE KALENDARZA I FIOLEK (RUCH TYLKO TAM)
   Aplikacja jest w „trybie spokojnym” (po teście płynności), ale w dwóch kaflach „coś się dzieje”: w KALENDARZU dni z trasą lekko się unoszą, oddychają światłem i co kilka sekund przebiega po nich
@@ -125,12 +128,12 @@ WYGLĄD, JAKOŚĆ I PŁYNNOŚĆ
   Gdy aplikacja wykryje grafikę liczoną procesorem (SwiftShader, llvmpipe, Basic Render), raz pokaże wiadomość z instrukcją włączenia.
 
 MOZAIKA PULPITU (jak we wzorze: pola w pionie i w poziomie)
-  Na komputerze (okno min. 1180×700) pulpit to mozaika 12 kolumn × 6 wierszy z kafli o różnych kształtach, bez jednolitych rzędów:
+  Na komputerze (okno min. 1100×520; wcześniej 1180×700, przez co w zwykłym oknie przeglądarki laptopa widać było stary układ poziomych rzędów) pulpit to mozaika 12 kolumn × 6 wierszy z kafli o różnych kształtach, bez jednolitych rzędów:
     pionowe — „Dziś” (z lewej, wysoki), Dokumenty (z prawej, wąski i wysoki, probówki rosną w górę), „Na telefon” (wąski, pod „Dziś”);
     poziome — kwota z wykresem dni (u góry, środek), Dzień z mapą (na dole, szeroki), Kalendarz (na dole, obok mapy), Kontrola (pod „Dziś”).
   Sąsiednie kafle mają różne barwy (czerwono-pomarańczowy, niebieski, zielony, turkusowy, fioletowy, złoty, magenta), w Nocy i w Dniu jednakowo nasycone.
   W wąskich kaflach drobiazgi ustępują miejsca: Dokumenty bez kwot i dat pod probówkami, „Dziś” z kartą następnego sklepu ułożoną pionowo, Kontrola z pierścieniem nad listą
-  (przy niskim oknie bez pierścienia). Podpowiedź przykładu stoi pod opisami kroków kafla kwoty. W oknach niższych lub węższych niż 1180×700 (np. tablet 1024×768) zostaje dotychczasowy układ
+  (przy niskim oknie bez pierścienia). Podpowiedź przykładu stoi pod opisami kroków kafla kwoty. W oknach niższych niż 520 px lub węższych niż 1100 px (np. tablet 1024×768) zostaje dotychczasowy układ
   trzech rzędów; na telefonie bez zmian (zakładki Dziś / Miesiąc / Dokumenty).
 
 KALENDARZ I WYKRES DNI (zamiast „fiolek”)
@@ -189,21 +192,29 @@ DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
      i przycisk „Potwierdzam, że podpis jest” (gdy program się pomyli albo skan jest zdjęciem pod kątem). Rozliczenie miesiąca nie ma wyznaczonego miejsca — szukam podpisu pod tabelą.
      Na sztucznych skanach (przekrzywienie do 1,6°, szum, cień, JPEG) wykrywalność to 40/40 bez fałszywych alarmów, ale prawdziwych skanów z Twojego skanera jeszcze nie widziałem.
   Gdy wszystko jest sprawdzone: „Wyślij” prowadzi do okna wysyłki. Adres Kierownika regionu aplikacja czyta z pliku odbiorca.txt obok index.html (jedna linia z adresem; linie z # są pomijane).
-  Bez tego pliku w oknie jest pole do wpisania adresu. Wysyłka: na telefonie „Udostępnij pliki” przekazuje je prosto do poczty; na komputerze „Otwórz pocztę” pobiera plik ZIP i otwiera nową wiadomość
-  z adresem i tematem — plik ZIP dołączasz sam (przeglądarka nie potrafi dołączyć pliku do wiadomości), a potem klikasz „Już wysłane”. Okno ostrzega, gdy załączniki ważą ponad 20 MB (limit poczty).
+  Bez tego pliku w oknie jest pole do wpisania adresu. WYSYŁKA ZAHASŁOWANĄ PACZKĄ (w dokumentach jest PESEL, więc nic nie idzie pocztą jawnie): w oknie wpisujesz „Hasło do paczki” (co najmniej 8 znaków;
+  uzgodnij je z Kierownikiem poza pocztą, np. telefonicznie — jedno hasło dla wszystkich; aplikacja pamięta je zaszyfrowane na koncie na tym urządzeniu i nie wysyła nigdzie). „Wyślij pocztą” robi jedną
+  paczkę ZIP z szyfrowaniem AES-256 (wszystkie pliki razem) i pobiera plik wiadomości PMT_wiadomosc_do_wyslania.eml: po jego kliknięciu Outlook, Thunderbird lub Poczta w Windows otwierają gotową wiadomość
+  — adresat z odbiorca.txt, temat „[PMT] Delegacje — Imię Nazwisko — miesiąc rok”, krótka treść i załączona paczka; zostaje kliknąć „Wyślij”, a potem „Już wysłane — oznacz”. Stały początek tematu „[PMT]”
+  pozwala Kierownikowi ustawić w poczcie regułę (osobny folder) i nie mieć spamu. Pocztę w przeglądarce (Gmail, Outlook w internecie) i inne programy, które nie otwierają plików .eml, obsługuje „Otwórz pocztę
+  (dołączę sam)”: pobiera zahasłowaną paczkę i otwiera nową wiadomość z adresem i tematem — paczkę dołączasz sam. Na telefonie „Wyślij pocztą” przekazuje paczkę prosto do aplikacji pocztowej. Kierownik otwiera
+  paczkę programem, który umie AES-256 (7-Zip, WinRAR, Keka — zwykły Eksplorator Windows często nie umie), wpisując uzgodnione hasło. Okno ostrzega, gdy załączniki ważą ponad 20 MB (limit poczty).
+  Kod: js/zipaes.js (ZIP AES-256, własne SHA-1/HMAC/PBKDF2 — działa też na stronie bez WebCrypto), js/poczta.js (plik .eml), okno w js/podpis.js; testy: paczka_test.js (paczkę czytają niezależnie pyzipper
+  i prawdziwy 7-Zip, wiadomość parser poczty Pythona) i podpis_offline_app.js. NIE sprawdzone na prawdziwych klientach poczty (Outlook, Thunderbird, Poczta w Windows) — plik .eml z nagłówkiem X-Unsent: 1
+  powinien się otworzyć jako szkic, ale trzeba to potwierdzić u siebie.
   Dołączane są podpisane pliki (przy podpisie rozdzielnym .xades także oryginał). Wyniki sprawdzenia są zapamiętane razem z miesiącem.
   NAZWY PLIKÓW: plik, który wraca z gov.pl, ze skanera albo z telefonu, może nazywać się jak chce („Podpisany dokument (1).pdf”, „IMG_0042.jpg”, „…_signed.pdf”). Program najpierw rozpoznaje, do jakiego
   dokumentu należy (PDF po zawartości, plik .xades po skrócie dokumentu, skan po nazwie lub kolejności) i zapisuje go pod dokładnie taką nazwą, jaką miał przy generowaniu: PDF „delegacja_01_….pdf”,
   podpis w osobnym pliku „delegacja_01_….pdf.xades”, skan „delegacja_01_….jpg” (przy kilku zdjęciach jednego dokumentu „…_str01.jpg”, „…_str02.jpg”). Pod tymi nazwami idą też załączniki do poczty.
   W szczegółach dokumentu jest kontrola „nazwa”: „Nazwa pliku zgadza się z dokumentem” albo „Plik wrócił jako … — rozpoznałem dokument … i nazwałem go …” (z ostrzeżeniem, gdy nosił nazwę INNEGO
   dokumentu). Lista dopasowań pokazuje przy zmienionych plikach „→ nowa nazwa”. Pierwotna nazwa jest zapamiętana razem z miesiącem.
-  PO TWOJEJ DECYZJI można dodać wysyłkę zupełnie bez poczty użytkownika (przez Twój skrypt Google Apps Script) — wtedy dokumenty z PESEL-em przechodziłyby przez Twoje konto Google, więc nie robię tego bez zgody.
+  Wysyłka bez poczty użytkownika (kolejka na serwerze, paczka zbiorcza o stałej godzinie, przez Twój skrypt Google Apps Script) NIE jest zrobiona: dokumenty z PESEL-em przechodziłyby przez Twoje konto Google i trzeba by zmienić obietnicę „nic nie idzie na serwer” — zob. propozycję w rozmowie; do rozważenia, gdy spam od wielu osób stanie się problemem.
   UWAGA: podpisy z prawdziwego gov.pl sprawdziłem tylko na plikach, które sam podpisałem narzędziem pyHanko (certyfikaty testowe). Nie wiem, w jakiej postaci gov.pl oddaje podpisane pliki
   (PDF z wbudowanym podpisem, .xades, ZIP) — obsługuję wszystkie trzy; gdyby coś nie przeszło, pokaż mi plik (bez danych wrażliwych) albo komunikat z okna.
 
 PULPIT: KAFEL „NA TELEFON” Z KODEM QR
-  Na komputerze (okno min. 1180×780) w prawym dolnym rogu, obok „Kontroli”, jest fioletowy kafel z kodem QR adresu aplikacji: zeskanuj aparatem telefonu i otwórz stronę (instrukcja instalacji
-  na ekranie głównym — kliknij kafel). Na telefonie i w zainstalowanej aplikacji kafla nie ma. Kod prowadzi pod STAŁY, PUBLICZNY adres aplikacji (plik adres_aplikacji.txt obok index.html — jedna linia z adresem, np. https://nazwa.github.io/pmt-planer/), więc działa NIEZALEŻNIE OD KOMPUTERA:
+  Na komputerze (okno min. 1100×520) w lewym dolnym rogu, obok „Kontroli”, jest fioletowy kafel z kodem QR adresu aplikacji: zeskanuj aparatem telefonu i otwórz stronę (instrukcja instalacji
+  na ekranie głównym — kliknij kafel). Na telefonie (Android, iPhone) kafla nie ma; na komputerze jest także w zainstalowanej aplikacji (okno bez paska adresu). Kod prowadzi pod STAŁY, PUBLICZNY adres aplikacji (plik adres_aplikacji.txt obok index.html — jedna linia z adresem, np. https://nazwa.github.io/pmt-planer/), więc działa NIEZALEŻNIE OD KOMPUTERA:
   telefon łączy się z serwerem aplikacji, a nie z Twoim komputerem (nie musi być włączony ani w tej samej sieci). Wdrożenie na GitHub Pages (.github/workflows/web-pages.yml) wpisuje ten adres samo
   (albo własną domenę z opcjonalnego sekretu PMT_ADRES). Do czasu wdrożenia nie ma takiego adresu, więc kod pokazuje to, co się da: na serwerze (nie localhost) — adres bieżącej strony, a przy
   uruchomieniu lokalnym (serwer_lokalny.py) — adres komputera w sieci Wi-Fi (http://192.168.x.x:port/index.html; ten wariant WYMAGA włączonego komputera i tej samej sieci — służy tylko do prób).
@@ -304,6 +315,7 @@ TESTY (wymagają Node + Playwright)
   testy/cel_app.js              — „cel wyjazdu” na prawdziwych PDF-ach: Biedronka + Żabka + 3–4 losowe sieci, alfabetycznie, różne na każdym poleceniu, powtarzalne
   testy/wspolbieznosc_app.js    — wiele wywołań silnika naraz nie miesza argumentów (dawny sporadyczny „KeyError: 'rok'”)
   testy/przyklad_app.js         — przykład na pierwsze uruchomienie: pokazanie, ▶, odhaczanie bez zapisu, wpisanie własnej kwoty, zmiana kwoty po wygenerowaniu
+  testy/paczka_test.js          — zahasłowana paczka ZIP (AES-256) i plik wiadomości .eml: JavaScript robi, a pyzipper, 7-Zip i parser poczty Pythona czytają (wektory RFC dla SHA-1/HMAC/PBKDF2)
   testy/podpis_offline_app.js   — cały obieg podpisów w przeglądarce: 4 kroki, prawdziwe podpisy elektroniczne i błędne (inna osoba, zmieniony, dopisek), skany odręczne, wysyłka, praca bez internetu
   testy/krypto_js_test.js       — własna kryptografia (bez Web Crypto, dla http): skróty, RSA, RSA-PSS, ECDSA porównane z Web Crypto Node'a, podpisy zmienione muszą przepadać
                                   (podobnie: BEZ_WEBCRYPTO=1 node weryfikacja_test.js; cały obieg na http: HTTP_HOST=pmt.example node podpis_offline_app.js; PMT_KORZEN=<katalog> — test na gotowej paczce strony)

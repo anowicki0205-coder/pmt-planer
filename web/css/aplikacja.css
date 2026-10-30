@@ -1780,6 +1780,7 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 .wynik.zle{box-shadow:inset 0 0 0 1.4px color-mix(in srgb,var(--a-blad) 75%,transparent)}
 .wynik.zle small{color:var(--a-blad)}
 .podp-pod{font-size:.82rem}
+.pokaz-haslo{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--t2);margin:-.2rem 0 .6rem;cursor:pointer}.pokaz-haslo input{width:1.05rem;height:1.05rem;accent-color:var(--cyan)}
 .ark-opis .zle,.ark-opis.zle{color:var(--a-blad)}
 .ark-dol .ik{width:1.05rem;height:1.05rem}
 
@@ -1876,7 +1877,7 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 .qr-kafel:hover,.qr-kafel:focus-visible{transform:scale(1.04)}
 .qr-kafel svg{width:100%;height:100%;display:block}
 .qr-pusty{color:#2A1058;font-size:.62rem;font-weight:700;text-align:center;line-height:1.2;padding:.2rem}
-.qr-pod{margin:0;display:grid;gap:0;text-align:center;line-height:1.15}
+.qr-pod{margin:0;display:grid;gap:2px;text-align:center;line-height:1.25}      /* tytuł i podpis nie stykają się polami tekstu nawet w najniższym oknie */
 .qr-pod b{font-size:clamp(.66rem,12.5cqi,.8rem);font-weight:720;white-space:nowrap}
 .qr-pod span{font-size:clamp(.52rem,10cqi,.66rem);color:var(--t2);white-space:nowrap}
 .kafel.szklo.k-qr{--tn-a:216 64 200;--tn-b:96 76 255;--tn-s0:.92;--tinta:rgb(20 0 50/.1)}
@@ -1884,7 +1885,7 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 :root[data-theme="light"] .kafel.szklo.k-qr{--tn-a:236 128 226;--tn-b:140 126 255;--tn-s0:.62;--tinta:rgb(255 255 255/.1)}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .kafel.szklo.k-qr{--tn-a:236 128 226;--tn-b:140 126 255;--tn-s0:.62;--tinta:rgb(255 255 255/.1)}}
 .k-qr{--akc:var(--roz)}
-@media (min-width:1180px) and (min-height:780px){
+@media (min-width:1100px) and (min-height:520px){
   .ma-qr .bento{grid-template-rows:minmax(0,3.05fr) minmax(0,1.95fr) minmax(0,1.2fr)}
   .ma-qr .k-qr{display:block}
   .ma-qr .k-kontrola{grid-area:3/10/4/12;border-radius:var(--r)}
@@ -2089,7 +2090,7 @@ button.dz.bez.przelacz:hover{background:rgb(255 255 255/.16);outline-color:#fff}
    12 kolumn × 6 równych wierszy. Pionowe: „Dziś” (z lewej, 4 wiersze), Dokumenty (z prawej, 3 wiersze), „Na telefon”. Poziome: kwota (7 kolumn), Dzień (5), Kalendarz.
    Poniżej tych rozmiarów zostaje dotychczasowy układ trzech rzędów. */
 .kafel.szklo.k-kal{--v-a:0 140 160;--v-a2:0 112 148;--v-b:70 216 200;--tn-txt:#006B7A}
-@media (min-width:1180px) and (min-height:700px){
+@media (min-width:1100px) and (min-height:520px){
   .bento{grid-template-rows:repeat(6,minmax(0,1fr))}
   .k-dzis{grid-area:1/1/5/4}
   .k-bohater{grid-area:1/4/4/11}
@@ -2098,14 +2099,14 @@ button.dz.bez.przelacz:hover{background:rgb(255 255 255/.16);outline-color:#fff}
   .k-dzien{grid-area:4/8/7/13}
   .k-kontrola{grid-area:5/1/7/4}
 }
-@media (min-width:1180px) and (min-height:780px){
+@media (min-width:1100px) and (min-height:520px){
   .ma-qr .bento{grid-template-rows:repeat(6,minmax(0,1fr))}
   .ma-qr .k-kontrola{grid-area:5/1/7/3}
   .ma-qr .k-qr{grid-area:5/3/7/4}
 }
 
 /* mozaika: wnętrza kafli w nowych kształtach */
-@media (min-width:1180px) and (min-height:700px){
+@media (min-width:1100px) and (min-height:520px){
   /* Dokumenty: wysoki, wąski kafel — probówki rosną w górę, pod nimi tylko numer i procent (kwoty i daty są w kaflu kwoty i w oknie podpisów) */
   @container kafel (max-width:300px){
     .k-dok .f-op span,.k-dok .f-op small{display:none}
@@ -2128,13 +2129,13 @@ button.dz.bez.przelacz:hover{background:rgb(255 255 255/.16);outline-color:#fff}
   .k-kontrola .ko-tyt b{font-size:1.1rem}
   .k-kontrola .ko-lista{font-size:.82rem;gap:.15rem 1rem}
 }
-@media (min-width:1180px) and (min-height:700px){
+@media (min-width:1100px) and (min-height:520px){
   /* podpowiedź przykładu: w wolnym miejscu pod opisami kroków, żeby nie zabierać wysokości wykresowi */
   .przyklad .akcja{position:static}
   .przyklad .przyklad-nota{position:absolute;left:0;bottom:0;width:min(21rem,44%);max-width:none;font-size:.8rem;line-height:1.4;padding:.55rem .8rem}
 }
 
-@media (min-width:1180px) and (min-height:700px){
+@media (min-width:1100px) and (min-height:520px){
   .k-kontrola,.ma-qr .k-kontrola{border-radius:var(--r)}
   @container kafel (max-height:260px){ .k-kontrola .ko-pierscien,.ma-qr .k-kontrola .ko-pierscien{display:none} .k-kontrola .w,.ma-qr .k-kontrola .w{justify-content:center} }
   @container kafel (max-width:340px){ .k-dok .dok-kolka{display:none} }
@@ -2143,7 +2144,7 @@ button.dz.bez.przelacz:hover{background:rgb(255 255 255/.16);outline-color:#fff}
 .kafel.szklo.k-dzis{--v-a:236 82 22;--v-a2:212 58 32;--v-b:255 150 60}
 .kafel.szklo.k-kontrola{--v-a:255 202 46;--v-a2:255 178 34;--v-b:255 132 52}
 
-@media (min-width:1180px) and (min-height:700px){
+@media (min-width:1100px) and (min-height:520px){
   /* nagłówek „Dziś” w wąskim kaflu: opis nie wchodzi pod przycisk „Plan” — trzeci wpis (liczba sklepów w bazie) ustępuje, reszta jest przycinana */
   .k-dzis .d-glowa{min-width:0;flex:1}
   .k-dzis .d-meta{min-width:0;overflow:hidden;text-overflow:ellipsis}

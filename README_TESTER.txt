@@ -175,6 +175,10 @@ GDY WINDOWS OSTRZEGA PRZED NIEZNANYM PROGRAMEM
   30. W pasku górnym kliknij dzwonek, „Zgłoś błąd" i swoje inicjały.
       Oczekiwane: lista komunikatów, nowa wiadomość do zgłoszeń oraz menu
       z pozycjami: hasło, karta testera, wylogowanie.
+  31. Okno przejścia na aplikację (pojawia się przy starcie, gdy w wersja.txt są wiersze web= i wygaszenie=). Oczekiwane: trzy przyciski, żaden nie
+      jest ucięty; „Przenieś dane" jest zielony. Kliknij „Przenieś dane": program prosi o Twój kod i hasło (żadnej listy kont), po poprawnych
+      zapisuje plik .pmtdane. W aplikacji w przeglądarce: Moje dane → „Wczytaj dane z programu na komputerze" → plik → „Zapisz": plan wizyt jest
+      w kaflu Dziś. Kliknij „Otwórz aplikację": otwiera się strona, a program się zamyka.
 
   Co zgłaszać: numer punktu, co kliknąłeś, co się stało, a czego
   oczekiwałeś. Jeśli program się zamknął, dołącz plik

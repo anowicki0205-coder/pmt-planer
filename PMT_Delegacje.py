@@ -37,6 +37,7 @@ import urllib.parse
 import tempfile
 import shutil
 import hashlib
+import hmac
 import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -333,9 +334,10 @@ def przejscie_na_web_stan():
 
 def _tekst_przejscia_na_web(adres, termin, dni, po_terminie):
     """(tytuł, treść) okna z informacją o przejściu na aplikację web."""
-    dane = ("Swoje dane (imię, PESEL, adres i listę sklepów) przeniesiesz jednym kliknięciem: "
+    dane = ("Swoje dane (imię, PESEL, adres, listę sklepów i plan wizyt) przeniesiesz jednym kliknięciem: "
             "„Przenieś dane” zapisze plik, który wczytasz w aplikacji (Moje dane → Wczytaj dane "
-            "z programu). Dokumenty wygenerowane wcześniej zostają na dysku.")
+            "z programu). Dokumenty wygenerowane wcześniej zostają na dysku. "
+            "„Otwórz aplikację” otwiera stronę i zamyka program.")
     if po_terminie:
         data = (" od %s" % termin.strftime("%d.%m.%Y")) if termin else ""
         return ("Program na komputerze jest wyłączony",
@@ -373,6 +375,26 @@ def _punkty_konta_z_dysku(kod: str) -> list:
             for x in (dane if isinstance(dane, list) else []) if isinstance(x, dict) and x.get("adres")]
 
 
+def _plik_konta_z_dysku(kod: str, wzor: str, wspolny: str):
+    """Ścieżka pliku danych konta (plan, odhaczenia…) tylko do odczytu: własny plik konta; wspólny plik sprzed
+    3.21.0 tylko wtedy, gdy wolno go przepisać na to konto (te same reguły co przy logowaniu)."""
+    klucz = _klucz_konta_dla("", kod)
+    if not klucz:
+        return ""
+    wlasny = os.path.join(os.path.expanduser("~"), wzor % klucz)
+    if not _plik_ma_tresc(wlasny) and _wolno_przejac_wspolne(kod):
+        return wspolny
+    return wlasny
+
+
+def _json_z_pliku(sciezka: str):
+    try:
+        with open(sciezka, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def _profil_konta_z_dysku(kod: str, imie: str):
     """Profil (Moje dane) konta albo None. Dopasowanie po imieniu i nazwisku z historii logowań;
     gdy to jedyne konto na komputerze, a profil jest jeden — ten profil. Nigdy nie zgadujemy
@@ -391,65 +413,86 @@ def _profil_konta_z_dysku(kod: str, imie: str):
 
 
 def zbierz_dane_przeniesienia(kod: str, imie: str = "") -> dict:
-    """Dane konta do aplikacji web: Moje dane i lista sklepów (patrz pmt_przeniesienie.zloz_dane).
-    Plan wizyt, dziennik odhaczeń i historia miesięcy się nie przenoszą (aplikacja układa plan
-    od nowa z listy sklepów; dokumenty z poprzednich miesięcy zostają na dysku)."""
+    """Dane konta do aplikacji web: Moje dane, lista sklepów, plan wizyt (dni od dziś − 31 dni) i odhaczenia
+    (patrz pmt_przeniesienie.zloz_dane). Historia miesięcy i wygenerowane dokumenty się nie przenoszą —
+    zostają na dysku, bo program nie zapisuje tras wygenerowanych miesięcy w postaci, którą aplikacja odtworzy."""
     modul = modul_pomocniczy("pmt_przeniesienie")
     if modul is None:
         raise RuntimeError("brak modułu pmt_przeniesienie")
+    plan = _json_z_pliku(_plik_konta_z_dysku(kod, ".pmt_plan_%s.json", PLAN_STORE))
+    dziennik = _json_z_pliku(_plik_konta_z_dysku(kod, ".pmt_wizyty_%s.json", WIZYTY_STORE))
     return modul.zloz_dane(_profil_konta_z_dysku(kod, imie), _punkty_konta_z_dysku(kod),
-                           WERSJA_PROGRAMU, datetime.date.today().isoformat())
+                           WERSJA_PROGRAMU, datetime.date.today().isoformat(), plan=plan, dziennik=dziennik)
 
 
 def zapisz_plik_przeniesienia(kod: str, imie: str, skrot: str, sciezka: str):
-    """Zapisuje zaszyfrowany plik .pmtdane. Zwraca (ok, komunikat, liczba_sklepow, czy_jest_profil)."""
+    """Zapisuje zaszyfrowany plik .pmtdane. Zwraca (ok, komunikat, liczba_sklepow, czy_jest_profil, dni_planu)."""
     modul = modul_pomocniczy("pmt_przeniesienie")
     if modul is None:
-        return (False, "Brak modułu przeniesienia danych w tej instalacji programu.", 0, False)
+        return (False, "Brak modułu przeniesienia danych w tej instalacji programu.", 0, False, 0)
     try:
         dane = zbierz_dane_przeniesienia(kod, imie)
-        if not dane["profil"] and not dane["sklepy"]:
-            return (False, "Nie znalazłem w programie zapisanych danych tego konta (Moje dane ani listy "
-                           "sklepów). W aplikacji wpiszesz je od początku.", 0, False)
+        if not dane["profil"] and not dane["sklepy"] and not dane["plan"]:
+            return (False, "Nie znalazłem w programie zapisanych danych tego konta (Moje dane, listy sklepów "
+                           "ani planu wizyt). W aplikacji wpiszesz je od początku.", 0, False, 0)
         tekst = modul.zaszyfruj(dane, kod, skrot)
         tmp = sciezka + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(tekst)
         os.replace(tmp, sciezka)
-        return (True, "", len(dane["sklepy"]), bool(dane["profil"]))
+        dni_planu = sum(len(m["dni"]) for m in dane["plan"]["miesiace"]) if dane["plan"] else 0
+        return (True, "", len(dane["sklepy"]), bool(dane["profil"]), dni_planu)
     except Exception as e:
-        return (False, "Nie udało się zapisać pliku: %s" % e, 0, False)
+        return (False, "Nie udało się zapisać pliku: %s" % e, 0, False, 0)
+
+
+def _skrot_zweryfikowany(kod: str, haslo: str) -> str:
+    """Skrót hasła, gdy kod i hasło zgadzają się z zapamiętanym na tym komputerze skrótem tego konta;
+    inaczej pusty tekst. Konto, które nie logowało się tu hasłem, nie ma z czym porównać — odmowa."""
+    kod = "".join(ch for ch in str(kod or "") if ch.isdigit())
+    if len(kod) != 5 or not haslo:
+        return ""
+    zapamietany = _skrot_hasla_lokalny(kod)
+    policzony = _hash_hasla(kod, haslo)
+    if zapamietany and hmac.compare_digest(str(zapamietany), policzony):
+        return policzony
+    return ""
 
 
 def przenies_dane_do_web(rodzic=None) -> bool:
     """Okna przeniesienia danych do aplikacji web (przycisk w informacji o przejściu). Działa bez
-    logowania: konto bierze z historii logowań na tym komputerze (przy kilku — pyta, czyje).
-    Klucz pliku to skrót hasła zapamiętany po logowaniu; gdy go nie ma, prosi o hasło."""
-    from PyQt6.QtWidgets import QFileDialog, QInputDialog
+    logowania, ale NIE pokazuje żadnych kont: każdy przenosi wyłącznie swoje dane, więc podaje własny kod
+    i hasło, które muszą zgadzać się z zapamiętanymi na tym komputerze. Klucz pliku to skrót tego hasła."""
+    from PyQt6.QtWidgets import QFileDialog
     modul = modul_pomocniczy("pmt_przeniesienie")
-    konta = historia_logowan(10)
-    if modul is None or not konta:
+    if modul is None:
         _okno_pmt(rodzic, "Przeniesienie danych",
-                  "Nie znalazłem na tym komputerze zapisanego konta, więc nie mam czego przenieść. "
-                  "W aplikacji wpiszesz swoje dane od początku.", tylko_ok=True)
+                  "Ta instalacja programu nie ma modułu przenoszenia danych. W aplikacji wpiszesz "
+                  "swoje dane od początku.", tylko_ok=True)
         return False
-    wybrane = konta[0]
-    if len(konta) > 1:
-        etykiety = ["%s (kod %s)" % (k["imie"] or "bez imienia", k["kod"]) for k in konta]
-        wybor, dalej = QInputDialog.getItem(rodzic, "Przenieś dane", "Czyje dane przenieść?", etykiety, 0, False)
-        if not dalej:
+    kod = skrot = ""
+    for proba in range(3):
+        wpisany = _okno_pmt(rodzic, "Przenieś dane",
+                            "Podaj swój kod logowania (5 cyfr). Dane przenosisz tylko dla własnego konta.",
+                            pole=True)
+        if wpisany is None:
             return False
-        wybrane = konta[etykiety.index(wybor)]
-    kod, imie = wybrane["kod"], wybrane["imie"]
-    skrot = _skrot_hasla_lokalny(kod)
-    if not skrot:
-        haslo = _okno_pmt(rodzic, "Hasło do aplikacji",
-                          "Podaj hasło, którym logujesz się do PMT Planer (kod %s). Wpisz je dokładnie — "
-                          "plik jest nim zaszyfrowany i aplikacja nie odczyta go przy innym haśle." % kod,
-                          pole=True, haslo=True)
+        haslo = _okno_pmt(rodzic, "Przenieś dane",
+                          "Podaj swoje hasło do PMT Planer — to samo, którym logujesz się do programu "
+                          "i aplikacji. Plik jest nim zaszyfrowany.", pole=True, haslo=True)
         if not haslo:
             return False
-        skrot = _hash_hasla(kod, haslo)
+        kod = "".join(ch for ch in str(wpisany) if ch.isdigit())
+        skrot = _skrot_zweryfikowany(kod, haslo)
+        if skrot:
+            break
+        _okno_pmt(rodzic, "Przenieś dane",
+                  "Nieprawidłowy kod lub hasło (albo to konto nie logowało się na tym komputerze)."
+                  + (" Spróbuj jeszcze raz." if proba < 2 else " Zbyt wiele prób — zamykam to okno."),
+                  tylko_ok=True)
+    if not skrot:
+        return False
+    imie = str(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "") or "")
     domyslna = os.path.join(sciezka_pulpitu(), "PMT_dane_do_aplikacji" + modul.ROZSZERZENIE)
     sciezka, _ = QFileDialog.getSaveFileName(rodzic, "Zapisz plik z danymi dla aplikacji", domyslna,
                                              "Dane PMT (*%s)" % modul.ROZSZERZENIE)
@@ -457,7 +500,7 @@ def przenies_dane_do_web(rodzic=None) -> bool:
         return False
     if not sciezka.lower().endswith(modul.ROZSZERZENIE):
         sciezka += modul.ROZSZERZENIE
-    ok, komunikat, ile, jest_profil = zapisz_plik_przeniesienia(kod, imie, skrot, sciezka)
+    ok, komunikat, ile, jest_profil, plan_dni = zapisz_plik_przeniesienia(kod, imie, skrot, sciezka)
     if not ok:
         _okno_pmt(rodzic, "Przeniesienie danych", komunikat, tylko_ok=True)
         return False
@@ -466,6 +509,8 @@ def przenies_dane_do_web(rodzic=None) -> bool:
         co.append("imię, PESEL, adres i stanowisko")
     if ile:
         co.append("listę %d sklepów" % ile)
+    if plan_dni:
+        co.append("plan wizyt (%d dni)" % plan_dni)
     _okno_pmt(rodzic, "Plik gotowy",
               "Zapisałem plik z danymi (%s):\n%s\n\nW aplikacji zaloguj się tym samym kodem i hasłem, "
               "wybierz „Moje dane” → „Wczytaj dane z programu na komputerze” i wskaż ten plik. "
@@ -490,12 +535,13 @@ def przejscie_na_web_przy_starcie():
         zapisz_ustawienie("przejscie_web_dnia", dzis)
     otworz = _okno_pmt(None, tytul, tresc, etykieta_ok="Otwórz aplikację",
                        etykieta_anuluj="Zamknij" if po_terminie else "Później",
-                       dodatkowy=("Przenieś dane", przenies_dane_do_web))
+                       dodatkowy=("Przenieś dane", przenies_dane_do_web), dodatkowy_glowny=True)
     if otworz:
         try:
             webbrowser.open(adres)
         except Exception:
             pass
+        return True      # „Otwórz aplikację” = przechodzę do aplikacji: program się zamyka i nie zasłania przeglądarki
     return bool(po_terminie)
 
 PROCENT_WLASNE    = 0.50 
@@ -16183,6 +16229,12 @@ def _styl_okna_pmt():
                          border:none; border-radius:8px; padding:9px 20px; }
         QPushButton#ok:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
                                  stop:0 #33F5FF, stop:1 #33EAB7); }
+        QPushButton#akcja { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                              stop:0 #4ADE80, stop:1 #16A34A);
+                            color:#04130A; font-family:'Segoe UI'; font-size:13px; font-weight:800;
+                            border:none; border-radius:8px; padding:9px 20px; }
+        QPushButton#akcja:hover { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                                    stop:0 #86EFAC, stop:1 #22C55E); }
         QPushButton#anuluj { background:rgba(255,255,255,0.05); color:#94A3B8;
                              font-family:'Segoe UI'; font-size:13px; font-weight:600;
                              border:1px solid rgba(255,255,255,0.22);
@@ -16193,10 +16245,11 @@ def _styl_okna_pmt():
 
 
 def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
-              etykieta_ok=None, etykieta_anuluj=None, dodatkowy=None):
+              etykieta_ok=None, etykieta_anuluj=None, dodatkowy=None, dodatkowy_glowny=False):
     """Nasze okno zamiast systemowego. Zwraca tekst z pola (gdy pole=True),
     True/False przy pytaniu albo None po anulowaniu.
-    dodatkowy=(napis, funkcja): trzeci przycisk z lewej, który NIE zamyka okna — woła funkcję(okno)."""
+    dodatkowy=(napis, funkcja): trzeci przycisk z lewej, który NIE zamyka okna — woła funkcję(okno);
+    dodatkowy_glowny=True: to on jest wyróżniony wyraźną zielenią (główne działanie), a „ok” staje się zwykłym przyciskiem."""
     from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame
     d = QDialog(rodzic)
     if rodzic is None:
@@ -16213,7 +16266,7 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
         d.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
     d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     d.setStyleSheet(_styl_okna_pmt())
-    d.setFixedWidth(430)
+    szer = 430
     zewn = QVBoxLayout(d); zewn.setContentsMargins(10, 10, 10, 10)
     karta = QFrame(); karta.setObjectName("PmtKarta"); zewn.addWidget(karta)
     ukl = QVBoxLayout(karta); ukl.setContentsMargins(24, 20, 24, 18); ukl.setSpacing(8)
@@ -16228,7 +16281,7 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
     ukl.addSpacing(6)
     rzad = QHBoxLayout()
     if dodatkowy:
-        b_dod = QPushButton(dodatkowy[0]); b_dod.setObjectName("anuluj")
+        b_dod = QPushButton(dodatkowy[0]); b_dod.setObjectName("akcja" if dodatkowy_glowny else "anuluj")
         b_dod.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         b_dod.clicked.connect(lambda _=False, f=dodatkowy[1]: f(d)); rzad.addWidget(b_dod)
     rzad.addStretch(1)
@@ -16237,17 +16290,29 @@ def _okno_pmt(rodzic, tytul, tresc, pole=False, haslo=False, tylko_ok=False,
         b_anuluj.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         b_anuluj.clicked.connect(d.reject); rzad.addWidget(b_anuluj); rzad.addSpacing(8)
     b_ok = QPushButton(etykieta_ok or ("OK" if tylko_ok else ("Zapisz" if pole else "Tak")))
-    b_ok.setObjectName("ok"); b_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    b_ok.setObjectName("anuluj" if (dodatkowy and dodatkowy_glowny) else "ok"); b_ok.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
     b_ok.clicked.connect(d.accept); rzad.addWidget(b_ok)
     ukl.addLayout(rzad)
     if we is not None:
         we.returnPressed.connect(d.accept)
         QTimer.singleShot(0, we.setFocus)
+    # Szerokość: 430 px, a gdy przyciski (z paddingiem ze stylu) by się nie zmieściły — tyle, ile trzeba;
+    # inaczej układ ściskał je poniżej ich rozmiaru i ucinał napisy („Otwórz aplikację”).
+    try:
+        d.ensurePolished()
+        przyciski = [b for b in d.findChildren(QPushButton)]
+        for b in przyciski:
+            b.ensurePolished(); b.setMinimumWidth(b.sizeHint().width())
+        potrzeba = sum(b.minimumWidth() for b in przyciski) + 8 * max(0, len(przyciski) - 1) + 68
+        szer = max(szer, potrzeba)
+    except Exception:
+        pass
+    d.setFixedWidth(szer)
     # Napis z zawijaniem podaje wysokość dla domyślnej szerokości, więc przy dłuższym tekście okno
-    # było za niskie i ucinało go u góry i u dołu. Wysokość liczymy dla prawdziwej szerokości (430).
+    # było za niskie i ucinało go u góry i u dołu. Wysokość liczymy dla prawdziwej szerokości.
     try:
         zewn.activate()
-        d.setFixedHeight(max(d.sizeHint().height(), zewn.totalHeightForWidth(430)))
+        d.setFixedHeight(max(d.sizeHint().height(), zewn.totalHeightForWidth(szer)))
     except Exception:
         pass
     wynik = d.exec()

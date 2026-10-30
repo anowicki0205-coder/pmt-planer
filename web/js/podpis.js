@@ -7,6 +7,8 @@
 //      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane,
 //   5. Wyślij: wysyłka na adres Kierownika regionu. Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
+import { zipujAes } from './zipaes.js';
+import { zbudujEml } from './poczta.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
 import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf } from './podpis_reczny.js';
 
@@ -112,15 +114,20 @@ export function zainstalujPodpis(k) {
     pokazWyniki();
   }
   async function widokWyslij() {
-    const adres = await adresOdbiorcy(), zal = await zalaczniki(), odb = magUst.daj('odbiorca', ''), razemB = zal.reduce((a, z) => a + z.bajty.length, 0);
+    const adres = await adresOdbiorcy(), zal = await zalaczniki(), odb = magUst.daj('odbiorca', ''), razemB = zal.reduce((a, z) => a + z.bajty.length, 0), haslo = magUst.daj('haslo-paczki', ''), dotyk = matchMedia('(pointer:coarse)').matches;
     const pole = adres ? `<p class="ark-opis">Adresat: <b id="w-adres">${esc(adres)}</b></p>`
       : `<label class="pole"><span>Adres Kierownika regionu</span><input id="w-odb" type="email" inputmode="email" autocomplete="email" value="${esc(odb)}" placeholder="adres@firma.pl" data-pierwsze><small></small></label>`;
+    const przyciskiGlowne = dotyk
+      ? `<button type="button" class="przycisk glowny" id="w-udostepnij">${ik('i-wyslij')}Wyślij pocztą</button>`
+      : `<button type="button" class="przycisk glowny" id="w-eml">${ik('i-wyslij')}Wyślij pocztą</button>`;
     return `${nagl('Wyślij do Kierownika regionu', true)}
-      <p class="ark-opis">Dołączę <b>${zal.length} ${liczba(zal.length, 'plik', 'pliki', 'plików')}</b> (${mb(razemB)}) z podpisanymi dokumentami — wszystkie sprawdzone. Poczta otworzy się u Ciebie — wiadomość wysyłasz sam, więc hasła do skrzynki nie podajesz nigdzie.</p>
+      <p class="ark-opis">Zrobię <b>jedną paczkę ZIP zahasłowaną</b> (szyfrowanie AES-256) z <b>${zal.length} ${liczba(zal.length, 'plikiem', 'plikami', 'plikami')}</b> (${mb(razemB)}) — w dokumentach jest PESEL, więc nie idą pocztą jawnie. Poczta otworzy się z gotową wiadomością: adresat, temat, krótka treść i paczka w załączniku; Ty tylko klikasz „Wyślij”.</p>
       ${razemB > LIMIT_POCZTY ? `<p class="ark-opis zle" id="w-duze">Załączniki ważą ${mb(razemB)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skan do PDF (np. w aplikacji skanującej na telefonie) albo wyślij dokumenty w dwóch wiadomościach.</p>` : ''}
       ${pole}
-      <div class="ark-dol"><button type="button" class="przycisk" data-akcja="glowny">Wstecz</button><button type="button" class="przycisk" id="w-mailto">Otwórz pocztę</button><button type="button" class="przycisk glowny" id="w-udostepnij"${adres ? ' data-pierwsze' : ''}>${ik('i-wyslij')}Udostępnij pliki</button></div>
-      <p class="ark-opis podp-pod">Poczta w przeglądarce nie dołączy plików sama: „Otwórz pocztę” pobiera plik ZIP do załączenia, a „Udostępnij pliki” (telefon) przekazuje je prosto do aplikacji pocztowej.</p>
+      <label class="pole"><span>Hasło do paczki</span><input id="w-haslo" type="password" autocomplete="off" value="${esc(haslo)}" placeholder="co najmniej 8 znaków"${adres ? ' data-pierwsze' : ''}><small id="w-haslo-opis">Uzgodnij je z Kierownikiem poza pocztą (np. telefonicznie) — to samo hasło dla wszystkich; nie wysyłam go pocztą. Zapamiętam je tylko na tym urządzeniu.</small></label>
+      <label class="pokaz-haslo"><input type="checkbox" id="w-pokaz"> pokaż hasło</label>
+      <div class="ark-dol"><button type="button" class="przycisk" data-akcja="glowny">Wstecz</button><button type="button" class="przycisk" id="w-mailto">Otwórz pocztę (dołączę sam)</button>${dotyk ? '' : '<button type="button" class="przycisk" id="w-udostepnij">Udostępnij pliki</button>'}${przyciskiGlowne}</div>
+      <div class="ark-opis podp-pod" id="w-info" aria-live="polite">${dotyk ? '„Wyślij pocztą” przekazuje zahasłowaną paczkę prosto do aplikacji pocztowej w telefonie. Gdyby nie zadziałało, „Otwórz pocztę” pobiera paczkę, a Ty dołączasz ją do wiadomości.' : '„Wyślij pocztą” pobiera plik wiadomości (.eml): kliknij go, a otworzy się Outlook, Thunderbird lub Poczta w Windows z adresatem, tematem, treścią i załączoną paczką. Poczty w przeglądarce (Gmail, Outlook w internecie) nie umieją otworzyć takiego pliku — użyj „Otwórz pocztę (dołączę sam)”: pobiorę paczkę, a Ty dołączysz ją do nowej wiadomości.'}</div>
       <div class="ark-dol"><button type="button" class="przycisk" id="w-oznacz">Już wysłane — oznacz</button></div>`;
   }
   function pokaz(nowy) {
@@ -342,21 +349,44 @@ export function zainstalujPodpis(k) {
     }
     return wyn;
   }
-  const temat = () => `Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;
-  const tresc = 'W załączeniu dokumenty delegacyjne.';
+  const temat = () => `[PMT] Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;      // stały początek „[PMT]” pozwala Kierownikowi ustawić regułę poczty (osobny folder)
+  const miesiacTekst = () => { const m = String(k.MIES[M().mies - 1]); return m.charAt(0).toUpperCase() + m.slice(1); };
+  const trescWiad = n => `Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami delegacyjnymi za ${miesiacTekst()} ${M().rok} (${n} ${liczba(n, 'plik', 'pliki', 'plików')}). Hasło zostało uzgodnione osobno.\n\nPozdrawiam\n${k.PROFIL().imie}`;
+  const MIN_HASLO = 8;
+  /** Sprawdza adres i hasło w oknie, zapamiętuje je i robi zahasłowaną paczkę: { adres, zal, blob } albo null (błąd pokazany przy polu). */
+  async function przygotujPaczke() {
+    const pole = $('#w-odb', arkTresc), wh = $('#w-haslo', arkTresc), adres = (await adresOdbiorcy()) || (pole ? pole.value.trim() : ''), haslo = wh ? wh.value : '';
+    const blad = (el, tekst) => { const s = el.parentElement.querySelector('small'); if (s) { s.textContent = tekst; s.classList.add('zle'); } k.potrzasnij && k.potrzasnij(el); el.focus(); return null; };
+    if (!EMAIL.test(adres)) return pole ? blad(pole, 'Wpisz poprawny adres e-mail') : (pokazToast('Brak adresu Kierownika regionu — wpisz go w oknie') , null);
+    if ([...haslo].length < MIN_HASLO) return blad(wh, `Hasło ma mieć co najmniej ${MIN_HASLO} znaków (uzgodnij je z Kierownikiem)`);
+    if (pole) magUst.ustaw('odbiorca', adres);
+    magUst.ustaw('haslo-paczki', haslo);
+    const s = wh.parentElement.querySelector('small'); if (s) s.classList.remove('zle');
+    const zal = await zalaczniki(); if (!zal.length) { pokazToast('Nie ma plików do wysłania'); return null; }
+    arkTresc.querySelectorAll('#w-eml,#w-mailto,#w-udostepnij').forEach(b => { b.disabled = true; }); pokazToast('Przygotowuję zahasłowaną paczkę…');
+    await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
+    try { return { adres, zal, blob: zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), haslo) }; }
+    catch (e) { console.error('paczka', e); pokazToast('Nie udało się przygotować paczki'); return null; }
+    finally { arkTresc.querySelectorAll('#w-eml,#w-mailto,#w-udostepnij').forEach(b => { b.disabled = false; }); }
+  }
   async function wyslij(tryb) {
-    const adres = await adresOdbiorcy(), pole = $('#w-odb', arkTresc), v = adres || (pole ? pole.value.trim() : '');
-    if (!adres && pole) { if (v) magUst.ustaw('odbiorca', v); }
-    const zal = await zalaczniki();
+    const paczka = await przygotujPaczke(); if (!paczka) return;
+    const { adres, zal, blob } = paczka, tr = trescWiad(zal.length);
     if (tryb === 'share') {
-      const pliki = zal.map(z => new File([z.bajty], z.nazwa, { type: z.typ }));
-      if (navigator.canShare && navigator.canShare({ files: pliki })) { try { await navigator.share({ files: pliki, title: temat(), text: tresc }); oznaczWyslane(); } catch (e) { if (e.name !== 'AbortError') pokazToast('Nie udało się udostępnić plików'); } }
-      else { k.pobierzBlob(zipuj(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty }))), nazwaZip()); pokazToast('Ta przeglądarka nie udostępnia plików do poczty — pobrałem ZIP z dokumentami, dołącz go do wiadomości'); }
+      const plik = new File([blob], nazwaZip(), { type: 'application/zip' });
+      if (navigator.canShare && navigator.canShare({ files: [plik] })) { try { await navigator.share({ files: [plik], title: temat(), text: tr }); oznaczWyslane(); } catch (e) { if (e.name !== 'AbortError') pokazToast('Nie udało się udostępnić plików'); } }
+      else { k.pobierzBlob(blob, nazwaZip()); pokazToast('Ta przeglądarka nie udostępnia plików do poczty — pobrałem zahasłowaną paczkę, dołącz ją do wiadomości'); }
       return;
     }
-    if (!EMAIL.test(v)) { const s = pole && pole.parentElement.querySelector('small'); if (s) { s.textContent = 'Wpisz poprawny adres e-mail'; s.classList.add('zle'); } return; }
-    k.pobierzBlob(zipuj(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty }))), nazwaZip());
-    location.href = `mailto:${encodeURIComponent(v)}?subject=${encodeURIComponent(temat())}&body=${encodeURIComponent(tresc + '\n\n(Dołącz pobrany plik ZIP z dokumentami.)')}`;
+    if (tryb === 'eml') {
+      const eml = zbudujEml({ adres, temat: temat(), tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
+      k.pobierzBlob(new Blob([eml], { type: 'message/rfc822' }), 'PMT_wiadomosc_do_wyslania.eml');
+      const info = $('#w-info', arkTresc); if (info) info.innerHTML = 'Pobrałem plik <b>PMT_wiadomosc_do_wyslania.eml</b>. <b>Kliknij go</b> (na pasku pobierania przeglądarki albo w folderze Pobrane): otworzy się poczta z gotową wiadomością i zahasłowaną paczką — sprawdź i kliknij „Wyślij”, potem „Już wysłane — oznacz”. Jeśli plik otworzył się w innym programie albo nic się nie stało, użyj „Otwórz pocztę (dołączę sam)”.';
+      pokazToast('Pobrałem wiadomość — kliknij pobrany plik .eml, a otworzy się poczta z załączoną paczką');
+      return;
+    }
+    k.pobierzBlob(blob, nazwaZip());
+    location.href = `mailto:${encodeURIComponent(adres)}?subject=${encodeURIComponent(temat())}&body=${encodeURIComponent(tr + '\n\n(Dołącz pobrany plik ZIP z dokumentami.)')}`;
     pokazToast('Poczta otwarta — dołącz pobrany plik ZIP i wyślij wiadomość, potem kliknij „Już wysłane”');
   }
   function oznaczWyslane() { const m = M(); m.wyslane = true; k.zapiszRekord(); k.odswiezHero(); k.zamknijArkusz(); k.zorza() && k.zorza().flara(.7); pokazToast('Oznaczono jako wysłane. Gdyby nie poszło, kliknij „Cofnij wysłanie".'); }
@@ -380,9 +410,12 @@ export function zainstalujPodpis(k) {
     if (e.target.closest('.dok-k-g') && widok === 'glowny') { const kt = e.target.closest('.dok-k'); const i = Number(kt && kt.dataset.i); if (kt && !kt.classList.contains('st-czeka') && !kt.classList.contains('st-trwa')) { if (otwarte.has(i)) otwarte.delete(i); else otwarte.add(i); odswiezWidok(); } }
     if (widok !== 'wyslij') return;
     if (e.target.closest('#w-udostepnij')) wyslij('share');
+    else if (e.target.closest('#w-eml')) wyslij('eml');
     else if (e.target.closest('#w-mailto')) wyslij('poczta');
     else if (e.target.closest('#w-oznacz')) { const p = $('#w-odb', arkTresc); p && p.value.trim() && magUst.ustaw('odbiorca', p.value.trim()); oznaczWyslane(); }
   });
+  arkTresc.addEventListener('change', e => { if (e.target.id === 'w-pokaz') { const h = $('#w-haslo', arkTresc); if (h) h.type = e.target.checked ? 'text' : 'password'; } });
+  arkTresc.addEventListener('input', e => { if (e.target.id === 'w-haslo') { const s = e.target.parentElement.querySelector('small'); if (s) s.classList.remove('zle'); } });
   arkTresc.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('wyniki-det') && !e.target.querySelector('.wynik.zle,.wynik.brak,.wynik small.uwaga')) wynikiOtwarte = e.target.open; }, true);
   arkTresc.addEventListener('change', async e => {
     const inp = e.target.closest('[data-wgraj]');

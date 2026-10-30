@@ -107,8 +107,18 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
   bez okna) ani Edge/Firefoksa na prawdziwych przeglądarkach.
 
 PRZENIESIENIE DANYCH Z PROGRAMU NA KOMPUTERZE (plik .pmtdane)
-  Plik zawiera m.in. PESEL, więc nie leży jawnie: jest zaszyfrowany kluczem z kodu i hasła konta (PBKDF2-HMAC-SHA256, 100 000 iteracji, z tego samego skrótu „PMT|kod|hasło”, który zna backend
+  Plik zawiera m.in. PESEL, adresy sklepów i plan wizyt, więc nie leży jawnie: jest zaszyfrowany kluczem z kodu i hasła konta (PBKDF2-HMAC-SHA256, 100 000 iteracji, z tego samego skrótu „PMT|kod|hasło”, który zna backend
   i aplikacja po zalogowaniu; strumień HMAC-SHA256 i podpis HMAC sprawdzany przed odszyfrowaniem). Zmiana choć jednego bajtu, inne konto albo inne hasło = odmowa, nie śmieci.
   Co to daje: ktoś, kto znajdzie plik na dysku albo w pobranych, nie przeczyta go bez hasła konta. Czego nie daje: skrót hasła zna też administrator arkusza (kolumna „Haslo hash”) — administrator,
   który dostałby plik, mógłby go odczytać; to samo ryzyko dotyczy zresztą podpisu pulsu. Zalecenie: po wczytaniu w aplikacji usunąć plik (okno z instrukcją mówi to wprost).
+  Prywatność eksportu (poprawka po teście właściciela): okno „Przenieś dane” NIE pokazuje listy kont ani czyichkolwiek danych — wymaga własnego kodu i hasła, sprawdzanych ze skrótem zapisanym na komputerze; błędne dane
+  dają ogólny komunikat (bez ujawniania, czy konto istnieje). Do pliku trafiają dane tylko tego jednego konta. Zostaje ograniczenie starego programu: jego pliki (.pmt_*.json) w katalogu użytkownika Windows
+  może odczytać każdy, kto ma dostęp do tego konta Windows — program web tego problemu nie ma (dane są szyfrowane hasłem). Wydanie v3.25.0 zbudowane przed tą poprawką ma jeszcze listę kont — należy je zbudować od nowa z tego kodu.
   Program niczego nie wysyła do sieci przy eksporcie; plik powstaje tylko tam, gdzie użytkownik go zapisze. Niezależna kontrola: web/testy/przeniesienie_test.js (dwa osobne zapisy tego samego szyfru).
+
+WYSYŁKA PODPISANYCH DOKUMENTÓW POCZTĄ (zahasłowana paczka)
+  Dokumenty zawierają PESEL, więc do poczty idą wyłącznie w paczce ZIP z szyfrowaniem AES-256 (format WinZip AES-2: klucz z hasła przez PBKDF2-HMAC-SHA1 i losową sól na plik, AES-CTR, kod HMAC-SHA1 —
+  zmieniony bajt jest wykrywany). Paczkę robi przeglądarka na urządzeniu użytkownika; nic nie przechodzi przez nasz serwer. Hasło jest wspólne, uzgadniane z odbiorcą POZA pocztą, więc przejęcie skrzynki
+  z załącznikiem nie ujawnia dokumentów; aplikacja zapamiętuje je w zaszyfrowanym magazynie konta (jak PESEL) i nigdy nie dodaje go do wiadomości. Ograniczenia: hasło zna każdy użytkownik, więc jego
+  wyciek wymaga uzgodnienia nowego; nazwy plików w paczce są widoczne bez hasła (to nazwy nadane przy generowaniu: numer dokumentu, imię i nazwisko, miesiąc — bez PESEL-u); słabe hasło osłabia paczkę
+  (aplikacja wymaga co najmniej 8 znaków). Plik wiadomości .eml zawiera adres odbiorcy, temat i paczkę — jest czystym ASCII i nie zawiera hasła; po wysłaniu warto go usunąć z Pobranych.

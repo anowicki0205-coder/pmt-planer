@@ -1923,7 +1923,7 @@ const bezOgonkow = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '
 function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = URL.createObjectURL(blob); a.download = bezOgonkow(nazwa); doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
 async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if (!b) { pokazToast('Nie znalazłem pliku — wygeneruj dokumenty ponownie'); return; } const u = URL.createObjectURL(blobPdf(b)); const w = window.open(u, '_blank'); if (!w) pobierzBlob(blobPdf(b), nazwa); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 /* okno „Dokumenty do podpisu”, podpis elektroniczny / odręczny i wysyłka: js/podpis.js */
-const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
+const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = () => M && M.demo ? demoToast() : podpis.otworz(), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();

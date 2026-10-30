@@ -1780,6 +1780,7 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 .wynik.zle{box-shadow:inset 0 0 0 1.4px color-mix(in srgb,var(--a-blad) 75%,transparent)}
 .wynik.zle small{color:var(--a-blad)}
 .podp-pod{font-size:.82rem}
+.pokaz-haslo{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--t2);margin:-.2rem 0 .6rem;cursor:pointer}.pokaz-haslo input{width:1.05rem;height:1.05rem;accent-color:var(--cyan)}
 .ark-opis .zle,.ark-opis.zle{color:var(--a-blad)}
 .ark-dol .ik{width:1.05rem;height:1.05rem}
 

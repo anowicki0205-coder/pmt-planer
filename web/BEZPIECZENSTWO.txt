@@ -115,3 +115,10 @@ PRZENIESIENIE DANYCH Z PROGRAMU NA KOMPUTERZE (plik .pmtdane)
   dają ogólny komunikat (bez ujawniania, czy konto istnieje). Do pliku trafiają dane tylko tego jednego konta. Zostaje ograniczenie starego programu: jego pliki (.pmt_*.json) w katalogu użytkownika Windows
   może odczytać każdy, kto ma dostęp do tego konta Windows — program web tego problemu nie ma (dane są szyfrowane hasłem). Wydanie v3.25.0 zbudowane przed tą poprawką ma jeszcze listę kont — należy je zbudować od nowa z tego kodu.
   Program niczego nie wysyła do sieci przy eksporcie; plik powstaje tylko tam, gdzie użytkownik go zapisze. Niezależna kontrola: web/testy/przeniesienie_test.js (dwa osobne zapisy tego samego szyfru).
+
+WYSYŁKA PODPISANYCH DOKUMENTÓW POCZTĄ (zahasłowana paczka)
+  Dokumenty zawierają PESEL, więc do poczty idą wyłącznie w paczce ZIP z szyfrowaniem AES-256 (format WinZip AES-2: klucz z hasła przez PBKDF2-HMAC-SHA1 i losową sól na plik, AES-CTR, kod HMAC-SHA1 —
+  zmieniony bajt jest wykrywany). Paczkę robi przeglądarka na urządzeniu użytkownika; nic nie przechodzi przez nasz serwer. Hasło jest wspólne, uzgadniane z odbiorcą POZA pocztą, więc przejęcie skrzynki
+  z załącznikiem nie ujawnia dokumentów; aplikacja zapamiętuje je w zaszyfrowanym magazynie konta (jak PESEL) i nigdy nie dodaje go do wiadomości. Ograniczenia: hasło zna każdy użytkownik, więc jego
+  wyciek wymaga uzgodnienia nowego; nazwy plików w paczce są widoczne bez hasła (to nazwy nadane przy generowaniu: numer dokumentu, imię i nazwisko, miesiąc — bez PESEL-u); słabe hasło osłabia paczkę
+  (aplikacja wymaga co najmniej 8 znaków). Plik wiadomości .eml zawiera adres odbiorcy, temat i paczkę — jest czystym ASCII i nie zawiera hasła; po wysłaniu warto go usunąć z Pobranych.

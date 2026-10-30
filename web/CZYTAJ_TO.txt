@@ -191,6 +191,16 @@ DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
      (linia podpisu, ramki) i szum. To POMOC: ocenia obecność podpisu, nie jego autentyczność; imienia i nazwiska odręcznie nie da się odczytać, więc okno pokazuje wycinek skanu do obejrzenia
      i przycisk „Potwierdzam, że podpis jest” (gdy program się pomyli albo skan jest zdjęciem pod kątem). Rozliczenie miesiąca nie ma wyznaczonego miejsca — szukam podpisu pod tabelą.
      Na sztucznych skanach (przekrzywienie do 1,6°, szum, cień, JPEG) wykrywalność to 40/40 bez fałszywych alarmów, ale prawdziwych skanów z Twojego skanera jeszcze nie widziałem.
+  WIDOK 3D DOKUMENTÓW (opcja) — w oknie „Dokumenty do podpisu”, nad kartami, jest przełącznik „Karty | Widok 3D”. Domyślnie zostaje zwykła lista kart; „Widok 3D” układa dokumenty na obracanym
+  pierścieniu (z przodu największa karta, z tyłu mniejsze i wyżej, więc widać wszystkie). Na każdej karcie jest ATRAPA dokumentu zbudowana z DANYCH WYGENEROWANYCH przez silnik (nagłówek firmy, imię i
+  nazwisko, adres, przełożony, cel wyjazdu, tabela WYJAZD/PRZYJAZD, koszty, pole AKCEPTACJA z trzema podpisami; rozliczenie: tabela poleceń) — widok jest dostępny już zaraz po wygenerowaniu (stan „czeka”,
+  kolor indygo; potem zielony/bursztynowy/czerwony jak na liście). Obrót: przeciąganie myszą lub palcem, strzałki ‹ › na klawiaturze i pod karuzelą, kółko myszy, kropki stanu nad karuzelą (kolor = stan
+  dokumentu), kliknięcie karty z boku wysuwa ją na przód. Kliknięcie karty z przodu (albo „Powiększ”, albo Enter) otwiera POWIĘKSZONY PODGLĄD: cały dokument (wszystkie odcinki trasy), pełny PESEL i adres
+  do sprawdzenia przed podpisem, obok panel stanu i „Otwórz plik PDF”; ‹ › przechodzą do sąsiednich dokumentów, Esc wraca do karuzeli (drugi Esc zamyka okno). Po wysłaniu karty dostają pieczęć „Wysłano”.
+  Na karcie PESEL jest zasłonięty (widać tylko końcówkę). To replika układu z silnika, a nie zdjęcie pliku — prawdziwy PDF otwiera „Otwórz”. Wybór widoku pamiętany na urządzeniu. Bez „życia”
+  (tryb spokojny, „Ogranicz ruch”, testy) obrót jest natychmiastowy i nic nie kręci się samo; z „życiem” pierścień płynnie dojeżdża do karty i wolno obraca się sam, gdy nikt go nie dotyka.
+  Kafel „Dokumenty” (probówki) na pulpicie bez zmian. Kod: js/karuzela.js (pierścień), js/dokument_atrapa.js (dane → kartka), widok w js/podpis.js; testy: atrapa_test.js, karty3d_app.js.
+
   WYSYŁKA ZAHASŁOWANĄ PACZKĄ — to krok 5 „Wyślij” w TYM SAMYM oknie „Dokumenty do podpisu”, co pobieranie, podpisywanie i wgrywanie (bez osobnego okna i bez opcji dodatkowych; kto nie chce albo nie może
   skorzystać z wysyłki systemem, wysyła podpisane pliki sam). W dokumentach jest PESEL, więc nic nie idzie pocztą jawnie. Wszystko, co dotyczy wysyłki, ustawia ADMINISTRATOR w arkuszu, w zakładce „Ustawienia”:
   hasło do paczek (haslo_paczki), ostatni dzień jego ważności (haslo_paczki_wazne_do) i adres e-mail odbiorcy (adres_odbiorcy). Odbiorca czyta paczki od wszystkich użytkowników jednym hasłem, które dostaje od
@@ -322,6 +332,8 @@ TESTY (wymagają Node + Playwright)
   testy/wspolbieznosc_app.js    — wiele wywołań silnika naraz nie miesza argumentów (dawny sporadyczny „KeyError: 'rok'”)
   testy/przyklad_app.js         — przykład na pierwsze uruchomienie: pokazanie, ▶, odhaczanie bez zapisu, wpisanie własnej kwoty, zmiana kwoty po wygenerowaniu
   testy/paczka_test.js          — zahasłowana paczka ZIP (AES-256) i plik wiadomości .eml: JavaScript robi, a pyzipper, 7-Zip i parser poczty Pythona czytają (wektory RFC dla SHA-1/HMAC/PBKDF2)
+  testy/atrapa_test.js         — atrapa dokumentu (js/dokument_atrapa.js): dane z wyniku silnika → kartka, stawki, kilometry, maskowanie PESEL, skracanie trasy na miniaturze, oczyszczanie tekstów (XSS)
+  testy/karty3d_app.js         — widok 3D dokumentów: domyślna lista, przełącznik, prawdziwe dane i kwoty na kartach, kolory stanów, obrót (strzałki, kropki, mysz, kółko), powiększony podgląd (Esc, ‹ ›), układ w 5 rozmiarach okna
   testy/podpis_offline_app.js   — cały obieg podpisów w przeglądarce: 4 kroki, prawdziwe podpisy elektroniczne i błędne (inna osoba, zmieniony, dopisek), skany odręczne, wysyłka, praca bez internetu
   testy/krypto_js_test.js       — własna kryptografia (bez Web Crypto, dla http): skróty, RSA, RSA-PSS, ECDSA porównane z Web Crypto Node'a, podpisy zmienione muszą przepadać
                                   (podobnie: BEZ_WEBCRYPTO=1 node weryfikacja_test.js; cały obieg na http: HTTP_HOST=pmt.example node podpis_offline_app.js; PMT_KORZEN=<katalog> — test na gotowej paczce strony)

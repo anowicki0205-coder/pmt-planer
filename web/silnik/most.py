@@ -212,7 +212,11 @@ def generuj(p, postep=None):
         m = _MIEJSCA.get(idx)
         if m:
             miejsca_podpisu[f] = {"strony": m["strony"], "miejsca": m["miejsca"], "ostatni_y": round(m["ostatni_y"], 1)}
-    return {"ok": True, "miejsca_podpisu": miejsca_podpisu, "folder": folder, "pliki": pliki, "dokumenty": dokumenty, "rozliczenie": (rozl[0] if rozl else ""),
+    try:
+        przelozony = str(S._menedzer() or "")      # to samo nazwisko, które silnik wydrukował na dokumentach — interfejs pokazuje je w podglądzie dokumentu
+    except Exception:
+        przelozony = ""
+    return {"ok": True, "miejsca_podpisu": miejsca_podpisu, "folder": folder, "pliki": pliki, "dokumenty": dokumenty, "rozliczenie": (rozl[0] if rozl else ""), "przelozony": przelozony,
             "dni": [_dzien_json(d, stawka) for d in wynik], "stawka": stawka,
             "suma": round(sum(d.suma for d in wynik), 2), "zrodlo": zrodlo,
             "niepelna": bool(getattr(wynik, "kwota_niepelna", False)),

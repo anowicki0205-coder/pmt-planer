@@ -185,3 +185,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       Spam: stały początek tematu → reguła w poczcie odbiorcy. Testy: paczka_test.js (pyzipper + prawdziwy 7-Zip + parser poczty), backend_gs_test.js (sekcja 7), podpis_offline_app.js. NIEZWERYFIKOWANE:
       otwieranie .eml w prawdziwym Outlooku/Thunderbirdzie/Poczcie Windows (poczta w przeglądarce go nie otworzy — kto nie może, wysyła pliki sam); backend na prawdziwym Apps Script (wymaga wklejenia nowej
       wersji skryptu i „Wdróż → Nowa wersja”); Eksplorator Windows często nie otwiera AES-256 (potrzebny 7-Zip/WinRAR). NIE zrobione (świadomie): kolejka na serwerze z wysyłką o stałej godzinie.
+- [x] WIDOK 3D DOKUMENTÓW (uwaga właściciela: „efekt wow”, atrapa dokumentu z danymi, powiększanie): opcja w oknie „Dokumenty do podpisu” (przełącznik „Karty | Widok 3D”, domyślnie lista, wybór pamiętany) —
+      karty na obracanym pierścieniu, na każdej atrapa dokumentu z danych wyniku silnika (silnik oddaje teraz też „przelozony”), dostępna zaraz po generowaniu (stan „czeka”, indygo; zielony/bursztynowy/czerwony
+      jak na liście), powiększony podgląd po kliknięciu (cały dokument, pełny PESEL, panel stanu), pieczęć „Wysłano”. Kafel „Dokumenty” (probówki) bez zmian. Pliki: js/karuzela.js, js/dokument_atrapa.js,
+      podpis.js, aplikacja.css (.k3-*, .da-*); testy: atrapa_test.js, karty3d_app.js (także z ZYCIE=tak), podpis_offline_app.js (stany i „Wysłano” w 3D). Atrapa jest repliką układu, nie zdjęciem pliku.

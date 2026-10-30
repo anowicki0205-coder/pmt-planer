@@ -85,8 +85,8 @@ async function podpisz(dane, skrotZ = null) {
   return d;
 }
 
-/** Hasło do paczek z dokumentami (jest w nich PESEL) nadaje ADMINISTRATOR — w zakładce „Ustawienia” arkusza, razem z ostatnim dniem ważności. Aplikacja pobiera je tuż przed wysyłką,
-    użytkownik go nie widzi i nie wymyśla własnego; po terminie serwer go nie wydaje. → { ok:true, haslo, wazneDo } albo { ok:false, powod, komunikat }. */
+/** Hasło do paczek z dokumentami (jest w nich PESEL) nadaje ADMINISTRATOR — w zakładce „Ustawienia” arkusza, razem z ostatnim dniem ważności i adresem odbiorcy. Aplikacja pobiera je tuż przed wysyłką,
+    użytkownik go nie widzi i nie wymyśla własnego; po terminie serwer go nie wydaje. → { ok:true, haslo, wazneDo, adres } albo { ok:false, powod, komunikat }. */
 export async function pobierzHasloPaczki() {
   const kod = stan().kod;
   if (!kod || !skrotSesji(kod)) return { ok: false, powod: 'logowanie', komunikat: 'Wyloguj się i zaloguj ponownie hasłem — wtedy będę mógł pobrać hasło do paczki i wysłać dokumenty.' };
@@ -94,9 +94,11 @@ export async function pobierzHasloPaczki() {
   const s = odp && odp.status, data = String(odp && odp.wazne_do || '');
   if (s === 'ok') {
     if (typeof odp.haslo !== 'string' || [...odp.haslo].length < 8 || !/^\d{4}-\d{2}-\d{2}$/.test(data)) return { ok: false, powod: 'odpowiedz', komunikat: 'Hasło do paczek ustawione przez administratora jest nieprawidłowe lub za krótkie (minimum 8 znaków). Napisz do administratora.' };
-    return { ok: true, haslo: odp.haslo, wazneDo: data };
+    const adres = String(odp.adres || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { ok: false, powod: 'odpowiedz', komunikat: 'Administrator nie ustawił poprawnego adresu odbiorcy dokumentów. Napisz do administratora.' };
+    return { ok: true, haslo: odp.haslo, wazneDo: data, adres };
   }
-  if (s === 'brak') return { ok: false, powod: 'brak', komunikat: 'Wysyłka dokumentów nie jest jeszcze włączona — administrator nie ustawił hasła do paczek. Napisz do administratora.' };
+  if (s === 'brak') return { ok: false, powod: 'brak', komunikat: 'Wysyłka dokumentów nie jest jeszcze włączona — administrator nie ustawił hasła do paczek, jego terminu ważności albo adresu odbiorcy. Napisz do administratora.' };
   if (s === 'wygaslo') return { ok: false, powod: 'wygaslo', komunikat: `Hasło do paczek wygasło ${data.split('-').reverse().join('.')}. Poczekaj, aż administrator ustawi nowe, i spróbuj ponownie.` };
   if (s === 'wygasla') return { ok: false, powod: 'dostep', komunikat: 'Twój dostęp do aplikacji wygasł — skontaktuj się z administratorem.' };
   return { ok: false, powod: 'odmowa', komunikat: 'Serwer nie potwierdził Twojego konta. Wyloguj się, zaloguj ponownie hasłem i spróbuj jeszcze raz.' };

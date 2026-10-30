@@ -6,9 +6,11 @@
 const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const PY = process.env.PYTHON_PODPISY || '/tmp/phvenv/bin/python', DANE = path.join(__dirname, 'dane');
-  const t = await otworz({ w: 1440, h: 900, opcjeSerwera: { odbiorca: 'kierownik@example.com' } }); const p = t.p; let kod = 0;
+  const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'podpis-'));
+  const HASLO = 'Admin-Haslo-Paczki#2026', ADRES = 'odbiorca@example.com';
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };      // administrator ustawił hasło, termin i adres (zakładka „Ustawienia”); scenariusze „brak/po terminie” testujemy niżej
   const pobierz = async (selektor) => { const [d] = await Promise.all([p.waitForEvent('download', { timeout: 60000 }), p.click(selektor)]); const sc = path.join(tmp, Date.now() + '_' + d.suggestedFilename()); await d.saveAs(sc); return { nazwa: d.suggestedFilename(), sciezka: sc }; };
   const stany = () => p.evaluate(() => [...document.querySelectorAll('.dok-k')].map(k => (k.className.match(/st-(\w+)/) || [])[1]));
   const czekajStany = async (oczekiwane, ms = 150000) => { await p.waitForFunction(o => { const s = [...document.querySelectorAll('.dok-k')].map(k => (k.className.match(/st-(\w+)/) || [])[1]); return !s.includes('trwa') && JSON.stringify(s) === JSON.stringify(o); }, oczekiwane, { timeout: ms, polling: 250 }).catch(() => {}); return stany(); };
@@ -131,55 +133,68 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   ok('po sprawdzeniu wszystkiego przycisk „Wyślij” jest w oknie i na kaflu, status „Podpisane”', (await p.locator('[data-akcja="wyslij"]').count()) >= 1 && /Wyślij/.test(await p.locator('#kropla-napis').innerText()) && (await p.locator('#status').innerText()).includes('Podpisane'));
   await p.screenshot({ path: tmp + '/4_wszystko.png' });
 
-  /* ---- wysyłka: moduł w kroku 5 TEGO SAMEGO okna; hasło do paczki nadaje administrator (z terminem ważności), adres z odbiorca.txt ---- */
-  const HASLO = 'Admin-Haslo-Paczki#2026', PYZ = process.env.PYZ_PYTHON || ['/tmp/pzvenv/bin/python', 'python3'].find(b => cp.spawnSync(b, ['-c', 'import pyzipper']).status === 0);
-  const rozpakujAes = (zip, kat) => { fs.mkdirSync(kat, { recursive: true }); const r = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode())\nz.extractall(sys.argv[3])\nprint(len(z.namelist()))', zip, HASLO, kat], { encoding: 'utf8' }); return r.status === 0 ? Number(r.stdout.trim()) : -1; };
+  /* ---- wysyłka: moduł w kroku 5 TEGO SAMEGO okna; hasło do paczki, termin jego ważności i adres odbiorcy nadaje administrator (zakładka „Ustawienia” w arkuszu) ---- */
+  const PYZ = process.env.PYZ_PYTHON || ['/tmp/pzvenv/bin/python', 'python3'].find(b => cp.spawnSync(b, ['-c', 'import pyzipper']).status === 0);
   const stanW = () => p.locator('#podp-wyslij-stan').innerText();
-  const krok5 = p.locator('.krok-k.k5');
-  ok('„Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie; pokazuje adres z odbiorca.txt i nie ma żadnych dodatkowych opcji wysyłki', (await p.locator('#arkusz .krok-k.k5 [data-akcja="wyslij"]').count()) === 1 && /do kierownik@example\.com/.test(await krok5.innerText()) && (await p.locator('#arkusz #w-mailto, #arkusz #w-udostepnij, #arkusz #w-eml, #arkusz #w-haslo, #arkusz input[type=password], #arkusz #w-odb').count()) === 0 && !/Otwórz pocztę|dołączę sam|Udostępnij pliki|Kierownik regionu/.test(await p.locator('#arkusz').innerText()));
-  await p.screenshot({ path: tmp + '/5_wyslij.png' });
-
-  /* administrator jeszcze nie ustawił hasła → wysyłka wyłączona, jasny komunikat, nic się nie pobiera */
-  await p.click('#arkusz .krok-k.k5 [data-akcja="wyslij"]'); await p.waitForFunction(() => /nie jest jeszcze włączona/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 30000 });
-  ok('administrator nie ustawił hasła (zakładka Ustawienia pusta) → komunikat „wysyłka nie jest jeszcze włączona”, przycisk znów aktywny, nic nie zostało pobrane', /administrator nie ustawił hasła/i.test(await stanW()) && !(await p.locator('#arkusz .krok-k.k5 button').isDisabled()) && (await p.locator('#w-oznacz').count()) === 0);
-  /* hasło po terminie → komunikat z datą, hasła nie ma nigdzie */
-  t.backend.paczka = { haslo: HASLO, wazne_do: '2020-01-01' };
-  await p.click('#arkusz .krok-k.k5 [data-akcja="wyslij"]'); await p.waitForFunction(() => /wygasło/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 30000 });
-  ok('hasło po terminie ważności → „wygasło 01.01.2020, poczekaj na nowe od administratora”; serwer go nie wydał, więc nie ma go w stronie', /wygasło 01\.01\.2020/.test(await stanW()) && !(await p.evaluate(h => document.documentElement.outerHTML.includes(h) || JSON.stringify(window.__pmtDane.czytaj()).includes(h), HASLO)));
-  /* hasło za krótkie */
-  t.backend.paczka = { haslo: 'krotkie', wazne_do: '2099-12-31' };
-  await p.click('#arkusz .krok-k.k5 [data-akcja="wyslij"]'); await p.waitForFunction(() => /za krótkie/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 30000 });
-  ok('hasło ustawione przez administratora poniżej 8 znaków jest odrzucane z komunikatem (paczka nie powstaje)', /minimum 8 znaków/.test(await stanW()));
-  /* prawidłowe hasło i termin → jedno kliknięcie = gotowa wiadomość */
-  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31' }; const pob0 = t.backend.pobraniaHasla;
-  const emlP = await pobierz('#arkusz .krok-k.k5 [data-akcja="wyslij"]');
-  ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; krok 5 mówi, co z nią zrobić; hasło pobrano z serwera (1 raz), a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && t.backend.pobraniaHasla === pob0 + 1 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
-  await p.screenshot({ path: tmp + '/6_po_wyslaniu.png' });
-  ok('hasło jest zapamiętane tylko w zaszyfrowanym koncie (do wysyłki bez internetu do terminu ważności), nie w tekście strony', await p.evaluate(h => { const c = window.__pmtDane.czytaj().ustawienia.paczka; return c && c.haslo === h && c.wazne_do === '2099-12-31'; }, HASLO));
-  const emlWynik = JSON.parse(cp.spawnSync(PYZ, ['-I', '-c', `
+  const opisK5 = () => p.locator('#podp-wyslij-opis').innerText();
+  const przycisk5 = () => p.locator('#podp-wyslij-akcje button');
+  const wyslijSel = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
+  const ponownieOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900); };
+  const emlOtwarty = (plik) => JSON.parse(cp.spawnSync(PYZ, ['-I', '-c', `
 import sys, json, email, email.policy, io, os, pyzipper
 raw = open(sys.argv[1], 'rb').read(); m = email.message_from_bytes(raw, policy=email.policy.default)
 cz = list(m.iter_attachments()); z = pyzipper.AESZipFile(io.BytesIO(cz[0].get_content())); z.setpassword(sys.argv[2].encode())
 tr = m.get_body(preferencelist=('plain',)).get_content()
 os.makedirs(sys.argv[3], exist_ok=True); z.extractall(sys.argv[3])
-print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr, 'zal': len(cz), 'nazwa': cz[0].get_filename(), 'pliki': z.namelist(), 'ascii': all(b < 128 for b in raw), 'jawne': any(s in raw for s in (b'Jan Testowy', b'90010112349', b'Admin-Haslo'))}))`, emlP.sciezka, HASLO, path.join(tmp, 'zEml')], { encoding: 'utf8' }).stdout);
-  ok('wiadomość: adresat z odbiorca.txt, temat „[PMT] Delegacje — Jan Testowy — …”, nagłówek X-Unsent, dokładnie jeden załącznik ZIP', emlWynik.x === '1' && emlWynik.to === 'kierownik@example.com' && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(emlWynik.temat) && emlWynik.zal === 1 && /^Dokumenty_Jan_Testowy_.*\.zip$/.test(emlWynik.nazwa), JSON.stringify([emlWynik.x, emlWynik.to, emlWynik.temat, emlWynik.zal, emlWynik.nazwa]));
+print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr, 'zal': len(cz), 'nazwa': cz[0].get_filename(), 'pliki': z.namelist(), 'ascii': all(b < 128 for b in raw), 'jawne': any(s in raw for s in (b'Jan Testowy', b'90010112349', b'Admin-Haslo'))}))`, plik, HASLO, path.join(tmp, 'z' + Date.now())], { encoding: 'utf8' }).stdout);
+
+  /* [A] administrator niczego nie ustawił → przycisk od razu szary, jasny powód */
+  t.backend.paczka = null; await ponownieOtworz();
+  ok('administrator niczego nie ustawił w zakładce „Ustawienia” → krok 5 od razu mówi, że wysyłka nie jest włączona, a przycisk jest szary (bez klikania w próżnię)', /nie jest jeszcze włączona/.test(await opisK5()) && (await przycisk5().isDisabled()) && (await p.locator(wyslijSel).count()) === 0, await opisK5());
+  /* [B] hasło po terminie ważności */
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2020-01-01', adres: ADRES }; await ponownieOtworz();
+  ok('hasło po terminie ważności → „wygasło 01.01.2020, poczekaj na nowe od administratora”, przycisk szary; serwer hasła nie wydał, więc nie ma go w stronie ani w zapisanych danych', /wygasło 01\.01\.2020/.test(await opisK5()) && (await przycisk5().isDisabled()) && !(await p.evaluate(h => document.documentElement.outerHTML.includes(h) || JSON.stringify(window.__pmtDane.czytaj()).includes(h), HASLO)));
+  /* [C] brak adresu odbiorcy */
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: '' }; await ponownieOtworz();
+  ok('brak adresu odbiorcy w arkuszu → wysyłka wyłączona (adres, tak jak hasło, wskazuje administrator)', /nie jest jeszcze włączona/.test(await opisK5()) && (await przycisk5().isDisabled()));
+  /* [D] hasło za krótkie → komunikat po kliknięciu */
+  t.backend.paczka = { haslo: 'krotkie', wazne_do: '2099-12-31', adres: ADRES }; await ponownieOtworz();
+  await p.click(wyslijSel); await p.waitForFunction(() => /za krótkie/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 30000 });
+  ok('hasło ustawione przez administratora poniżej 8 znaków jest odrzucane z komunikatem (paczka nie powstaje, status „wysłane” się nie ustawia)', /minimum 8 znaków/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'));
+  /* [E] wszystko poprawnie → jedno kliknięcie */
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES }; await ponownieOtworz();
+  ok('„Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie; pokazuje adres z arkusza; nie ma żadnych dodatkowych opcji ani przycisków wysyłki', (await p.locator(wyslijSel).count()) === 1 && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()) && (await p.locator('#arkusz #w-mailto, #arkusz #w-udostepnij, #arkusz #w-eml, #arkusz #w-haslo, #arkusz #w-odb, #arkusz #w-oznacz, #arkusz input[type=password]').count()) === 0 && !/Otwórz pocztę|dołączę sam|Udostępnij pliki|Kierownik regionu|Oznacz jako wysłane/.test(await p.locator('#arkusz').innerText()));
+  ok('przed wysłaniem karty dokumentów mają przyciski „Otwórz”, a nie informację „Wysłano”', (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 0);
+  await p.screenshot({ path: tmp + '/5_wyslij.png' });
+  const pob0 = t.backend.pobraniaHasla;
+  const emlP = await pobierz(wyslijSel);
+  ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
+  await p.waitForTimeout(500);
+  ok('status „Wysłane” ustawia się SAM (bez dodatkowego przycisku): kafel pulpitu, krok 5 („Dokumenty wysłane …”, przycisk „Wysłano” szary)', (await p.locator('#status').innerText()).includes('Wysłane') && /Dokumenty wysłane \d\d\.\d\d\.\d{4} \d\d:\d\d/.test(await opisK5()) && (await przycisk5().isDisabled()) && /Wysłano/.test(await przycisk5().innerText()) && (await p.locator('#w-oznacz').count()) === 0);
+  ok('„chmurki” dokumentów pokazują „Wysłano” z datą zamiast przycisku „Otwórz” (zostają „Szczegóły”)', (await p.locator('.dok-k.wyslano').count()) === 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 7 && /Wysłano \d\d\.\d\d\.\d{4}/.test(await p.locator('.dok-k .dok-wyslano >> nth=0').innerText()) && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="szczegoly"]').count()) === 7 && /wysłano/.test(await p.locator('.dok-k .stan >> nth=0').innerText()));
+  await p.screenshot({ path: tmp + '/6_po_wyslaniu.png' });
+  ok('hasło jest zapamiętane tylko w zaszyfrowanym koncie (z adresem i terminem, do wysyłki bez internetu), nie w tekście strony', await p.evaluate(([h, a]) => { const c = window.__pmtDane.czytaj().ustawienia.paczka; return c && c.haslo === h && c.adres === a && c.wazne_do === '2099-12-31'; }, [HASLO, ADRES]));
+  const emlWynik = emlOtwarty(emlP.sciezka);
+  ok('wiadomość: adresat z arkusza, temat „[PMT] Delegacje — Jan Testowy — …”, nagłówek X-Unsent, dokładnie jeden załącznik ZIP', emlWynik.x === '1' && emlWynik.to === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(emlWynik.temat) && emlWynik.zal === 1 && /^Dokumenty_Jan_Testowy_.*\.zip$/.test(emlWynik.nazwa), JSON.stringify([emlWynik.x, emlWynik.to, emlWynik.temat, emlWynik.zal, emlWynik.nazwa]));
   ok('treść jest krótka, mówi o zahasłowanej paczce, liczbie plików i że hasło przekazano osobno; podpisana imieniem; bez hasła i PESEL-u', /zahasłowana paczka \(ZIP\)/.test(emlWynik.tresc) && /\(\d+ pl\S+\)/.test(emlWynik.tresc) && /przekazane osobno/.test(emlWynik.tresc) && /Jan Testowy\s*$/.test(emlWynik.tresc) && !emlWynik.tresc.includes(HASLO) && !/\d{11}/.test(emlWynik.tresc), JSON.stringify(emlWynik.tresc).slice(0, 140));
   ok('plik .eml jest czystym ASCII i nie zawiera jawnie imienia z dokumentów, PESEL-u ani hasła', emlWynik.ascii && !emlWynik.jawne);
-  ok('paczka z wiadomości odszyfrowuje się hasłem administratora, a pliki mają nazwy nadane przy generowaniu', emlWynik.pliki.length >= 7 && emlWynik.pliki.every(n => pdfy.some(f => n === f || n === f + '.xades' || n === f.replace(/\.pdf$/i, '.jpg'))), emlWynik.pliki.join(', '));
   const wyslane = emlWynik.pliki;
-  ok('załączniki: każdy plik ma nazwę nadaną przy generowaniu (PDF-y, .pdf.xades razem z oryginałem, skany jako nazwa dokumentu + .jpg)', wyslane.filter(n => /\.pdf$/i.test(n)).length >= 4 && wyslane.includes(pdfy[5] + '.xades') && wyslane.includes(pdfy[5]) && [2, 3, 4].every(i => wyslane.includes(pdfy[i].replace(/\.pdf$/i, '.jpg'))) && wyslane.every(n => pdfy.some(f => n === f || n === f + '.xades' || n === f.replace(/\.pdf$/i, '.jpg'))) && !wyslane.some(n => /_skan|IMG_|_signed|podpisany|zalacznik|podpis_xml|_str/.test(n)), wyslane.join(', '));
-  /* bez internetu: hasło z pamięci konta (jeszcze ważne) wystarcza; bez pamięci — jasny komunikat */
-  t.backend.martwy = true;
-  const emlOff = await pobierz('#arkusz .krok-k.k5 [data-akcja="wyslij"]');
-  ok('bez internetu wysyłka działa na zapamiętanym haśle (ważnym do terminu) — paczka otwiera się tym samym hasłem administratora', emlOff.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && JSON.parse(cp.spawnSync(PYZ, ['-I', '-c', 'import sys, json, email, email.policy, io, pyzipper\nm = email.message_from_bytes(open(sys.argv[1], "rb").read(), policy=email.policy.default)\nz = pyzipper.AESZipFile(io.BytesIO(list(m.iter_attachments())[0].get_content())); z.setpassword(sys.argv[2].encode()); print(json.dumps(len(z.namelist())))', emlOff.sciezka, HASLO], { encoding: 'utf8' }).stdout) >= 7);
+  ok('paczka z wiadomości odszyfrowuje się hasłem administratora; każdy plik ma nazwę nadaną przy generowaniu (PDF-y, .pdf.xades razem z oryginałem, skany jako nazwa dokumentu + .jpg)', wyslane.length >= 7 && wyslane.filter(n => /\.pdf$/i.test(n)).length >= 4 && wyslane.includes(pdfy[5] + '.xades') && wyslane.includes(pdfy[5]) && [2, 3, 4].every(i => wyslane.includes(pdfy[i].replace(/\.pdf$/i, '.jpg'))) && wyslane.every(n => pdfy.some(f => n === f || n === f + '.xades' || n === f.replace(/\.pdf$/i, '.jpg'))) && !wyslane.some(n => /_skan|IMG_|_signed|podpisany|zalacznik|podpis_xml|_str/.test(n)), wyslane.join(', '));
+  /* [F] „Cofnij wysłanie” przywraca stan i przyciski „Otwórz”; potem bez internetu: wysyłka na zapamiętanych danych */
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
+  t.backend.martwy = true; await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
+  ok('po „Cofnij wysłanie” karty znów mają „Otwórz”, a krok 5 znów pozwala wysłać; bez internetu pokazuje adres z pamięci konta', (await p.locator('.dok-k .dok-wyslano').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator(wyslijSel).count()) === 1 && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
+  const emlOff = await pobierz(wyslijSel);
+  ok('bez internetu wysyłka działa na zapamiętanych danych (hasło ważne do terminu): paczka otwiera się tym samym hasłem administratora, adresat z pamięci', emlOff.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (() => { const w = emlOtwarty(emlOff.sciezka); return w.to === ADRES && w.pliki.length >= 7; })());
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
   await p.evaluate(() => { const d = window.__pmtDane.czytaj(); delete d.ustawienia.paczka; window.__pmtDane.zapisz(d); });
-  await p.click('#arkusz .krok-k.k5 [data-akcja="wyslij"]'); await p.waitForFunction(() => /Brak połączenia/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 60000 });
-  ok('bez internetu i bez zapamiętanego hasła: „Brak połączenia — nie mogę pobrać hasła do paczki”', /Brak połączenia/.test(await stanW()));
+  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
+  await p.click(wyslijSel); await p.waitForFunction(() => /Brak połączenia/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 60000 });
+  ok('bez internetu i bez zapamiętanych danych: „Brak połączenia — nie mogę pobrać hasła do paczki”; status „wysłane” się nie ustawia', /Brak połączenia/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'));
   t.backend.martwy = false;
-  await p.click('#w-oznacz').catch(() => {}); if (!(await p.locator('#status').innerText()).includes('Wysłane')) { await p.click('#arkusz .krok-k.k5 [data-akcja="wyslij"]'); await p.waitForSelector('#w-oznacz', { timeout: 60000 }); await p.click('#w-oznacz'); }
-  await p.waitForTimeout(800);
-  ok('„Oznacz jako wysłane” (pod krokiem 5) zmienia stan na „Wysłane”', (await p.locator('#status').innerText()).includes('Wysłane'));
+  const pobAgain = await pobierz(wyslijSel); await p.waitForTimeout(600);
+  ok('po powrocie internetu wysyłka działa i znów ustawia status „Wysłane” (ten stan sprawdzają kolejne kroki testu)', pobAgain.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
 
   /* ---- zapis wyników sprawdzenia ---- */
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);
@@ -201,9 +216,8 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const jpg = fs.readFileSync(lista(path.join(tmp, 's2'))[2]); fs.writeFileSync(path.join(duzy, norm(pdfy[4]).replace(/\.pdf$/, '') + '_skan.jpg'), Buffer.concat([jpg, Buffer.alloc(21 * 1048576)]));
   await wgrajInny(4); await czekajStany(['ok', 'ok', 'ok', 'ok', 'czeka', 'ok', 'ok']);
   await wgraj(lista(duzy)); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
-  const duzyEml = await pobierz('#arkusz .krok-k.k5 [data-akcja="wyslij"]');
+  const duzyEml = await pobierz(wyslijSel);
   ok('przy paczce powyżej 20 MB krok 5 ostrzega przed limitem poczty (wiadomość jest mimo to gotowa)', duzyEml.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /20–25 MB/.test(await stanW()), await stanW());
-  await p.click('#w-oznacz'); await p.waitForTimeout(800);
 
   /* ---- praca bez internetu: service worker zapisał aplikację (w tym nowe moduły sprawdzania podpisów); na zwykłym http przeglądarka go nie dopuszcza ---- */
   if (!bezpieczny) {

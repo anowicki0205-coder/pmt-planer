@@ -711,11 +711,13 @@ function zmienHaslo(dane) {
 /*  Aplikacja web zahasłowuje paczkę z podpisanymi dokumentami (jest w nich PESEL) przed wysłaniem pocztą.   */
 /*  Hasło NIE jest wymyślane przez użytkownika: wpisujesz je Ty w zakładce „Ustawienia” razem z ostatnim     */
 /*  dniem ważności, a aplikacja pobiera je z tego skryptu tuż przed wysyłką (użytkownik go nie widzi).      */
+/*  Tam samo wpisujesz adres e-mail odbiorcy, na który aplikacja przygotowuje wiadomość z paczką.            */
 /*  Odbiorca poczty dostaje hasło od Ciebie — jedno dla paczek od wszystkich użytkowników. Po dacie ważności */
 /*  skrypt hasła nie wydaje, dopóki nie wpiszesz nowego.                                                    */
 /*  Zakładka „Ustawienia” (utworzy ją inicjalizuj()):  A = klucz, B = wartość, C = opis.                    */
 var USTAWIENIE_HASLO_PACZKI = "haslo_paczki";
 var USTAWIENIE_HASLO_PACZKI_DO = "haslo_paczki_wazne_do";
+var USTAWIENIE_ADRES_ODBIORCY = "adres_odbiorcy";
 
 function _ustawieniaPaczki(ss) {
   var sh = _zakladka(ss, ZAKLADKA_USTAWIENIA, ["Klucz", "Wartosc", "Opis"]);
@@ -726,6 +728,8 @@ function _ustawieniaPaczki(ss) {
     "Haslo, ktorym aplikacja zahaslowuje paczke z dokumentami (min. 8 znakow; nie zaczynaj od = + - @). Odbiorca poczty dostaje je od Ciebie. Zostaw puste, by wylaczyc wysylke."]);
   if (!klucze[USTAWIENIE_HASLO_PACZKI_DO]) sh.appendRow([USTAWIENIE_HASLO_PACZKI_DO, "",
     "Ostatni dzien waznosci hasla, np. 2026-12-31 (po tej dacie aplikacja nie wysle paczki, dopoki nie wpiszesz nowego hasla i nowej daty)."]);
+  if (!klucze[USTAWIENIE_ADRES_ODBIORCY]) sh.appendRow([USTAWIENIE_ADRES_ODBIORCY, "",
+    "Adres e-mail, na ktory aplikacja przygotowuje wiadomosc z zahaslowana paczka dokumentow (odbiorca czyta paczki od wszystkich uzytkownikow jednym haslem)."]);
   return sh;
 }
 function _dataIso(v) {
@@ -750,17 +754,19 @@ function hasloPaczki(dane) {
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
   if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
   var sU = _ustawieniaPaczki(ss), u = sU.getLastRow() > 1 ? sU.getRange(2, 1, sU.getLastRow() - 1, 2).getValues() : [];
-  var haslo = "", doDaty = "";
+  var haslo = "", doDaty = "", adres = "";
   for (var j = 0; j < u.length; j++) {
     var k = String(u[j][0]).trim();
     if (k === USTAWIENIE_HASLO_PACZKI) haslo = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
     else if (k === USTAWIENIE_HASLO_PACZKI_DO) doDaty = _dataIso(u[j][1]);
+    else if (k === USTAWIENIE_ADRES_ODBIORCY) adres = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
   }
-  if (!haslo || !doDaty) return { status: "brak" };
+  // Wysyłka jest włączona dopiero, gdy wpisane są wszystkie trzy rzeczy: hasło, termin jego ważności i poprawny adres odbiorcy.
+  if (!haslo || !doDaty || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { status: "brak" };
   var ostatni = new Date(doDaty + "T00:00:00");
   if (ostatni < dzis) return { status: "wygaslo", wazne_do: doDaty };      // po terminie hasła nie wydajemy
   _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty);
-  return { status: "ok", haslo: haslo, wazne_do: doDaty };
+  return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres };
 }
 
 

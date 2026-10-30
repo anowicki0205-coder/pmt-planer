@@ -8,7 +8,7 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
   • sekret.txt — po wdrożeniu leży na stronie obok index.html i przeglądarka musi go pobrać, żeby podpisać zapytanie. Dlatego odczyta go każdy, kto otworzy stronę
     (nie tylko Ty). To FILTR PRZED BOTAMI (zapytania bez podpisu są odrzucane, gdy włączysz PODPIS_OBOWIAZKOWY), a nie zabezpieczenie danych. Danych broni hasło użytkownika
     i limity prób po stronie backendu — nie ten sekret. Tak jest też w programie na komputerze (sekret siedzi w pliku obok programu).
-  • menedzer.txt (nazwisko Kierownika regionu) i odbiorca.txt (jego e-mail) — to dane osobowe; na stronie publicznej (GitHub Pages) będą czytelne dla każdego.
+  • menedzer.txt (nazwisko Kierownika regionu) — to dane osobowe; na stronie publicznej (GitHub Pages) będzie czytelne dla każdego. (Adres e-mail odbiorcy paczek z dokumentami NIE leży już na stronie: jest w arkuszu, w zakładce „Ustawienia”.)
     Gdyby to było niedopuszczalne: serwer za logowaniem (Cloudflare Access, VPN/sieć firmowa) zamiast publicznej strony.
   • Adres backendu (…/exec) jest w kodzie w publicznym repozytorium — to adres, nie hasło; chroni go logika backendu (limity, podpis, hasła).
   • REPOZYTORIUM JEST PUBLICZNE, a w jego historii (commity sprzed 3.24.0) jest STARY sekret aplikacji wpisany wprost w kod. Sprawdź w skrypcie Apps Script, że lista SEKRETY_PMT
@@ -123,5 +123,5 @@ WYSYŁKA PODPISANYCH DOKUMENTÓW POCZTĄ (zahasłowana paczka)
   skrzynki z załącznikiem nie ujawnia dokumentów. Skrypt wydaje hasło tylko istniejącemu kontu z ważną sesją, które potwierdzi się podpisem SWOJEGO hasła (sam 5-cyfrowy kod nie wystarcza), i nie wydaje go
   po terminie ważności; każde wydanie jest w zakładce Log. Użytkownik nie widzi hasła ani nie wymyśla własnego. Ograniczenia: aplikacja trzyma pobrane hasło zaszyfrowane na urządzeniu (żeby wysłać dokumenty
   bez internetu do terminu), więc to ochrona poczty, a nie tajemnica wobec biegłego użytkownika aplikacji; wyciek hasła wymaga wpisania nowego w arkuszu; nazwy plików w paczce są widoczne bez hasła
-  (numer dokumentu, imię i nazwisko, miesiąc — bez PESEL-u); adres odbiorcy (odbiorca.txt) jest publicznie czytelny razem ze stroną; słabe hasło osłabia paczkę (aplikacja odrzuca krótsze niż 8 znaków).
+  (numer dokumentu, imię i nazwisko, miesiąc — bez PESEL-u); adres odbiorcy jest w arkuszu (nie na publicznej stronie) i trafia do aplikacji dopiero po zalogowaniu; słabe hasło osłabia paczkę (aplikacja odrzuca krótsze niż 8 znaków).
   Plik wiadomości .eml zawiera adres odbiorcy, temat i paczkę — jest czystym ASCII i nie zawiera hasła; po wysłaniu warto go usunąć z Pobranych.

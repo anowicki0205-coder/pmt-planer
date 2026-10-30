@@ -12,11 +12,11 @@ Z rozpakowanego PMT_Planer_web wystarczy (reszta to testy i narzędzia):
   index.html, manifest.webmanifest, sw.js
   css/  js/  ikony/  silnik/  przyklad/
   vendor/czcionki/  vendor/paczki/  vendor/pyodide/  vendor/qr/
-  odbiorca.txt  uwagi.txt  adres_aplikacji.txt
+  uwagi.txt  adres_aplikacji.txt
 Do tego DWA pliki, które celowo NIE są w paczce (ani w repozytorium) — tworzysz je na serwerze, obok index.html:
   sekret.txt     jedna linia: sekret aplikacji (ten sam napis co w SEKRETY_PMT w Apps Script)
   menedzer.txt   jedna linia: imię i nazwisko Kierownika regionu (bez niego generowanie dokumentów jest zablokowane)
-W odbiorca.txt wpisz w jednej linii adres e-mail, na który aplikacja wysyła paczki z dokumentami (bez niego przycisk „Wyślij” jest wyłączony). Hasło do paczek nadajesz w arkuszu, w zakładce „Ustawienia” (BACKEND_APPS_SCRIPT.txt).
+Wysyłka dokumentów pocztą: hasło do paczek, jego termin ważności i ADRES ODBIORCY wpisujesz w arkuszu, w zakładce „Ustawienia” (BACKEND_APPS_SCRIPT.txt) — nie na stronie. Bez nich przycisk „Wyślij” jest wyłączony.
 W adres_aplikacji.txt wpisz w jednej linii stały adres strony po wdrożeniu (np. https://planer.firma.pl/): pod niego prowadzi kod QR „Na telefon”, dzięki czemu działa niezależnie od komputera.
   Bez tego wpisu kod prowadzi pod adres bieżącej strony (na serwerze), a przy uruchomieniu lokalnym — pod adres komputera w sieci.
 Zmieniłeś cokolwiek w js/, css/ lub silnik/? Wtedy przebuduj sw.js:  python narzedzia/zbuduj_sw.py  (to samo robi paczka z GitHuba).
@@ -62,7 +62,7 @@ Wyjątek: adres http://localhost:... na TYM SAMYM komputerze przeglądarki trakt
 5. JAK DOJŚĆ DO https ZA DARMO (zalecane docelowo)
 -------------------------------------------------
   - GitHub Pages: gotowy workflow .github/workflows/web-pages.yml (start ręczny; tworzy sekret.txt/menedzer.txt z sekretów
-    repozytorium PMT_SEKRET i PMT_MENEDZER, opcjonalnie odbiorca.txt z PMT_ODBIORCA). Adres: https://<konto>.github.io/<repo>/ —
+    repozytorium PMT_SEKRET i PMT_MENEDZER). Adres: https://<konto>.github.io/<repo>/ —
     szablon wpisuje go sam do adres_aplikacji.txt (własną domenę podasz sekretem PMT_ADRES), więc kod QR od razu prowadzi na stronę.
   - Cloudflare Pages albo Netlify (plan darmowy): wskaż katalog z plikami z punktu 1; https dostajesz automatycznie.
   - Własny serwer: darmowy certyfikat Let's Encrypt (certbot) — o ile serwer ma nazwę widoczną z internetu.

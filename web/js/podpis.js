@@ -82,6 +82,9 @@ export function zainstalujPodpis(k) {
   /** Krok 5: do czasu, aż wszystkie dokumenty są wgrane i sprawdzone (i znamy adres odbiorcy), przycisk jest wyszarzony i NIE niesie data-akcja (nic go nie uruchomi). */
   let adresZnany;                 // undefined = jeszcze nie wiadomo, '' = w odbiorca.txt nie ma adresu
   let stanWysylki = '';           // komunikat pod krokiem 5 po kliknięciu „Wyślij” (html)
+  let adresWczytuje = false;
+  /** Adres odbiorcy (odbiorca.txt) czytamy dopiero, gdy wszystko jest podpisane — wcześniej nie jest potrzebny (i nie generujemy błędu 404, gdy pliku nie ma). */
+  function wczytajAdres() { if (adresZnany !== undefined || adresWczytuje) return; adresWczytuje = true; adresOdbiorcy().then(a => { adresZnany = a; adresWczytuje = false; odswiezWidok(); }); }
   const mozeWyslac = () => wszystkoPodpisane() && adresZnany !== '';
   const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij">${ik('i-wyslij')}Wyślij</button>` : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik('i-wyslij')}Wyślij</button>`;
   const opisWyslij = () => !wszystkoPodpisane() ? 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.'
@@ -116,7 +119,7 @@ export function zainstalujPodpis(k) {
     const l = $('#podp-licznik', arkTresc); if (l) l.innerHTML = podsumowanie();
     const k5 = $('.krok-k.k5', arkTresc);
     if (k5) { const akt = mozeWyslac(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).innerHTML = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
-    pokazWyniki();
+    pokazWyniki(); if (wszystkoPodpisane()) wczytajAdres();
   }
   function pokaz(nowy) {
     widok = nowy;
@@ -415,7 +418,7 @@ export function zainstalujPodpis(k) {
 
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
-    otworz() { widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; adresOdbiorcy().then(a => { adresZnany = a; odswiezWidok(); }); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
+    otworz() { widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; k.otworzArkusz(widokGlowny(), null, { szeroki: true }); if (wszystkoPodpisane()) wczytajAdres(); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };
 }

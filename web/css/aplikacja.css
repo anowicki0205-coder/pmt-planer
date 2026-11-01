@@ -2209,10 +2209,9 @@ html.okno .scena{filter:saturate(.7)}
 .k3-wrap{position:relative}
 .k3-pasek{position:relative;z-index:6;display:flex;gap:.45rem;justify-content:center;flex-wrap:wrap;margin:.1rem 0 .2rem;min-height:1.2rem}
 .k3-kropka{width:.95rem;height:.95rem;border-radius:50%;border:0;padding:0;cursor:pointer;background:var(--k,#00E4A1);box-shadow:0 0 0 2px rgb(255 255 255/.28)}
-.k3-kropka.k3-czeka{--k:#9B8CFF}.k3-kropka.k3-trwa{--k:#33F0FF}.k3-kropka.k3-ok{--k:#00E4A1}.k3-kropka.k3-uwaga{--k:#FFC24D}.k3-kropka.k3-zle{--k:#FF6B81;animation:k3-puls 1.4s ease-in-out infinite}
+.k3-kropka.k3-czeka{--k:#9B8CFF}.k3-kropka.k3-trwa{--k:#33F0FF}.k3-kropka.k3-ok{--k:#00E4A1}.k3-kropka.k3-uwaga{--k:#FFC24D}.k3-kropka.k3-zle{--k:#FF6B81}
 .k3-kropka.akt{box-shadow:0 0 0 3px #fff,0 0 14px 2px var(--k)}
 .k3-kropka:focus-visible{outline:2px solid #fff;outline-offset:3px}
-@keyframes k3-puls{50%{transform:scale(1.35)}}
 .k3-scena{position:relative;height:clamp(400px,58vh,520px);perspective:1800px;perspective-origin:50% 34%;display:grid;place-items:center;cursor:grab;touch-action:pan-y;outline:none;margin:0 -.4rem}
 .k3-scena.chwyt{cursor:grabbing}
 .k3-scena:focus-visible{box-shadow:0 0 0 2px var(--a-cyan) inset;border-radius:18px}
@@ -2273,8 +2272,7 @@ html.okno .scena{filter:saturate(.7)}
 .da-uwaga .da-moj{outline:1.2px dashed #E39B0B;outline-offset:-2px;background:rgb(255 194 77/.14)}
 .da-zle .da-moj{outline:1.2px solid #D8264B;outline-offset:-2px;background:repeating-linear-gradient(135deg,rgb(216 38 75/.12) 0 3px,transparent 3px 6px)}
 .da-pieczec{position:absolute;left:50%;top:50%;width:62%;transform:translate(-50%,-50%) rotate(-14deg);border:2px solid #00A878;color:#00875f;border-radius:10px;text-align:center;font-weight:800;letter-spacing:.12em;font-size:3.6cqw;padding:1.2cqw 0;background:rgb(255 255 255/.55);display:none;pointer-events:none}
-.da-wyslano .da-pieczec{display:block;animation:da-stempel .6s cubic-bezier(.2,1.4,.4,1) both}
-@keyframes da-stempel{from{transform:translate(-50%,-50%) rotate(-14deg) scale(2.4);opacity:0}to{transform:translate(-50%,-50%) rotate(-14deg);opacity:1}}
+.da-wyslano .da-pieczec{display:block}
 .k3-dol{display:flex;justify-content:center;align-items:center;gap:1rem;margin-top:.2rem}
 .k3-dol .ikb{width:2.6rem;height:2.6rem;border-radius:50%;padding:0;font-size:1.3rem;line-height:1}
 .k3-nazwa{min-width:15rem;text-align:center;color:var(--t2);font-size:.9rem}
@@ -2288,4 +2286,60 @@ html.okno .scena{filter:saturate(.7)}
 .k3-pg-panel{position:sticky;top:.4rem;display:grid;gap:.5rem;padding:.8rem;border-radius:14px;background:rgb(255 255 255/.10);box-shadow:inset 0 0 0 1.5px rgb(255 255 255/.22)}
 .k3-pg-panel .dok-kom{margin:0}.k3-pg-uwaga{color:var(--t2);font-size:.78rem}
 @media (max-width:760px){.k3-pg-tresc{grid-template-columns:1fr}.k3-scena{height:clamp(380px,60vh,470px)}.k3-nazwa{min-width:10rem}}
-@media (prefers-reduced-motion:reduce){.k3-kropka.k3-zle{animation:none}.da-wyslano .da-pieczec{animation:none}}
+
+/* ====================== widowisko generowania (js/widowisko.js) ====================== */
+.gen-scena{position:fixed;inset:0;z-index:60;pointer-events:none;display:grid;justify-items:center;align-content:start;padding-top:clamp(4.5rem,20vh,10rem)}
+.gen-tlo{position:absolute;inset:0;background:radial-gradient(60% 55% at 50% 38%,rgb(14 16 44/.62),rgb(8 9 26/.3) 70%,transparent)}
+.gen-panel{position:relative;width:min(560px,92vw);padding:.85rem 1.15rem 1rem;border-radius:26px;color:#fff;background:linear-gradient(160deg,rgb(52 58 140/.92),rgb(26 28 78/.94));
+  box-shadow:0 30px 70px -20px rgb(0 0 0/.7),inset 0 0 0 1.5px rgb(255 255 255/.2),0 0 60px -10px rgb(91 109 255/.55);backdrop-filter:blur(14px) saturate(1.2)}
+.gen-gora{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}.gen-faza{font-size:1rem;letter-spacing:.01em}.gen-proc{font-size:.95rem;color:#9FF7E4}
+.gen-plansza{position:relative;height:clamp(110px,22vh,150px);margin:.35rem 0 .2rem}
+.gen-trasa{position:absolute;inset:0;width:100%;height:100%;overflow:visible;transition:opacity .45s,transform .45s}
+.faza-druk .gen-trasa{opacity:.16;transform:scale(.94)}.faza-wynik .gen-trasa{opacity:0;transform:scale(.9)}
+.gen-sciezka-tlo{fill:none;stroke:rgb(255 255 255/.16);stroke-width:3;stroke-dasharray:2 8;stroke-linecap:round}
+.gen-sciezka{fill:none;stroke:#7CF3C9;stroke-width:4;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset .35s linear;filter:drop-shadow(0 0 5px rgb(124 243 201/.8))}
+.gen-punkty circle{fill:#2d3380;stroke:rgb(255 255 255/.35);stroke-width:1.5;transition:fill .3s,stroke .3s}
+.gen-punkty circle.on{fill:#33F0FF;stroke:#fff;filter:drop-shadow(0 0 6px #33F0FF)}
+.gen-stos{position:absolute;inset:0;display:grid;place-items:center;opacity:0;transition:opacity .3s}
+.faza-druk .gen-stos{opacity:1}.faza-wynik .gen-stos{opacity:0}
+.gen-stos i{grid-area:1/1;width:64px;aspect-ratio:210/297;border-radius:5px;background:#fbfbf8;box-shadow:0 6px 14px -4px rgb(0 0 0/.5);transform:translateY(calc(var(--k)*-5px)) rotate(calc(var(--k)*3deg - 4deg));
+  background-image:repeating-linear-gradient(180deg,transparent 0 9px,rgb(40 44 90/.2) 9px 10px)}
+.gen-wachlarz{position:absolute;inset:0;display:flex;gap:.4rem;justify-content:center;align-items:center;opacity:0}
+.faza-wynik .gen-wachlarz{opacity:1}
+.gen-kafel{flex:1 1 0;max-width:68px;min-width:0;display:grid;justify-items:center;gap:.12rem}
+.gen-kafel b{font-size:.78rem}.gen-kafel .num{font-size:.7rem;color:rgb(255 255 255/.85);white-space:nowrap}
+.gen-kartka{width:100%;aspect-ratio:210/297;border-radius:6px;display:grid;align-content:center;gap:4px;padding:0 18%;background:linear-gradient(160deg,#5B6DFF,#8A5CF5);box-shadow:0 8px 16px -6px rgb(0 0 0/.6),inset 0 0 0 1.5px rgb(255 255 255/.3)}
+.gen-kartka .l{display:block;height:3px;border-radius:2px;background:rgb(255 255 255/.75)}.gen-kartka .l:nth-child(2){width:70%}.gen-kartka .l:nth-child(4){width:45%}
+.gen-dol{min-height:1.4em;text-align:center;font-size:.92rem;color:#fff}.gen-razem{font-weight:650}
+
+/* ====================== ruch widowiska generowania, podpisów i karuzeli ======================
+   Jak „życie” kalendarza i probówek: lekki ruch CSS mimo trybu spokojnego (`.spokojne *{animation:none!important}`), dlatego reguły mają !important i większą swoistość, a nazwy animacji zaczynają się od „zycie-”.
+   Włącza je html.zyje (js/aplikacja.js, `const zycie`); znikają przy „Ogranicz ruch” w systemie. Bez nich (testy) wszystko stoi w stanie końcowym. */
+@keyframes zycie-gen-wejscie{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes zycie-gen-wyjscie{to{opacity:0;transform:translateY(-8px) scale(.98)}}
+@keyframes zycie-gen-punkt{from{transform-box:fill-box;transform-origin:center;transform:scale(2.2)}to{transform-box:fill-box;transform-origin:center;transform:scale(1)}}
+@keyframes zycie-gen-kartka{from{opacity:0;transform:translate(90px,-40px) rotate(18deg)}}
+@keyframes zycie-gen-wachlarz{from{opacity:0;transform:translateY(22px) scale(.55)}}
+@keyframes zycie-kresl{to{stroke-dashoffset:0}}
+@keyframes zycie-trzes{15%,55%{transform:translateX(-4px)}35%,75%{transform:translateX(4px)}}
+@keyframes zycie-blysk3d{from{box-shadow:0 0 0 2px #fff,0 0 50px 12px var(--poswiata)}}
+@keyframes zycie-pop{40%{transform:scale(1.04)}}
+@keyframes zycie-mig{0%,45%{box-shadow:0 0 0 3px #fff,0 0 34px 8px rgb(255 255 255/.55)}}
+@keyframes zycie-k3-puls{50%{transform:scale(1.35)}}
+@keyframes zycie-stempel{from{transform:translate(-50%,-50%) rotate(-14deg) scale(2.4);opacity:0}to{transform:translate(-50%,-50%) rotate(-14deg);opacity:1}}
+@media (prefers-reduced-motion:no-preference){
+  html.zyje .gen-scena{animation:zycie-gen-wejscie .35s ease-out both!important}
+  html.zyje .gen-scena.gen-znika{animation:zycie-gen-wyjscie .3s ease-in both!important}
+  html.zyje .gen-punkty circle.on{animation:zycie-gen-punkt .5s ease-out!important}
+  html.zyje .gen-stos i{animation:zycie-gen-kartka .5s ease-out both!important;animation-delay:calc(var(--k)*.14s)!important}
+  html.zyje .gen-kafel{animation:zycie-gen-wachlarz .55s cubic-bezier(.2,1.25,.4,1) both!important;animation-delay:calc(var(--i)*70ms)!important}
+  html.zyje .da-nowy.da-ok .da-podpis path{stroke-dasharray:1;stroke-dashoffset:1;animation:zycie-kresl .9s ease-out .2s forwards!important}
+  html.zyje .da-nowy.da-ok .da-podpis path+path{animation-delay:1s!important;animation-duration:.45s!important}
+  html.zyje .da-nowy.da-zle{animation:zycie-trzes .55s ease-in-out!important}
+  html.zyje .karta3d.k3-nowy{animation:zycie-blysk3d 1s ease-out!important}
+  html.zyje .dok-k.nowy{animation:zycie-pop .75s cubic-bezier(.2,1.4,.4,1)!important}
+  html.zyje .dok-k.nowy.st-zle{animation:zycie-trzes .55s ease-in-out!important}
+  html.zyje .dok-k.blysk{animation:zycie-mig 1.4s ease-out!important}
+  html.zyje .k3-kropka.k3-zle{animation:zycie-k3-puls 1.4s ease-in-out infinite!important}
+  html.zyje .da-wyslano .da-pieczec{animation:zycie-stempel .6s cubic-bezier(.2,1.4,.4,1) both!important}
+}

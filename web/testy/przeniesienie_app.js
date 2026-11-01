@@ -1,7 +1,7 @@
 // Przeniesienie danych z programu na komputerze: plik z programu (pmt_przeniesienie.py) → „Moje dane” w aplikacji web (formularz wypełnia się sam, nic nie zapisuje się bez „Zapisz”),
 // lista sklepów czeka w oknie „Plan wizyt”; błędne pliki (inne konto, inne hasło, zmieniony, nie z PMT) są odrzucane z czytelnym komunikatem.
 // NODE_PATH=/opt/node22/lib/node_modules node przeniesienie_app.js
-const { otworz } = require('./wspolne'); const { execFileSync } = require('child_process'), path = require('path'), fs = require('fs'), os = require('os');
+const { otworz, dzisTestow } = require('./wspolne'); const { execFileSync } = require('child_process'), path = require('path'), fs = require('fs'), os = require('os');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const korzen = path.resolve(__dirname, '..', '..'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'przen-app-'));
@@ -63,7 +63,7 @@ print(P.zaszyfruj(json.loads(sys.stdin.read()), sys.argv[2], P.hash_hasla(sys.ar
 
   /* ---- plik z gotowym planem i odhaczeniami: kafel Dziś nie jest goły ---- */
   const lokalnie = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const dzis = new Date(), jutro = new Date(dzis.getTime() + 86400000), dawno = new Date(dzis.getTime() - 60 * 86400000);
+  const dzis = dzisTestow(), jutro = new Date(dzis.getTime() + 86400000), dawno = new Date(dzis.getTime() - 60 * 86400000);
   const D = lokalnie(dzis), J = lokalnie(jutro), S = lokalnie(dawno);
   const W = (nazwa, adres, siec, miasto, lat, lng) => ({ nazwa, adres, siec, miasto, lat, lng });
   const miesiac = dni => ({ dni });

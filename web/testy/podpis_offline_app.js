@@ -69,9 +69,12 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   fs.writeFileSync(path.join(tmp, 'plan1.json'), JSON.stringify(plan1)); py('podpisz_pliki.py', roz, path.join(tmp, 'e1'), path.join(tmp, 'plan1.json'));
   // pliki wracają z gov.pl pod przypadkowymi nazwami: program ma rozpoznać dokument (po zawartości, a plik .xades po skrócie) i nazwać plik tak, jak go wygenerował
   const dziwne = { [pdfy[0]]: 'Podpisany dokument (1).pdf', [pdfy[1]]: 'zalacznik_nr_2_signed.pdf', [pdfy[5] + '.xades']: 'podpis_xml_numer_6.xades' };
+  await p.evaluate(() => { window.__nowyZle = new Set(); window.__nowyAnim = ''; new MutationObserver(() => { document.querySelectorAll('.dok-k.nowy.st-zle').forEach(k => window.__nowyZle.add(Number(k.dataset.i))); }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
   await wgraj(kopiaZ(path.join(tmp, 'e1'), path.join(tmp, 'e1o'), dziwne).reverse());      // odwrócona kolejność: dopasowanie ma iść po zawartości i nazwie, nie po kolejności
   const s1 = await czekajStany(['ok', 'ok', 'zle', 'zle', 'czeka', 'ok', 'zle']);
   ok('tura 1: Jan (PAdES) ✓, Jan (ECDSA) ✓, inna osoba ✗, zmieniony ✗, niepodpisany plik odrzucony, XAdES ✓, dopisek po podpisie ✗', JSON.stringify(s1) === '["ok","ok","zle","zle","czeka","ok","zle"]', JSON.stringify(s1));
+  const nowyZle = await p.evaluate(() => [...window.__nowyZle].sort());
+  ok('efekt zmiany stanu na liście: karty, które PRZED CHWILĄ zmieniły stan na „zły” (2, 3, 6), dostały znacznik „nowy” (drżenie); pozostałe nie', JSON.stringify(nowyZle) === '[2,3,6]', JSON.stringify(nowyZle));
   await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
   const k3 = await p.evaluate(() => [...document.querySelectorAll('.karta3d')].map(k => ({ i: Number(k.dataset.i), st: (k.className.match(/k3-(czeka|trwa|ok|uwaga|zle)/) || [])[1], podpis: !!k.querySelector('.da-ok .da-podpis, .da-papier.da-ok .da-podpis') })).sort((x, y) => x.i - y.i));
   ok('widok 3D: karty mają te same stany i kolory co lista (zielona = podpis poprawny, czerwona = zły, indygo = czeka), a atrapa dokumentu poprawnie podpisanego pokazuje podpis', JSON.stringify(k3.map(k => k.st)) === JSON.stringify(s1) && k3.filter(k => k.st === 'ok').every(k => k.podpis) && k3.filter(k => k.st !== 'ok').every(k => !k.podpis) && (await p.locator('.k3-kropka.k3-ok').count()) === 3 && (await p.locator('.k3-kropka.k3-zle').count()) === 3, JSON.stringify(k3.map(k => k.st)));
@@ -127,7 +130,13 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
   await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+  await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
+  await p.evaluate(() => { window.__nowe = new Set(); window.__anim = ''; new MutationObserver(() => { document.querySelectorAll('.karta3d.k3-nowy.k3-ok').forEach(k => { window.__nowe.add(Number(k.dataset.i)); const sc = k.querySelector('.da-podpis path'); if (sc) window.__anim = getComputedStyle(sc).animationName; }); }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
   await wgraj(kopiaZ(path.join(tmp, 'e4'), path.join(tmp, 'e4o'), { [pdfy[6]]: pdfy[0] }));      // podpisany dokument 7 wraca pod nazwą dokumentu 1 — ma zostać rozpoznany po zawartości
+  await p.waitForSelector('.karta3d[data-i="6"].k3-ok', { timeout: 150000 }); await p.waitForTimeout(400);
+  const efekt = await p.evaluate(() => ({ nowe: [...window.__nowe], anim: window.__anim }));
+  ok('widok 3D: karta, której stan zmienił się na „poprawny” (7), dostaje efekt (podpis „rysuje się”, błysk) — tylko ona; przy włączonym „życiu” animacja zycie-kresl (mimo trybu spokojnego), bez niego brak ruchu', JSON.stringify(efekt.nowe) === '[6]' && efekt.anim === (process.env.ZYCIE === 'tak' ? 'zycie-kresl' : 'none'), JSON.stringify(efekt));
+  await p.click('[data-akcja="widok"][data-w="lista"]'); await p.waitForSelector('.dok-k');
   const s4 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const zap4 = await zapisane();
   ok('nazwy: plik o nazwie INNEGO dokumentu rozpoznany po zawartości i nazwany jak dokument 7; ostrzeżenie w sprawdzeniu', zap4.pliki[6][0] === pdfy[6] && zap4.pliki[0][0] === pdfy[0] && zap4.weryfikacje[6].kontrole.some(c => c.id === 'nazwa' && /to nazwa innego dokumentu \(Polecenie 1\)/.test(c.tekst)), JSON.stringify(zap4.weryfikacje[6].kontrole.filter(c => c.id === 'nazwa')));

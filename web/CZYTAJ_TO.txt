@@ -201,6 +201,14 @@ DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
   (tryb spokojny, „Ogranicz ruch”, testy) obrót jest natychmiastowy i nic nie kręci się samo; z „życiem” pierścień płynnie dojeżdża do karty i wolno obraca się sam, gdy nikt go nie dotyka.
   Kafel „Dokumenty” (probówki) na pulpicie bez zmian. Kod: js/karuzela.js (pierścień), js/dokument_atrapa.js (dane → kartka), widok w js/podpis.js; testy: atrapa_test.js, karty3d_app.js.
 
+  WIDOWISKO GENEROWANIA I „ŻYCIE” PODPISÓW — lekki ruch dla wszystkich (jak „życie” kalendarza i probówek, mimo trybu spokojnego; znika tylko u osób, które same włączyły w systemie „Ogranicz ruch”).
+  Podczas generowania nad pulpitem pojawia się panel: punkty GPS zapalają się, trasa się rysuje, kartki układają się w stos (napisy i postęp prosto z silnika, np. „Klastrowanie GPS (Dzień 6/14)…”), a po wyniku
+  stos rozkłada się w wachlarz PRAWDZIWYCH dokumentów (P1…P6 i R z kwotami z silnika, suma liczy się w górę). Trwa to ok. 2 s; kliknięcie albo Esc pomija pokaz (kliknięcie nie trafia w pulpit pod spodem).
+  Kropla „Generuj” zostaje widoczna i nadal przerywa generowanie. Przy podpisach: gdy dokument zmieni stan, jego podpis na atrapie „rysuje się” (poprawny), zły dokument drży, karta mignie; pieczęć „Wysłano”
+  opada na kartkę. Klik w probówkę na pulpicie otwiera okno dokumentów od razu na jej dokumencie (karuzela ustawia go z przodu, na liście karta mruga). Kod: js/widowisko.js, reguły „zycie-…” na końcu
+  css/aplikacja.css; testy: widowisko_app.js, karty3d_app.js, podpis_offline_app.js (także z ZYCIE=tak). Uwaga techniczna: tryb spokojny (`.spokojne *{animation:none!important}`) blokuje zwykłe animacje CSS,
+  więc ruch z „życia” ma nazwy zaczynające się od „zycie-” i reguły z !important w html.zyje — tak samo jak kalendarz i probówki.
+
   WYSYŁKA ZAHASŁOWANĄ PACZKĄ — to krok 5 „Wyślij” w TYM SAMYM oknie „Dokumenty do podpisu”, co pobieranie, podpisywanie i wgrywanie (bez osobnego okna i bez opcji dodatkowych; kto nie chce albo nie może
   skorzystać z wysyłki systemem, wysyła podpisane pliki sam). W dokumentach jest PESEL, więc nic nie idzie pocztą jawnie. Wszystko, co dotyczy wysyłki, ustawia ADMINISTRATOR w arkuszu, w zakładce „Ustawienia”:
   hasło do paczek (haslo_paczki), ostatni dzień jego ważności (haslo_paczki_wazne_do) i adres e-mail odbiorcy (adres_odbiorcy). Odbiorca czyta paczki od wszystkich użytkowników jednym hasłem, które dostaje od
@@ -334,6 +342,7 @@ TESTY (wymagają Node + Playwright)
   testy/paczka_test.js          — zahasłowana paczka ZIP (AES-256) i plik wiadomości .eml: JavaScript robi, a pyzipper, 7-Zip i parser poczty Pythona czytają (wektory RFC dla SHA-1/HMAC/PBKDF2)
   testy/atrapa_test.js         — atrapa dokumentu (js/dokument_atrapa.js): dane z wyniku silnika → kartka, stawki, kilometry, maskowanie PESEL, skracanie trasy na miniaturze, oczyszczanie tekstów (XSS)
   testy/karty3d_app.js         — widok 3D dokumentów: domyślna lista, przełącznik, prawdziwe dane i kwoty na kartach, kolory stanów, obrót (strzałki, kropki, mysz, kółko), powiększony podgląd (Esc, ‹ ›), układ w 5 rozmiarach okna
+  testy/widowisko_app.js       — widowisko generowania: fazy (GPS → trasy → druk → wynik), dopełzanie postępu, wachlarz z kwotami z silnika, pominięcie kliknięciem/Esc, przerwanie, „Ogranicz ruch” (bez pokazu), ruch mimo trybu spokojnego
   testy/podpis_offline_app.js   — cały obieg podpisów w przeglądarce: 4 kroki, prawdziwe podpisy elektroniczne i błędne (inna osoba, zmieniony, dopisek), skany odręczne, wysyłka, praca bez internetu
   testy/krypto_js_test.js       — własna kryptografia (bez Web Crypto, dla http): skróty, RSA, RSA-PSS, ECDSA porównane z Web Crypto Node'a, podpisy zmienione muszą przepadać
                                   (podobnie: BEZ_WEBCRYPTO=1 node weryfikacja_test.js; cały obieg na http: HTTP_HOST=pmt.example node podpis_offline_app.js; PMT_KORZEN=<katalog> — test na gotowej paczce strony)

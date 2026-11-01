@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'f33c6564cd3f';
+const WERSJA = 'ca50a7d8257d';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -28,6 +28,7 @@ const PLIKI = [
  "./js/silnik.js",
  "./js/silnik.worker.js",
  "./js/weryfikacja.js",
+ "./js/widowisko.js",
  "./js/zipaes.js",
  "./js/zywe.js",
  "./manifest.webmanifest",

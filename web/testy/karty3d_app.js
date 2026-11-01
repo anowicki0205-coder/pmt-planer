@@ -22,6 +22,12 @@ const { otworz, generuj } = require('./wspolne');
   const W = await wynik(); const nDok = W.dokumenty.length;
   ok('wygenerowano 6 poleceń wyjazdu (+ rozliczenie); silnik oddaje też przełożonego do podglądu', nDok === 6 && W.przelozony === 'Kierownik Testowy', `poleceń w wyniku: ${nDok}, przełożony: ${W.przelozony}`);
 
+  /* ---- probówka na pulpicie prowadzi do swojego dokumentu ---- */
+  await p.click('#fiolki .fiolka[data-dok="2"]'); await p.waitForSelector('.dok-k[data-i="2"]'); await p.waitForTimeout(300);
+  const probowka = await p.evaluate(() => { const c = document.querySelector('.dok-k[data-i="2"]'), r = c.getBoundingClientRect(); return { blysk: c.classList.contains('blysk'), wOknie: r.top >= 0 && r.bottom <= innerHeight, listy: document.querySelectorAll('.dok-k').length }; });
+  ok('klik w probówkę 3 (widok listy): okno dokumentów otwiera się od razu na tym dokumencie — karta mignęła i jest w widoku', probowka.blysk && probowka.wOknie && probowka.listy === 7, JSON.stringify(probowka));
+  await zamknijOkno();
+
   /* ---- domyślnie lista kart, przełącznik widoku ---- */
   await otworzOkno();
   ok('domyślnie: lista kart (7), bez pierścienia 3D; przełącznik „Karty | Widok 3D” jest, „Karty” wciśnięte', (await p.locator('.dok-k').count()) === 7 && (await p.locator('#k3-scena').count()) === 0 && (await p.locator('.k3-przel [data-w="lista"][aria-pressed="true"]').count()) === 1 && (await p.locator('.k3-przel [data-w="3d"][aria-pressed="false"]').count()) === 1);
@@ -112,6 +118,12 @@ const { otworz, generuj } = require('./wspolne');
     ok(`układ ${w}×${h}: bez przewijania poziomego, przednia karta w całości w oknie, przycisk „Powiększ” klikalny, żadna karta nie wystaje ze sceny ani nie zasłania kropek`, u.poziomo <= 1 && u.wew && u.przyciskTrafiony && u.wszystkieWScenie && u.kropkiNadKartami, JSON.stringify(u));
   }
   await p.setViewportSize({ width: 1440, height: 900 }); await p.waitForTimeout(400);
+  await zamknijOkno();
+
+  await p.click('#fiolki .fiolka[data-dok="4"]'); await p.waitForSelector('#k3-scena');
+  ok('klik w probówkę 5 (widok 3D): karuzela od razu ma z przodu ten dokument', (await czekajPrzod(4)) === 4, `przód: ${await przod()}`);
+  await zamknijOkno(); await p.click('#fiolki .fiolka.rozl'); await p.waitForSelector('#k3-scena');
+  ok('klik w probówkę rozliczenia: z przodu rozliczenie (7. karta)', (await czekajPrzod(6)) === 6, `przód: ${await przod()}`);
   await zamknijOkno();
 
   ok('brak błędów w konsoli i wyjątków strony', t.bledy.length === 0, t.bledy.slice(0, 3).join(' | '));

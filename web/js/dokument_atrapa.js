@@ -37,15 +37,15 @@ export function daneRozliczenia(wynik, ctx) {
   return { typ: 'rozliczenie', nr: 0, ...ctx, firma: firma(ctx.stanowisko), wiersze, suma: kwotaPdf((wynik.dokumenty || []).reduce((s, x) => s + Number(x.kw || 0), 0)), zrodlo: wynik.zrodlo && wynik.zrodlo.etykieta ? wynik.zrodlo.etykieta : '' };
 }
 
-const PODPIS_SVG = '<svg class="da-podpis" viewBox="0 0 60 30" fill="none" stroke="#1d2f8a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 22C8 6 12 4 14 14S18 26 24 12 30 6 32 16s4 8 9-6 6 6 14-4"/><path d="M6 26c14-3 30-3 50-6" stroke-width="1"/></svg>';
+const PODPIS_SVG = '<svg class="da-podpis" viewBox="0 0 60 30" fill="none" stroke="#1d2f8a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M3 22C8 6 12 4 14 14S18 26 24 12 30 6 32 16s4 8 9-6 6 6 14-4"/><path pathLength="1" d="M6 26c14-3 30-3 50-6" stroke-width="1"/></svg>';
 const ZNAK = { czeka: '✎', trwa: '…', uwaga: '?', zle: '×', ok: '' };
 const polePodpisu = stan => `<div class="da-pole da-moj">podpis pracownika${stan === 'ok' ? PODPIS_SVG : ''}${stan === 'ok' ? '' : `<span class="da-znak">${ZNAK[stan] ?? ''}</span>`}</div>`;
 const blokAkceptacji = stan => `<div class="da-akc"><div class="da-v">AKCEPTACJA</div><div class="da-pole">podpis Księgowej</div><div class="da-pole">podpis Dyrektora Zarządzającego</div>${polePodpisu(stan)}</div>`;
 
-/** HTML kartki. o: { stan: 'czeka'|'trwa'|'ok'|'uwaga'|'zle', maks: najwyżej tyle wierszy (miniatura), pelnyPesel, wyslano }. Wszystkie teksty są oczyszczane — dane z pliku/profilu nie wstrzykną znaczników. */
+/** HTML kartki. o: { stan: 'czeka'|'trwa'|'ok'|'uwaga'|'zle', maks: najwyżej tyle wierszy (miniatura), pelnyPesel, wyslano, nowy (stan zmienił się przed chwilą: podpis „rysuje się”, zły dokument drży) }. Wszystkie teksty są oczyszczane — dane z pliku/profilu nie wstrzykną znaczników. */
 export function atrapaHtml(d, o = {}) {
   const stan = o.stan || 'czeka', maks = o.maks ?? Infinity, pesel = o.pelnyPesel ? String(d.pesel || '') : maskaPesel(d.pesel);
-  const klasa = `da-papier da-${stan}${o.wyslano ? ' da-wyslano' : ''}${d.typ === 'rozliczenie' ? ' da-rozl' : ''}`;
+  const klasa = `da-papier da-${stan}${o.nowy ? ' da-nowy' : ''}${o.wyslano ? ' da-wyslano' : ''}${d.typ === 'rozliczenie' ? ' da-rozl' : ''}`;
   let tresc;
   if (d.typ === 'rozliczenie') {
     const wiersze = d.wiersze.slice(0, Math.max(1, maks)), reszta = d.wiersze.length - wiersze.length;

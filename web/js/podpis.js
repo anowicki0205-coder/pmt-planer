@@ -66,10 +66,14 @@ export function zainstalujPodpis(k) {
       <small class="dok-plik">Plik: ${esc(pliki.join(', '))}</small>
       <div class="dok-akcje">${mozna ? `<button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}Potwierdzam, że podpis jest</button>` : ''}<button type="button" class="przycisk maly" data-akcja="cofnij" data-i="${d.i}">${ik('i-cofnij')}Wgraj inny plik</button><button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Zwiń</button></div></div>`;
   }
+  let fokusI = null;              // dokument wskazany z probówki na pulpicie: jego karta na liście mruga (znacznik przeżywa ponowne rysowanie listy)
+  let widziane = {};              // stan każdej karty z ostatniego narysowania: efekty (podpis „rysuje się”, zły dokument drży) tylko przy ZMIANIE stanu, nie przy każdym odświeżeniu
+  const nowyStan = i => widziane[i] !== undefined && widziane[i] !== stanKarty(i);
+  const zapamietajStany = () => { widziane = {}; k.nazwyDok().forEach(d => { widziane[d.i] = stanKarty(d.i); }); };
   function kartaDok(d) {
     const st = stanKarty(d.i), otw = otwarte.has(d.i) && st !== 'czeka', wys = wyslane() && st === 'ok';      // po wysłaniu zamiast „Otwórz” karta pokazuje, że dokument poszedł
     const szczegolyBtn = st !== 'czeka' && st !== 'trwa' ? `<button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Szczegóły</button>` : '';
-    return `<div class="dok-k st-${st}${wys ? ' wyslano' : ''}${otw ? ' otwarta' : ''}" data-i="${d.i}"><div class="dok-k-g"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div><small>${d.opis}</small>
+    return `<div class="dok-k st-${st}${nowyStan(d.i) ? ' nowy' : ''}${fokusI === d.i ? ' blysk' : ''}${wys ? ' wyslano' : ''}${otw ? ' otwarta' : ''}" data-i="${d.i}"><div class="dok-k-g"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div><small>${d.opis}</small>
       <p class="dok-kom">${komunikatKarty(d.i)}</p>
       ${otw ? szczegoly(d) : wys ? `<div class="dok-akcje"><span class="dok-wyslano">${ik('i-ok')}Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}</span>${szczegolyBtn}</div>` : `<div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz</button>${szczegolyBtn}</div>`}</div>`;
   }
@@ -86,9 +90,9 @@ export function zainstalujPodpis(k) {
   const przelacznikWidoku = () => `<div class="k3-przel" role="group" aria-label="Sposób wyświetlania dokumentów"><button type="button" data-akcja="widok" data-w="lista" aria-pressed="${widokKart === 'lista'}">Karty</button><button type="button" data-akcja="widok" data-w="3d" aria-pressed="${widokKart === '3d'}">${ik('i-pioro')}Widok 3D</button></div>`;
   function karta3d(d) {
     const st = stanKarty(d.i), wys = wyslane() && st === 'ok', dane = daneDok(d);
-    return `<div class="karta3d k3-${st}${wys ? ' wyslano' : ''}" data-i="${d.i}" role="group" aria-label="${esc(d.tytul)}: ${wys ? 'wysłano' : CHIP[st]}">
+    return `<div class="karta3d k3-${st}${nowyStan(d.i) ? ' k3-nowy' : ''}${wys ? ' wyslano' : ''}" data-i="${d.i}" role="group" aria-label="${esc(d.tytul)}: ${wys ? 'wysłano' : CHIP[st]}">
       <div class="k3-gl"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div>
-      ${dane ? atrapaHtml(dane, { stan: st, maks: 6, wyslano: wys }) : '<div class="da-papier"></div>'}
+      ${dane ? atrapaHtml(dane, { stan: st, maks: 6, wyslano: wys, nowy: nowyStan(d.i) }) : '<div class="da-papier"></div>'}
       <div class="k3-st"><span>${d.opis}</span><div class="k3-akcje"><button type="button" class="przycisk maly" data-akcja="powieksz" data-i="${d.i}" tabindex="-1">Powiększ</button>${wys ? `<span class="dok-wyslano">${ik('i-ok')}Wysłano</span>` : `<button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}" tabindex="-1">Otwórz</button>`}</div></div></div>`;
   }
   const kropkiKart = () => k.nazwyDok().map(d => { const st = stanKarty(d.i); return `<button type="button" class="k3-kropka k3-${st}${d.i === przodI ? ' akt' : ''}" data-akcja="k3-do" data-i="${d.i}" title="${esc(d.tytul)} — ${CHIP[st]}" aria-label="${esc(d.tytul)}: ${CHIP[st]}"></button>`; }).join('');
@@ -103,7 +107,7 @@ export function zainstalujPodpis(k) {
     return `<div class="k3-podglad" id="dok-siatka" data-i="${i}">
       <div class="k3-pg-gora"><button type="button" class="przycisk maly" data-akcja="k3-wroc">${ik('i-lewo')}Wróć do karuzeli</button><b>${d.tytul} <small>· ${d.opis}</small></b>
         <span class="k3-pg-nawig"><button type="button" class="przycisk ikb" data-akcja="k3-poprz" aria-label="Poprzedni dokument">‹</button><button type="button" class="przycisk ikb" data-akcja="k3-nast" aria-label="Następny dokument">›</button></span></div>
-      <div class="k3-pg-tresc"><div class="k3-pg-kartka">${dane ? atrapaHtml(dane, { stan: st, pelnyPesel: true, wyslano: wys }) : ''}</div>
+      <div class="k3-pg-tresc"><div class="k3-pg-kartka">${dane ? atrapaHtml(dane, { stan: st, pelnyPesel: true, wyslano: wys, nowy: nowyStan(i) }) : ''}</div>
         <aside class="k3-pg-panel k3-${st}"><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span><p class="dok-kom">${wys ? `Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}` : komunikatKarty(i)}</p>${sz}
           <div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz plik PDF</button></div>
           <small class="k3-pg-uwaga">To podgląd danych z wygenerowanego dokumentu (układ jak w pliku PDF). Sprawdź imię, adres, trasę i kwoty przed podpisem.</small></aside></div></div>`;
@@ -119,9 +123,9 @@ export function zainstalujPodpis(k) {
   function odswiezKarty() {
     const o = $('#dok-obszar', arkTresc); if (!o) return;
     if (widokKart === '3d' && podgladI === null && kar && $('#k3-pier', arkTresc)) {      // karuzela zostaje na miejscu (obrót się nie zeruje): podmieniamy tylko karty i kropki
-      $('#k3-pier', arkTresc).innerHTML = k.nazwyDok().map(karta3d).join(''); $('#k3-pasek', arkTresc).innerHTML = kropkiKart(); kar.przelicz(); return;
+      $('#k3-pier', arkTresc).innerHTML = k.nazwyDok().map(karta3d).join(''); $('#k3-pasek', arkTresc).innerHTML = kropkiKart(); kar.przelicz(); zapamietajStany(); return;
     }
-    o.innerHTML = przelacznikWidoku() + obszarKart(); uruchomKaruzele();
+    o.innerHTML = przelacznikWidoku() + obszarKart(); uruchomKaruzele(); zapamietajStany();
   }
   function otworzPodglad(i) { if (widokKart !== '3d') return; zatrzymajKaruzele(); podgladI = i; przodI = i; const o = $('#dok-obszar', arkTresc); if (o) o.innerHTML = przelacznikWidoku() + podglad3d(i); const f = $('.k3-pg-gora button', arkTresc); f && f.focus({ preventScroll: true }); }
   function zamknijPodglad() { if (podgladI === null) return; podgladI = null; const o = $('#dok-obszar', arkTresc); if (o) { o.innerHTML = przelacznikWidoku() + widok3d(); uruchomKaruzele(); const s = $('#k3-scena', arkTresc); s && s.focus({ preventScroll: true }); } }
@@ -184,7 +188,7 @@ export function zainstalujPodpis(k) {
   function pokaz(nowy) {
     widok = nowy;
     const wstaw = html => { k.zmienArkusz(html); const a = $('#arkusz'); a.classList.remove('widok-wejscie'); void a.offsetWidth; a.classList.add('widok-wejscie'); };
-    podgladI = null; wstaw(widokGlowny()); uruchomKaruzele(); pokazWyniki();
+    podgladI = null; zapamietajStany(); wstaw(widokGlowny()); uruchomKaruzele(); pokazWyniki();
   }
 
   /* ---------------------------------- pobieranie i drukowanie ---------------------------------- */
@@ -485,7 +489,9 @@ export function zainstalujPodpis(k) {
 
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
-    otworz() { widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; podgladI = null; k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele(); if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
+    /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
+    otworz(fokus) { const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
+      if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };
 }

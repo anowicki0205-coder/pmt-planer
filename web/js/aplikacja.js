@@ -7,6 +7,7 @@ import * as przen from './przeniesienie.js';
 import { zainstalujZywe } from './zywe.js';
 import { zainstalujPomoc } from './pomoc.js';
 import { zainstalujPodpis } from './podpis.js';
+import { widowisko } from './widowisko.js';
 
 /* Ochrona przed osadzeniem w cudzej ramce (clickjacking: niewidoczna strona z naszym oknem logowania pod kursorem). Nagłówka frame-ancestors nie da się ustawić z meta, więc robi to kod:
    w ramce nic się nie pokazuje, a przeglądarka dostaje polecenie wyjścia z niej. */
@@ -1755,10 +1756,13 @@ async function generuj() {
   magUst.ustaw('kwota-' + magMiesiace.klucz(M.rok, M.mies), M.kwota);
   generowanie = true; btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
   btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35);
+  const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
+  wid && wid.start();
   let w;
   try {
-    w = await silnik.generuj(par, (t, v) => postepGeneracji(t, v));
+    w = await silnik.generuj(par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
+    wid && wid.przerwij();
     generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {
       otworzArkusz(`${naglowekArkusza('Nie udało się wygenerować')}<p class="ark-opis">${bezZnacznikow(e.message)}</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
@@ -1770,7 +1774,9 @@ async function generuj() {
   dostep.policzDokumenty(w.pdf.length);
   await magPliki.usunMiesiac(magMiesiace.klucz(M.rok, M.mies) + '/');
   for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(M.rok, M.mies, p.nazwa), p.bajty);
-  postepGeneracji('', 1); await zegar(450);
+  postepGeneracji('', 1);
+  if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
+  else await zegar(450);
   generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
   M = zbudujModel(M.rok, M.mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
@@ -1926,7 +1932,7 @@ async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if
 const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, isoDzis, zycie, hasloPaczki: () => dostep.pobierzHasloPaczki(), magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
-const arkuszPodpis = () => M && M.demo ? demoToast() : podpis.otworz(), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
+const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
 /** Pamięć silnika (trasy, współrzędne, liczniki) leży w IndexedDB wspólnej dla wszystkich kont tej przeglądarki: czyścimy ją przy wylogowaniu i przy zmianie konta,
  *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
 async function czyscSilnik() {
@@ -2063,7 +2069,7 @@ function zdarzenia() {
   siatka.addEventListener('focusout', ukryjPodp);
   $('#fiolki').addEventListener('pointerover', e => { const w = e.target.closest('.fiolka[data-pol]'); if (w) podswietlPolecenie(Number(w.dataset.pol), true); else podswietlPolecenie(0, false); });
   $('#fiolki').addEventListener('pointerleave', () => podswietlPolecenie(0, false));
-  $('#fiolki').addEventListener('click', e => { if (M && M.stan === 'gotowe' && e.target.closest('.fiolka')) arkuszPodpis(); });
+  $('#fiolki').addEventListener('click', e => { const f = e.target.closest('.fiolka'); if (M && M.stan === 'gotowe' && f) arkuszPodpis(Number(f.dataset.dok)); });      // probówka prowadzi do swojego dokumentu w oknie podpisów
   $('#ku-pol').addEventListener('pointerover', e => { const s = e.target.closest('[data-pol]'); if (s) podswietlPolecenie(Number(s.dataset.pol), true); });
   $('#ku-pol').addEventListener('pointerleave', () => podswietlPolecenie(0, false));
   $('#e-wstecz').addEventListener('click', () => { const i = M.dniT.indexOf(wybrany); if (i > 0) wybierzDzien(M.dniT[i - 1], -1); });

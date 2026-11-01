@@ -7745,12 +7745,14 @@ try:
             '"podpis_zly"' in _dp21 and "_wersjaCoNajmniej(dane.wersja, WERSJA_Z_SEKRETEM)" in _dp21
             and "var WERSJA_Z_SEKRETEM = '3.24.0';" in _gs21)   # pierwsza wersja z sekret.txt — stała historyczna
     # Aplikacja na telefon wycofana (3.24.0). Backend obsługuje wyłącznie
-    # pięć akcji programu i wszystkie wymagają podpisu — telefon był jedynym
-    # klientem bez podpisu i jedynym użytkownikiem analizy zdjęć na klucz
-    # Anthropic oraz publicznych zdjęć na Dysku.
+    # pięć akcji programu i jedną akcję aplikacji web (haslo_paczki: hasło,
+    # termin i adres odbiorcy paczki z dokumentami, nadawane przez
+    # administratora w zakładce „Ustawienia”); wszystkie wymagają podpisu —
+    # telefon był jedynym klientem bez podpisu i jedynym użytkownikiem analizy
+    # zdjęć na klucz Anthropic oraz publicznych zdjęć na Dysku.
     _akcje21 = sorted(re.findall(r'case "(\w+)":', _dp21))
-    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze",
-            _akcje21 == ["logowanie", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
+    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze i hasło do paczek aplikacji web",
+            _akcje21 == ["haslo_paczki", "logowanie", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
     _podp21 = re.search(r"var AKCJE_PODPISANE = \[([^\]]*)\]", _gs21)
     sprawdz("backend: podpis obejmuje każdą obsługiwaną akcję",
             _podp21 is not None

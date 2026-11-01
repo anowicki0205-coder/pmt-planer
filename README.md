@@ -1,4 +1,4 @@
-# PMT — komplet systemu (program v3.25.0)
+# PMT — komplet systemu (program v3.25.1)
 
 > **Wydanie i wdrożenie krok po kroku: `WYDANIE.txt`.** Mapa plików: `START_TUTAJ.txt`.
 > Budowanie: `INSTRUKCJA_BUDOWY.txt` · Backend: `BACKEND_APPS_SCRIPT.txt`
@@ -6,13 +6,13 @@
 > Testy przed wydaniem: `python testy_pmt.py`
 > Przejście na aplikację web (ostatnia wersja programu na komputerze): `PRZEJSCIE_NA_WEB.txt`
 
-## Co zmieniła wersja 3.25.0 (względem 3.24.0)
+## Co zmieniły wersje 3.25.0 i 3.25.1 (względem 3.24.0)
 
 | Obszar | Zmiana |
 |---|---|
 | Przejście na aplikację web | program na komputerze zostaje wyłączony, a jego użytkownicy przechodzą na aplikację w przeglądarce i na telefonie. Informacja dociera do każdego tą samą drogą co obowiązkowa aktualizacja — z `wersja.txt`: wiersz `web=` (adres aplikacji, jest też włącznikiem) i `wygaszenie=` (data). Do terminu okno z informacją pojawia się raz dziennie (można pracować dalej), od terminu — przy każdym starcie, po czym program się zamyka. Zły adres (nie https) albo nieczytelna data nikogo nie odcinają; zegar cofnięty w systemie nie przedłuża programu |
 | Wydanie | `build.yml` przy podbiciu `wersja.txt` zachowuje też wiersze `web=` i `wygaszenie=`; `przygotuj_przejscie.py` robi z adresu i daty gotowe wiersze do `wersja.txt` oraz gotowe wiadomości dla zespołu; procedura w `PRZEJSCIE_NA_WEB.txt` |
-| Przeniesienie danych do aplikacji web | przycisk „Przenieś dane” w oknie informacji o przejściu (działa bez logowania, także po terminie wyłączenia) zapisuje plik `.pmtdane` z Moje dane (imię, PESEL, adres, stanowisko) i listą sklepów, zaszyfrowany kodem i hasłem konta; aplikacja web wczytuje go w oknie „Moje dane” (formularz wypełnia się sam, zapisujesz po sprawdzeniu), a lista sklepów czeka w oknie „Plan”. Nowy moduł `pmt_przeniesienie.py` (tylko biblioteka standardowa); plan wizyt, odhaczenia i historia miesięcy się nie przenoszą |
+| Przeniesienie danych do aplikacji web | zielony przycisk „Przenieś dane” w oknie informacji o przejściu (działa bez logowania, także po terminie wyłączenia) prosi o WŁASNY kod i hasło (żadnej listy kont — nikt nie pobierze cudzych danych), sprawdza je ze skrótem zapisanym na komputerze i zapisuje plik `.pmtdane`: Moje dane (imię, PESEL, adres, stanowisko), lista sklepów, plan wizyt i odhaczenia (dni od 31 dni wstecz), zaszyfrowane kodem i hasłem konta; aplikacja web wczytuje go w oknie „Moje dane” (formularz wypełnia się sam, zapisujesz po sprawdzeniu), a po „Zapisz” kafel Dziś ma już wizyty z planu. „Otwórz aplikację” otwiera stronę i zamyka program. Nowy moduł `pmt_przeniesienie.py` (tylko biblioteka standardowa); historia miesięcy i wygenerowane wcześniej trasy się nie przenoszą |
 | Hasło w pulsie i sesji | program podpisuje puls i sesję kluczem pochodnym od hasła (współpraca z backendem 3.25.0); puls „zredukowany” nie nadpisuje zapamiętanego imienia, rejonu ani nieobecności |
 | Testy | sekcja 3d: przeniesienie danych (szyfr i podpis, każda osoba dostaje tylko swoje dane, okna z atrapami i prawdziwe okno z trzecim przyciskiem); sekcja 3b: parser nowych wierszy, stan i terminy, zapis na dysk, zgodność ze starszymi programami (dosłowna kopia parsera z 3.24.0), build.yml uruchomiony w bashu, okna z własnymi napisami przycisków |
 

@@ -5,8 +5,12 @@
 //   3. Wgraj podpisane pliki (PDF z podpisem, plik .xades, paczka ZIP, skany i zdjęcia — wszystkie naraz; aplikacja sama dopasowuje je do dokumentów),
 //   4. Sprawdzenie: dla każdego dokumentu — czy jest podpis, czy obejmuje całość, czy dokument nie został zmieniony, czy podpisała właściwa osoba (imię i nazwisko, PESEL),
 //      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane,
-//   5. Wyślij: wysyłka na adres Kierownika regionu. Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
+//   5. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
+import { zipujAes } from './zipaes.js';
+import { zbudujEml } from './poczta.js';
+import { karuzela } from './karuzela.js';
+import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
 import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf } from './podpis_reczny.js';
 
@@ -44,9 +48,6 @@ export function zainstalujPodpis(k) {
   const nazwaZip = () => `Dokumenty_${bezOgonkow(k.PROFIL().imie).replace(/\s+/g, '_')}_${bezOgonkow(String(k.MIES[M().mies - 1]))}_${M().rok}.zip`;
   async function oryginal(d) { return magPliki.daj(k.klucz(d.nazwa)); }
   async function oryginaly() { const wyn = []; for (const d of k.nazwyDok()) { const b = await oryginal(d); if (b) wyn.push({ d, bajty: b }); } return wyn; }
-  let adresObietnica = null;
-  const adresOdbiorcy = () => adresObietnica || (adresObietnica = fetch('odbiorca.txt', { cache: 'no-store' }).then(r => r.ok ? r.text() : '')
-    .then(t => String(t).split(/\r?\n/).map(x => x.trim()).find(l => EMAIL.test(l)) || '').catch(() => ''));
   const miejscaPodpisu = d => ((M().wynik || {}).miejsca_podpisu || {})[d.nazwa] || null;
 
   /* ---------------------------------- widok główny: cztery kroki ---------------------------------- */
@@ -65,21 +66,94 @@ export function zainstalujPodpis(k) {
       <small class="dok-plik">Plik: ${esc(pliki.join(', '))}</small>
       <div class="dok-akcje">${mozna ? `<button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}Potwierdzam, że podpis jest</button>` : ''}<button type="button" class="przycisk maly" data-akcja="cofnij" data-i="${d.i}">${ik('i-cofnij')}Wgraj inny plik</button><button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Zwiń</button></div></div>`;
   }
+  let fokusI = null;              // dokument wskazany z probówki na pulpicie: jego karta na liście mruga (znacznik przeżywa ponowne rysowanie listy)
+  let widziane = {};              // stan każdej karty z ostatniego narysowania: efekty (podpis „rysuje się”, zły dokument drży) tylko przy ZMIANIE stanu, nie przy każdym odświeżeniu
+  const nowyStan = i => widziane[i] !== undefined && widziane[i] !== stanKarty(i);
+  const zapamietajStany = () => { widziane = {}; k.nazwyDok().forEach(d => { widziane[d.i] = stanKarty(d.i); }); };
   function kartaDok(d) {
-    const st = stanKarty(d.i), otw = otwarte.has(d.i) && st !== 'czeka';
-    return `<div class="dok-k st-${st}${otw ? ' otwarta' : ''}" data-i="${d.i}"><div class="dok-k-g"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${CHIP[st]}</span></div><small>${d.opis}</small>
+    const st = stanKarty(d.i), otw = otwarte.has(d.i) && st !== 'czeka', wys = wyslane() && st === 'ok';      // po wysłaniu zamiast „Otwórz” karta pokazuje, że dokument poszedł
+    const szczegolyBtn = st !== 'czeka' && st !== 'trwa' ? `<button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Szczegóły</button>` : '';
+    return `<div class="dok-k st-${st}${nowyStan(d.i) ? ' nowy' : ''}${fokusI === d.i ? ' blysk' : ''}${wys ? ' wyslano' : ''}${otw ? ' otwarta' : ''}" data-i="${d.i}"><div class="dok-k-g"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div><small>${d.opis}</small>
       <p class="dok-kom">${komunikatKarty(d.i)}</p>
-      ${otw ? szczegoly(d) : `<div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz</button>${st !== 'czeka' && st !== 'trwa' ? `<button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Szczegóły</button>` : ''}</div>`}</div>`;
+      ${otw ? szczegoly(d) : wys ? `<div class="dok-akcje"><span class="dok-wyslano">${ik('i-ok')}Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}</span>${szczegolyBtn}</div>` : `<div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz</button>${szczegolyBtn}</div>`}</div>`;
   }
-  const kartyDok = () => `<div class="dok-siatka" id="dok-siatka">${k.nazwyDok().map(kartaDok).join('')}</div>`;
+  const listaKart = () => `<div class="dok-siatka" id="dok-siatka">${k.nazwyDok().map(kartaDok).join('')}</div>`;
+
+  /* ---------------------------------- widok 3D: karuzela z atrapami dokumentów ---------------------------------- */
+  let widokKart = (() => { try { return localStorage.getItem('pmt-ui-karty') === '3d' ? '3d' : 'lista'; } catch (e) { return 'lista'; } })();      // „lista” jest domyślna; 3D to opcja, wybór pamiętany na urządzeniu
+  let kar = null;                 // aktywna karuzela
+  let podgladI = null;            // numer dokumentu w powiększonym podglądzie (tylko w widoku 3D)
+  let przodI = 0;                 // która karta była z przodu (wraca po powiększeniu)
+  const ruchDozwolony = () => !!k.zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ctxDok = () => { const p = k.PROFIL() || {}, w = M().wynik || {}; return { imie: p.imie || '', pesel: p.pesel || '', adres: p.adres || '', stanowisko: p.stanowisko || 'merchandiser', przelozony: w.przelozony || '', miesiac: String(k.MIES[M().mies - 1] || ''), rok: M().rok }; };
+  const daneDok = d => { const w = M().wynik; if (!w) return null; const pol = M().polecenia || []; return d.i < pol.length ? daneDelegacji(w, pol[d.i].nr, ctxDok()) : daneRozliczenia(w, ctxDok()); };
+  const przelacznikWidoku = () => `<div class="k3-przel" role="group" aria-label="Sposób wyświetlania dokumentów"><button type="button" data-akcja="widok" data-w="lista" aria-pressed="${widokKart === 'lista'}">Karty</button><button type="button" data-akcja="widok" data-w="3d" aria-pressed="${widokKart === '3d'}">${ik('i-pioro')}Widok 3D</button></div>`;
+  function karta3d(d) {
+    const st = stanKarty(d.i), wys = wyslane() && st === 'ok', dane = daneDok(d);
+    return `<div class="karta3d k3-${st}${nowyStan(d.i) ? ' k3-nowy' : ''}${wys ? ' wyslano' : ''}" data-i="${d.i}" role="group" aria-label="${esc(d.tytul)}: ${wys ? 'wysłano' : CHIP[st]}">
+      <div class="k3-gl"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div>
+      ${dane ? atrapaHtml(dane, { stan: st, maks: 6, wyslano: wys, nowy: nowyStan(d.i) }) : '<div class="da-papier"></div>'}
+      <div class="k3-st"><span>${d.opis}</span><div class="k3-akcje"><button type="button" class="przycisk maly" data-akcja="powieksz" data-i="${d.i}" tabindex="-1">Powiększ</button>${wys ? `<span class="dok-wyslano">${ik('i-ok')}Wysłano</span>` : `<button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}" tabindex="-1">Otwórz</button>`}</div></div></div>`;
+  }
+  const kropkiKart = () => k.nazwyDok().map(d => { const st = stanKarty(d.i); return `<button type="button" class="k3-kropka k3-${st}${d.i === przodI ? ' akt' : ''}" data-akcja="k3-do" data-i="${d.i}" title="${esc(d.tytul)} — ${CHIP[st]}" aria-label="${esc(d.tytul)}: ${CHIP[st]}"></button>`; }).join('');
+  const nazwaPrzodu = () => { const d = k.nazwyDok()[przodI]; return d ? `${d.tytul} · ${CHIP[stanKarty(d.i)]} (${przodI + 1} z ${k.razemDok()})` : ''; };
+  const widok3d = () => `<div class="k3-wrap" id="dok-siatka">
+      <div class="k3-pasek" id="k3-pasek" aria-label="Stan wszystkich dokumentów">${kropkiKart()}</div>
+      <div class="k3-scena" id="k3-scena" tabindex="0" role="group" aria-roledescription="karuzela" aria-label="Dokumenty do podpisu — strzałki obracają, Enter powiększa wybrany dokument"><div class="k3-podloga"></div><div class="k3-pier" id="k3-pier">${k.nazwyDok().map(karta3d).join('')}</div></div>
+      <div class="k3-dol"><button type="button" class="przycisk ikb" data-akcja="k3-lewo" aria-label="Poprzedni dokument">‹</button><span class="k3-nazwa" id="k3-nazwa" aria-live="polite">${esc(nazwaPrzodu())}</span><button type="button" class="przycisk ikb" data-akcja="k3-prawo" aria-label="Następny dokument">›</button></div></div>`;
+  function podglad3d(i) {
+    const d = k.nazwyDok()[i]; if (!d) return '';
+    const st = stanKarty(i), wys = wyslane() && st === 'ok', dane = daneDok(d), sz = szczegoly(d);
+    return `<div class="k3-podglad" id="dok-siatka" data-i="${i}">
+      <div class="k3-pg-gora"><button type="button" class="przycisk maly" data-akcja="k3-wroc">${ik('i-lewo')}Wróć do karuzeli</button><b>${d.tytul} <small>· ${d.opis}</small></b>
+        <span class="k3-pg-nawig"><button type="button" class="przycisk ikb" data-akcja="k3-poprz" aria-label="Poprzedni dokument">‹</button><button type="button" class="przycisk ikb" data-akcja="k3-nast" aria-label="Następny dokument">›</button></span></div>
+      <div class="k3-pg-tresc"><div class="k3-pg-kartka">${dane ? atrapaHtml(dane, { stan: st, pelnyPesel: true, wyslano: wys, nowy: nowyStan(i) }) : ''}</div>
+        <aside class="k3-pg-panel k3-${st}"><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span><p class="dok-kom">${wys ? `Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}` : komunikatKarty(i)}</p>${sz}
+          <div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz plik PDF</button></div>
+          <small class="k3-pg-uwaga">To podgląd danych z wygenerowanego dokumentu (układ jak w pliku PDF). Sprawdź imię, adres, trasę i kwoty przed podpisem.</small></aside></div></div>`;
+  }
+  const obszarKart = () => widokKart === '3d' ? (podgladI !== null ? podglad3d(podgladI) : widok3d()) : listaKart();
+  function zatrzymajKaruzele() { if (kar) { kar.zniszcz(); kar = null; } }
+  /** Po wstawieniu widoku do okna: uruchamia karuzelę (tylko w widoku 3D i nie w powiększonym podglądzie). */
+  function uruchomKaruzele() {
+    zatrzymajKaruzele(); const scena = $('#k3-scena', arkTresc), pier = $('#k3-pier', arkTresc); if (!scena || !pier) return;
+    kar = karuzela(scena, pier, { W: 232, H: 372, start: przodI, zycie: ruchDozwolony(), auto: () => ruchDozwolony() && !document.hidden && podgladI === null && !scena.matches(':hover') && !scena.contains(document.activeElement),
+      onWybor: i => otworzPodglad(i), onZmiana: i => { przodI = i; const n = $('#k3-nazwa', arkTresc); if (n) n.textContent = nazwaPrzodu(); [...arkTresc.querySelectorAll('.k3-kropka')].forEach((b, j) => b.classList.toggle('akt', j === i)); } });
+  }
+  function odswiezKarty() {
+    const o = $('#dok-obszar', arkTresc); if (!o) return;
+    if (widokKart === '3d' && podgladI === null && kar && $('#k3-pier', arkTresc)) {      // karuzela zostaje na miejscu (obrót się nie zeruje): podmieniamy tylko karty i kropki
+      $('#k3-pier', arkTresc).innerHTML = k.nazwyDok().map(karta3d).join(''); $('#k3-pasek', arkTresc).innerHTML = kropkiKart(); kar.przelicz(); zapamietajStany(); return;
+    }
+    o.innerHTML = przelacznikWidoku() + obszarKart(); uruchomKaruzele(); zapamietajStany();
+  }
+  function otworzPodglad(i) { if (widokKart !== '3d') return; zatrzymajKaruzele(); podgladI = i; przodI = i; const o = $('#dok-obszar', arkTresc); if (o) o.innerHTML = przelacznikWidoku() + podglad3d(i); const f = $('.k3-pg-gora button', arkTresc); f && f.focus({ preventScroll: true }); }
+  function zamknijPodglad() { if (podgladI === null) return; podgladI = null; const o = $('#dok-obszar', arkTresc); if (o) { o.innerHTML = przelacznikWidoku() + widok3d(); uruchomKaruzele(); const s = $('#k3-scena', arkTresc); s && s.focus({ preventScroll: true }); } }
+  function przejdzPodglad(s) { const n = k.razemDok(); if (podgladI === null || !n) return; podgladI = (podgladI + s + n) % n; przodI = podgladI; const o = $('#dok-obszar', arkTresc); if (o) o.innerHTML = przelacznikWidoku() + podglad3d(podgladI); }
+  function ustawWidok(w) { if (w === widokKart) return; widokKart = w; podgladI = null; try { localStorage.setItem('pmt-ui-karty', w); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } const o = $('#dok-obszar', arkTresc); if (o) { zatrzymajKaruzele(); o.innerHTML = przelacznikWidoku() + obszarKart(); uruchomKaruzele(); const sc = $('#k3-scena', arkTresc); if (sc) sc.scrollIntoView({ block: 'center', behavior: ruchDozwolony() ? 'smooth' : 'auto' }); } }
+  addEventListener('keydown', e => { if (e.key === 'Escape' && podgladI !== null && arkTresc.isConnected && arkTresc.querySelector('.k3-podglad')) { e.stopImmediatePropagation(); e.preventDefault(); zamknijPodglad(); } else if (podgladI !== null && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && arkTresc.querySelector('.k3-podglad') && !/^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); przejdzPodglad(e.key === 'ArrowRight' ? 1 : -1); } }, true);
   function podsumowanie() {
     const razem = k.razemDok(), ok = k.ilePodpisanych(), wgr = k.nazwyDok().filter(d => plikiDok(d.i).length).length;
     if (!wgr) return `${razem} ${liczba(razem, 'dokument czeka', 'dokumenty czekają', 'dokumentów czeka')} na podpis`;
     return wszystkoPodpisane() ? `<b>Wszystkie ${razem} dokumentów sprawdzone — możesz wysłać</b>` : `<b>${ok} z ${razem}</b> sprawdzonych pozytywnie${wgr - ok > 0 ? ` · ${wgr - ok} do poprawy lub potwierdzenia` : ''}`;
   }
-  /** Krok 5: do czasu, aż wszystkie dokumenty są wgrane i sprawdzone, przycisk jest wyszarzony i NIE niesie data-akcja (nic go nie uruchomi). */
-  const przyciskWyslij = () => wszystkoPodpisane() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij">${ik('i-wyslij')}Wyślij</button>` : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik('i-wyslij')}Wyślij</button>`;
-  const opisWyslij = () => wszystkoPodpisane() ? 'Wszystkie dokumenty sprawdzone — możesz wysłać je Kierownikowi regionu.' : 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.';
+  /** Krok 5. Hasło do paczek, termin jego ważności i adres odbiorcy ustawia administrator w arkuszu (zakładka „Ustawienia”); aplikacja pobiera je, gdy wszystkie dokumenty są podpisane.
+      Do czasu, aż wszystko jest wgrane i sprawdzone, przycisk jest wyszarzony i NIE niesie data-akcja (nic go nie uruchomi). */
+  let daneWysylki;                // undefined = jeszcze nie pobrano; { ok:true, haslo, wazneDo, adres } albo { ok:false, powod, komunikat }
+  let pobieranieDanych = false;
+  let stanWysylki = '';           // komunikat pod krokiem 5 po kliknięciu „Wyślij” (html)
+  const KONCOWE = ['brak', 'wygaslo', 'dostep'];      // przy tych powodach ponowna próba nic nie da, dopóki administrator czegoś nie zmieni
+  const zablokowana = () => !!(daneWysylki && !daneWysylki.ok && KONCOWE.includes(daneWysylki.powod));
+  const wyslane = () => !!M().wyslane;
+  const mozeWyslac = () => wszystkoPodpisane() && !wyslane() && !zablokowana();
+  const dataPl = iso => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; const p = n => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij">${ik('i-wyslij')}Wyślij</button>`
+    : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik(wyslane() ? 'i-ok' : 'i-wyslij')}${wyslane() ? 'Wysłano' : 'Wyślij'}</button>`;
+  const opisWyslij = () => !wszystkoPodpisane() ? 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.'
+    : wyslane() ? `Dokumenty wysłane${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}. Gdyby wiadomość nie wyszła z poczty, „Cofnij wysłanie” na pulpicie przywraca stan sprzed wysyłki.`
+    : zablokowana() ? esc(daneWysylki.komunikat)
+    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i przygotuje wiadomość${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
+  function wczytajDane() { if (daneWysylki !== undefined || pobieranieDanych) return; pobieranieDanych = true; hasloDoPaczki().then(o => { daneWysylki = o; }).finally(() => { pobieranieDanych = false; odswiezWidok(); }); }
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
     return `${nagl('Dokumenty do podpisu')}
@@ -95,39 +169,26 @@ export function zainstalujPodpis(k) {
           <span class="kk-akcje"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span></li>
         <li class="krok-strefa"><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></li>
         <li class="krok-k k4"><span class="kk-nr">4</span><div class="kk-tresc"><b>Sprawdzenie</b><small class="podp-licznik" id="podp-licznik">${podsumowanie()}</small></div></li>
-        <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">5</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small></div>
+        <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">5</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small><small class="podp-stan" id="podp-wyslij-stan" aria-live="polite">${stanWysylki}</small></div>
           <span class="kk-akcje" id="podp-wyslij-akcje">${przyciskWyslij()}</span></li>
       </ol>
       <div id="podp-odrzucone" aria-live="polite"></div>
-      ${kartyDok()}
+      <div id="dok-obszar">${przelacznikWidoku()}${obszarKart()}</div>
       <div id="podp-wyniki"></div>
       <div class="ark-dol" id="podp-dol"><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
   }
   function odswiezWidok() {
     if (widok !== 'glowny') return;
-    const s = $('#dok-siatka', arkTresc); if (s) s.outerHTML = kartyDok();
+    odswiezKarty();
     const l = $('#podp-licznik', arkTresc); if (l) l.innerHTML = podsumowanie();
     const k5 = $('.krok-k.k5', arkTresc);
-    if (k5) { const akt = wszystkoPodpisane(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).textContent = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
-    pokazWyniki();
-  }
-  async function widokWyslij() {
-    const adres = await adresOdbiorcy(), zal = await zalaczniki(), odb = magUst.daj('odbiorca', ''), razemB = zal.reduce((a, z) => a + z.bajty.length, 0);
-    const pole = adres ? `<p class="ark-opis">Adresat: <b id="w-adres">${esc(adres)}</b></p>`
-      : `<label class="pole"><span>Adres Kierownika regionu</span><input id="w-odb" type="email" inputmode="email" autocomplete="email" value="${esc(odb)}" placeholder="adres@firma.pl" data-pierwsze><small></small></label>`;
-    return `${nagl('Wyślij do Kierownika regionu', true)}
-      <p class="ark-opis">Dołączę <b>${zal.length} ${liczba(zal.length, 'plik', 'pliki', 'plików')}</b> (${mb(razemB)}) z podpisanymi dokumentami — wszystkie sprawdzone. Poczta otworzy się u Ciebie — wiadomość wysyłasz sam, więc hasła do skrzynki nie podajesz nigdzie.</p>
-      ${razemB > LIMIT_POCZTY ? `<p class="ark-opis zle" id="w-duze">Załączniki ważą ${mb(razemB)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skan do PDF (np. w aplikacji skanującej na telefonie) albo wyślij dokumenty w dwóch wiadomościach.</p>` : ''}
-      ${pole}
-      <div class="ark-dol"><button type="button" class="przycisk" data-akcja="glowny">Wstecz</button><button type="button" class="przycisk" id="w-mailto">Otwórz pocztę</button><button type="button" class="przycisk glowny" id="w-udostepnij"${adres ? ' data-pierwsze' : ''}>${ik('i-wyslij')}Udostępnij pliki</button></div>
-      <p class="ark-opis podp-pod">Poczta w przeglądarce nie dołączy plików sama: „Otwórz pocztę” pobiera plik ZIP do załączenia, a „Udostępnij pliki” (telefon) przekazuje je prosto do aplikacji pocztowej.</p>
-      <div class="ark-dol"><button type="button" class="przycisk" id="w-oznacz">Już wysłane — oznacz</button></div>`;
+    if (k5) { const akt = mozeWyslac(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).innerHTML = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
+    pokazWyniki(); if (wszystkoPodpisane() && !wyslane()) wczytajDane();
   }
   function pokaz(nowy) {
     widok = nowy;
     const wstaw = html => { k.zmienArkusz(html); const a = $('#arkusz'); a.classList.remove('widok-wejscie'); void a.offsetWidth; a.classList.add('widok-wejscie'); };
-    if (nowy === 'wyslij') { widokWyslij().then(wstaw); return; }
-    wstaw(widokGlowny()); pokazWyniki();
+    podgladI = null; zapamietajStany(); wstaw(widokGlowny()); uruchomKaruzele(); pokazWyniki();
   }
 
   /* ---------------------------------- pobieranie i drukowanie ---------------------------------- */
@@ -264,7 +325,7 @@ export function zainstalujPodpis(k) {
     const w = weryfikacje()[i]; if (!w) return;
     zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
-    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać do Kierownika regionu'); }
+    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać dokumenty'); }
   }
 
   /* ---------------------------------- wgrywanie ---------------------------------- */
@@ -316,7 +377,7 @@ export function zainstalujPodpis(k) {
     for (const i of dotkniete) await sprawdz(i);
     const ok = [...dotkniete].filter(i => M().podpisane[i]).length;
     if (k.zorza() && ok) k.zorza().flara(.22);
-    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać do Kierownika regionu'); }
+    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać dokumenty'); }
     else if (!dotkniete.size) pokazToast('Żaden plik nie został przyjęty — powody są pod krokami');
     else pokazToast(ok === dotkniete.size ? `Sprawdzono ${ok} ${liczba(ok, 'dokument', 'dokumenty', 'dokumentów')} — podpisy w porządku` : `Sprawdzono ${dotkniete.size}: ${ok} w porządku, ${dotkniete.size - ok} do poprawy — szczegóły w kartach dokumentów`);
   }
@@ -342,24 +403,46 @@ export function zainstalujPodpis(k) {
     }
     return wyn;
   }
-  const temat = () => `Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;
-  const tresc = 'W załączeniu dokumenty delegacyjne.';
-  async function wyslij(tryb) {
-    const adres = await adresOdbiorcy(), pole = $('#w-odb', arkTresc), v = adres || (pole ? pole.value.trim() : '');
-    if (!adres && pole) { if (v) magUst.ustaw('odbiorca', v); }
-    const zal = await zalaczniki();
-    if (tryb === 'share') {
-      const pliki = zal.map(z => new File([z.bajty], z.nazwa, { type: z.typ }));
-      if (navigator.canShare && navigator.canShare({ files: pliki })) { try { await navigator.share({ files: pliki, title: temat(), text: tresc }); oznaczWyslane(); } catch (e) { if (e.name !== 'AbortError') pokazToast('Nie udało się udostępnić plików'); } }
-      else { k.pobierzBlob(zipuj(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty }))), nazwaZip()); pokazToast('Ta przeglądarka nie udostępnia plików do poczty — pobrałem ZIP z dokumentami, dołącz go do wiadomości'); }
-      return;
-    }
-    if (!EMAIL.test(v)) { const s = pole && pole.parentElement.querySelector('small'); if (s) { s.textContent = 'Wpisz poprawny adres e-mail'; s.classList.add('zle'); } return; }
-    k.pobierzBlob(zipuj(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty }))), nazwaZip());
-    location.href = `mailto:${encodeURIComponent(v)}?subject=${encodeURIComponent(temat())}&body=${encodeURIComponent(tresc + '\n\n(Dołącz pobrany plik ZIP z dokumentami.)')}`;
-    pokazToast('Poczta otwarta — dołącz pobrany plik ZIP i wyślij wiadomość, potem kliknij „Już wysłane”');
+  const temat = () => `[PMT] Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;      // stały początek „[PMT]” pozwala odbiorcy ustawić regułę poczty (osobny folder)
+  const miesiacTekst = () => { const m = String(k.MIES[M().mies - 1]); return m.charAt(0).toUpperCase() + m.slice(1); };
+  const trescWiad = n => `Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami delegacyjnymi za ${miesiacTekst()} ${M().rok} (${n} ${liczba(n, 'plik', 'pliki', 'plików')}). Hasło zostało przekazane osobno.\n\nPozdrawiam\n${k.PROFIL().imie}`;
+  const stanW = (html, zle = false) => { stanWysylki = html ? (zle ? `<span class="zle">${html}</span>` : html) : ''; const s = $('#podp-wyslij-stan', arkTresc); if (s) s.innerHTML = stanWysylki; };
+  /** Hasło, termin i adres odbiorcy nadaje administrator (nie użytkownik): pobieramy je z serwera; bez internetu wystarcza zapamiętane, o ile hasło jeszcze nie wygasło. */
+  async function hasloDoPaczki() {
+    const o = await k.hasloPaczki();
+    if (o.ok) { magUst.ustaw('paczka', { haslo: o.haslo, wazne_do: o.wazneDo, adres: o.adres }); return o; }
+    if (o.powod === 'siec') { const c = magUst.daj('paczka', null); if (c && c.haslo && c.adres && c.wazne_do >= k.isoDzis()) return { ok: true, haslo: c.haslo, wazneDo: c.wazne_do, adres: c.adres }; }
+    if (o.powod === 'brak' || o.powod === 'wygaslo') magUst.ustaw('paczka', null);
+    return o;
   }
-  function oznaczWyslane() { const m = M(); m.wyslane = true; k.zapiszRekord(); k.odswiezHero(); k.zamknijArkusz(); k.zorza() && k.zorza().flara(.7); pokazToast('Oznaczono jako wysłane. Gdyby nie poszło, kliknij „Cofnij wysłanie".'); }
+  let wysylanie = false;
+  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie).
+      Samo kliknięcie jest akceptacją: gdy wiadomość jest gotowa, dokumenty dostają status „wysłane” (karty pokazują „Wysłano”); „Cofnij wysłanie” na pulpicie go przywraca. */
+  async function wyslij() {
+    if (wysylanie) return; wysylanie = true;
+    const przycisk = () => $('#podp-wyslij-akcje button', arkTresc); if (przycisk()) przycisk().disabled = true;
+    try {
+      stanW('Pobieram hasło do paczki i adres odbiorcy…');
+      const h = await hasloDoPaczki(); daneWysylki = h; if (!h.ok) { stanW(esc(h.komunikat), true); odswiezWidok(); return; }
+      const adres = h.adres;
+      stanW('Przygotowuję zahasłowaną paczkę…'); await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
+      const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
+      const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
+      const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
+      if (matchMedia('(pointer:coarse)').matches && navigator.canShare && navigator.canShare({ files: [plik] })) {      // telefon: systemowe udostępnianie prosto do aplikacji pocztowej (adresat do wpisania)
+        try { await navigator.share({ files: [plik], title: tem, text: tr }); oznaczWyslane(); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}`); }
+        catch (e) { if (e.name !== 'AbortError') stanW('Nie udało się przekazać paczki do poczty.', true); else stanW(''); }
+        return;
+      }
+      const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
+      k.pobierzBlob(new Blob([eml], { type: 'message/rfc822' }), 'PMT_wiadomosc_do_wyslania.eml');
+      oznaczWyslane();
+      stanW(`Pobrałem wiadomość <span class="adr">PMT_wiadomosc_do_wyslania.eml</span>. <span class="adr">Kliknij ją</span> (pasek pobierania przeglądarki albo folder Pobrane) — otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.${duza}`);
+      pokazToast('Wiadomość gotowa — kliknij pobrany plik .eml, żeby ją wysłać');
+    } catch (e) { console.error('wysyłka', e); stanW('Nie udało się przygotować wiadomości. Spróbuj jeszcze raz.', true); }
+    finally { wysylanie = false; if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
+  }
+  function oznaczWyslane() { const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); }
 
   /* ---------------------------------- zdarzenia ---------------------------------- */
   arkTresc.addEventListener('click', async e => {
@@ -369,7 +452,15 @@ export function zainstalujPodpis(k) {
     else if (a === 'zip') zip();
     else if (a === 'osobno') pobierzOsobno();
     else if (a === 'glowny') pokaz('glowny');
-    else if (a === 'wyslij') pokaz('wyslij');
+    else if (a === 'wyslij') wyslij();
+    else if (a === 'widok') ustawWidok(b.dataset.w === '3d' ? '3d' : 'lista');
+    else if (a === 'powieksz') otworzPodglad(Number(b.dataset.i));
+    else if (a === 'k3-wroc') zamknijPodglad();
+    else if (a === 'k3-poprz') przejdzPodglad(-1);
+    else if (a === 'k3-nast') przejdzPodglad(1);
+    else if (a === 'k3-lewo') kar && kar.kroki(1);
+    else if (a === 'k3-prawo') kar && kar.kroki(-1);
+    else if (a === 'k3-do') kar && kar.doKarty(Number(b.dataset.i));
     else if (a === 'drukuj') drukuj();
     else if (a === 'pdf-wydruk') pobierzWydruk();
     else if (a === 'cofnij') cofnij(Number(b.dataset.i));
@@ -378,10 +469,6 @@ export function zainstalujPodpis(k) {
   });
   arkTresc.addEventListener('click', e => {
     if (e.target.closest('.dok-k-g') && widok === 'glowny') { const kt = e.target.closest('.dok-k'); const i = Number(kt && kt.dataset.i); if (kt && !kt.classList.contains('st-czeka') && !kt.classList.contains('st-trwa')) { if (otwarte.has(i)) otwarte.delete(i); else otwarte.add(i); odswiezWidok(); } }
-    if (widok !== 'wyslij') return;
-    if (e.target.closest('#w-udostepnij')) wyslij('share');
-    else if (e.target.closest('#w-mailto')) wyslij('poczta');
-    else if (e.target.closest('#w-oznacz')) { const p = $('#w-odb', arkTresc); p && p.value.trim() && magUst.ustaw('odbiorca', p.value.trim()); oznaczWyslane(); }
   });
   arkTresc.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('wyniki-det') && !e.target.querySelector('.wynik.zle,.wynik.brak,.wynik small.uwaga')) wynikiOtwarte = e.target.open; }, true);
   arkTresc.addEventListener('change', async e => {
@@ -402,7 +489,9 @@ export function zainstalujPodpis(k) {
 
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
-    otworz() { widok = 'glowny'; wgrane = []; otwarte = new Set(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
-    otworzWyslij() { wgrane = []; widok = 'wyslij'; k.otworzArkusz('', null, { szeroki: true }); pokaz('wyslij'); },
+    /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
+    otworz(fokus) { const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
+      if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
+    otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };
 }

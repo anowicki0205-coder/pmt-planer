@@ -6,9 +6,11 @@
 const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const PY = process.env.PYTHON_PODPISY || '/tmp/phvenv/bin/python', DANE = path.join(__dirname, 'dane');
-  const t = await otworz({ w: 1440, h: 900, opcjeSerwera: { odbiorca: 'kierownik@example.com' } }); const p = t.p; let kod = 0;
+  const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'podpis-'));
+  const HASLO = 'Admin-Haslo-Paczki#2026', ADRES = 'odbiorca@example.com';
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };      // administrator ustawił hasło, termin i adres (zakładka „Ustawienia”); scenariusze „brak/po terminie” testujemy niżej
   const pobierz = async (selektor) => { const [d] = await Promise.all([p.waitForEvent('download', { timeout: 60000 }), p.click(selektor)]); const sc = path.join(tmp, Date.now() + '_' + d.suggestedFilename()); await d.saveAs(sc); return { nazwa: d.suggestedFilename(), sciezka: sc }; };
   const stany = () => p.evaluate(() => [...document.querySelectorAll('.dok-k')].map(k => (k.className.match(/st-(\w+)/) || [])[1]));
   const czekajStany = async (oczekiwane, ms = 150000) => { await p.waitForFunction(o => { const s = [...document.querySelectorAll('.dok-k')].map(k => (k.className.match(/st-(\w+)/) || [])[1]); return !s.includes('trwa') && JSON.stringify(s) === JSON.stringify(o); }, oczekiwane, { timeout: ms, polling: 250 }).catch(() => {}); return stany(); };
@@ -67,9 +69,16 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   fs.writeFileSync(path.join(tmp, 'plan1.json'), JSON.stringify(plan1)); py('podpisz_pliki.py', roz, path.join(tmp, 'e1'), path.join(tmp, 'plan1.json'));
   // pliki wracają z gov.pl pod przypadkowymi nazwami: program ma rozpoznać dokument (po zawartości, a plik .xades po skrócie) i nazwać plik tak, jak go wygenerował
   const dziwne = { [pdfy[0]]: 'Podpisany dokument (1).pdf', [pdfy[1]]: 'zalacznik_nr_2_signed.pdf', [pdfy[5] + '.xades']: 'podpis_xml_numer_6.xades' };
+  await p.evaluate(() => { window.__nowyZle = new Set(); window.__nowyAnim = ''; new MutationObserver(() => { document.querySelectorAll('.dok-k.nowy.st-zle').forEach(k => window.__nowyZle.add(Number(k.dataset.i))); }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
   await wgraj(kopiaZ(path.join(tmp, 'e1'), path.join(tmp, 'e1o'), dziwne).reverse());      // odwrócona kolejność: dopasowanie ma iść po zawartości i nazwie, nie po kolejności
   const s1 = await czekajStany(['ok', 'ok', 'zle', 'zle', 'czeka', 'ok', 'zle']);
   ok('tura 1: Jan (PAdES) ✓, Jan (ECDSA) ✓, inna osoba ✗, zmieniony ✗, niepodpisany plik odrzucony, XAdES ✓, dopisek po podpisie ✗', JSON.stringify(s1) === '["ok","ok","zle","zle","czeka","ok","zle"]', JSON.stringify(s1));
+  const nowyZle = await p.evaluate(() => [...window.__nowyZle].sort());
+  ok('efekt zmiany stanu na liście: karty, które PRZED CHWILĄ zmieniły stan na „zły” (2, 3, 6), dostały znacznik „nowy” (drżenie); pozostałe nie', JSON.stringify(nowyZle) === '[2,3,6]', JSON.stringify(nowyZle));
+  await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
+  const k3 = await p.evaluate(() => [...document.querySelectorAll('.karta3d')].map(k => ({ i: Number(k.dataset.i), st: (k.className.match(/k3-(czeka|trwa|ok|uwaga|zle)/) || [])[1], podpis: !!k.querySelector('.da-ok .da-podpis, .da-papier.da-ok .da-podpis') })).sort((x, y) => x.i - y.i));
+  ok('widok 3D: karty mają te same stany i kolory co lista (zielona = podpis poprawny, czerwona = zły, indygo = czeka), a atrapa dokumentu poprawnie podpisanego pokazuje podpis', JSON.stringify(k3.map(k => k.st)) === JSON.stringify(s1) && k3.filter(k => k.st === 'ok').every(k => k.podpis) && k3.filter(k => k.st !== 'ok').every(k => !k.podpis) && (await p.locator('.k3-kropka.k3-ok').count()) === 3 && (await p.locator('.k3-kropka.k3-zle').count()) === 3, JSON.stringify(k3.map(k => k.st)));
+  await p.click('[data-akcja="widok"][data-w="lista"]'); await p.waitForSelector('.dok-k');
   const zap1 = await zapisane();
   ok('nazwy: pliki o przypadkowych nazwach zapisane pod nazwami wygenerowanymi przy tworzeniu dokumentów (PDF, PDF.xades)', zap1.pliki[0][0] === pdfy[0] && zap1.pliki[1][0] === pdfy[1] && zap1.pliki[2][0] === pdfy[2] && zap1.pliki[5][0] === pdfy[5] + '.xades' && zap1.pliki[6][0] === pdfy[6], JSON.stringify(zap1.pliki).slice(0, 300));
   ok('nazwy: program pamięta, jak plik wrócił (pierwotna nazwa) — do informacji w sprawdzeniu', zap1.pierwotne[0][pdfy[0]] === 'Podpisany dokument (1).pdf' && zap1.pierwotne[5][pdfy[5] + '.xades'] === 'podpis_xml_numer_6.xades', JSON.stringify(zap1.pierwotne[0]));
@@ -121,31 +130,95 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
   await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+  await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
+  await p.evaluate(() => { window.__nowe = new Set(); window.__anim = ''; new MutationObserver(() => { document.querySelectorAll('.karta3d.k3-nowy.k3-ok').forEach(k => { window.__nowe.add(Number(k.dataset.i)); const sc = k.querySelector('.da-podpis path'); if (sc) window.__anim = getComputedStyle(sc).animationName; }); }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
   await wgraj(kopiaZ(path.join(tmp, 'e4'), path.join(tmp, 'e4o'), { [pdfy[6]]: pdfy[0] }));      // podpisany dokument 7 wraca pod nazwą dokumentu 1 — ma zostać rozpoznany po zawartości
+  await p.waitForSelector('.karta3d[data-i="6"].k3-ok', { timeout: 150000 }); await p.waitForTimeout(400);
+  const efekt = await p.evaluate(() => ({ nowe: [...window.__nowe], anim: window.__anim }));
+  ok('widok 3D: karta, której stan zmienił się na „poprawny” (7), dostaje efekt (podpis „rysuje się”, błysk) — tylko ona; przy włączonym „życiu” animacja zycie-kresl (mimo trybu spokojnego), bez niego brak ruchu', JSON.stringify(efekt.nowe) === '[6]' && efekt.anim === (process.env.ZYCIE === 'tak' ? 'zycie-kresl' : 'none'), JSON.stringify(efekt));
+  await p.click('[data-akcja="widok"][data-w="lista"]'); await p.waitForSelector('.dok-k');
   const s4 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const zap4 = await zapisane();
   ok('nazwy: plik o nazwie INNEGO dokumentu rozpoznany po zawartości i nazwany jak dokument 7; ostrzeżenie w sprawdzeniu', zap4.pliki[6][0] === pdfy[6] && zap4.pliki[0][0] === pdfy[0] && zap4.weryfikacje[6].kontrole.some(c => c.id === 'nazwa' && /to nazwa innego dokumentu \(Polecenie 1\)/.test(c.tekst)), JSON.stringify(zap4.weryfikacje[6].kontrole.filter(c => c.id === 'nazwa')));
   ok('nazwy: skany zapisane jako nazwa dokumentu + .jpg (np. „…03….jpg”), nie „_skan” i nie „IMG_”', [2, 3, 4].every(i => zap4.pliki[i].length === 1 && zap4.pliki[i][0] === pdfy[i].replace(/\.pdf$/i, '.jpg')), JSON.stringify([2, 3, 4].map(i => zap4.pliki[i])));
   ok('wszystkie 7 dokumentów podpisane i sprawdzone (e-podpis PAdES/ECDSA/XAdES i odręczny)', JSON.stringify(s4) === JSON.stringify(Array(7).fill('ok')) && /Wszystkie 7 dokumentów sprawdzone/.test(await p.locator('#podp-licznik').innerText()), JSON.stringify(s4));
-  ok('po sprawdzeniu wszystkiego krok 5 „Wyślij” zapala się: przestaje być szary, przycisk jest aktywny i ma akcję', await p.evaluate(() => { const k = document.querySelector('.krok-k.k5'), b = k.querySelector('button'); return k.classList.contains('aktywny') && !k.classList.contains('nieaktywny') && !b.disabled && b.dataset.akcja === 'wyslij' && /możesz wysłać/.test(k.querySelector('small').innerText); }));
+  ok('po sprawdzeniu wszystkiego krok 5 „Wyślij” zapala się: przestaje być szary, przycisk jest aktywny i ma akcję', await p.evaluate(() => { const k = document.querySelector('.krok-k.k5'), b = k.querySelector('button'); return k.classList.contains('aktywny') && !k.classList.contains('nieaktywny') && !b.disabled && b.dataset.akcja === 'wyslij' && /Wszystkie dokumenty sprawdzone/.test(k.querySelector('small').innerText); }));
   ok('po sprawdzeniu wszystkiego przycisk „Wyślij” jest w oknie i na kaflu, status „Podpisane”', (await p.locator('[data-akcja="wyslij"]').count()) >= 1 && /Wyślij/.test(await p.locator('#kropla-napis').innerText()) && (await p.locator('#status').innerText()).includes('Podpisane'));
   await p.screenshot({ path: tmp + '/4_wszystko.png' });
 
-  /* ---- wysyłka: adres z odbiorca.txt, załączniki ---- */
-  await p.click('[data-akcja="wyslij"] >> nth=0'); await p.waitForSelector('#w-mailto', { timeout: 20000 }); await p.waitForTimeout(500);
-  ok('adres Kierownika regionu pochodzi z odbiorca.txt (bez pola do wpisania); okno podaje rozmiar załączników', (await p.locator('#w-adres').innerText()) === 'kierownik@example.com' && (await p.locator('#w-odb').count()) === 0 && /\(\S+ MB\)/.test(await p.locator('#arkusz .ark-opis >> nth=0').innerText()) && (await p.locator('#w-duze').count()) === 0);
+  /* ---- wysyłka: moduł w kroku 5 TEGO SAMEGO okna; hasło do paczki, termin jego ważności i adres odbiorcy nadaje administrator (zakładka „Ustawienia” w arkuszu) ---- */
+  const PYZ = process.env.PYZ_PYTHON || ['/tmp/pzvenv/bin/python', 'python3'].find(b => cp.spawnSync(b, ['-c', 'import pyzipper']).status === 0);
+  const stanW = () => p.locator('#podp-wyslij-stan').innerText();
+  const opisK5 = () => p.locator('#podp-wyslij-opis').innerText();
+  const przycisk5 = () => p.locator('#podp-wyslij-akcje button');
+  const wyslijSel = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
+  const ponownieOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900); };
+  const emlOtwarty = (plik) => JSON.parse(cp.spawnSync(PYZ, ['-I', '-c', `
+import sys, json, email, email.policy, io, os, pyzipper
+raw = open(sys.argv[1], 'rb').read(); m = email.message_from_bytes(raw, policy=email.policy.default)
+cz = list(m.iter_attachments()); z = pyzipper.AESZipFile(io.BytesIO(cz[0].get_content())); z.setpassword(sys.argv[2].encode())
+tr = m.get_body(preferencelist=('plain',)).get_content()
+os.makedirs(sys.argv[3], exist_ok=True); z.extractall(sys.argv[3])
+print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr, 'zal': len(cz), 'nazwa': cz[0].get_filename(), 'pliki': z.namelist(), 'ascii': all(b < 128 for b in raw), 'jawne': any(s in raw for s in (b'Jan Testowy', b'90010112349', b'Admin-Haslo'))}))`, plik, HASLO, path.join(tmp, 'z' + Date.now())], { encoding: 'utf8' }).stdout);
+
+  /* [A] administrator niczego nie ustawił → przycisk od razu szary, jasny powód */
+  t.backend.paczka = null; await ponownieOtworz();
+  ok('administrator niczego nie ustawił w zakładce „Ustawienia” → krok 5 od razu mówi, że wysyłka nie jest włączona, a przycisk jest szary (bez klikania w próżnię)', /nie jest jeszcze włączona/.test(await opisK5()) && (await przycisk5().isDisabled()) && (await p.locator(wyslijSel).count()) === 0, await opisK5());
+  /* [B] hasło po terminie ważności */
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2020-01-01', adres: ADRES }; await ponownieOtworz();
+  ok('hasło po terminie ważności → „wygasło 01.01.2020, poczekaj na nowe od administratora”, przycisk szary; serwer hasła nie wydał, więc nie ma go w stronie ani w zapisanych danych', /wygasło 01\.01\.2020/.test(await opisK5()) && (await przycisk5().isDisabled()) && !(await p.evaluate(h => document.documentElement.outerHTML.includes(h) || JSON.stringify(window.__pmtDane.czytaj()).includes(h), HASLO)));
+  /* [C] brak adresu odbiorcy */
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: '' }; await ponownieOtworz();
+  ok('brak adresu odbiorcy w arkuszu → wysyłka wyłączona (adres, tak jak hasło, wskazuje administrator)', /nie jest jeszcze włączona/.test(await opisK5()) && (await przycisk5().isDisabled()));
+  /* [D] hasło za krótkie → komunikat po kliknięciu */
+  t.backend.paczka = { haslo: 'krotkie', wazne_do: '2099-12-31', adres: ADRES }; await ponownieOtworz();
+  await p.click(wyslijSel); await p.waitForFunction(() => /za krótkie/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 30000 });
+  ok('hasło ustawione przez administratora poniżej 8 znaków jest odrzucane z komunikatem (paczka nie powstaje, status „wysłane” się nie ustawia)', /minimum 8 znaków/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'));
+  /* [E] wszystko poprawnie → jedno kliknięcie */
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES }; await ponownieOtworz();
+  ok('„Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie; pokazuje adres z arkusza; nie ma żadnych dodatkowych opcji ani przycisków wysyłki', (await p.locator(wyslijSel).count()) === 1 && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()) && (await p.locator('#arkusz #w-mailto, #arkusz #w-udostepnij, #arkusz #w-eml, #arkusz #w-haslo, #arkusz #w-odb, #arkusz #w-oznacz, #arkusz input[type=password]').count()) === 0 && !/Otwórz pocztę|dołączę sam|Udostępnij pliki|Kierownik regionu|Oznacz jako wysłane/.test(await p.locator('#arkusz').innerText()));
+  ok('przed wysłaniem karty dokumentów mają przyciski „Otwórz”, a nie informację „Wysłano”', (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 0);
   await p.screenshot({ path: tmp + '/5_wyslij.png' });
-  const zipW = await pobierz('#w-udostepnij'); const rozW = path.join(tmp, 'zipW'); cp.spawnSync('unzip', ['-o', '-q', '-d', rozW, zipW.sciezka]); const wyslane = fs.readdirSync(rozW);
-  ok('załączniki: każdy plik ma nazwę nadaną przy generowaniu (PDF-y, .pdf.xades razem z oryginałem, skany jako nazwa dokumentu + .jpg)', wyslane.filter(n => /\.pdf$/i.test(n)).length >= 4 && wyslane.includes(pdfy[5] + '.xades') && wyslane.includes(pdfy[5]) && [2, 3, 4].every(i => wyslane.includes(pdfy[i].replace(/\.pdf$/i, '.jpg'))) && wyslane.every(n => pdfy.some(f => n === f || n === f + '.xades' || n === f.replace(/\.pdf$/i, '.jpg'))) && !wyslane.some(n => /_skan|IMG_|_signed|podpisany|zalacznik|podpis_xml|_str/.test(n)), wyslane.join(', '));
-  await p.click('#w-oznacz'); await p.waitForTimeout(800);
-  ok('oznaczenie „wysłane” zmienia stan', (await p.locator('#status').innerText()).includes('Wysłane'));
+  const pob0 = t.backend.pobraniaHasla;
+  const emlP = await pobierz(wyslijSel);
+  ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
+  await p.waitForTimeout(500);
+  ok('status „Wysłane” ustawia się SAM (bez dodatkowego przycisku): kafel pulpitu, krok 5 („Dokumenty wysłane …”, przycisk „Wysłano” szary)', (await p.locator('#status').innerText()).includes('Wysłane') && /Dokumenty wysłane \d\d\.\d\d\.\d{4} \d\d:\d\d/.test(await opisK5()) && (await przycisk5().isDisabled()) && /Wysłano/.test(await przycisk5().innerText()) && (await p.locator('#w-oznacz').count()) === 0);
+  ok('„chmurki” dokumentów pokazują „Wysłano” z datą zamiast przycisku „Otwórz” (zostają „Szczegóły”)', (await p.locator('.dok-k.wyslano').count()) === 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 7 && /Wysłano \d\d\.\d\d\.\d{4}/.test(await p.locator('.dok-k .dok-wyslano >> nth=0').innerText()) && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="szczegoly"]').count()) === 7 && /wysłano/.test(await p.locator('.dok-k .stan >> nth=0').innerText()));
+  await p.screenshot({ path: tmp + '/6_po_wyslaniu.png' });
+  await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
+  ok('widok 3D po wysłaniu: wszystkie 7 kart „Wysłano” z pieczęcią na atrapie, bez przycisku „Otwórz” (zostaje „Powiększ”)', (await p.locator('.karta3d.wyslano').count()) === 7 && (await p.locator('.karta3d .da-wyslano, .karta3d.wyslano .da-papier.da-wyslano').count()) >= 7 && (await p.locator('.karta3d .dok-wyslano').count()) === 7 && (await p.locator('.karta3d [data-akcja="otworz"]').count()) === 0 && (await p.locator('.karta3d [data-akcja="powieksz"]').count()) === 7);
+  await p.screenshot({ path: tmp + '/6b_po_wyslaniu_3d.png' });
+  await p.click('[data-akcja="widok"][data-w="lista"]'); await p.waitForSelector('.dok-k');
+  ok('hasło jest zapamiętane tylko w zaszyfrowanym koncie (z adresem i terminem, do wysyłki bez internetu), nie w tekście strony', await p.evaluate(([h, a]) => { const c = window.__pmtDane.czytaj().ustawienia.paczka; return c && c.haslo === h && c.adres === a && c.wazne_do === '2099-12-31'; }, [HASLO, ADRES]));
+  const emlWynik = emlOtwarty(emlP.sciezka);
+  ok('wiadomość: adresat z arkusza, temat „[PMT] Delegacje — Jan Testowy — …”, nagłówek X-Unsent, dokładnie jeden załącznik ZIP', emlWynik.x === '1' && emlWynik.to === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(emlWynik.temat) && emlWynik.zal === 1 && /^Dokumenty_Jan_Testowy_.*\.zip$/.test(emlWynik.nazwa), JSON.stringify([emlWynik.x, emlWynik.to, emlWynik.temat, emlWynik.zal, emlWynik.nazwa]));
+  ok('treść jest krótka, mówi o zahasłowanej paczce, liczbie plików i że hasło przekazano osobno; podpisana imieniem; bez hasła i PESEL-u', /zahasłowana paczka \(ZIP\)/.test(emlWynik.tresc) && /\(\d+ pl\S+\)/.test(emlWynik.tresc) && /przekazane osobno/.test(emlWynik.tresc) && /Jan Testowy\s*$/.test(emlWynik.tresc) && !emlWynik.tresc.includes(HASLO) && !/\d{11}/.test(emlWynik.tresc), JSON.stringify(emlWynik.tresc).slice(0, 140));
+  ok('plik .eml jest czystym ASCII i nie zawiera jawnie imienia z dokumentów, PESEL-u ani hasła', emlWynik.ascii && !emlWynik.jawne);
+  const wyslane = emlWynik.pliki;
+  ok('paczka z wiadomości odszyfrowuje się hasłem administratora; każdy plik ma nazwę nadaną przy generowaniu (PDF-y, .pdf.xades razem z oryginałem, skany jako nazwa dokumentu + .jpg)', wyslane.length >= 7 && wyslane.filter(n => /\.pdf$/i.test(n)).length >= 4 && wyslane.includes(pdfy[5] + '.xades') && wyslane.includes(pdfy[5]) && [2, 3, 4].every(i => wyslane.includes(pdfy[i].replace(/\.pdf$/i, '.jpg'))) && wyslane.every(n => pdfy.some(f => n === f || n === f + '.xades' || n === f.replace(/\.pdf$/i, '.jpg'))) && !wyslane.some(n => /_skan|IMG_|_signed|podpisany|zalacznik|podpis_xml|_str/.test(n)), wyslane.join(', '));
+  /* [F] „Cofnij wysłanie” przywraca stan i przyciski „Otwórz”; potem bez internetu: wysyłka na zapamiętanych danych */
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
+  t.backend.martwy = true; await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
+  ok('po „Cofnij wysłanie” karty znów mają „Otwórz”, a krok 5 znów pozwala wysłać; bez internetu pokazuje adres z pamięci konta', (await p.locator('.dok-k .dok-wyslano').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator(wyslijSel).count()) === 1 && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
+  const emlOff = await pobierz(wyslijSel);
+  ok('bez internetu wysyłka działa na zapamiętanych danych (hasło ważne do terminu): paczka otwiera się tym samym hasłem administratora, adresat z pamięci', emlOff.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (() => { const w = emlOtwarty(emlOff.sciezka); return w.to === ADRES && w.pliki.length >= 7; })());
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
+  await p.evaluate(() => { const d = window.__pmtDane.czytaj(); delete d.ustawienia.paczka; window.__pmtDane.zapisz(d); });
+  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
+  await p.click(wyslijSel); await p.waitForFunction(() => /Brak połączenia/.test(document.querySelector('#podp-wyslij-stan').textContent), null, { timeout: 60000 });
+  ok('bez internetu i bez zapamiętanych danych: „Brak połączenia — nie mogę pobrać hasła do paczki”; status „wysłane” się nie ustawia', /Brak połączenia/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'));
+  t.backend.martwy = false;
+  const pobAgain = await pobierz(wyslijSel); await p.waitForTimeout(600);
+  ok('po powrocie internetu wysyłka działa i znów ustawia status „Wysłane” (ten stan sprawdzają kolejne kroki testu)', pobAgain.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
 
   /* ---- zapis wyników sprawdzenia ---- */
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);
   ok('stan „Wysłane” przetrwał odświeżenie', (await p.locator('#status').innerText()).includes('Wysłane'));
   await p.click('#cofnij'); await p.waitForTimeout(600);
   ok('„Cofnij wysłanie” przywraca podpisane (wyniki sprawdzenia zostały zapamiętane)', (await p.locator('#status').innerText()).includes('Podpisane'));
-  await p.click('#podpisz'); await p.waitForSelector('#w-mailto'); await p.click('#arkusz [data-akcja="glowny"]'); await p.waitForSelector('#dok-siatka'); await p.waitForTimeout(800);      // gdy wszystko podpisane, główny przycisk prowadzi do wysyłki; „Wstecz” wraca do kart
+  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); await p.waitForTimeout(800);      // gdy wszystko podpisane, główny przycisk otwiera to samo okno z dokumentami (krok 5 „Wyślij”)
   ok('po odświeżeniu okno pokazuje te same, zapamiętane wyniki sprawdzenia (7 × podpis sprawdzony)', JSON.stringify(await stany()) === JSON.stringify(Array(7).fill('ok')) && /Podpisał\(a\): Jan Testowy/.test(await komunikat(0)));
 
   /* ---- wysyłka z dużymi skanami: ostrzeżenie o limicie poczty ---- */
@@ -160,20 +233,19 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   const jpg = fs.readFileSync(lista(path.join(tmp, 's2'))[2]); fs.writeFileSync(path.join(duzy, norm(pdfy[4]).replace(/\.pdf$/, '') + '_skan.jpg'), Buffer.concat([jpg, Buffer.alloc(21 * 1048576)]));
   await wgrajInny(4); await czekajStany(['ok', 'ok', 'ok', 'ok', 'czeka', 'ok', 'ok']);
   await wgraj(lista(duzy)); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
-  await p.click('[data-akcja="wyslij"] >> nth=0'); await p.waitForSelector('#w-mailto'); await p.waitForTimeout(500);
-  ok('przy załącznikach powyżej 20 MB okno wysyłki ostrzega przed limitem poczty', (await p.locator('#w-duze').count()) === 1 && /20–25 MB/.test(await p.locator('#w-duze').innerText()), await p.locator('#w-duze').innerText().catch(() => ''));
-  await p.click('#w-oznacz'); await p.waitForTimeout(800);
+  const duzyEml = await pobierz(wyslijSel);
+  ok('przy paczce powyżej 20 MB krok 5 ostrzega przed limitem poczty (wiadomość jest mimo to gotowa)', duzyEml.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /20–25 MB/.test(await stanW()), await stanW());
 
   /* ---- praca bez internetu: service worker zapisał aplikację (w tym nowe moduły sprawdzania podpisów); na zwykłym http przeglądarka go nie dopuszcza ---- */
   if (!bezpieczny) {
     ok('http: aplikacja działa w całości, ale bez trybu offline (przeglądarka nie dopuszcza service workera na zwykłym http)', (await p.evaluate(async () => (navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0))) === 0);
-    console.log('  zrzuty:', tmp); console.log('  błędy konsoli:', JSON.stringify(t.bledy.slice(0, 6))); if (t.bledy.length) kod = 1;
+    console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu)
     await t.zamknij(); process.exit(kod);
   }
   await p.waitForFunction(async () => { const k = await caches.keys(); if (!k.length) return false; const c = await caches.open(k[0]); const u = (await c.keys()).map(r => r.url); return u.length >= 25 && u.some(x => /weryfikacja\.js/.test(x)) && u.some(x => /podpis_reczny\.js/.test(x)); }, null, { timeout: 120000 });
   await t.ctx.setOffline(true);
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);
   ok('bez internetu aplikacja startuje i pokazuje zapisany miesiąc', (await p.locator('#b-kwota-w').getAttribute('aria-label')).length > 4, await p.locator('#b-kwota-w').getAttribute('aria-label'));
-  console.log('  zrzuty:', tmp); console.log('  błędy konsoli:', JSON.stringify(t.bledy.slice(0, 6))); if (t.bledy.length) kod = 1;
+  console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu)
   await t.zamknij(); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.stack); process.exit(2); });

@@ -25,6 +25,7 @@ export class Silnik {
   generuj(a, postep) { return this._wolaj('generuj', a, postep); }
   planWczytaj(a) { return this._wolaj('planWczytaj', a); }
   planGeneruj(a, postep) { return this._wolaj('planGeneruj', a, postep); }
+  planZProgramu(a) { return this._wolaj('planZProgramu', a); }
   /** Przerywa pracę: zabija workera i przygotowuje nowego (rozgrzeje się przy następnym użyciu). */
   przerwij() {
     this.w.terminate();

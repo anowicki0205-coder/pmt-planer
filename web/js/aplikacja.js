@@ -7,6 +7,7 @@ import * as przen from './przeniesienie.js';
 import { zainstalujZywe } from './zywe.js';
 import { zainstalujPomoc } from './pomoc.js';
 import { zainstalujPodpis } from './podpis.js';
+import { widowisko } from './widowisko.js';
 
 /* Ochrona przed osadzeniem w cudzej ramce (clickjacking: niewidoczna strona z naszym oknem logowania pod kursorem). Nagłówka frame-ancestors nie da się ustawić z meta, więc robi to kod:
    w ramce nic się nie pokazuje, a przeglądarka dostaje polecenie wyjścia z niej. */
@@ -299,7 +300,7 @@ function zbudujModel(rok, mies, rec, robocze0) {
   const m = { rok, mies, N, stan: rec && rec.wynik ? 'gotowe' : 'plan', robocze0: new Set(robocze0), wolne, robocze: new Set(),
     tryb: par.tryb || trybDom(PROFIL), silnik: par.silnik_powyzej_900 ?? (PROFIL ? PROFIL.silnik_powyzej_900 : true),
     kwota: par.kwota ?? 0, trasy: {}, dniT: [], polecenia: [], dok: [], rozliczenie: null, stawka: 0, suma: 0, wynik: null,
-    podpisane: (rec && rec.podpisane) || [], wyslane: !!(rec && rec.wyslane) };
+    podpisane: (rec && rec.podpisane) || [], wyslane: !!(rec && rec.wyslane), wyslaneKiedy: (rec && rec.wyslaneKiedy) || '' };
   for (const d of m.robocze0) if (!wolne.has(d)) m.robocze.add(d);
   if (rec && rec.wynik) {
     const w = rec.wynik; m.wynik = w; m.stawka = w.stawka; m.suma = w.suma;
@@ -928,7 +929,7 @@ function odswiezHero() {
   $('#k2-op').innerHTML = gotowe ? `<span>${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'}</span><span>${M.dniT.length} ${M.dniT.length === 1 ? 'dzień' : 'dni'} z trasą</span><span>${wizytRazem} ${wizyt(wizytRazem)}</span>` : '<span>do wygenerowania</span>';
   const razem = razemDok(), t = terminMiesiaca();
   $('#k3-op').innerHTML = gotowe ? `<span><b id="k3-ile">${ilePodpisanych()} z ${razem}</b> dokumentów · Profil Zaufany</span>` : '<span>Profil Zaufany</span>';
-  $('#k4-op').innerHTML = `<span>Kierownik regionu · do ${dwa(t.getDate())}.${dwa(t.getMonth() + 1)}</span>`;
+  $('#k4-op').innerHTML = `<span>Pocztą e-mail · do ${dwa(t.getDate())}.${dwa(t.getMonth() + 1)}</span>`;
   const e = etapMiesiaca(), nr = { ustaw: 1, podpisz: 3, przyklad: 3, wyslij: 4, wyslane: 5 }[e];
   [1, 2, 3, 4].forEach(i => {
     const kr = $('#krok' + i), zrob = i < nr || e === 'wyslane';
@@ -940,7 +941,7 @@ function odswiezHero() {
   const k1 = $('#krok1'), mozeUst = gotowe && !M.demo;
   k1.classList.toggle('zmien', mozeUst); $('.k-tyt', k1).innerHTML = mozeUst ? `Ustaw${ik('i-pioro')}` : 'Ustaw';
   if (mozeUst) { k1.setAttribute('role', 'button'); k1.tabIndex = 0; k1.title = 'Zmień tryb pracy lub silnik (usunie wygenerowane dokumenty)'; } else { k1.removeAttribute('role'); k1.removeAttribute('tabindex'); k1.removeAttribute('title'); }
-  const nap = { ustaw: ['Generuj dokumenty', 'i-pioro'], podpisz: [`Podpisz ${razem} ${razem === 1 ? 'dokument' : razem < 5 ? 'dokumenty' : 'dokumentów'}`, 'i-pioro'], wyslij: ['Wyślij do Kierownika regionu', 'i-nawi'], wyslane: ['Wysłano do Kierownika regionu', 'i-ok'], przyklad: [PROFIL ? 'Wróć do swojego miesiąca' : 'Wpisz swoją kwotę', 'i-pioro'] }[e];
+  const nap = { ustaw: ['Generuj dokumenty', 'i-pioro'], podpisz: [`Podpisz ${razem} ${razem === 1 ? 'dokument' : razem < 5 ? 'dokumenty' : 'dokumentów'}`, 'i-pioro'], wyslij: ['Wyślij dokumenty', 'i-nawi'], wyslane: ['Dokumenty wysłane', 'i-ok'], przyklad: [PROFIL ? 'Wróć do swojego miesiąca' : 'Wpisz swoją kwotę', 'i-pioro'] }[e];
   napis.textContent = nap[0]; $('.kropla-tresc use', btn).setAttribute('href', '#' + nap[1]);
   btn.classList.toggle('wyslij', e === 'wyslij'); btn.classList.toggle('gotowe', e === 'wyslane');
   $('#kA').classList.toggle('po', e === 'wyslane');
@@ -1513,6 +1514,18 @@ arkTresc.addEventListener('click', e => { if (e.target.closest('[data-zamknij]')
 const naglowekArkusza = (tytul) => `<div class="ark-gora"><h2 id="ark-tyt">${tytul}</h2><button type="button" class="ark-zam" data-zamknij aria-label="Zamknij">${ik('i-zamknij')}</button></div>`;
 const bezZnacznikow = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** Plan wizyt z programu na komputerze: silnik dolicza sumy, punkt startowy i godziny, plan trafia do magazynu konta (kafel Dziś ma od razu wizyty),
+    odhaczone w programie wizyty zostają odhaczone. Zwraca liczbę dni planu (0 = nie udało się; wtedy zostaje sama lista sklepów). */
+async function wgrajPlanZProgramu(plan, odhaczenia, sklepy) {
+  const w = await silnik.planZProgramu({ ...plan, adres_bazy: PROFIL.adres, tryb: trybDom(PROFIL) });
+  if (!w || !w.ok) return 0;
+  const dni = w.miesiace.reduce((a, m) => a + m.dni.length, 0);
+  const unikalne = new Map(); for (const m of plan.miesiace) for (const d of m.dni) for (const x of d.wizyty) if (!unikalne.has(x.adres)) unikalne.set(x.adres, { adres: x.adres, siec: x.siec, miasto: x.miasto });
+  w.pozycje = sklepy && sklepy.length ? sklepy : [...unikalne.values()]; w.zapisano = new Date().toISOString(); w.zProgramu = true;
+  magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null);
+  for (const m of plan.miesiace) for (const d of m.dni) for (const x of d.wizyty) { const o = (odhaczenia || {})[`${d.data}|${x.adres.trim().toLowerCase()}`]; if (o) magWizyty.ustaw(d.data, x.adres, true, o.godz); }
+  return dni;
+}
 /* ====================== Moje dane ====================== */
 const peselPoprawny = p => { p = String(p).replace(/\s/g, ''); if (!/^\d{11}$/.test(p)) return false; const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]; let s = 0; for (let i = 0; i < 10; i++) s += w[i] * +p[i]; return (10 - s % 10) % 10 === +p[10]; };
 function otworzMojeDane(pierwsze) {
@@ -1551,7 +1564,7 @@ function otworzMojeDane(pierwsze) {
   $('#d-adres', arkTresc).addEventListener('input', () => { wybor = null; clearTimeout(tAdres); tAdres = setTimeout(sprawdzAdres, 450); });
   if (p.adres) sprawdzAdres();
   /* dane z programu na komputerze: plik jest zaszyfrowany kodem i hasłem tego konta; wypełniamy formularz (nic nie zapisuje się samo — sprawdzasz i klikasz „Zapisz”), a lista sklepów czeka w oknie „Plan” */
-  let silnikZPliku = null, sklepyZPliku = null;
+  let silnikZPliku = null, sklepyZPliku = null, planZPliku = null, odhaczeniaZPliku = {};
   const infoPrzenos = (html, klasa = '') => { const i = $('#przenos-info', arkTresc); if (i) { i.innerHTML = html; i.className = klasa; } };
   const wczytajZProgramu = async plik => {
     infoPrzenos('Odczytuję plik…');
@@ -1567,8 +1580,10 @@ function otworzMojeDane(pierwsze) {
       silnikZPliku = d.profil.silnik_powyzej_900; wybor = null; sprawdzAdres(); czesci.push('imię, PESEL, adres i stanowisko');
     }
     if (d.sklepy.length) { sklepyZPliku = d.sklepy; czesci.push(`listę <b>${d.sklepy.length}</b> sklepów`); }
+    const dniPlanu = d.plan ? d.plan.miesiace.reduce((a, m) => a + m.dni.length, 0) : 0;
+    if (d.plan) { planZPliku = d.plan; odhaczeniaZPliku = d.odhaczenia || {}; czesci.push(`plan wizyt (<b>${dniPlanu}</b> ${dniPlanu === 1 ? 'dzień' : 'dni'})`); }
     if (!czesci.length) return infoPrzenos('W pliku nie ma niczego do wczytania (program nie miał zapisanych danych tego konta).', 'zle');
-    infoPrzenos(`Wczytano: ${czesci.join(' oraz ')}. Sprawdź dane i kliknij <b>Zapisz</b>.${d.sklepy.length ? ' Lista sklepów czeka w oknie „Plan”.' : ''} Po zapisaniu możesz usunąć plik z komputera.`, 'ok');
+    infoPrzenos(`Wczytano: ${czesci.join(', ')}. Sprawdź dane i kliknij <b>Zapisz</b>.${d.plan ? ' Plan pojawi się w kaflu Dziś.' : d.sklepy.length ? ' Lista sklepów czeka w oknie „Plan”.' : ''} Po zapisaniu możesz usunąć plik z komputera.`, 'ok');
   };
   $('#plik-program', arkTresc).addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) wczytajZProgramu(f); });
   const zle = (id, t) => { const s = $('#' + id, arkTresc).parentElement.querySelector('small'); s.textContent = t || ''; s.classList.toggle('zle', !!t); if (t) potrzasnij($('#' + id, arkTresc)); return !t; };
@@ -1587,9 +1602,12 @@ function otworzMojeDane(pierwsze) {
     PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? p.silnik_powyzej_900 ?? true, tryb: trybDom(p), tryb_wybrany: !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
     magProfil.zapisz(PROFIL);
     if (sklepyZPliku && sklepyZPliku.length) magUst.ustaw('sklepy-z-programu', { pozycje: sklepyZPliku, zapisano: new Date().toISOString() });      // czeka w oknie „Plan wizyt”, aż ułożysz plan
+    let planDni = 0; if (planZPliku) { try { planDni = await wgrajPlanZProgramu(planZPliku, odhaczeniaZPliku, sklepyZPliku); } catch (err) { planDni = 0; } }      // gotowy plan z programu: kafel Dziś od razu ma wizyty
     if (M && M.stan === 'plan') { M.silnik = PROFIL.silnik_powyzej_900; M.tryb = trybDom(PROFIL); }
     zamknijArkusz(); odswiezProfilWNaglowku(); if (M && M.demo) await wyjdzZPrzykladu(true); else await przeladujMiesiac(M.rok, M.mies, true);
-    pokazToast(sklepyZPliku && sklepyZPliku.length ? `Zapisano Twoje dane. Lista ${sklepyZPliku.length} sklepów z programu czeka — kliknij „Plan” w kaflu Dziś i ułóż plan.` : 'Zapisano Twoje dane'); sygnal('profil');
+    if (planDni) rysujDzis();
+    pokazToast(planDni ? `Zapisano Twoje dane. Plan wizyt z programu (${planDni} ${planDni === 1 ? 'dzień' : 'dni'}) jest już w kaflu Dziś.` : sklepyZPliku && sklepyZPliku.length ? `Zapisano Twoje dane. Lista ${sklepyZPliku.length} sklepów z programu jest gotowa — ułóż z niej plan.` : 'Zapisano Twoje dane'); sygnal('profil');
+    if (!planDni && sklepyZPliku && sklepyZPliku.length) setTimeout(() => { if (!arkuszOtwarty) arkuszPlan(); }, 900);      // lista sklepów z programu: od razu pokazujemy okno „Plan wizyt” z gotową listą (zostaje „Ułóż plan”)
   });
 }
 function odswiezProfilWNaglowku() {
@@ -1738,10 +1756,13 @@ async function generuj() {
   magUst.ustaw('kwota-' + magMiesiace.klucz(M.rok, M.mies), M.kwota);
   generowanie = true; btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
   btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35);
+  const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
+  wid && wid.start();
   let w;
   try {
-    w = await silnik.generuj(par, (t, v) => postepGeneracji(t, v));
+    w = await silnik.generuj(par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
+    wid && wid.przerwij();
     generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {
       otworzArkusz(`${naglowekArkusza('Nie udało się wygenerować')}<p class="ark-opis">${bezZnacznikow(e.message)}</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
@@ -1753,7 +1774,9 @@ async function generuj() {
   dostep.policzDokumenty(w.pdf.length);
   await magPliki.usunMiesiac(magMiesiace.klucz(M.rok, M.mies) + '/');
   for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(M.rok, M.mies, p.nazwa), p.bajty);
-  postepGeneracji('', 1); await zegar(450);
+  postepGeneracji('', 1);
+  if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
+  else await zegar(450);
   generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
   M = zbudujModel(M.rok, M.mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
@@ -1900,16 +1923,16 @@ const nazwyDok = () => { const n = M.polecenia.length; return [...M.polecenia.ma
 const klucz = n => nazwaKlucza(M.rok, M.mies, n);
 const kluczPodp = (n, nazwaPliku) => nazwaKlucza(M.rok, M.mies, 'podpisane/' + n + '/' + nazwaPliku);
 const URL_PODPIS = 'https://www.gov.pl/web/gov/podpisz-dokument-elektronicznie-wykorzystaj-podpis-zaufany';
-function zapiszRekord() { const rec = magMiesiace.daj(M.rok, M.mies) || {}; rec.podpisane = M.podpisane; rec.wyslane = M.wyslane; rec.podpisaniPliki = M.podpisaniPliki || rec.podpisaniPliki || {}; rec.metodaPodpisu = M.metodaPodpisu || rec.metodaPodpisu || {}; rec.pierwotneNazwy = M.pierwotneNazwy || rec.pierwotneNazwy || {}; rec.weryfikacje = M.weryfikacje || rec.weryfikacje || {}; magMiesiace.zapisz(M.rok, M.mies, rec); }
+function zapiszRekord() { const rec = magMiesiace.daj(M.rok, M.mies) || {}; rec.podpisane = M.podpisane; rec.wyslane = M.wyslane; rec.wyslaneKiedy = M.wyslane ? (M.wyslaneKiedy || '') : ''; rec.podpisaniPliki = M.podpisaniPliki || rec.podpisaniPliki || {}; rec.metodaPodpisu = M.metodaPodpisu || rec.metodaPodpisu || {}; rec.pierwotneNazwy = M.pierwotneNazwy || rec.pierwotneNazwy || {}; rec.weryfikacje = M.weryfikacje || rec.weryfikacje || {}; magMiesiace.zapisz(M.rok, M.mies, rec); }
 const blobPdf = (bajty) => new Blob([bajty], { type: 'application/pdf' });
 const bezOgonkow = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L');   /* nazwy plików bezpieczne w każdej przeglądarce i poczcie */
 function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = URL.createObjectURL(blob); a.download = bezOgonkow(nazwa); doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
 async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if (!b) { pokazToast('Nie znalazłem pliku — wygeneruj dokumenty ponownie'); return; } const u = URL.createObjectURL(blobPdf(b)); const w = window.open(u, '_blank'); if (!w) pobierzBlob(blobPdf(b), nazwa); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 /* okno „Dokumenty do podpisu”, podpis elektroniczny / odręczny i wysyłka: js/podpis.js */
-const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
+const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, isoDzis, zycie, hasloPaczki: () => dostep.pobierzHasloPaczki(), magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
-const arkuszPodpis = () => M && M.demo ? demoToast() : podpis.otworz(), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
+const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
 /** Pamięć silnika (trasy, współrzędne, liczniki) leży w IndexedDB wspólnej dla wszystkich kont tej przeglądarki: czyścimy ją przy wylogowaniu i przy zmianie konta,
  *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
 async function czyscSilnik() {
@@ -1975,7 +1998,7 @@ function arkuszUstawienia() {
 }
 /** Klik w dużą kwotę: w przykładzie → własny miesiąc z kursorem w polu kwoty; po wygenerowaniu → zmiana kwoty (z potwierdzeniem, bo kasuje dokumenty). */
 function kliknietoKwote() { if (!M) return; if (M.demo) zacznijOdSwoich(); else if (M.stan === 'gotowe') arkuszOdNowa(true); }
-function cofnijWyslanie() { M.wyslane = false; zapiszRekord(); odswiezHero(); pokazToast('Przywrócono stan przed wysyłką'); }
+function cofnijWyslanie() { M.wyslane = false; M.wyslaneKiedy = ''; zapiszRekord(); odswiezHero(); pokazToast('Przywrócono stan przed wysyłką'); }
 async function klikGlowny() {
   const e = etapMiesiaca();
   if (e === 'przyklad') return zacznijOdSwoich();
@@ -2046,7 +2069,7 @@ function zdarzenia() {
   siatka.addEventListener('focusout', ukryjPodp);
   $('#fiolki').addEventListener('pointerover', e => { const w = e.target.closest('.fiolka[data-pol]'); if (w) podswietlPolecenie(Number(w.dataset.pol), true); else podswietlPolecenie(0, false); });
   $('#fiolki').addEventListener('pointerleave', () => podswietlPolecenie(0, false));
-  $('#fiolki').addEventListener('click', e => { if (M && M.stan === 'gotowe' && e.target.closest('.fiolka')) arkuszPodpis(); });
+  $('#fiolki').addEventListener('click', e => { const f = e.target.closest('.fiolka'); if (M && M.stan === 'gotowe' && f) arkuszPodpis(Number(f.dataset.dok)); });      // probówka prowadzi do swojego dokumentu w oknie podpisów
   $('#ku-pol').addEventListener('pointerover', e => { const s = e.target.closest('[data-pol]'); if (s) podswietlPolecenie(Number(s.dataset.pol), true); });
   $('#ku-pol').addEventListener('pointerleave', () => podswietlPolecenie(0, false));
   $('#e-wstecz').addEventListener('click', () => { const i = M.dniT.indexOf(wybrany); if (i > 0) wybierzDzien(M.dniT[i - 1], -1); });

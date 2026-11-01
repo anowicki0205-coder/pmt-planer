@@ -81,7 +81,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       własna kanonizacja XML sprawdzona względem lxml), imię i nazwisko + PESEL z certyfikatu; bez weryfikacji łańcucha zaufania. Testy na PDF-ach podpisanych pyHankiem i kontrola poppler (pdfsig).
 - [x] podpis odręczny na skanie (js/podpis_reczny.js): silnik zapisuje współrzędne miejsca „podpis pracownika” (silnik/most.py), przeglądarka wycina ten fragment i szuka śladu pisma (pomija proste
       kreski); 40/40 sztucznych skanów z podpisem i 40/40 bez (0 fałszywych alarmów), PDF ze skanem wielostronicowym rozdzielany na dokumenty; ręczne potwierdzenie jako zabezpieczenie.
-- [x] pulpit: kafel „Na telefon” z kodem QR (pomoc.js + index.html + css), tylko komputer ≥1180×780, obok „Kontroli”.
+- [x] pulpit: kafel „Na telefon” z kodem QR (pomoc.js + index.html + css), komputer ≥1100×520 (do v3.25.1: ≥1180×780, przez co kafel znikał w zwykłym oknie laptopa), obok „Kontroli”.
 - [ ] panel koordynatora (wymaga rozszerzenia backendu)
 - [x] nazwisko przełożonego: decyzja właściciela — menedzer.txt z sekretu repozytorium, jak w programie (na stronie będzie publicznie czytelny)
 - [ ] test na prawdziwym telefonie (Android i iPhone), w Edge z kartą graficzną i w Firefoksie (tu Chromium z grafiką programową i WebKit na Linuksie); wdrożenie na GitHub Pages dopiero po zielonym świetle
@@ -96,7 +96,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       (komputer Noc/Dzień, telefon). Na telefonie wykres dni dalej jest ukryty (jak dotąd).
 - [x] KOLORY v3 (wzór bento grid): nasycone, kryjące kafle, białe pastylki, kolorowe kroki podpisów — patrz CZYTAJ_TO.txt, sekcja KOLORY.
 
-- [x] MOZAIKA PULPITU (po uwadze „na wzorze pola były w pionie i w poziomie”): siatka 12×6 na komputerach ≥1180×700 — „Dziś” pionowo z lewej (4 wiersze), kwota z wykresem poziomo (7 kolumn × 3 wiersze), Dokumenty pionowo
+- [x] MOZAIKA PULPITU (po uwadze „na wzorze pola były w pionie i w poziomie”): siatka 12×6 na komputerach ≥1100×520 (do v3.25.1: ≥1180×700 — w oknie przeglądarki laptopa wracał stary układ poziomych rzędów; test web/testy/mozaika_app.js) — „Dziś” pionowo z lewej (4 wiersze), kwota z wykresem poziomo (7 kolumn × 3 wiersze), Dokumenty pionowo
       z prawej (2 kolumny × 3 wiersze), Kalendarz i Dzień na dole, Kontrola i „Na telefon” (pionowy) pod „Dziś”; barwy sąsiadów rozdzielone (kalendarz turkusowy, Dziś czerwono-pomarańczowe, Kontrola złota);
       dopasowania wnętrz w wąskich kaflach (container queries). Mniejsze okna i telefon bez zmian.
 
@@ -150,7 +150,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       i wygaszenie= (data) i pokazuje przed logowaniem okno z informacją (raz dziennie do terminu, od terminu przy każdym starcie i zamknięcie); build.yml zachowuje te wiersze przy podbiciu wersji;
       przygotuj_przejscie.py robi z adresu i daty gotowe wiersze i wiadomości; PRZEJSCIE_NA_WEB.txt = procedura (kolejność, kontrola, hamulec). Testy: sekcja 3b w testy_pmt.py (964/964 w trybie --szybko).
       NIEZWERYFIKOWANE: wygląd okna na prawdziwym Windows; budowanie na GitHubie z nowym kodem build.yml (sprawdzony tylko fragment w bashu); rzeczywiste dotarcie wiadomości do ludzi.
-      Dane z programu przenosi plik (patrz niżej: PRZENIESIENIE DANYCH); plan, odhaczenia i historia miesięcy nie przenoszą się.
+      Dane z programu przenosi plik (patrz niżej: PRZENIESIENIE DANYCH); historia miesięcy i wygenerowane wcześniej trasy nie przenoszą się.
 - [x] OKNO „DOKUMENTY DO PODPISU” (uwaga właściciela): pole przeciągania leży między krokiem 3 a 4; dodany krok 5 „Wyślij” — szary i nieaktywny, dopóki wszystkie dokumenty nie są wgrane i sprawdzone (potem się zapala; przycisk
       z data-akcja="wyslij" jest tylko w aktywnym kroku, stopka ma samo „Zamknij”). podpis.js, aplikacja.css; testy: podpis_offline_app.js (pięć kroków, zapalenie kroku 5), ustawienia_po_generowaniu_app.js.
 - [x] TRYB PRACY I SILNIK PO WYGENEROWANIU (uwaga właściciela: „to może się zmieniać”): znaczek „auto … ✎” i krok „Ustaw ✎” otwierają arkusz „Tryb pracy i auto” (wybór → „Zmień i usuń dokumenty”, z potwierdzeniem jak przy
@@ -166,7 +166,30 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
 - [x] PRZENIESIENIE DANYCH PROGRAM → WEB (decyzja właściciela: „robimy przenoszenie danych”, wczytywanie z Excela zostaje dla nowych użytkowników): program 3.25.0, w oknie informacji o przejściu, ma przycisk „Przenieś dane” —
       zapisuje plik .pmtdane (Moje dane + lista sklepów) zaszyfrowany kodem i hasłem konta (PBKDF2-HMAC-SHA256 100 tys. iteracji z skrótu hasła, strumień HMAC-SHA256, podpis HMAC; moduł pmt_przeniesienie.py, tylko stdlib).
       Aplikacja web (js/przeniesienie.js, okno „Moje dane” → „Wczytaj dane z programu na komputerze”) odczytuje plik, wypełnia formularz (nic nie zapisuje się bez „Zapisz”), a listę sklepów odkłada na okno „Plan”.
-      Przenosi się: imię, PESEL, adres, stanowisko, pojemność silnika, lista sklepów. NIE przenosi się: plan wizyt, odhaczenia, notatki, historia miesięcy (dokumenty zostają na dysku).
+      Przenosi się: imię, PESEL, adres, stanowisko, pojemność silnika, lista sklepów, plan wizyt i odhaczenia (od 31 dni wstecz; v3.25.1). NIE przenosi się: notatki, historia miesięcy i wygenerowane trasy (dokumenty zostają na dysku).
       Testy: testy_pmt.py sekcja 3d (1001/1001 w trybie --szybko), web/testy/przeniesienie_test.js (zgodność Python↔JS, odrzucenia, oczyszczanie), web/testy/przeniesienie_app.js (przepływ w przeglądarce).
       NIEZWERYFIKOWANE: wygląd okna i wybór pliku na prawdziwym Windows; użytkownicy bez zapamiętanego skrótu hasła (program wtedy pyta o hasło — pomyłka = plik, którego aplikacja nie odczyta, z czytelnym komunikatem);
       szyfrowanie opiera się na skrócie hasła, który zna też backend (administrator arkusza + plik mógłby go odczytać) — dla danych leżących na komputerze użytkownika to akceptowalne, ale to nie jest tajemnica wobec administratora.
+- [x] POPRAWKI PO TEŚCIE WŁAŚCICIELA (program 3.25.1; 5 uwag z zrzutów): (1) okno przejścia ucinało „Otwórz aplikację” — przyciski mają minimalną szerokość z napisu, a okno rośnie, gdy trzeba;
+      „Przenieś dane” jest osobnym, zielonym przyciskiem akcji (QPushButton#akcja). (2) PRYWATNOŚĆ: okno „Przenieś dane” nie pokazuje już listy kont z kodami (każdy mógł pobrać cudze dane) — pyta o WŁASNY
+      kod i hasło i sprawdza je ze skrótem zapisanym na komputerze (trzy próby, komunikaty bez ujawniania, czy konto istnieje); zbierane są dane tego jednego konta. (3) „Otwórz aplikację” otwiera przeglądarkę
+      i zamyka program (wcześniej okno zostawało nad stroną). (4) po wczytaniu pliku aplikacja nie jest goła: plik niesie plan wizyt i odhaczenia (od dziś−31 dni), silnik (plan_z_programu w most.py) dolicza
+      sumy i godziny, a po „Zapisz” kafel Dziś ma wizyty; plik bez planu → okno „Plan” otwiera się samo z gotową listą. Wygenerowane wcześniej trasy i historia miesięcy NIE przenoszą się (zostają na dysku). (5) kod QR: kafel „Na telefon” znikał w zainstalowanej aplikacji na komputerze (okno standalone) — teraz chowa się tylko na telefonie/iOS (przyczyna to hipoteza, do potwierdzenia
+      przez właściciela). Testy: testy_pmt.py sekcja 3d, przeniesienie_test.js, przeniesienie_app.js (dwa scenariusze), qr_kafel_app.js.
+      NIEZWERYFIKOWANE: wygląd okna na prawdziwym Windows; przejście na produkcyjną stronę github.io; 3.25.0 już rozesłane zawiera lukę z listą kont — dlatego wymagana jest 3.25.1 (min=3.25.1 w wersja.txt, na wyraźne polecenie).
+- [x] WYSYŁKA ZAHASŁOWANĄ PACZKĄ (po uwagach właściciela: zahasłować dokumenty z PESEL-em, zapanować nad spamem; wszystko ustawia administrator w arkuszu; jeden moduł w oknie dokumentów, bez opcji
+      dodatkowych; status automatyczny): krok 5 „Wyślij” w oknie „Dokumenty do podpisu” pobiera ze skryptu (akcja haslo_paczki; zakładka „Ustawienia”: haslo_paczki, haslo_paczki_wazne_do, adres_odbiorcy; po
+      terminie skrypt hasła nie wydaje; bez któregoś z trzech wysyłka wyłączona), robi jedną paczkę ZIP z AES-256 (js/zipaes.js) i plik wiadomości .eml z adresatem, tematem „[PMT] Delegacje — …”, krótką treścią
+      i załącznikiem (js/poczta.js, nagłówek X-Unsent: 1); na telefonie systemowe udostępnianie. Samo kliknięcie „Wyślij” ustawia status „Wysłane” (kafel pulpitu + „chmurki” dokumentów: „Wysłano” z datą zamiast
+      „Otwórz”; „Cofnij wysłanie” przywraca) — aplikacja nie widzi, czy wiadomość wyszła z poczty. Adres odbiorcy już NIE leży na stronie (odbiorca.txt usunięty z wdrożenia i sekretu PMT_ODBIORCA).
+      Spam: stały początek tematu → reguła w poczcie odbiorcy. Testy: paczka_test.js (pyzipper + prawdziwy 7-Zip + parser poczty), backend_gs_test.js (sekcja 7), podpis_offline_app.js. NIEZWERYFIKOWANE:
+      otwieranie .eml w prawdziwym Outlooku/Thunderbirdzie/Poczcie Windows (poczta w przeglądarce go nie otworzy — kto nie może, wysyła pliki sam); backend na prawdziwym Apps Script (wymaga wklejenia nowej
+      wersji skryptu i „Wdróż → Nowa wersja”); Eksplorator Windows często nie otwiera AES-256 (potrzebny 7-Zip/WinRAR). NIE zrobione (świadomie): kolejka na serwerze z wysyłką o stałej godzinie.
+- [x] WIDOK 3D DOKUMENTÓW (uwaga właściciela: „efekt wow”, atrapa dokumentu z danymi, powiększanie): opcja w oknie „Dokumenty do podpisu” (przełącznik „Karty | Widok 3D”, domyślnie lista, wybór pamiętany) —
+      karty na obracanym pierścieniu, na każdej atrapa dokumentu z danych wyniku silnika (silnik oddaje teraz też „przelozony”), dostępna zaraz po generowaniu (stan „czeka”, indygo; zielony/bursztynowy/czerwony
+      jak na liście), powiększony podgląd po kliknięciu (cały dokument, pełny PESEL, panel stanu), pieczęć „Wysłano”. Kafel „Dokumenty” (probówki) bez zmian. Pliki: js/karuzela.js, js/dokument_atrapa.js,
+      podpis.js, aplikacja.css (.k3-*, .da-*); testy: atrapa_test.js, karty3d_app.js (także z ZYCIE=tak), podpis_offline_app.js (stany i „Wysłano” w 3D). Atrapa jest repliką układu, nie zdjęciem pliku.
+- [x] WIDOWISKO GENEROWANIA + „ŻYCIE” PODPISÓW (uwaga właściciela: punkty 1 i 2 z propozycji ożywienia): panel z postępem silnika (GPS → trasa → stos kartek) i wachlarzem prawdziwych dokumentów z kwotami po
+      wyniku; podpis „rysuje się”, zły dokument drży, pieczęć „Wysłano” opada; klik w probówkę prowadzi do jej dokumentu. Ruch dla wszystkich (html.zyje, animacje „zycie-…” z !important przebijają tryb spokojny),
+      wyjątek: „Ogranicz ruch” w systemie. Pliki: js/widowisko.js, podpis.js, dokument_atrapa.js, aplikacja.css; testy: widowisko_app.js (+ karty3d_app, podpis_offline_app także z ZYCIE=tak).
+      Odrzucone przez właściciela: miesiąc jako pierścień dni (nie robimy).

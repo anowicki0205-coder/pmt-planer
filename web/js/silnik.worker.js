@@ -117,6 +117,7 @@ if _m is not None and hasattr(_m, "_road_cache"): _m._road_cache.clear()
     try { await syncfs(false); } catch (e) { /* cache nie zapisany */ }
     return w;
   },
+  async planZProgramu(a) { return wolaj('plan_z_programu', a); },
   async generuj(a, postep) {
     await wczytajMenedzera(false);
     const w = await wolaj('generuj', a, postep);

@@ -34,11 +34,49 @@ export async function odczytaj(tekst, skrot) {
   return { ok: true, kod, dane: oczyscDane(d) };
 }
 
+const MAX_MIESIECY = 14, MAX_DNI = 400, MAX_WIZYT_W_DNIU = 60, MAX_ODHACZEN = 5000;
+const liczba = (v, lo, hi, dom = 0) => { const x = Number(v); return Number.isFinite(x) && x >= lo && x <= hi ? Math.round(x * 10000) / 10000 : dom; };
+const wspolrzedna = (v, g) => { if (v === null || v === undefined || v === '') return null; const x = Number(v); return Number.isFinite(x) && Math.abs(x) <= g ? Math.round(x * 1e6) / 1e6 : null; };
+const DATA = /^\d{4}-\d{2}-\d{2}$/;
+const czyData = t => { if (!DATA.test(t)) return false; const d = new Date(t + 'T00:00:00Z'); return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t; };
+
+/** Plan wizyt z programu → ten sam kształt, który zwraca silnik; dni i wizyty o niepoprawnym kształcie odpadają, liczby mają granice. null, gdy nic nie zostaje. */
+export function oczyscPlan(pl) {
+  if (!pl || typeof pl !== 'object') return null;
+  const miesiace = []; let dni = 0;
+  for (const m of (Array.isArray(pl.miesiace) ? pl.miesiace : []).slice(0, MAX_MIESIECY)) {
+    if (!m || typeof m !== 'object') continue;
+    const lista = [];
+    for (const d of (Array.isArray(m.dni) ? m.dni : [])) {
+      if (!d || typeof d !== 'object' || dni >= MAX_DNI || !czyData(String(d.data))) continue;
+      const wizyty = [];
+      for (const w of (Array.isArray(d.wizyty) ? d.wizyty : []).slice(0, MAX_WIZYT_W_DNIU)) {
+        if (w && typeof w === 'object' && pole(w.adres)) wizyty.push({ nazwa: pole(w.nazwa) || pole(w.adres), adres: pole(w.adres), siec: pole(w.siec), miasto: pole(w.miasto), lat: wspolrzedna(w.lat, 90), lng: wspolrzedna(w.lng, 180) });
+      }
+      if (wizyty.length) { lista.push({ data: String(d.data), km: liczba(d.km, 0, 2000), minuty: liczba(d.minuty, 0, 1440), wizyty }); dni++; }
+    }
+    if (lista.length) miesiace.push({ rok: Number(lista[0].data.slice(0, 4)), miesiac: Number(lista[0].data.slice(5, 7)), dni: lista });
+  }
+  return miesiace.length ? { cykliczny: pl.cykliczny === true, cykl_domyslny: Math.round(liczba(pl.cykl_domyslny, 1, 52, 4)), miesiace } : null;
+}
+
+/** Odhaczone wizyty: {„RRRR-MM-DD|adres”: {czas}} tylko dla dni planu; czas „dd.mm.RRRR HH:MM” → godzina „HH:MM” (albo pusta). */
+export function oczyscOdhaczenia(o, plan) {
+  const wynik = {}; if (!o || typeof o !== 'object' || Array.isArray(o) || !plan) return wynik;
+  const dni = new Set(plan.miesiace.flatMap(m => m.dni.map(d => d.data)));
+  for (const [k, v] of Object.entries(o)) {
+    const klucz = String(k); if (klucz.length > 300 || !dni.has(klucz.split('|')[0]) || Object.keys(wynik).length >= MAX_ODHACZEN) continue;
+    const m = /(\d{2}):(\d{2})\s*$/.exec(String(v && typeof v === 'object' ? v.czas : '')); wynik[klucz] = { godz: m ? `${m[1]}:${m[2]}` : '' };
+  }
+  return wynik;
+}
+
 /** Wszystko z pliku traktujemy jak dane od użytkownika: tylko znane pola, teksty o ograniczonej długości. */
 export function oczyscDane(d) {
   const p = d && d.profil && typeof d.profil === 'object' ? d.profil : null;
   const profil = p ? { imie: pole(p.imie), pesel: String(p.pesel ?? '').replace(/\D/g, '').slice(0, 11), adres: pole(p.adres), stanowisko: String(p.stanowisko) === 'KR' ? 'KR' : 'merchandiser', silnik_powyzej_900: p.silnik_powyzej_900 !== false } : null;
   const sklepy = [];
   for (const x of (d && Array.isArray(d.sklepy) ? d.sklepy : [])) { if (x && typeof x === 'object' && pole(x.adres)) sklepy.push({ adres: pole(x.adres), siec: pole(x.siec), miasto: pole(x.miasto) }); if (sklepy.length >= MAX_PUNKTOW) break; }
-  return { profil: profil && (profil.imie || profil.pesel) ? profil : null, sklepy, wersja_programu: pole(d && d.wersja_programu), data: pole(d && d.data) };
+  const plan = oczyscPlan(d && d.plan);
+  return { profil: profil && (profil.imie || profil.pesel) ? profil : null, sklepy, plan, odhaczenia: oczyscOdhaczenia(d && d.odhaczenia, plan), wersja_programu: pole(d && d.wersja_programu), data: pole(d && d.data) };
 }

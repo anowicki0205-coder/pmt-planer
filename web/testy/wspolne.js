@@ -19,6 +19,8 @@ function serwer(opcje = {}) {
     }).listen(0, '127.0.0.1', () => ok({ s, port: s.address().port, adres: 'http://127.0.0.1:' + s.address().port }));
   });
 }
+/** „Dzisiaj” w testach: stałe (PMT_DZIEN albo 15.10.2026 12:00) — i dla aplikacji (new Date() w stronie), i dla testów liczących dni po stronie Node. */
+const dzisTestow = () => new Date(process.env.PMT_DZIEN || '2026-10-15T12:00:00');
 const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 async function otworz({ w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
   backend = backend || new BackendMock();
@@ -30,6 +32,10 @@ async function otworz({ w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = fal
     const ziarno = { kod: '12345', ostatni: '12345', konta: { 12345: { imie: 'Jan Testowy', kontakt: Date.now() } }, status: {}, kolejka: { uruchomienia: 0, dokumenty: 0, minuty: 0 } };      // skrótu hasła na dysku już nie ma (sejf)
     await ctx.addInitScript(z => { try { if (!localStorage.getItem('pmt-web-dostep-v1')) localStorage.setItem('pmt-web-dostep-v1', JSON.stringify(z)); sessionStorage.setItem('pmt-web-sesja-karty', '12345'); sessionStorage.setItem('pmt-web-dek', z.dek); sessionStorage.setItem('pmt-web-skrot', JSON.stringify({ kod: '12345', skrot: z.skrot })); } catch (e) {} }, { ...ziarno, dek: Buffer.from(new Uint8Array(32).map((_, i) => i * 7 + 3)).toString('base64'), skrot: hash('12345', 'haslo123') });      // sessionStorage: zalogowano już na tej karcie (logowanie jest wymagane przy każdym uruchomieniu)
   }
+  await ctx.addInitScript(dzien => {      // „dzisiaj” dla aplikacji jest stałe (domyślnie 15.10.2026 → program otwiera się na wrześniu, jak w całym zestawie testów): testy opisują konkretne dni września i nie mogą zależeć od dnia uruchomienia
+    const R = Date, przesuniecie = new R(dzien).getTime() - R.now();
+    globalThis.Date = class extends R { constructor(...a) { if (a.length === 0) super(R.now() + przesuniecie); else super(...a); } };      // tylko new Date() bez argumentów; Date.now() zostaje prawdziwe (podpisy czasowe wobec atrapy backendu, odstęp do 10 minut)
+  }, dzisTestow().toISOString());
   await ctx.addInitScript(() => { window.__testy = true; });      // udostępnia testom jawny odczyt/zapis obiektu konta (window.__pmtDane) mimo szyfrowania magazynu
   if (!przyklad) await ctx.addInitScript(() => { try { localStorage.setItem('pmt-ui-przyklad', 'nie'); } catch (e) {} });      // pierwsze uruchomienie bez przykładowego miesiąca (jak dawniej: od razu „Moje dane”); test przykładu prosi o niego opcją przyklad: true
   if (process.env.RUCH === 'pelny') await ctx.addInitScript(() => { window.__ruchPelny = true; });      // aplikacja domyślnie jest spokojna (bez animacji); testy ruchu włączają pełny ruch: RUCH=pelny
@@ -56,4 +62,4 @@ async function wieczory(p, { tap = false } = {}) {
   await p.waitForFunction(() => document.querySelector('#parametry [data-tryb="wieczory"]').getAttribute('aria-pressed') === 'true', null, { timeout: 30000, polling: 200 });
   await p.waitForTimeout(600);
 }
-module.exports = { otworz, serwer, KORZEN, generuj, wieczory };
+module.exports = { otworz, serwer, KORZEN, generuj, wieczory, dzisTestow };

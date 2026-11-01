@@ -192,4 +192,4 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
 - [x] WIDOWISKO GENEROWANIA + „ŻYCIE” PODPISÓW (uwaga właściciela: punkty 1 i 2 z propozycji ożywienia): panel z postępem silnika (GPS → trasa → stos kartek) i wachlarzem prawdziwych dokumentów z kwotami po
       wyniku; podpis „rysuje się”, zły dokument drży, pieczęć „Wysłano” opada; klik w probówkę prowadzi do jej dokumentu. Ruch dla wszystkich (html.zyje, animacje „zycie-…” z !important przebijają tryb spokojny),
       wyjątek: „Ogranicz ruch” w systemie. Pliki: js/widowisko.js, podpis.js, dokument_atrapa.js, aplikacja.css; testy: widowisko_app.js (+ karty3d_app, podpis_offline_app także z ZYCIE=tak).
-      Pomysł odłożony do decyzji właściciela: miesiąc jako pierścień dni (opcja obok wykresu dni; makieta w rozmowie).
+      Odrzucone przez właściciela: miesiąc jako pierścień dni (nie robimy).

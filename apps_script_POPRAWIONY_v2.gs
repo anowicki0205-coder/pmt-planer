@@ -467,9 +467,10 @@ function obsluzPuls(dane) {
 
   // Puls bez podpisu hasłem nie zmienia niczego w arkuszu — ktoś znający sam
   // kod nie podrobi aktywności ani nie zafałszuje statystyk.
+  // Przy pustym polu zostaje dotychczasowa wartość — też przez _tekst(): arkusz oddaje zapisany „'=…” już bez apostrofu.
   if (pelne) {
     sh.getRange(nr, 5, 1, 6).setValues([[teraz,
-        _tekst(dane.wersja, 20) || w[5], _tekst(dane.system, 30) || w[6],
+        _tekst(dane.wersja, 20) || _tekst(w[5], 20), _tekst(dane.system, 30) || _tekst(w[6], 30),
         uruchomien, dokumentow, minut]]);
   }
 

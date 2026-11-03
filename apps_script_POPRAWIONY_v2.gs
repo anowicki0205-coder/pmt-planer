@@ -331,6 +331,7 @@ function _nieudanaProba(kod) {
 function _wyczyscProby(kod) {
   var pam = CacheService.getScriptCache(); pam.remove("lg:k:" + kod); pam.remove("lg:d:" + kod); pam.remove("ph:" + kod);
 }
+var KOMUNIKAT_ZLE_HASLO = "Nieprawidlowe haslo. Jesli go nie pamietasz, uzyj „Nie pamietam hasla” (numer telefonu z kartoteki sluzy do resetu hasla).";
 var KOMUNIKAT_BLOKADY = "Za duzo nieudanych prob — konto zablokowane na pewien czas (do kilku godzin). " +
                         "Mozesz odblokowac je od razu przez „Nie pamietam hasla” (numer telefonu) albo napisac do administratora.";
 
@@ -655,13 +656,10 @@ function logowanie(dane) {
       if (!hashBaza && !telBaza)
         return { status: "blad",
                  opis: "To konto nie ma telefonu w bazie — administrator musi go uzupelnic" };
-      if (hashBaza && telBaza && tel.length >= 9 &&
-          telBaza.slice(-9) === tel.slice(-9))
-        return { status: "blad",
-                 opis: "To konto ma ustawione haslo — zaloguj sie haslem. " +
-                       "Numer telefonu sluzy tylko do zmiany lub resetu hasla." };
+      // Konto z hasłem: ten sam komunikat dla telefonu z kartoteki i dla złego hasła — inna odpowiedź
+      // potwierdzałaby, że podany numer należy do tego kodu.
       return { status: "blad",
-               opis: hashBaza ? "Nieprawidlowe haslo" : "Nieprawidlowy numer telefonu" };
+               opis: hashBaza ? KOMUNIKAT_ZLE_HASLO : "Nieprawidlowy numer telefonu" };
     }
     var zrodlo = _tekst(dane.zrodlo || "www", 20);
     _wyczyscProby(kod);
@@ -717,11 +715,9 @@ function zmienHaslo(dane) {
                            : "zly telefon";
       _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla",
            "ODRZUCONA (" + powod + ")");
+      // jak w logowanie(): odpowiedź nie mówi, czy podany numer pasuje do kodu (powód zostaje tylko w Log)
       return { status: "blad", opis: hashBaza
-               ? (telPasuje
-                  ? "To konto ma ustawione haslo — podaj dotychczasowe haslo " +
-                    "albo uzyj „Nie pamietam hasla” w oknie logowania"
-                  : "Dotychczasowe haslo nie pasuje")
+               ? "Dotychczasowe haslo nie pasuje (jesli go nie pamietasz, uzyj „Nie pamietam hasla” w oknie logowania)"
                : "Numer telefonu nie zgadza sie z kartoteka" };
     }
     sh.getRange(i + 2, 14).setValue(_hash(kod, nowe));

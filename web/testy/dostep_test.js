@@ -1,6 +1,6 @@
 // Dostęp (js/dostep.js) w Node, z atrapą backendu (testy/backend_mock.js — te same reguły co .gs): jeden puls naraz (bez podwójnych przyrostów w arkuszu),
 // sekret nie zapamiętuje pustego wyniku, odebrany dostęp przeżywa wylogowanie (logowanie bez sieci odmawia), hasło liczone w postaci jak na serwerze
-// (przycięte, telefon jako 9 cyfr) dla skrótu sesji i sejfu, a sejf założony dawniej surowym tekstem nadal się otwiera.
+// (przycięte, telefon jako 9 cyfr) dla skrótu sesji i sejfu, a sejf założony dawniej surowym tekstem nadal się otwiera; przestawiony zegar urządzenia nie psuje podpisów.
 // Uruchom: node testy/dostep_test.js
 const nc = require('crypto');
 const { BackendMock } = require('./backend_mock.js');
@@ -11,7 +11,9 @@ const B = new BackendMock({ uzytkownicy: {
   '22222': { imie: 'Anna Nowa', telefon: '501502503', hash: '', wazne_do: '2099-12-31' },
   '44444': { imie: 'Ola Blokowana', telefon: '700800901', hash: nc.createHash('sha256').update('PMT|44444|haslo444').digest('hex'), wazne_do: '2099-12-31' },
 } });
-let sekretPada = false, wyslanePulsy = 0;
+let sekretPada = false, wyslanePulsy = 0, zegarUrzadzenia = 0;
+const prawdziwyCzas = Date.now; Date.now = () => prawdziwyCzas() + zegarUrzadzenia;      // zegar urządzenia (aplikacji) da się przestawić; atrapa serwera liczy czas prawdziwy
+const naSerwerze = f => { const z = Date.now; Date.now = prawdziwyCzas; try { return f(); } finally { Date.now = z; } };
 globalThis.fetch = async (url, o = {}) => {
   const u = String(url);
   if (u === 'sekret.txt') { if (sekretPada) throw new TypeError('Failed to fetch'); return { ok: true, text: async () => 'SEKRET-TESTOWY\n' }; }
@@ -19,7 +21,7 @@ globalThis.fetch = async (url, o = {}) => {
   if (!o.body) return { ok: true, text: async () => '' };
   if (JSON.parse(o.body).akcja === 'puls') wyslanePulsy++;
   await new Promise(r => setTimeout(r, 5));
-  const odp = JSON.stringify(B.obsluz(o.body)); return { ok: true, text: async () => odp };
+  const odp = naSerwerze(() => JSON.stringify(B.obsluz(o.body))); return { ok: true, text: async () => odp };
 };
 (async () => {
   const D = await import('../js/dostep.js'), S = await import('../js/sejf.js'); let kod = 0;
@@ -90,6 +92,16 @@ globalThis.fetch = async (url, o = {}) => {
   D.wyloguj();
   w = await offline(() => D.zaloguj('44444', 'haslo444'));
   ok('…a potem znów działa logowanie bez sieci', w.ok && w.offline, w.komunikat);
+
+  D.wyloguj();
+
+  /* zegar urządzenia przestawiony o 15 min: podpis dostaje czas serwera, logowanie (przy obowiązkowym podpisie) i hasło paczki przechodzą */
+  zegarUrzadzenia = 15 * 60000; B.podpisObowiazkowy = true; B.paczka = { haslo: 'Tajne-Haslo-1', wazne_do: '2099-12-31', adres: 'kierownik@firma.pl' };
+  w = await D.zaloguj('12345', 'haslo123');
+  ok('zegar +15 min: logowanie przy obowiązkowym podpisie przechodzi (druga próba z czasem serwera)', w.ok, w.komunikat);
+  const hp = await D.pobierzHasloPaczki();
+  ok('zegar +15 min: hasło paczki przychodzi (podpis hasłem w oknie serwera)', hp.ok && hp.haslo === 'Tajne-Haslo-1', JSON.stringify(hp));
+  zegarUrzadzenia = 0; B.podpisObowiazkowy = false; D.wyloguj();
 
   console.log(kod ? 'BŁĘDY' : 'WSZYSTKO OK'); process.exit(kod);
 })().catch(e => { console.error(e); process.exit(1); });

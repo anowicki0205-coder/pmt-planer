@@ -41,7 +41,9 @@ class BackendMock {
     return { status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do, adres: String(p.adres).trim() };
   }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
-  obsluz(tekst) {
+  /** Jak _json w .gs: każda odpowiedź niesie czas serwera. */
+  obsluz(tekst) { const o = this.obsluzAkcje(tekst); if (o && typeof o === 'object') o.czas_serwera = Math.floor(Date.now() / 1000); return o; }
+  obsluzAkcje(tekst) {
     let d; try { d = JSON.parse(tekst || '{}'); } catch (e) { return { status: 'blad', opis: String(e) }; }
     if (!this.podpisPoprawny(d)) {
       if (this.podpisObowiazkowy) return { status: 'blad', opis: 'odmowa' };

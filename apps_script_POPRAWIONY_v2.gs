@@ -404,6 +404,8 @@ function doGet(e) {
 }
 
 function _json(obiekt) {
+  // czas serwera w każdej odpowiedzi (także w odmowie): klient z przestawionym zegarem poprawia nim czas podpisu (okno 600 s)
+  if (obiekt && typeof obiekt === "object" && !Array.isArray(obiekt)) obiekt.czas_serwera = Math.floor(Date.now() / 1000);
   return ContentService.createTextOutput(JSON.stringify(obiekt))
                        .setMimeType(ContentService.MimeType.JSON);
 }

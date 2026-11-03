@@ -78,8 +78,11 @@ export const zapomnijSekret = () => { sekretObietnica = null; };
 /* Puls i rejestr sesji backend przyjmuje w pełni tylko z podpisem KLUCZEM POCHODNYM OD HASŁA: HMAC, którego kluczem jest skrót hasła „PMT|kod|hasło” (ten sam, który serwer
    trzyma w kolumnie „Haslo hash”, a my mamy zapisany po logowaniu). Samo hasło nie jedzie, a znajomość samego 5-cyfrowego kodu nie wystarcza, by dostać imię, rejon i L4 innego pracownika. */
 const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki'];
+/* serwer przyjmuje podpis tylko w oknie 600 s od SWOJEGO czasu: zegar urządzenia przestawiony o kwadrans dawał niezrozumiałe odmowy, więc czas podpisu poprawiamy
+   o różnicę względem czasu serwera z ostatniej odpowiedzi (czas_serwera) */
+let przesuniecie = 0;
 async function podpisz(dane, skrotZ = null) {
-  const czas = String(Math.floor(teraz() / 1000)), s = await sekret();
+  const czas = String(Math.floor(teraz() / 1000 + przesuniecie)), s = await sekret();
   const d = { ...dane, klucz_czas: czas, wersja: WERSJA };
   const baza = `${d.kod || ''}|${d.akcja || ''}|${czas}`;
   if (s) d.podpis = await hmacHex(s, baza); else delete d.podpis;
@@ -115,7 +118,7 @@ const opisBledu = {
   cors: 'Serwer PMT odpowiada, ale przeglądarka nie dopuściła jego odpowiedzi do aplikacji (CORS). To błąd wdrożenia backendu, nie Twojego internetu — napisz do administratora. Program na komputerze działa niezależnie.',
   odpowiedz: 'Serwer odpowiedział w nieoczekiwany sposób. Spróbuj ponownie za chwilę; jeśli błąd wraca, napisz do administratora.',
 };
-export async function wyslij(dane, limit = CZAS_ODPOWIEDZI) {
+export async function wyslij(dane, limit = CZAS_ODPOWIEDZI, ponowka = false) {
   const cialo = JSON.stringify(await podpisz(dane)), ac = new AbortController(), t = setTimeout(() => ac.abort(), limit);
   let tekst;
   try {
@@ -128,8 +131,11 @@ export async function wyslij(dane, limit = CZAS_ODPOWIEDZI) {
     if (await serwerOsiagalny()) throw new BladSieci('cors', opisBledu.cors);
     throw new BladSieci('siec', opisBledu.siec);
   } finally { clearTimeout(t); }
-  try { const o = JSON.parse(tekst); if (o && typeof o === 'object') return o; } catch (e) { /* poniżej */ }
-  throw new BladSieci('odpowiedz', opisBledu.odpowiedz);
+  let o = null; try { o = JSON.parse(tekst); } catch (e) { /* poniżej */ }
+  if (!o || typeof o !== 'object') throw new BladSieci('odpowiedz', opisBledu.odpowiedz);
+  const bylo = przesuniecie, cs = Number(o.czas_serwera); if (cs > 0) przesuniecie = cs - teraz() / 1000;
+  if (!ponowka && Math.abs(przesuniecie - bylo) > 300 && (o.opis === 'odmowa' || o.status === 'odmowa' || o.pelne === false)) return wyslij(dane, limit, true);      // odmowa przez zegar urządzenia: raz jeszcze, już z czasem serwera
+  return o;
 }
 async function serwerOsiagalny() {
   const ac = new AbortController(), t = setTimeout(() => ac.abort(), 5000);

@@ -286,6 +286,10 @@ var LOGOWANIE_NIEUDANYCH_DLUGO  = 25;    var LOGOWANIE_OKNO_DLUGIE  = 21600;    
 var PODPIS_HASLA_ZLYCH = 60;             var PODPIS_HASLA_OKNO = 21600;
 // Ile wpisów na godzinę wolno dopisać do dzienników (Log, Sesje).
 var WPISOW_NA_GODZINE = 3000;
+// Wpisy po udanym uwierzytelnieniu (logowanie, zmiana i reset hasła, wydanie hasła paczki, rejestr sesji) mają osobny przydział:
+// zalew zapytań bez hasła (zły kod, brak podpisu) nie może ukryć tych zdarzeń. Każdy kod ma w nim własną część, więc i jedno
+// konto go nie wyczerpie; po wyczerpaniu wpis idzie jeszcze ze wspólnej puli.
+var WAZNYCH_NA_GODZINE = 1000;           var WAZNYCH_NA_KOD = 60;
 
 /* Napis od klienta -> bezpieczna wartość komórki: bez znaków sterujących,
    przycięty, a gdy zaczyna się od = + - @ — z apostrofem (tekst, nie formuła). */
@@ -330,8 +334,10 @@ function _wyczyscProby(kod) {
 var KOMUNIKAT_BLOKADY = "Za duzo nieudanych prob — konto zablokowane na pewien czas (do kilku godzin). " +
                         "Mozesz odblokowac je od razu przez „Nie pamietam hasla” (numer telefonu) albo napisac do administratora.";
 
-/* Limit wpisów do dzienników na godzinę: po przekroczeniu wpisy są pomijane. */
-function _wolnoDopisac() {
+/* Limit wpisów do dzienników na godzinę: po przekroczeniu wpisy są pomijane. kodWazny = wpis po uwierzytelnieniu tego kodu. */
+function _wolnoDopisac(kodWazny) {
+  if (kodWazny && _licznik("wpisy:wazne:" + kodWazny, 3600, true) <= WAZNYCH_NA_KOD
+      && _licznik("wpisy:wazne", 3600, true) <= WAZNYCH_NA_GODZINE) return true;
   return _licznik("wpisy:godz", 3600, true) <= WPISOW_NA_GODZINE;
 }
 
@@ -355,7 +361,7 @@ function _podpisHaslaOk(dane, hashBaza) {
     if (_pmtHex(sig) === podany) return true;
     if (_licznik(klucz, PODPIS_HASLA_OKNO, true) === PODPIS_HASLA_ZLYCH)
       _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "podpis_hasla",
-           "ZABLOKOWANY (" + PODPIS_HASLA_ZLYCH + " zlych podpisow haslem) — puls i haslo paczki bez danych do zalogowania haslem");
+           "ZABLOKOWANY (" + PODPIS_HASLA_ZLYCH + " zlych podpisow haslem) — puls i haslo paczki bez danych do zalogowania haslem", "wazne");
     return false;
   } catch (e) { return false; }
 }
@@ -525,9 +531,13 @@ function _nieobecnosci(ss, kod) {
   return wynik;
 }
 
-function _log(ss, kod, zdarzenie, szczegoly) {
+/* rodzaj: "wazne" — zdarzenie po udanym uwierzytelnieniu (osobny przydział, zob. WAZNYCH_NA_GODZINE);
+           "raz"   — zdarzenie, które każdy wywoła bez hasła (zły format kodu, zły podpis, błąd serwera): wystarczy
+                     pierwszy wpis na godzinę dla danego kodu (dowolny napis zamiast kodu liczy się jako jeden). */
+function _log(ss, kod, zdarzenie, szczegoly, rodzaj) {
   try {
-    if (!_wolnoDopisac()) return;                       // limit wpisów na godzinę
+    if (rodzaj === "raz" && _licznik("wpis:" + zdarzenie + ":" + (_kodPoprawny(kod) ? kod : "?"), 3600, true) > 1) return;
+    if (!_wolnoDopisac(rodzaj === "wazne" ? String(kod) : "")) return;      // limit wpisów na godzinę
     _zakladka(ss, ZAKLADKA_LOG, []).appendRow([new Date(), _tekst(kod, 12), _tekst(zdarzenie, 40),
                                                _tekst(szczegoly, 200)]);
   } catch (e) {}
@@ -569,7 +579,7 @@ function doPost(e) {
       if (_wersjaCoNajmniej(dane.wersja, WERSJA_Z_SEKRETEM)) {
         _log(SpreadsheetApp.getActiveSpreadsheet(), String(dane.kod || "?"),
              "podpis_zly", "wersja " + String(dane.wersja || "?") + ", akcja "
-             + String(dane.akcja) + " — sekret w paczce rozni sie od SEKRETY_PMT");
+             + String(dane.akcja) + " — sekret w paczce rozni sie od SEKRETY_PMT", "raz");
       }
     }
     // Kontrola wersji (WYMAGANA_WERSJA, domyślnie wyłączona).
@@ -592,7 +602,7 @@ function doPost(e) {
     }
   } catch (err) {
     // Treść wyjątku może zdradzać nazwy zakładek i szczegóły skryptu — klient dostaje ogólny komunikat.
-    try { _log(SpreadsheetApp.getActiveSpreadsheet(), "?", "blad_serwera", String(err)); } catch (x) {}
+    try { _log(SpreadsheetApp.getActiveSpreadsheet(), "?", "blad_serwera", String(err), "raz"); } catch (x) {}
     return _json({ status: "blad", opis: "Blad serwera — sprobuj ponownie" });
   } finally {
     blokada.releaseLock();
@@ -656,7 +666,7 @@ function logowanie(dane) {
     var zrodlo = _tekst(dane.zrodlo || "www", 20);
     _wyczyscProby(kod);
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_" + zrodlo,
-         "OK" + (haslem ? " (haslo)" : " (telefon)"));
+         "OK" + (haslem ? " (haslo)" : " (telefon)"), "wazne");
     // "przez": klient zakłada sejf danych tą samą postacią hasła co serwer (telefon = ostatnie 9 cyfr)
     return { status: "ok", imie: String(w[i][1] || ""), przez: haslem ? "haslo" : "telefon" };
   }
@@ -717,7 +727,7 @@ function zmienHaslo(dane) {
     sh.getRange(i + 2, 14).setValue(_hash(kod, nowe));
     _wyczyscProby(kod);
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla",
-         "OK (" + (haslem ? "haslem" : "telefonem") + ")");
+         "OK (" + (haslem ? "haslem" : "telefonem") + ")", "wazne");
     return { status: "ok" };
   }
   _nieudanaProba(kod);
@@ -765,7 +775,7 @@ function hasloPaczki(dane) {
   for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
   // Hasło wydajemy tylko istniejącemu kontu, które potwierdziło się podpisem swojego hasła (nie samym kodem) i ma ważną sesję.
   if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
-    _log(ss, kod, "haslo_paczki_odmowa", "brak podpisu hasla albo nieznany kod");
+    _log(ss, kod, "haslo_paczki_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
     return { status: "odmowa" };
   }
   var wazne = w[3] instanceof Date ? w[3] : (w[3] ? new Date(w[3]) : null);
@@ -783,7 +793,7 @@ function hasloPaczki(dane) {
   if (!haslo || !doDaty || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { status: "brak" };
   var ostatni = new Date(doDaty + "T00:00:00");
   if (ostatni < dzis) return { status: "wygaslo", wazne_do: doDaty };      // po terminie hasła nie wydajemy
-  _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty);
+  _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty, "wazne");
   return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres };
 }
 
@@ -802,7 +812,7 @@ function zapiszSesje(dane) {
   }
   // Wpis tylko dla istniejącego konta, z podpisem hasłem i w granicach limitu —
   // inaczej rejestr sesji dałoby się zasypać (albo sfałszować) wpisami z dowolnym tekstem.
-  if (!znaleziony || !_czyUwierzytelniony(dane, hashBaza) || !_wolnoDopisac()) return { status: "ok" };
+  if (!znaleziony || !_czyUwierzytelniony(dane, hashBaza) || !_wolnoDopisac(kod)) return { status: "ok" };
   var nazwy = { logowanie: "zalogowanie", wylogowanie: "wylogowanie",
                 zamkniecie: "zamkniecie programu" };
   _zakladka(ss, ZAKLADKA_SESJE,
@@ -850,7 +860,7 @@ function odblokujKonta() {
     if (_kodPoprawny(kod)) { klucze.push("lg:k:" + kod, "lg:d:" + kod, "ph:" + kod, "reset:" + kod); kont++; }
   }
   for (var j = 0; j < klucze.length; j += 100) pam.removeAll(klucze.slice(j, j + 100));
-  _log(ss, "admin", "odblokowanie", "zdjete liczniki prob: " + kont + " kont");
+  _log(ss, "admin", "odblokowanie", "zdjete liczniki prob: " + kont + " kont", "wazne");
 }
 
 function resetHasla(dane) {
@@ -858,7 +868,7 @@ function resetHasla(dane) {
   var kod = String(dane.kod || "").trim();
   var tel = String(dane.telefon || "").replace(/\D/g, "");
   if (!_kodPoprawny(kod)) {
-    _log(ss, kod, "reset_hasla", "ODRZUCONA (zly format kodu)");
+    _log(ss, kod, "reset_hasla", "ODRZUCONA (zly format kodu)", "raz");
     return { status: "blad", opis: "Kod musi miec 5 cyfr" };
   }
   var kluczKodu = "reset:" + kod, kluczLaczny = "reset:wszyscy";
@@ -889,7 +899,7 @@ function resetHasla(dane) {
     }
     sh.getRange(i + 2, 14).setValue("");     // kasujemy hash hasla
     _wyczyscProby(kod);                       // telefon z kartoteki potwierdził tożsamość — odblokowujemy logowanie
-    _log(ss, kod, "reset_hasla", "OK");
+    _log(ss, kod, "reset_hasla", "OK", "wazne");
     return { status: "ok",
              opis: "Haslo skasowane. Zaloguj sie numerem telefonu i ustaw nowe haslo." };
   }

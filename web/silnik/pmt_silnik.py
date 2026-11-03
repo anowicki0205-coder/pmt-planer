@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:9bb0062cd7bc2207
+# źródło: PMT_Delegacje.py sha256:09af897e69b65fe5
 
 import sys
 
@@ -39,6 +39,8 @@ import tempfile
 import shutil
 
 import hashlib
+
+import hmac
 
 import unicodedata
 
@@ -289,21 +291,34 @@ def online_synchronizuj() -> bool:
     if odp.get("status") not in ("ok", "wygasla"):
         return False           # np. zly_kod — kolejki nie zerujemy
 
+    # „pelne”: false = backend nie rozpoznał podpisu hasłem (np. hasło zmieniono na innym
+    # komputerze) i oddał tylko status i datę ważności — zapamiętanego imienia, rejonu
+    # i nieobecności NIE wolno wtedy nadpisać pustymi, a kolejki nie zerujemy (statystyki
+    # nie zostały zapisane). Starszy backend nie zna pola — wtedy dostajemy komplet.
+    _pelne = odp.get("pelne") is not False
     with _blokada:
-        _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
         st = _wczytaj(PLIK_STATUSU, {})
-        st.update({
-            "kod": kod,
-            "status": odp.get("status"),
-            "imie": odp.get("imie", ""),
-            "rejon": odp.get("rejon", ""),
-            "wazne_do": odp.get("wazne_do", ""),
-            "nieobecnosci": odp.get("nieobecnosci", []),
-            "ostatnia_synchronizacja": datetime.date.today().isoformat(),
-        })
+        if _pelne:
+            _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+            st.update({
+                "kod": kod,
+                "status": odp.get("status"),
+                "imie": odp.get("imie", ""),
+                "rejon": odp.get("rejon", ""),
+                "wazne_do": odp.get("wazne_do", ""),
+                "nieobecnosci": odp.get("nieobecnosci", []),
+                "ostatnia_synchronizacja": datetime.date.today().isoformat(),
+            })
+        else:
+            st.update({
+                "kod": kod,
+                "status": odp.get("status"),
+                "wazne_do": odp.get("wazne_do", ""),
+            })
         _zapisz(PLIK_STATUSU, st)
-    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""), odp.get("imie", ""), z_serwera=True)
-    return True
+    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""),
+                              odp.get("imie", "") if _pelne else st.get("imie", ""), z_serwera=True)
+    return _pelne
 
 def _katalogi_towarzyszace():
     """Wszystkie miejsca, w których może leżeć plik dołożony do programu.
@@ -455,8 +470,31 @@ def _sekret_aplikacji_odczyt() -> str:
     _sekret_aplikacji_dziennik()
     return ""
 
+def _skrot_hasla_lokalny(kod) -> str:
+    """Skrót hasła konta zapisany na TYM komputerze po udanym logowaniu (ten sam
+    „PMT|kod|hasło”, który backend trzyma w kolumnie „Haslo hash”); pusty, gdy konto
+    nie logowało się tu jeszcze albo nie ma hasła. Samo hasło nigdy nie jest zapisywane."""
+    kod = str(kod or "").strip()
+    try:
+        skrot = (_wczytaj(PLIK_LOGOWAN, {}).get(kod, {}) or {}).get("skrot")
+        if skrot:
+            return str(skrot)
+        st = _wczytaj(PLIK_STATUSU, {})
+        if str(st.get("kod", "")) == kod and st.get("skrot"):
+            return str(st["skrot"])
+    except Exception:
+        pass
+    return ""
+
+AKCJE_Z_HASLEM = ("puls", "sesja")
+
 def _podpisz_zadanie(dane: dict) -> dict:
     """Dokłada znacznik czasu, wersję i podpis HMAC-SHA256 do zapytania.
+
+    Dla puls i sesja dokłada też „podpis_hasla”: HMAC-SHA256 TEJ SAMEJ podstawy
+    (kod|akcja|czas), ale kluczem = skrót hasła konta (backend zna go z kolumny
+    „Haslo hash”). Hasło nigdzie nie jedzie; bez poprawnego podpisu backend oddaje
+    w pulsie tylko status i datę ważności, a wpisu sesji nie zapisuje.
 
     Klucz to _sekret_aplikacji(). Bez sekretu pola „podpis" NIE dokłada:
     backend (weryfikujPodpis) porównuje String(d.podpis || '') z HMAC-em,
@@ -478,6 +516,13 @@ def _podpisz_zadanie(dane: dict) -> dict:
                                       hashlib.sha256).hexdigest()
         else:
             dane.pop("podpis", None)
+        dane.pop("podpis_hasla", None)
+        if dane.get("akcja") in AKCJE_Z_HASLEM:
+            klucz_hasla = _skrot_hasla_lokalny(dane.get("kod", ""))
+            if klucz_hasla:
+                dane["podpis_hasla"] = hmac.new(klucz_hasla.encode("utf-8"),
+                                                baza.encode("utf-8"),
+                                                hashlib.sha256).hexdigest()
     except Exception:
         pass
     return dane
@@ -511,7 +556,7 @@ def _zapamietaj_waznosc_konta(kod: str, wazne_do: str, imie: str = "", z_serwera
     except Exception:
         pass
 
-WERSJA_PROGRAMU = "3.24.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
+WERSJA_PROGRAMU = "3.25.1"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
 
 def modul_pomocniczy(nazwa: str):
     """Leniwy, osłonięty import modułu towarzyszącego (pmt_dokumenty,

@@ -9179,8 +9179,18 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     return podsumowanie
 
 def log_error(exc: Exception):
-    os.makedirs(LOGS_DIR, exist_ok=True)
-    with open(LOG_FILE, 'a', encoding='utf-8') as f: f.write(f"\n{'='*60}\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{traceback.format_exc()}")
+    # Woła się ją w blokach except (także w QThread.run), a wyjątek stamtąd
+    # PyQt6 kończy abortem — zapis dziennika nie może więc rzucić. Folder
+    # programu bywa tylko do odczytu (C:\Program Files): wtedy katalog użytkownika.
+    wpis = f"\n{'='*60}\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{traceback.format_exc()}"
+    for plik in (LOG_FILE, os.path.join(os.path.expanduser("~"), ".pmt_logs", "error.log")):
+        try:
+            os.makedirs(os.path.dirname(plik), exist_ok=True)
+            with open(plik, 'a', encoding='utf-8') as f:
+                f.write(wpis)
+            return
+        except Exception:
+            continue
 
 class OdcinkiThread(QThread):
     """Liczy z góry odległości wszystkich odcinków miesiąca i zostawia je

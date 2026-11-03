@@ -11876,6 +11876,32 @@ except Exception as _e32:
     _tb32.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("33. Program przed wygaszeniem: dziennik błędów, aktualizacja, dane kont")
+
+# log_error woła się w blokach except (także w QThread.run). Wyjątek z niej
+# w PyQt6 to abort całego programu zamiast komunikatu o błędzie.
+_s33_log = P.LOG_FILE
+try:
+    _s33_zly = os.path.join(_TMP_HOME, "s33_plik_zamiast_folderu")
+    open(_s33_zly, "w").close()
+    P.LOG_FILE = os.path.join(_s33_zly, "logs", "error.log")
+    _s33_rzucil = None
+    try:
+        raise ValueError("s33 zamierzony błąd")
+    except ValueError as _e33:
+        try:
+            P.log_error(_e33)
+        except Exception as _x33:
+            _s33_rzucil = repr(_x33)
+    _s33_zapas = os.path.join(_TMP_HOME, ".pmt_logs", "error.log")
+    _s33_tresc = open(_s33_zapas, encoding="utf-8").read() if os.path.isfile(_s33_zapas) else ""
+    sprawdz("log_error w niezapisywalnym folderze programu nie rzuca, a wpis trafia do katalogu użytkownika",
+            _s33_rzucil is None and "s33 zamierzony błąd" in _s33_tresc,
+            str((_s33_rzucil, _s33_tresc[-80:])))
+finally:
+    P.LOG_FILE = _s33_log
+
+# ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)
 print("  WYNIK: %d / %d testów przeszło" % (len(WYNIKI) - len(_bledy), len(WYNIKI)))

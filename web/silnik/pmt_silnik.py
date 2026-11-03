@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:8771e97acac9e69f
+# źródło: PMT_Delegacje.py sha256:26069e91941dabdd
 
 import sys
 
@@ -3579,7 +3579,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         #  wieczorny  — po pracy, między 16:15 a 16:45, tak aby ostatnia
         #               placówka zamknęła się przed 22:00 (patrz limit dnia).
         if TRYB_PRACY == "wieczory":
-            czas_akt = rng.randint(16 * 60 + 15, 16 * 60 + 45)
+            # Pełny dzień (5,5 h) wylosowany po 16:30 wracał po 22:00 — taki dzień
+            # wyjeżdża wcześniej. Losowanie jedno, jak dotąd: reszta dni bez zmian.
+            dl = sum(e.czas_jazdy_minuty + e.czas_w_sklepie for e in dzien.etapy_surowe) + PRZERWA_JEDZENIE_MIN
+            czas_akt = max(16 * 60, min(rng.randint(16 * 60 + 15, 16 * 60 + 45), 22 * 60 - math.ceil(dl)))
         else:
             czas_akt = rng.randint(7 * 60, 8 * 60)
         ile_etapow = len(dzien.etapy_surowe)

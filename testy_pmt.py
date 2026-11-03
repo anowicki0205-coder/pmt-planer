@@ -12154,6 +12154,22 @@ if _node33:
 else:
     print("  (pominięte: brak node — zgodność peselPoprawny z silnikiem sprawdza się tylko z node)")
 
+# tryb wieczorny: wyjazd 16:15–16:45, ale powrót na dokumencie nie po 22:00 (pełny dzień wyjeżdża wcześniej)
+try:
+    P.ustaw_tryb_pracy("wieczory")
+    _dni33 = P.pobierz_dni_robocze(2026, 10)
+    _godz33 = []
+    for _kw33 in (2500.0, 3500.0):
+        _w33 = P.generuj_trasy(_kw33, "Poznań", 52.41, 16.93, "wielkopolskie", _dni33, "90010112349", 1.15)
+        _godz33 += [(d.data.isoformat(), d.etapy[0].godz_wyj, d.etapy[-1].godz_przyj) for d in _w33]
+    sprawdz("wieczory (Poznań, X 2026, 2500 i 3500 zł): żaden powrót po 22:00, wyjazdy między 16:00 a 16:45",
+            _godz33 and all("16:00" <= w <= "16:45" and "16:00" < p <= "22:00" for _, w, p in _godz33),
+            str([g for g in _godz33 if not ("16:00" <= g[1] <= "16:45" and "16:00" < g[2] <= "22:00")]))
+except Exception as _e33:
+    sprawdz("wieczory: powrót przed 22:00", False, repr(_e33))
+finally:
+    P.ustaw_tryb_pracy("tydzien")
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

@@ -18,6 +18,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
       ls: Object.keys(localStorage), dostep: JSON.parse(localStorage.getItem('pmt-web-dostep-v1') || '{}') };
   });
 
+  await p.route(/nominatim\.openstreetmap\.org\/search/, r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '[{"lat":"52.2297","lon":"21.0122"}]' }));      // współrzędne domu trafiają do pamięci silnika (reszta sieci zablokowana)
   await p.goto(t.adres + '/index.html'); await zaloguj();
   await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 }); await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
@@ -36,7 +37,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
   m = await pamiec();
   ok('po zmianie konta ślady silnika poprzedniego użytkownika są skasowane, a dane bieżącego konta zostają', m.silnik.length === 0 && m.ls.includes('pmt-web-v1:12345') && m.pdf >= 6, JSON.stringify({ silnik: m.silnik, pdf: m.pdf }));
   ok('właścicielem pamięci silnika jest teraz bieżące konto', await p.evaluate(() => localStorage.getItem('pmt-silnik-wlasciciel')) === '12345');
-  ok('po starcie silnik dostał z powrotem swoją pamięć z magazynu konta (te same pliki i treść)', przed.length > 0 && await pamiecSilnika() === przed, przed.slice(0, 120));
+  ok('po starcie silnik dostał z powrotem swoją pamięć z magazynu konta (te same pliki i treść, z adresem domu)', /testowa 1/.test(przed) && await pamiecSilnika() === przed, przed.slice(0, 160));
 
   /* wylogowanie czyści pamięć silnika, ale nie dane konta */
   await generuj(p, {}).catch(() => {}); await p.waitForTimeout(500);

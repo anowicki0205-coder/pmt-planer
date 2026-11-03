@@ -22,6 +22,14 @@ dane = json.loads(sys.stdin.read()); print(P.zaszyfruj(dane, sys.argv[2], P.hash
   ok('lista sklepów przechodzi w całości i w tej samej kolejności', r.ok && JSON.stringify(r.dane.sklepy) === JSON.stringify(dane.sklepy));
   const zle = await P.odczytaj(plik, skrot('12345', 'inne-haslo'));
   ok('inne hasło: odmowa z czytelnym komunikatem, bez danych', !zle.ok && zle.powod === 'klucz' && /konto|hasło/.test(zle.komunikat) && !zle.dane);
+  // hasło zmienione albo zresetowane w aplikacji po zapisaniu pliku w programie: odczyt hasłem, którym logowano się w programie
+  const zeStarym = wytworz(dane, '12345', 'stare haslo');
+  const sesja = await P.odczytaj(zeStarym, skrot('12345', 'nowe-haslo-z-webu')), skrotAsync = async (k, h) => skrot(k, h);
+  const stare = await P.odczytajHaslem(zeStarym, '12345', 'stare haslo', skrotAsync), stareSpacje = await P.odczytajHaslem(zeStarym, '12345', ' stare haslo ', skrotAsync);
+  const pudlo = await P.odczytajHaslem(zeStarym, '12345', 'inne', skrotAsync), smiecHaslem = await P.odczytajHaslem('nie json', '12345', 'stare haslo', skrotAsync);
+  ok('plik zapisany hasłem sprzed zmiany w aplikacji: odczyt tamtym hasłem (także ze spacjami na brzegach), złe hasło — odmowa bez danych',
+    !sesja.ok && sesja.powod === 'klucz' && stare.ok && JSON.stringify(stare.dane.profil) === JSON.stringify(dane.profil) && stareSpacje.ok
+    && !pudlo.ok && pudlo.powod === 'klucz' && /też nie pasuje/.test(pudlo.komunikat) && !pudlo.dane && !smiecHaslem.ok && smiecHaslem.powod === 'format', JSON.stringify([sesja.powod, stare.ok, stareSpacje.ok, pudlo.komunikat]));
   const bezHasla = await P.odczytaj(plik, '');
   ok('brak skrótu hasła (niezalogowany): prośba o ponowne logowanie', !bezHasla.ok && /Zaloguj/.test(bezHasla.komunikat));
   const k = JSON.parse(plik); const zmien = (pole, f) => JSON.stringify({ ...k, [pole]: f(k[pole]) });

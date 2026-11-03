@@ -12065,6 +12065,21 @@ except Exception as _e33:
 finally:
     shutil.rmtree(_kat33, ignore_errors=True)
 
+# grudzień: od 2025 r. (wolna Wigilia) trzy niedziele handlowe przed 24.12; wcześniej dwie
+try:
+    _gr33 = lambda M, r: [d for d in range(1, 32) if M.czy_niedziela_handlowa(datetime.date(r, 12, d))]
+    _ocz_gr33 = {2024: [15, 22], 2025: [7, 14, 21], 2026: [6, 13, 20], 2028: [3, 10, 17]}
+    sprawdz("grudniowe niedziele handlowe: 2024 — dwie, od 2025 — trzy przed wolną Wigilią (2028: Wigilia w niedzielę nie jest handlowa)",
+            all(_gr33(P, _r) == _o for _r, _o in _ocz_gr33.items()), str({_r: _gr33(P, _r) for _r in _ocz_gr33}))
+    if _S33 is not None:
+        _S33.ustaw_tryb_pracy("wieczory")
+        _ndz33 = [d.day for d in _S33.pobierz_dni_robocze(2026, 12) if d.weekday() == 6]
+        _S33.ustaw_tryb_pracy("tydzien")
+        sprawdz("web, tryb wieczorny: grudzień 2026 ma robocze niedziele 6, 13 i 20.12",
+                all(_gr33(_S33, _r) == _o for _r, _o in _ocz_gr33.items()) and _ndz33 == [6, 13, 20], str(_ndz33))
+except Exception as _e33:
+    sprawdz("grudniowe niedziele handlowe", False, repr(_e33))
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

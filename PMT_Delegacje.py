@@ -6465,8 +6465,9 @@ def pobierz_dni_robocze(rok: int, miesiac: int) -> List[datetime.date]:
 
 def czy_niedziela_handlowa(data: datetime.date) -> bool:
     """Niedziele handlowe: ostatnia niedziela stycznia, kwietnia, czerwca
-    i sierpnia, dwie niedziele przed Bożym Narodzeniem oraz niedziela przed
-    Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
+    i sierpnia, niedziele przed Bożym Narodzeniem (dwie, a od 2025 r. trzy
+    przed wolną Wigilią — ta sama nowelizacja z grudnia 2024 r.) oraz niedziela
+    przed Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
     gdyby przepisy się zmieniły, wystarczy poprawić tę jedną funkcję."""
     if data.weekday() != 6:
         return False
@@ -6475,10 +6476,11 @@ def czy_niedziela_handlowa(data: datetime.date) -> bool:
                              if datetime.date(data.year, data.month, d).weekday() == 6)
     if data.month in (1, 4, 6, 8) and data.day == ostatnia_niedziela:
         return True
-    if data.month == 12:                          # dwie niedziele przed 24.12
-        przed = [d for d in range(1, 25)
+    if data.month == 12:
+        wolna_wigilia = data.year >= ROK_WIGILII_WOLNEJ
+        przed = [d for d in range(1, 24 if wolna_wigilia else 25)
                  if datetime.date(data.year, 12, d).weekday() == 6]
-        if data.day in przed[-2:]:
+        if data.day in przed[-(3 if wolna_wigilia else 2):]:
             return True
     try:
         wielkanoc = _wielkanoc(data.year)          # niedziela przed Wielkanocą

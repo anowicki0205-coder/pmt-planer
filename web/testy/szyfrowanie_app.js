@@ -74,7 +74,12 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   /* reset hasła na serwerze + usunięcie danych („nie pamiętam”) */
   B.uzytkownicy['12345'].hash = hash('12345', 'jeszczeInne5');
   const k8 = await nowaKarta(); await zaloguj(k8, 'jeszczeInne5', false); await k8.waitForSelector('#sj-form', { timeout: 120000 });
-  await k8.click('#sj-usun'); await czekajApp(k8); await k8.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });
+  const zaszyfrowane = (await dysk(k8)).ls['pmt-web-v1:12345'] || '';
+  await k8.click('#sj-usun'); await k8.waitForSelector('#sj-usun-tak'); const ostrz = await k8.locator('#arkusz-tresc').innerText();
+  ok('„Usuń dane i zacznij od nowa” najpierw pyta (nie da się cofnąć, także podpisane dokumenty) i jeszcze niczego nie usuwa', /nie da się cofnąć/.test(ostrz) && /podpisane dokumenty/.test(ostrz) && zaszyfrowane !== '' && ((await dysk(k8)).ls['pmt-web-v1:12345'] || '') === zaszyfrowane);
+  await k8.click('#sj-wroc'); await k8.waitForSelector('#sj-form');
+  ok('„Wróć do hasła” wraca do formularza poprzedniego hasła (z działającym „Odblokuj”)', (await k8.locator('#sj-stare').count()) === 1 && (await k8.locator('#sj-ok').count()) === 1);
+  await k8.click('#sj-usun'); await k8.click('#sj-usun-tak'); await czekajApp(k8); await k8.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });
   d = await dysk(k8);
   ok('„Usuń dane i zacznij od nowa”: stare dane znikają (puste „Moje dane”), a na dysku nie ma jawnych danych', (await k8.inputValue('#d-pesel')) === '' && !Object.values(d.ls).join('\n').includes(PESEL));
   await k8.close();

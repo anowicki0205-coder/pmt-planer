@@ -77,7 +77,7 @@ function baza() {
     q.onerror = () => err(q.error);
   }));
 }
-const tx = async (tryb, f) => { const b = await baza(); return new Promise((ok, err) => { const t = b.transaction('pliki', tryb); const r = f(t.objectStore('pliki')); t.oncomplete = () => ok(r && r.result); t.onerror = () => err(t.error); }); };
+const tx = async (tryb, f) => { const b = await baza(); return new Promise((ok, err) => { const t = b.transaction('pliki', tryb); const r = f(t.objectStore('pliki')); t.oncomplete = () => ok(r && r.result); t.onerror = () => err(t.error); t.onabort = () => err(t.error || new Error('Transakcja przerwana')); }); };      // onabort: przekroczony limit pamięci przerywa transakcję bez zdarzenia error
 export const pliki = {
   async zapisz(klucz, bajty) {
     if (!KL) throw new Error('Magazyn jest zablokowany (zaloguj się ponownie)');
@@ -91,7 +91,7 @@ export const pliki = {
     const b = await baza();
     return new Promise((ok, err) => { const t = b.transaction('pliki', 'readwrite'), s = t.objectStore('pliki'); const q = s.openKeyCursor();
       q.onsuccess = () => { const c = q.result; if (!c) return; if (String(c.key).startsWith(prefiks)) s.delete(c.key); c.continue(); };
-      t.oncomplete = () => ok(); t.onerror = () => err(t.error); });
+      t.oncomplete = () => ok(); t.onerror = () => err(t.error); t.onabort = () => err(t.error || new Error('Transakcja przerwana')); });
   },
 };
 export const nazwaKlucza = (rok, mies, nazwa) => `${miesiace.klucz(rok, mies)}/${nazwa}`;

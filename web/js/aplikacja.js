@@ -276,6 +276,7 @@ const DK = ['pn', 'wt', 'śr', 'cz', 'pt', 'sb', 'nd'];
 let LIMIT_DZIEN = 587.19, LIMIT_POL = 986.34, MIN_KWOTA = 50;   // nadpisywane stałymi z silnika (stale())
 const ik = (id, kl = 'ik') => `<svg class="${kl}" aria-hidden="true"><use href="#${id}"/></svg>`;
 const silnik = new Silnik();
+if (window.__testy) window.__pmtSilnik = silnik;      // tylko dla testów (strona z ustawionym window.__testy): pamięć silnika w workerze
 let PROFIL = null;           // dane pracownika z urządzenia
 let M = null;                // aktywny miesiąc (patrz zbudujModel)
 let wybrany = 0;             // wybrany dzień miesiąca (1..N) albo 0
@@ -1783,7 +1784,7 @@ async function generuj() {
   }
   const rec = { params: par, wynik: w.wynik, podpisane: [], wyslane: false, utworzono: new Date().toISOString() };
   magMiesiace.zapisz(M.rok, M.mies, rec);
-  dostep.policzDokumenty(w.pdf.length);
+  dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
   if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
   else await zegar(450);
@@ -1922,7 +1923,7 @@ async function arkuszPlan() {
         tryb: trybDom(PROFIL), siec: navigator.onLine, od_daty: isoDzis() }, (t, v) => { tekst.textContent = t; pasek.style.setProperty('--p', Math.round(Math.max(3, v * 100)) + '%'); zorza && zorza.flara(.08); });
       w.pozycje = POZYCJE_PLANU; w.zapisano = new Date().toISOString();
       if (!w.suma_wizyt) { tekst.innerHTML = '<span style="color:var(--a-burs)">Nie udało się ułożyć ani jednej wizyty. Sprawdź, czy lista zawiera miejscowości.</span>'; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); return; }
-      magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
+      magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zapiszPamiecSilnika(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
       pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach`);
     } catch (err) { tekst.innerHTML = `<span style="color:var(--a-blad)">${bezZnacznikow(err.message)}</span>`; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); }
   });
@@ -1943,8 +1944,8 @@ const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
-/** Pamięć silnika (trasy, współrzędne, liczniki) leży w IndexedDB wspólnej dla wszystkich kont tej przeglądarki: czyścimy ją przy wylogowaniu i przy zmianie konta,
- *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
+/** Pamięć silnika w workerze (trasy, współrzędne, liczniki) czyścimy przy wylogowaniu i przy zmianie konta, a przed przeładowaniem kasujemy też dawną, jawną bazę IDBFS
+ *  (wersje sprzed szyfrowania pamięci silnika), żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
 async function czyscSilnik(przedPrzeladowaniem) {
   const limit = new Promise(r => setTimeout(() => r(false), 4000));      // prawdziwe 4 s: zegar() w trybie spokojnym to 0 ms, a przeładowanie zaraz potem zabijało workera przed zapisem kasowania
   let gotowe = false; try { gotowe = await Promise.race([silnik.start().then(() => silnik.czysc()).then(() => true), limit]); } catch (e) { /* silnik nie wstał */ }
@@ -1953,6 +1954,12 @@ async function czyscSilnik(przedPrzeladowaniem) {
     await new Promise(ok => { setTimeout(ok, 2000); try { const q = indexedDB.deleteDatabase('/home/pyodide'); q.onsuccess = q.onerror = () => ok(); } catch (e) { ok(); } });
   }
   try { localStorage.removeItem('pmt-silnik-wlasciciel'); } catch (e) { /* bez pamięci */ }
+}
+/* Pamięć silnika (współrzędne adresów, także domu, i trasy) leży w ZASZYFROWANYM magazynie konta, nie jawnie w bazie silnika: zapis po generowaniu, odczyt przy starcie. */
+const PAMIEC_SILNIKA = ['.pmt_geo_cache.json', '.pmt_geo_braki.json', '.pmt_road_cache.json'];
+async function zapiszPamiecSilnika() { try { const { pliki } = await silnik.eksportPamieci(); for (const p of pliki) await magPliki.zapisz('__silnik/' + p.nazwa, p.bajty); } catch (e) { /* bez zapisu silnik zapyta sieć jeszcze raz */ } }
+async function wczytajPamiecSilnika() {
+  try { const pliki = []; for (const n of PAMIEC_SILNIKA) { const b = await magPliki.daj('__silnik/' + n); if (b) pliki.push({ nazwa: n, bajty: b }); } if (pliki.length) await silnik.importPamieci(pliki); } catch (e) { /* zaczyna od pustej pamięci */ }
 }
 /** „Usuń dane z tego urządzenia”: profil z PESEL-em, miesiące, plan, wygenerowane PDF-y, ślady silnika i zapamiętane konto. Na serwerze nic nie ma — dane są tylko tu. */
 function arkuszUsunDane() {
@@ -2353,6 +2360,7 @@ async function start() {
   let postepStartu = ['Uruchamianie…', .03], pokazLadowanie = false;
   const silnikGotowy = silnik.start((t, v) => { postepStartu = [t, v]; if (pokazLadowanie) ladowanie(true, t, v); });
   silnikGotowy.catch(() => {});                                   // błąd silnika obsługujemy po zalogowaniu
+  try { indexedDB.deleteDatabase('/home/pyodide'); } catch (e) { /* bez IndexedDB nie ma czego kasować */ }      // dawna, JAWNA pamięć silnika (IDBFS) — teraz jest w zaszyfrowanym magazynie konta
   dostep.rozgrzej();
   let kom = ''; try { kom = sessionStorage.getItem('pmt-dostep-komunikat') || ''; sessionStorage.removeItem('pmt-dostep-komunikat'); } catch (e) { /* bez pamięci karty */ }
   let sesja = null, ocena = dostep.ocenaSesji();
@@ -2376,6 +2384,7 @@ async function start() {
     await silnikGotowy;
     if ((() => { try { return localStorage.getItem('pmt-silnik-wlasciciel'); } catch (e) { return null; } })() !== kodKonta) await czyscSilnik();      // pamięć silnika należała do innego konta (albo do nikogo)
     try { localStorage.setItem('pmt-silnik-wlasciciel', kodKonta); } catch (e) { /* bez pamięci */ }
+    if (dek) await wczytajPamiecSilnika();
     const st = await silnik.stale(); LIMIT_DZIEN = st.limit_dnia; LIMIT_POL = st.limit_dokumentu; MIN_KWOTA = st.min_kwota;
   } catch (e) {
     $('#lad-tekst').innerHTML = `Nie udało się uruchomić silnika delegacji.<br><small>${bezZnacznikow(e.message)}</small><br><br><button class="przycisk" type="button" id="lad-ponow">Spróbuj ponownie</button>`;

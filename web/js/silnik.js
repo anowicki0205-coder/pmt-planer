@@ -21,6 +21,8 @@ export class Silnik {
   przygotuj(a) { return this._wolaj('przygotuj', a); }
   adres(a) { return this._wolaj('adres', a); }
   czysc() { return this._wolaj('czysc', {}); }
+  eksportPamieci() { return this._wolaj('eksportPamieci', {}); }
+  importPamieci(pliki) { return this._wolaj('importPamieci', { pliki }); }
   siec(wlaczona) { return this._wolaj('siec', { wlaczona }); }
   generuj(a, postep) { return this._wolaj('generuj', a, postep); }
   planWczytaj(a) { return this._wolaj('planWczytaj', a); }

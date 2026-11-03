@@ -7851,6 +7851,21 @@ try:
             and _jobif21("testy") and re.search(r"^    needs: testy$", _kod21.get("windows", ""), re.M) is not None
             and ("if: ${{ !cancelled() && (needs.testy.result == 'success' || !%s) }}" % _tag21) in _kod21.get("windows", "")
             and re.search(r"^  workflow_call:", _tyml21, re.M) is not None)
+    # filtr „paths” w testy.yml: do 3.25.1 lista plików pomijała moduły z paczki
+    # i build.yml — ich zmiana wypchnięta na main nie uruchamiała testów wcale
+    _wzorce21 = re.findall(r'^      - "([^"]+)"$', _tyml21.split("\n    paths:\n")[1].split("\n  pull_request:")[0], re.M) \
+        if "\n    paths:\n" in _tyml21 else []
+    _rx21 = [re.compile("^" + re.escape(w).replace(r"\*\*", ".*").replace(r"\*", "[^/]*") + "$") for w in _wzorce21]
+    _pilnowane21 = [f.replace(os.sep, "/") for f in _ZB21.WYMAGANE] + [
+        ".github/workflows/build.yml", ".github/workflows/testy.yml", "testy_pmt.py", "zbuduj.py",
+        "wersja_pomocnik.py", "przygotuj_przejscie.py", "wersja.txt", "wersja_exe.txt", "requirements.txt",
+        "PRZEJSCIE_NA_WEB.txt", "WYDANIE.txt", "README.md", "apps_script_POPRAWIONY_v2.gs", ".gitignore",
+        "URUCHOM_PROGRAM.bat", "updater.bat", "updater.sh", "pmt_logo_retro.png", "pmt_logo_retro.ico"]
+    _bez21 = [f for f in _pilnowane21 if not any(r.match(f) for r in _rx21)]
+    _martwe21 = [w for w in _wzorce21 if "*" not in w and not os.path.exists(os.path.join(KATALOG, w))]
+    sprawdz("testy.yml: zmiana każdego modułu z paczki, build.yml i plików sprawdzanych przez testy uruchamia testy (filtr paths), bez martwych wpisów",
+            _wzorce21 and not _bez21 and not _martwe21 and not any(r.match("web/js/app.js") for r in _rx21),
+            "poza filtrem: %s, nie ma: %s" % (_bez21, _martwe21))
     sprawdz("nie ma już ZABEZPIECZENIA_BACKEND.txt (kazał włączyć podpis dla wszystkich — odcinało telefon)",
             not os.path.exists(os.path.join(KATALOG, "ZABEZPIECZENIA_BACKEND.txt"))
             and "ZABEZPIECZENIA_BACKEND" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"),

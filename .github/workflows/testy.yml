@@ -8,19 +8,23 @@ name: Testy
 on:
   push:
     branches: ["**"]
+    # Wzorce, nie lista plikow: lista gubila moduly pakowane do wydania
+    # (nowy_wyglad.py, okno_logowania.py, pmt_wysylka.py, prototyp/...)
+    # i build.yml, ktory testy_pmt.py tez sprawdza. "*" nie lapie "/",
+    # wiec zmiany w web/ tych testow nie uruchamiaja.
     paths:
-      - "PMT_Delegacje.py"
-      - "intro_wideo.py"
-      - "zbuduj.py"
-      - "wersja_pomocnik.py"
-      - "testy_pmt.py"
-      - "pmt_przeniesienie.py"
-      - "przygotuj_przejscie.py"
-      - "PRZEJSCIE_NA_WEB.txt"
-      - "wersja.txt"
-      - "wersja_exe.txt"
-      - "requirements.txt"
-      - ".github/workflows/testy.yml"
+      - "*.py"
+      - "*.txt"
+      - "*.md"
+      - "*.gs"
+      - "*.bat"
+      - "*.sh"
+      - "*.png"
+      - "*.ico"
+      - "*.icns"
+      - ".gitignore"
+      - "prototyp/**"
+      - ".github/workflows/**"
   pull_request:
   workflow_dispatch:
   workflow_call:

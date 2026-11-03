@@ -11901,6 +11901,30 @@ try:
 finally:
     P.LOG_FILE = _s33_log
 
+# updater_folder.bat: sukces tylko po fladze życia. Proces wiszący na oknie
+# błędu bootloadera też „żyje”, a uznanie go za sukces kasowało kopię
+# poprzedniej wersji.
+with open(os.path.join(KATALOG, "updater_folder.bat"), "rb") as _f33:
+    _bat33 = _f33.read().decode("ascii", errors="replace").replace("\r\n", "\n")
+_kod33 = "\n".join(l for l in _bat33.split("\n") if not l.strip().lower().startswith("rem"))
+_petla33 = re.search(r"for /l %%i in \(1,1,(\d+)\) do \(\n\s*ping -n 2 127\.0\.0\.1 >nul\n\s*if exist \"%FLAGA%\"",
+                     _kod33)
+_porazka33 = _kod33.split(":porazka", 1)[-1]
+sprawdz("updater_folder.bat: żywy proces bez flagi nie jest sukcesem, flagi czeka się do ok. minuty",
+        "ZYWY" not in _kod33 and "uznaje sukces" not in _kod33
+        and bool(_petla33) and int(_petla33.group(1)) >= 45,
+        repr(_petla33.group(0) if _petla33 else None))
+sprawdz("updater_folder.bat: przy porażce najpierw zamyka wiszący proces, potem przywraca kopię",
+        'taskkill /f /im "%NAZWA_EXE%"' in _porazka33
+        and _porazka33.index("taskkill") < _porazka33.index('xcopy "%KOPIA%"'))
+sprawdz("updater_folder.bat: bez opóźnionej ekspansji („!” w ścieżce programu przeżywa)",
+        "enabledelayedexpansion" not in _kod33.lower() and "!" not in _kod33)
+# programy 3.2x przyjmują pobrany skrypt tylko z tym napisem (inaczej
+# wracają do wbudowanego skryptu dla pojedynczego pliku)
+sprawdz("updater_folder.bat nadal przechodzi sprawdzenie, którym programy 3.2x rozpoznają skrypt",
+        "setlocal enabledelayedexpansion" in _bat33 and len(_bat33) < 20000
+        and "setlocal enabledelayedexpansion" in inspect.getsource(P.przygotuj_skrypt_aktualizacji))
+
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)

@@ -1,5 +1,8 @@
 @echo off
-setlocal enabledelayedexpansion
+rem Bez opoznionej ekspansji: zjadala znak "!" ze sciezki programu. Napis
+rem "setlocal enabledelayedexpansion" zostaje tu, bo po nim programy 3.2x
+rem rozpoznaja pobrany skrypt - bez niego wracaja do skryptu jednoplikowego.
+setlocal
 rem ============================================================
 rem  PMT Planer ??? aktualizacja wersji FOLDEROWEJ
 rem
@@ -88,27 +91,19 @@ echo [4] Uruchamiam nowa wersje... >> "%LOG%"
 cd /d "%FOLDER_CEL%"
 start "" "%CEL_EXE%"
 
-rem --- 5) weryfikacja: flaga zycia LUB zyjacy proces (fallback) ---
+rem --- 5) weryfikacja: TYLKO flaga zycia (do ok. 60 s) ---
+rem Zyjacy proces niczego nie dowodzi: program, ktory padl na imporcie
+rem bibliotek (blokada App Control) albo wisi na oknie bledu bootloadera,
+rem tez jest procesem. Flage program pisze dopiero po imporcie bibliotek.
 set "WYSTARTOWALA=0"
-set "ZYWY=0"
-for /l %%i in (1,1,15) do (
+for /l %%i in (1,1,60) do (
     ping -n 2 127.0.0.1 >nul
     if exist "%FLAGA%" (
         set "WYSTARTOWALA=1"
         goto po_weryfikacji
     )
-    tasklist /fi "imagename eq %NAZWA_EXE%" 2>nul | find /i "%NAZWA_EXE%" >nul
-    if not errorlevel 1 (
-        set /a ZYWY+=1
-    ) else (
-        set "ZYWY=0"
-    )
-    if !ZYWY! geq 6 (
-        set "WYSTARTOWALA=1"
-        echo [5] Flagi brak, ale proces zyje - uznaje sukces. >> "%LOG%"
-        goto po_weryfikacji
-    )
 )
+echo [5] Flaga sie nie pojawila. >> "%LOG%"
 :po_weryfikacji
 if "%WYSTARTOWALA%"=="1" (
     echo [OK] Nowa wersja dziala. %DATE% %TIME% >> "%LOG%"
@@ -118,6 +113,9 @@ if "%WYSTARTOWALA%"=="1" (
 
 :porazka
 echo [BLAD] Nowa wersja nie wystartowala - przywracam poprzednia. >> "%LOG%"
+rem proces wiszacy na oknie bledu trzyma pliki folderu - kopia by nie weszla
+taskkill /f /im "%NAZWA_EXE%" >nul 2>&1
+ping -n 3 127.0.0.1 >nul
 if exist "%KOPIA%" (
     xcopy "%KOPIA%" "%FOLDER_CEL%\" /e /i /y /q >nul 2>&1
     start "" "%CEL_EXE%"

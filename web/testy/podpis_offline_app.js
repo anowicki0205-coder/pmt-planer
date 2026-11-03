@@ -95,6 +95,23 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   ok('szczegóły błędnego podpisu: lista kontroli (jest podpis, całość, ten sam dokument, nie zmieniony, matematyka, KTO podpisał)', /Jest podpis elektroniczny/.test(szcz) && /obejmuje cały dokument/.test(szcz) && /nie został zmieniony/.test(szcz) && /matematycznie poprawny/.test(szcz) && /Podpisała inna osoba/.test(szcz), szcz.replace(/\n/g, ' | ').slice(0, 220));
   ok('podpisu innej osoby NIE da się potwierdzić ręcznie (trzeba podpisać ponownie)', (await p.locator('.dok-k.otwarta [data-akcja="potwierdz"]').count()) === 0 && (await p.locator('.dok-k.otwarta [data-akcja="cofnij"]').count()) === 1);
   await p.screenshot({ path: tmp + '/2_tura1.png' });
+  // ponownie podpisany dokument wgrany BEZ „Wgraj inny plik” (przeglądarka dopisała „(1)” do nazwy): zastępuje błędny podpis — sprawdzany jest nowy plik, a w paczce nie ma dwóch wersji
+  const tylko3 = path.join(tmp, 'tylko3'); fs.mkdirSync(tylko3, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[2]), path.join(tylko3, pdfy[2]));
+  fs.writeFileSync(path.join(tmp, 'plan1b.json'), JSON.stringify({ [pdfy[2]]: 'jan' })); py('podpisz_pliki.py', tylko3, path.join(tmp, 'e1b'), path.join(tmp, 'plan1b.json'));
+  const ponowny = pdfy[2].replace(/\.pdf$/i, ' (1).pdf');
+  await wgraj(kopiaZ(path.join(tmp, 'e1b'), path.join(tmp, 'e1bo'), { [pdfy[2]]: ponowny }));
+  const s1b = await czekajStany(['ok', 'ok', 'ok', 'zle', 'czeka', 'ok', 'zle']), zap1b = await zapisane();
+  ok('ponownie podpisany dokument wgrany bez „Wgraj inny plik”: zastępuje błędny podpis (sprawdzony nowy plik, zapisany tylko on)', JSON.stringify(s1b) === '["ok","ok","ok","zle","czeka","ok","zle"]' && JSON.stringify(zap1b.pliki[2]) === JSON.stringify([pdfy[2]]) && JSON.stringify(Object.values(zap1b.pierwotne[2])) === JSON.stringify([ponowny]), JSON.stringify([s1b, zap1b.pliki[2], zap1b.pierwotne[2]]));
+  // upuszczony folder i plik, którego przeglądarka nie odczyta: nie przerywają przyjmowania, każdy trafia na listę odrzuconych z podpowiedzią
+  await p.evaluate(() => {
+    const folder = new File([], 'Podpisane'), zly = new File([new Uint8Array(10)], 'nieczytelny.pdf');
+    zly.arrayBuffer = () => Promise.reject(new DOMException('A requested file or directory could not be found', 'NotFoundError'));
+    const e = new Event('drop', { bubbles: true, cancelable: true }); Object.defineProperty(e, 'dataTransfer', { value: { files: [folder, zly] } });
+    document.querySelector('.podp-strefa').dispatchEvent(e);
+  });
+  await p.waitForFunction(() => /nieczytelny\.pdf/.test(document.querySelector('#podp-odrzucone').textContent), null, { timeout: 20000 }).catch(() => {});
+  const odrz = await p.locator('#podp-odrzucone').innerText();
+  ok('upuszczony folder i nieczytelny plik: oba na liście odrzuconych („otwórz go i wgraj pliki z jego środka”), stany dokumentów bez zmian', /Podpisane/.test(odrz) && /nieczytelny\.pdf/.test(odrz) && (odrz.match(/otwórz go i wgraj pliki z jego środka/g) || []).length === 2 && JSON.stringify(await stany()) === JSON.stringify(s1b), odrz);
 
   /* ---- tura 2: podpis odręczny — wielostronicowy PDF ze skanem rozdzielony na dokumenty; ręczne potwierdzenie; ponowne podpisanie ---- */
   await wgrajInny(2); await czekajStany(['ok', 'ok', 'czeka', 'zle', 'czeka', 'ok', 'zle']);
@@ -126,6 +143,13 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   await wgrajInny(4); await czekajStany(['ok', 'ok', 'ok', 'ok', 'czeka', 'ok', 'zle']);
   await wgraj([lista(path.join(tmp, 's2'))[2]]);
   ok('wgranie skanu Z podpisem w to samo miejsce: rozpoznany automatycznie (bez potwierdzania)', JSON.stringify(await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'zle'])) === '["ok","ok","ok","ok","ok","ok","zle"]' && /Widzę podpis/.test(await komunikat(4)));
+  // ponowny skan po „Nie widzę podpisu” wgrany od razu (bez „Wgraj inny plik”, pod inną nazwą): zastępuje stary skan, a nie staje się drugą stroną dokumentu
+  await wgrajInny(4); await czekajStany(['ok', 'ok', 'ok', 'ok', 'czeka', 'ok', 'zle']);
+  await wgraj(lista(path.join(tmp, 's3'))); await czekajStany(['ok', 'ok', 'ok', 'ok', 'zle', 'ok', 'zle']);
+  const ponSkan = path.join(tmp, 'ponowny_skan'); fs.mkdirSync(ponSkan, { recursive: true }); fs.copyFileSync(lista(path.join(tmp, 's2'))[2], path.join(ponSkan, pdfy[4].replace(/\.pdf$/i, '_ponownie.jpg')));
+  await wgraj(lista(ponSkan));
+  const s3b = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'zle']), zap3b = await zapisane();
+  ok('ponowny skan po „Nie widzę podpisu” (bez „Wgraj inny plik”) zastępuje stary skan zamiast dokładać kolejną stronę', JSON.stringify(s3b) === '["ok","ok","ok","ok","ok","ok","zle"]' && zap3b.pliki[4].length === 1 && /Widzę podpis/.test(await komunikat(4)), JSON.stringify([s3b, zap3b.pliki[4]]));
   // dokument 7 (indeks 6): poprawny podpis zamiast dopisku
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
@@ -220,6 +244,13 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('„Cofnij wysłanie” przywraca podpisane (wyniki sprawdzenia zostały zapamiętane)', (await p.locator('#status').innerText()).includes('Podpisane'));
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); await p.waitForTimeout(800);      // gdy wszystko podpisane, główny przycisk otwiera to samo okno z dokumentami (krok 5 „Wyślij”)
   ok('po odświeżeniu okno pokazuje te same, zapamiętane wyniki sprawdzenia (7 × podpis sprawdzony)', JSON.stringify(await stany()) === JSON.stringify(Array(7).fill('ok')) && /Podpisał\(a\): Jan Testowy/.test(await komunikat(0)));
+  // sprawdzanie przerwane odświeżeniem strony: plik dokumentu jest zapisany, wyniku nie ma — po otwarciu okna dokument sprawdza się sam, zamiast wisieć na „sprawdzam…” bez przycisków
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  await p.evaluate(() => { const d = window.__pmtDane.czytaj(); delete Object.values(d.miesiace)[0].weryfikacje[1]; window.__pmtDane.zapisz(d); });
+  await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);
+  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka');
+  const s5 = await czekajStany(Array(7).fill('ok'));
+  ok('sprawdzanie przerwane odświeżeniem strony: dokument z plikiem, ale bez wyniku, sprawdza się sam po otwarciu okna', JSON.stringify(s5) === JSON.stringify(Array(7).fill('ok')) && !!(await zapisane()).weryfikacje[1], JSON.stringify(s5));
 
   /* ---- wysyłka z dużymi skanami: ostrzeżenie o limicie poczty ---- */
   // dwa zdjęcia tego samego dokumentu (dwie strony): numerowane _str01, _str02

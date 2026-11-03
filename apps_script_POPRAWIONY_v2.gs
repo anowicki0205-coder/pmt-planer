@@ -36,6 +36,33 @@
  *  Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż,
  *  inaczej pod adresem /exec dalej działa stara wersja.
  *
+ *  ── ZMIANY PRZY WYDANIU 3.25.1 — POPRAWKI PO PRZEGLĄDZIE (wdróż TERAZ) ──
+ *  Program na komputerze i aplikacja webowa działają bez zmian (web z tej
+ *  paczki wysyła klient: "web" — punkt 6).
+ *  1. PODPIS HASŁEM Z LIMITEM. Puls, sesja i hasło paczki mówiły, czy podpis
+ *     kluczem z hasła pasuje, bez żadnego licznika — można było zgadywać hasło
+ *     z pominięciem limitu logowania. Teraz 60 złych podpisów na kod w 6 h =
+ *     podpis nie jest sprawdzany (puls bez danych, hasło paczki „odmowa”), aż
+ *     minie okno albo konto zaloguje się hasłem. Wpis w Log: „podpis_hasla”.
+ *  2. FORMUŁY: puls z pustym polem „system”/„wersja” zapisywał z powrotem
+ *     wartość z arkusza bez apostrofu (stawała się formułą). Naprawione.
+ *  3. RESET HASŁA: limit w stałym oknie (odrzucone próby nie przedłużają
+ *     blokady), licznik łączny liczy tylko nieudane próby. Nowa funkcja
+ *     odblokujKonta() — uruchom ją ręcznie w edytorze, gdy ktoś jest
+ *     zablokowany limitem prób i nie może czekać.
+ *  4. DZIENNIKI: zdarzenia po udanym uwierzytelnieniu (logowanie, zmiana
+ *     i reset hasła, hasło paczki, Sesje) mają osobny przydział wpisów;
+ *     odmowy bez hasła (zły kod, zły podpis, błąd serwera) — jeden wpis na
+ *     godzinę. Bez blokady skryptu (kolejka > 20 s) odpowiedź „Serwer zajety”.
+ *  5. Logowanie i zmiana hasła nie zdradzają już, że podany telefon należy
+ *     do kodu (konto z hasłem: zawsze „Nieprawidlowe haslo…”).
+ *  6. WYMAGANA_WERSJA nie odcina aplikacji web; w kolumnie „Wersja” web
+ *     ma dopisek „web” (np. „web 3.24.0”).
+ *  7. Arkusz: hasło paczki w komórce innej niż tekst/liczba całkowita (data,
+ *     ułamek) = „brak” + wpis w Log; daty wpisane tekstem DD.MM.RRRR czytane
+ *     jako dzień.miesiąc (dotąd 10.11 dawało 11 października). Komórkę hasła
+ *     paczki ustaw na Format → Liczba → Zwykły tekst i wpisz hasło ponownie.
+ *
  *  ── ZMIANY PRZY WYDANIU 3.25.0 — AUDYT BEZPIECZEŃSTWA (wdróż TERAZ) ──
  *  Wszystko poniżej obowiązuje od razu po wdrożeniu nowej wersji skryptu
  *  (Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa), program na
@@ -368,7 +395,7 @@ function _podpisHaslaOk(dane, hashBaza) {
     if (_pmtHex(sig) === podany) return true;
     if (_licznik(klucz, PODPIS_HASLA_OKNO, true) === PODPIS_HASLA_ZLYCH)
       _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "podpis_hasla",
-           "ZABLOKOWANY (" + PODPIS_HASLA_ZLYCH + " zlych podpisow haslem) — puls i haslo paczki bez danych do zalogowania haslem", "wazne");
+           "ZABLOKOWANY (" + PODPIS_HASLA_ZLYCH + " zlych podpisow haslem w 6 h) — puls bez danych i bez hasla paczki do udanego logowania", "wazne");
     return false;
   } catch (e) { return false; }
 }
@@ -799,10 +826,10 @@ function _dataIso(v) {
 /* Hasło paczki z komórki: tekst albo liczba całkowita (arkusz zamienia wpisane same cyfry na liczbę). Data, wartość logiczna,
    ułamek albo liczba bez pełnej precyzji to już nie to, co wpisał administrator (np. „1234,5678” → „1234.5678”, data →
    „Fri Jan 15 2027…”), a paczki zaszyfrowanej takim hasłem odbiorca nie otworzy — wtedy hasła nie wydajemy („brak”). */
-function _hasloZKomorki(ss, kod, v) {
+function _hasloZKomorki(ss, v) {
   if (v === null || v === undefined || typeof v === "string") return String(v || "").trim();
   if (typeof v === "number" && Number.isSafeInteger(v) && v >= 0) return String(v);
-  _log(ss, kod, "haslo_paczki_blad", "komorka hasla w zakladce Ustawienia nie jest tekstem — ustaw jej format Zwykly tekst i wpisz haslo ponownie", "raz");
+  _log(ss, "Ustawienia", "haslo_paczki_blad", "komorka hasla w zakladce Ustawienia nie jest tekstem — ustaw jej format Zwykly tekst i wpisz haslo ponownie", "raz");
   return "";
 }
 function hasloPaczki(dane) {
@@ -824,7 +851,7 @@ function hasloPaczki(dane) {
   var haslo = "", doDaty = "", adres = "";
   for (var j = 0; j < u.length; j++) {
     var k = String(u[j][0]).trim();
-    if (k === USTAWIENIE_HASLO_PACZKI) haslo = _hasloZKomorki(ss, kod, u[j][1]);
+    if (k === USTAWIENIE_HASLO_PACZKI) haslo = _hasloZKomorki(ss, u[j][1]);
     else if (k === USTAWIENIE_HASLO_PACZKI_DO) { _dataKomorki(ss, "Ustawienia", USTAWIENIE_HASLO_PACZKI_DO, u[j][1]); doDaty = _dataIso(u[j][1]); }
     else if (k === USTAWIENIE_ADRES_ODBIORCY) adres = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
   }

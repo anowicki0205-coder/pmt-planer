@@ -1769,11 +1769,21 @@ async function generuj() {
     }
     odswiezHero(); await odswiezParametry(); return;
   }
+  const prefiks = magMiesiace.klucz(M.rok, M.mies) + '/';
+  try {      // najpierw pliki: rekord miesiąca bez dokumentów (pełny dysk) wyglądałby jak gotowy miesiąc
+    await magPliki.usunMiesiac(prefiks);
+    for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(M.rok, M.mies, p.nazwa), p.bajty);
+  } catch (e) {
+    wid && wid.przerwij();
+    generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
+    try { await magPliki.usunMiesiac(prefiks); } catch (e2) { /* niepełne pliki usunie następne generowanie */ }
+    const opis = e && e.name === 'QuotaExceededError' ? 'Na urządzeniu zabrakło miejsca na dokumenty.' : `Nie udało się zapisać dokumentów na urządzeniu (${bezZnacznikow(String(e && e.message || e))}).`;
+    otworzArkusz(`${naglowekArkusza('Nie udało się zapisać')}<p class="ark-opis">${opis} Nic nie zostało zapisane — zwolnij miejsce w przeglądarce i wygeneruj ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
+    odswiezHero(); await odswiezParametry(); return;
+  }
   const rec = { params: par, wynik: w.wynik, podpisane: [], wyslane: false, utworzono: new Date().toISOString() };
   magMiesiace.zapisz(M.rok, M.mies, rec);
   dostep.policzDokumenty(w.pdf.length);
-  await magPliki.usunMiesiac(magMiesiace.klucz(M.rok, M.mies) + '/');
-  for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(M.rok, M.mies, p.nazwa), p.bajty);
   postepGeneracji('', 1);
   if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
   else await zegar(450);

@@ -488,7 +488,7 @@ function obsluzPuls(dane) {
   }
 
   // Status sesji
-  var wazne = w[3] instanceof Date ? w[3] : (w[3] ? new Date(w[3]) : null);
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
   var aktywna = !!(wazne && wazne >= dzis);
 
@@ -767,9 +767,32 @@ function _ustawieniaPaczki(ss) {
     "Adres e-mail, na ktory aplikacja przygotowuje wiadomosc z zahaslowana paczka dokumentow (odbiorca czyta paczki od wszystkich uzytkownikow jednym haslem)."]);
   return sh;
 }
+/* Data z komórki: data (arkusz rozpoznał wpis) albo tekst. Tekst „RRRR-MM-DD” i polski „DD.MM.RRRR” czytamy wprost —
+   new Date() czyta „10.11.2026” jako 11 października, a „31.12.2026” jako złą datę (błąd serwera przy każdym pulsie);
+   inne postacie tekstu jak dotąd przez new Date(). Nieczytelna (także liczba) = null, czyli jak pusta komórka. */
+function _data(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]") return isNaN(v.getTime()) ? null : v;
+  if (typeof v !== "string") return null;
+  var s = v.trim(), m, r, mc, dz;
+  if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))) { r = +m[1]; mc = +m[2]; dz = +m[3]; }
+  else if ((m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s))) { r = +m[3]; mc = +m[2]; dz = +m[1]; }
+  else {
+    var d0 = s ? new Date(s) : null;
+    return d0 && !isNaN(d0.getTime()) && d0.getFullYear() >= 2000 && d0.getFullYear() <= 2200 ? d0 : null;
+  }
+  var d = new Date(r, mc - 1, dz, 12);      // w południe: ten sam dzień w Europe/Warsaw przy każdej strefie czasowej skryptu
+  return d.getFullYear() === r && d.getMonth() === mc - 1 && d.getDate() === dz ? d : null;
+}
+/* _data() z wpisem w Log, gdy komórka nie jest pusta, a daty nie da się odczytać (administrator widzi, co poprawić). */
+function _dataKomorki(ss, kod, pole, v) {
+  var d = _data(v);
+  if (!d && String(v === null || v === undefined ? "" : v).trim())
+    _log(ss, kod, "nieczytelna_data", pole + ": " + String(v).slice(0, 40) + " — wpisz date jako RRRR-MM-DD albo DD.MM.RRRR", "raz");
+  return d;
+}
 function _dataIso(v) {
-  var d = v instanceof Date ? v : (v ? new Date(v) : null);
-  if (!d || isNaN(d.getTime())) return "";
+  var d = _data(v);
+  if (!d) return "";
   var p = function (n) { return ("0" + n).slice(-2); };
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
 }
@@ -794,7 +817,7 @@ function hasloPaczki(dane) {
     _log(ss, kod, "haslo_paczki_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
     return { status: "odmowa" };
   }
-  var wazne = w[3] instanceof Date ? w[3] : (w[3] ? new Date(w[3]) : null);
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
   if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
   var sU = _ustawieniaPaczki(ss), u = sU.getLastRow() > 1 ? sU.getRange(2, 1, sU.getLastRow() - 1, 2).getValues() : [];
@@ -802,7 +825,7 @@ function hasloPaczki(dane) {
   for (var j = 0; j < u.length; j++) {
     var k = String(u[j][0]).trim();
     if (k === USTAWIENIE_HASLO_PACZKI) haslo = _hasloZKomorki(ss, kod, u[j][1]);
-    else if (k === USTAWIENIE_HASLO_PACZKI_DO) doDaty = _dataIso(u[j][1]);
+    else if (k === USTAWIENIE_HASLO_PACZKI_DO) { _dataKomorki(ss, "Ustawienia", USTAWIENIE_HASLO_PACZKI_DO, u[j][1]); doDaty = _dataIso(u[j][1]); }
     else if (k === USTAWIENIE_ADRES_ODBIORCY) adres = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
   }
   // Wysyłka jest włączona dopiero, gdy wpisane są wszystkie trzy rzeczy: hasło, termin jego ważności i poprawny adres odbiorcy.

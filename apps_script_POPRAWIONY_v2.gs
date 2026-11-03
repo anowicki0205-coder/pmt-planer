@@ -823,19 +823,33 @@ function zapiszSesje(dane) {
 /*  dalo sie zgadywac. Liczymy w CacheService: na KOD (cel ataku) i LACZNIE */
 /*  (Apps Script nie zdradza adresu wywolujacego — licznik laczny zastepuje */
 /*  licznik „na adres"). Kazda proba, takze odrzucona, idzie do dziennika.  */
+/*  Licznik laczny liczy tylko NIEUDANE proby (zly telefon, nieznany kod):  */
+/*  chroni przed przeszukiwaniem kodow znanym numerem, a udane resety       */
+/*  innych osob go nie zuzywaja.                                            */
 var RESET_PROB_NA_KOD_NA_GODZINE     = 5;
 var RESET_PROB_LACZNIE_NA_GODZINE    = 30;
 var RESET_OKNO_SEKUND                = 3600;
 
-/* Zlicza probe pod kluczem i mowi, czy limit juz przekroczony. Licznik zyje
-   RESET_OKNO_SEKUND od OSTATNIEJ proby (kazda proba odnawia okno), wiec
-   ponawianie w kolko nie skraca blokady. doPost trzyma ScriptLock, wiec
-   odczyt-zapis licznika nie sciga sie z innym wywolaniem. */
-function _zaDuzoProb(klucz, limit) {
-  var pam = CacheService.getScriptCache();
-  var ile = (Number(pam.get(klucz)) || 0) + 1;
-  pam.put(klucz, String(ile), RESET_OKNO_SEKUND);
-  return ile > limit;
+/* Czy limit prob pod kluczem jest juz wyczerpany. Okno STALE (_licznik): kolejne
+   proby go nie odnawiaja, a odrzucone nie sa doliczane — dawniej kazda proba
+   odnawiala godzine, wiec jedno zapytanie na godzine blokowalo reset na zawsze. */
+function _zaDuzoProb(klucz, limit) { return _licznik(klucz, RESET_OKNO_SEKUND, false) >= limit; }
+function _policzProbe(klucz) { _licznik(klucz, RESET_OKNO_SEKUND, true); }
+
+/* ODBLOKOWANIE KONT — uruchamiasz RĘCZNIE w edytorze (wybierz „odblokujKonta” z listy u góry → ▶ Uruchom), gdy ktoś
+   jest zablokowany limitem prób (logowanie, podpisy hasłem, reset hasła) i nie może czekać do końca okna (do 6 godzin).
+   Liczniki żyją w pamięci podręcznej skryptu, nie w arkuszu, więc wyczyszczenie „Haslo hash” ich nie zdejmuje.
+   Zdejmuje liczniki wszystkich kont z zakładki Uzytkownicy; nie da się tego wywołać przez adres /exec. */
+function odblokujKonta() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
+  var w = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues() : [];
+  var klucze = ["reset:wszyscy"], kont = 0, pam = CacheService.getScriptCache();
+  for (var i = 0; i < w.length; i++) {
+    var kod = String(w[i][0]).trim();
+    if (_kodPoprawny(kod)) { klucze.push("lg:k:" + kod, "lg:d:" + kod, "ph:" + kod, "reset:" + kod); kont++; }
+  }
+  for (var j = 0; j < klucze.length; j += 100) pam.removeAll(klucze.slice(j, j + 100));
+  _log(ss, "admin", "odblokowanie", "zdjete liczniki prob: " + kont + " kont");
 }
 
 function resetHasla(dane) {
@@ -846,12 +860,13 @@ function resetHasla(dane) {
     _log(ss, kod, "reset_hasla", "ODRZUCONA (zly format kodu)");
     return { status: "blad", opis: "Kod musi miec 5 cyfr" };
   }
-  var kluczKodu = "reset:" + kod;
-  if (_zaDuzoProb("reset:wszyscy", RESET_PROB_LACZNIE_NA_GODZINE) ||
-      _zaDuzoProb(kluczKodu, RESET_PROB_NA_KOD_NA_GODZINE)) {
+  var kluczKodu = "reset:" + kod, kluczLaczny = "reset:wszyscy";
+  if (_zaDuzoProb(kluczKodu, RESET_PROB_NA_KOD_NA_GODZINE) ||
+      _zaDuzoProb(kluczLaczny, RESET_PROB_LACZNIE_NA_GODZINE)) {
     _log(ss, kod, "reset_hasla", "ODRZUCONA (za duzo prob)");
     return { status: "blad", opis: "Za duzo prob resetu — sprobuj za godzine" };
   }
+  _policzProbe(kluczKodu);
   var sh = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
   if (!sh || sh.getLastRow() < 2) {
     _log(ss, kod, "reset_hasla", "ODRZUCONA (brak bazy)");
@@ -862,10 +877,12 @@ function resetHasla(dane) {
     if (String(w[i][0]).trim() !== kod) continue;
     var telBaza = String(w[i][12] || "").replace(/\D/g, "");
     if (!telBaza) {
+      _policzProbe(kluczLaczny);
       _log(ss, kod, "reset_hasla", "ODRZUCONA (konto bez telefonu)");
       return { status: "blad", opis: "Konto nie ma telefonu w kartotece — zglos sie do administratora" };
     }
     if (tel.length < 9 || telBaza.slice(-9) !== tel.slice(-9)) {
+      _policzProbe(kluczLaczny);
       _log(ss, kod, "reset_hasla", "ODRZUCONA (zly telefon)");
       return { status: "blad", opis: "Numer telefonu nie zgadza sie z kartoteka" };
     }
@@ -875,6 +892,7 @@ function resetHasla(dane) {
     return { status: "ok",
              opis: "Haslo skasowane. Zaloguj sie numerem telefonu i ustaw nowe haslo." };
   }
+  _policzProbe(kluczLaczny);
   _log(ss, kod, "reset_hasla", "ODRZUCONA (nieznany kod)");
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
 }

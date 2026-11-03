@@ -43,6 +43,7 @@ function zaladuj(opcje = {}) {
       get: k => { const e = pamiec.get(k); if (!e) return null; if (e.do < zegar) { pamiec.delete(k); return null; } return e.v; },
       put: (k, v, ttl = 600) => { pamiec.set(k, { v: String(v), do: zegar + ttl * 1000 }); },
       remove: k => { pamiec.delete(k); },
+      removeAll: ks => { ks.forEach(k => pamiec.delete(k)); },
     }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => wlasciwosci.has(k) ? wlasciwosci.get(k) : null, setProperty: (k, v) => wlasciwosci.set(k, String(v)) }) },
     Utilities: {

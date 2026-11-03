@@ -7329,7 +7329,16 @@ h1 {{ color:{tytul_c}; text-align:center; margin-bottom:4px; }}
 
 def waliduj_pesel(pesel: str) -> bool:
     if not re.match(r"^\d{11}$", pesel): return False
-    return (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 == int(pesel[10])
+    if (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 != int(pesel[10]):
+        return False
+    # Sama suma kontrolna przepuszczała „00000000000" i miesiąc 34. Data urodzenia:
+    # miesiąc +80 dla lat 1800–1899, +0, +20, +40, +60 dla 1900, 2000, 2100, 2200.
+    mm = int(pesel[2:4])
+    try:
+        datetime.date((1900, 2000, 2100, 2200, 1800)[mm // 20] + int(pesel[0:2]), mm % 20, int(pesel[4:6]))
+    except ValueError:
+        return False
+    return True
 
 def _czy_znana_miejscowosc(nazwa: str) -> bool:
     """Czy nazwa występuje w naszej bazie miejscowości? Jeśli tak, adres bez

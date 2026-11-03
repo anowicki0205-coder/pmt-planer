@@ -12114,6 +12114,46 @@ for _M in (P, _S33):
     sprawdz("%s: adres na dokumencie — „Bielsko-Biała”, „Jana Pawła II”, „Nakło nad Notecią”; wpis małymi literami jak dotąd"
             % ("program" if _M is P else "web"), not _zle33, str(_zle33))
 
+# PESEL: poza sumą kontrolną także data urodzenia — ale ŻADEN prawdziwy numer (1800–2299, 29.02 w latach przestępnych) nie odpada
+def _z_kontrolna33(p10):
+    return p10 + str((10 - sum(int(p10[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10)
+def _pesel33(rok, mies, dzien, seria="0001"):
+    return _z_kontrolna33("%02d%02d%02d%s" % (rok % 100, mies + {18: 80, 19: 0, 20: 20, 21: 40, 22: 60}[rok // 100], dzien, seria))
+_dobre33, _d33 = [], datetime.date(1800, 1, 1)
+while _d33 <= datetime.date(2299, 12, 31):
+    _dobre33.append(_pesel33(_d33.year, _d33.month, _d33.day, "%04d" % (_d33.toordinal() % 10000)))
+    _d33 += datetime.timedelta(days=1)
+_zle33 = [_pesel33(1999, 2, 29), _pesel33(1900, 2, 29), _pesel33(2100, 2, 29), _pesel33(1990, 4, 31), _pesel33(1990, 1, 32),
+          _pesel33(1990, 1, 0), "00000000000", "12345678903"]
+_zle33 += [_z_kontrolna33("90%02d010000" % _mm) for _mm in (0, 13, 20, 33, 40, 53, 60, 73, 80, 93, 99)]   # miesiące poza 01–12 (+20/+40/+60/+80)
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _odrzucone33 = [p for p in _dobre33 if not _M.waliduj_pesel(p)]
+    _przepuszczone33 = [p for p in _zle33 if _M.waliduj_pesel(p)]
+    sprawdz("%s: PESEL z niemożliwą datą odpada (00000000000, miesiąc 34, 29.02.1999), a każdy z lat 1800–2299 przechodzi (90010112349 też)"
+            % ("program" if _M is P else "web"),
+            not _odrzucone33 and not _przepuszczone33 and _M.waliduj_pesel("90010112349") and len(_dobre33) > 182000,
+            str((_odrzucone33[:3], _przepuszczone33[:3])))
+_node33 = shutil.which("node")
+if _node33:
+    try:
+        _js33 = open(os.path.join(KATALOG, "web", "js", "aplikacja.js"), encoding="utf-8").read()
+        _i33 = _js33.index("const peselPoprawny = p => {")
+        _skr33 = os.path.join(_TMP_HOME, "pesel33.js")
+        with open(_skr33, "w", encoding="utf-8") as _f:
+            _f.write(_js33[_i33:_js33.index("\n};", _i33) + 3] + "\nconst d = JSON.parse(require('fs').readFileSync(0, 'utf8'));\n"
+                     "process.stdout.write(JSON.stringify({dobre: d.dobre.filter(p => !peselPoprawny(p)), zle: d.zle.filter(p => peselPoprawny(p))}));\n")
+        import subprocess as _sp33
+        _w33 = json.loads(_sp33.run([_node33, _skr33], input=json.dumps({"dobre": _dobre33 + ["9001011234 9"], "zle": _zle33}),
+                                    capture_output=True, text=True, timeout=120).stdout)
+        sprawdz("aplikacja (peselPoprawny w formularzu) ocenia PESEL tak samo jak silnik — wszystkie daty 1800–2299 i daty niemożliwe",
+                _w33 == {"dobre": [], "zle": []}, str(_w33)[:300])
+    except Exception as _e33:
+        sprawdz("peselPoprawny w aplikacji zgodny z silnikiem", False, repr(_e33))
+else:
+    print("  (pominięte: brak node — zgodność peselPoprawny z silnikiem sprawdza się tylko z node)")
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

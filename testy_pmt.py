@@ -484,7 +484,7 @@ P._zapisz_logowanie(_kod_o, "Jan Testowy", P._hash_hasla(_kod_o, _haslo_o))
 P._zapamietaj_waznosc_konta(_kod_o, (datetime.date.today() + datetime.timedelta(days=200)).isoformat())
 _hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
 sprawdz("historia urządzenia pamięta ważność konta PER KONTO",
-        bool(_hist.get("wazne_do")) and bool(_hist.get("skrot")), str(_hist))
+        bool(_hist.get("wazne_do")) and bool(_hist.get("weryfikator")), str(_hist))
 P._zapisz_logowanie(_kod_o, "", P._hash_hasla(_kod_o, _haslo_o))
 _hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
 sprawdz("ponowne logowanie nie kasuje ważności ani imienia w historii",
@@ -2011,6 +2011,9 @@ try:
     # Puls nigdy nie sprawdzał hasła: znajomość samego 5-cyfrowego kodu dawała cudze imię, rejon i L4.
     # Teraz program podpisuje puls i sesję HMAC-iem, którego kluczem jest skrót hasła z tego komputera
     # (backend zna ten sam skrót z kolumny „Haslo hash”). Hasło nigdzie nie jedzie.
+    # Od 3.25.1 skrót żyje w pamięci od logowania (_SKROTY_SESJI); tu nowy proces z plikiem
+    # historii zapisanym przez starszą wersję (skrót wprost na dysku).
+    P._SKROTY_SESJI.clear()
     _skrot5 = P._hash_hasla("12345", "haslo123")
     P._zapisz(P.PLIK_LOGOWAN, {"12345": {"imie": "Jan Testowy", "skrot": _skrot5, "ostatnio": "2026-10-28T10:00:00"}})
     _dp5 = P._podpisz_zadanie({"akcja": "puls", "kod": "12345"})
@@ -12067,6 +12070,55 @@ except Exception as _e33:
     _tb33.print_exc()
     sprawdz("kopia zapasowa tylko z danymi zalogowanego konta", False, repr(_e33))
 finally:
+    _dom33()
+
+# Skrót hasła SHA-256("PMT|kod|hasło") jest kluczem podpisu hasłem (puls, sesja,
+# hasło paczki) — leżał jawnie w ~/.pmt_logowania.json każdego konta i zostawał
+# po wylogowaniu. Teraz: w pamięci procesu, a na dysku weryfikator PBKDF2.
+try:
+    _dom33()
+    P._SKROTY_SESJI.clear()
+    _skr33 = P._hash_hasla("11111", "Haslo Anny 1")
+    P._zapisz_status_po_logowaniu("11111", _skr33, "Anna Kowalska")
+    P._zapisz_logowanie("11111", "Anna Kowalska", _skr33)
+    _dysk33 = open(P.PLIK_LOGOWAN, encoding="utf-8").read() + open(P.PLIK_STATUSU, encoding="utf-8").read()
+    sprawdz("po logowaniu skrót hasła nie leży na dysku (historia logowań ma weryfikator PBKDF2)",
+            _skr33 not in _dysk33
+            and str((P._wczytaj(P.PLIK_LOGOWAN, {}).get("11111") or {}).get("weryfikator", "")).startswith("pbkdf2_sha256$"),
+            _dysk33[:200])
+    sprawdz("w trakcie sesji puls dalej niesie podpis hasłem",
+            "podpis_hasla" in P._podpisz_zadanie({"akcja": "puls", "kod": "11111"}))
+    _ur33 = P.urllib.request.urlopen
+    P.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("bez sieci (test)"))
+    try:
+        P._SKROTY_SESJI.clear()                      # nowy start programu
+        _off33 = (P.online_zaloguj("11111", "Haslo Anny 1")[0], P.online_zaloguj("11111", "Haslo Anny 2")[0],
+                  P._haslo_znane_lokalnie("11111", "Haslo Anny 1"), P._haslo_znane_lokalnie("11111", "Haslo Anny 2"))
+    finally:
+        P.urllib.request.urlopen = _ur33
+    sprawdz("logowanie bez sieci i autologowanie działają na weryfikatorze (złe hasło nie wchodzi)",
+            _off33 == (True, False, True, False), str(_off33))
+    P.online_wyloguj()
+    sprawdz("po wylogowaniu nie ma czym podpisać pulsu tego konta",
+            "podpis_hasla" not in P._podpisz_zadanie({"akcja": "puls", "kod": "11111"})
+            and P._skrot_hasla_lokalny("11111") == "")
+    # pliki sprzed 3.25.1: skrót wprost w historii logowań i w statusie
+    _skr33b = P._hash_hasla("22222", "Haslo Bogdana")
+    P._zapisz(P.PLIK_LOGOWAN, {"22222": {"imie": "Bogdan Nowak", "skrot": _skr33b,
+                                         "ostatnio": "2026-10-28T10:00:00"}})
+    P._zapisz(P.PLIK_STATUSU, {"kod": "22222", "skrot": _skr33b})
+    P._usun_skroty_z_dysku()
+    _dysk33 = open(P.PLIK_LOGOWAN, encoding="utf-8").read() + open(P.PLIK_STATUSU, encoding="utf-8").read()
+    sprawdz("start programu zdejmuje z dysku skróty zapisane przez starsze wersje, a hasło dalej się zgadza",
+            _skr33b not in _dysk33 and P._haslo_znane_lokalnie("22222", "Haslo Bogdana")
+            and P._skrot_zweryfikowany("22222", "Haslo Bogdana") == _skr33b
+            and P._skrot_zweryfikowany("22222", "Haslo Bogdan") == "", _dysk33[:200])
+except Exception as _e33:
+    import traceback as _tb33
+    _tb33.print_exc()
+    sprawdz("skrót hasła tylko w pamięci, na dysku weryfikator", False, repr(_e33))
+finally:
+    P._SKROTY_SESJI.clear()
     _dom33()
 
 # ══════════════════════════════════════════════════════════════════

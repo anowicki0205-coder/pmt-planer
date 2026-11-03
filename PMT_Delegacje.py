@@ -456,6 +456,8 @@ def _skrot_zweryfikowany(kod: str, haslo: str) -> str:
     policzony = _hash_hasla(kod, haslo)
     if zapamietany and hmac.compare_digest(str(zapamietany), policzony):
         return policzony
+    if _skrot_pasuje((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod), policzony):
+        return policzony
     return ""
 
 
@@ -829,7 +831,7 @@ def online_zapisz_kod(kod: str):
         # nie potwierdził dostępu" po chwili.
         znane = (_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}
         if isinstance(znane, dict):
-            for _pole in ("imie", "skrot", "wazne_do"):
+            for _pole in ("imie", "wazne_do"):
                 if znane.get(_pole):
                     st[_pole] = str(znane[_pole])
     st["kod"] = kod
@@ -1177,12 +1179,71 @@ def mailto_zgloszenia(kod: str = "") -> str:
                                      quote(temat_zgloszenia(kod), safe=""))
 
 
-def _skrot_hasla_lokalny(kod) -> str:
-    """Skrót hasła konta zapisany na TYM komputerze po udanym logowaniu (ten sam
-    „PMT|kod|hasło”, który backend trzyma w kolumnie „Haslo hash”); pusty, gdy konto
-    nie logowało się tu jeszcze albo nie ma hasła. Samo hasło nigdy nie jest zapisywane."""
-    kod = str(kod or "").strip()
+# Skrót hasła („PMT|kod|hasło”, ten sam co w kolumnie „Haslo hash”) jest kluczem
+# podpisu hasłem (puls, sesja) i pliku .pmtdane, a jedno SHA-256 łamie się offline
+# w minuty — dlatego na dysk nie trafia. Żyje w pamięci od logowania do końca
+# procesu; do logowania bez sieci na dysku leży tylko weryfikator PBKDF2.
+_SKROTY_SESJI = {}
+ITERACJE_WERYFIKATORA = 100000
+
+
+def _weryfikator_skrotu(skrot: str, sol: str = "") -> str:
+    sol = sol or os.urandom(16).hex()
+    wynik = hashlib.pbkdf2_hmac("sha256", str(skrot).encode("utf-8"), bytes.fromhex(sol),
+                                ITERACJE_WERYFIKATORA)
+    return "pbkdf2_sha256$%d$%s$%s" % (ITERACJE_WERYFIKATORA, sol, wynik.hex())
+
+
+def _skrot_pasuje(wpis, skrot: str) -> bool:
+    """Czy skrót hasła zgadza się z wpisem historii logowań: z weryfikatorem albo
+    (wpis sprzed 3.25.1, jeszcze nieprzepisany) z zapisanym wprost skrótem."""
+    if not isinstance(wpis, dict) or not skrot:
+        return False
+    weryfikator = str(wpis.get("weryfikator") or "")
+    if weryfikator:
+        try:
+            rodzaj, iteracje, sol, wartosc = weryfikator.split("$")
+            if rodzaj != "pbkdf2_sha256":
+                return False
+            policzony = hashlib.pbkdf2_hmac("sha256", str(skrot).encode("utf-8"),
+                                            bytes.fromhex(sol), int(iteracje)).hex()
+            return hmac.compare_digest(policzony, wartosc)
+        except Exception:
+            return False
+    stary = str(wpis.get("skrot") or "")
+    return bool(stary) and hmac.compare_digest(stary, str(skrot))
+
+
+def _usun_skroty_z_dysku():
+    """Wpisy historii logowań sprzed 3.25.1 i plik statusu trzymały skrót hasła
+    wprost. Zamieniamy go na weryfikator (liczony z samego skrótu, bez hasła)."""
     try:
+        dane = _wczytaj(PLIK_LOGOWAN, {}) or {}
+        zmiana = False
+        for wpis in dane.values():
+            if isinstance(wpis, dict) and "skrot" in wpis:
+                if wpis.get("skrot") and not wpis.get("weryfikator"):
+                    wpis["weryfikator"] = _weryfikator_skrotu(str(wpis["skrot"]))
+                wpis.pop("skrot", None)
+                zmiana = True
+        if zmiana:
+            _zapisz(PLIK_LOGOWAN, dane)
+        st = _wczytaj(PLIK_STATUSU, {}) or {}
+        if "skrot" in st:
+            st.pop("skrot", None)
+            _zapisz(PLIK_STATUSU, st)
+    except Exception:
+        pass
+
+
+def _skrot_hasla_lokalny(kod) -> str:
+    """Skrót hasła konta z logowania w TYM procesie (patrz _SKROTY_SESJI); pusty,
+    gdy konto się nie logowało. Samo hasło nigdy nie jest zapisywane."""
+    kod = str(kod or "").strip()
+    if _SKROTY_SESJI.get(kod):
+        return _SKROTY_SESJI[kod]
+    try:
+        # pliki sprzed 3.25.1, których _usun_skroty_z_dysku jeszcze nie przepisała
         skrot = (_wczytaj(PLIK_LOGOWAN, {}).get(kod, {}) or {}).get("skrot")
         if skrot:
             return str(skrot)
@@ -1293,15 +1354,17 @@ def historia_logowan(limit: int = 3):
 
 
 def _zapisz_logowanie(kod: str, imie: str, skrot: str):
-    """Dopisuje konto do historii urządzenia. Skrót hasła pozwala zalogować
-    się później BEZ internetu — samo hasło nigdy nie jest zapisywane."""
+    """Dopisuje konto do historii urządzenia. Weryfikator skrótu hasła pozwala
+    zalogować się później BEZ internetu — hasło ani skrót nie są zapisywane."""
     dane = _wczytaj(PLIK_LOGOWAN, {})
     stary = dane.get(str(kod))
     if not isinstance(stary, dict):
         stary = {}
     wpis = {"imie": str(imie or "") or str(stary.get("imie", "") or ""),
-            "skrot": str(skrot),
             "ostatnio": datetime.datetime.now().isoformat(timespec="seconds")}
+    if skrot:
+        wpis["weryfikator"] = _weryfikator_skrotu(str(skrot))
+        _SKROTY_SESJI[str(kod)] = str(skrot)
     if stary.get("wazne_do"):
         wpis["wazne_do"] = str(stary["wazne_do"])
     dane[str(kod)] = wpis
@@ -1341,7 +1404,9 @@ def _zapisz_status_po_logowaniu(kod: str, skrot: str, imie: str, wazne_do: str =
         for _pole in POLA_OSOBISTE_STATUSU:
             st.pop(_pole, None)
     st["kod"] = kod
-    st["skrot"] = skrot
+    st.pop("skrot", None)
+    if skrot:
+        _SKROTY_SESJI[str(kod)] = str(skrot)
     if imie:
         st["imie"] = str(imie)
     else:
@@ -1385,7 +1450,7 @@ def _sesja_z_historii_urzadzenia():
             except Exception:
                 pass
         ost = str(wpis.get("ostatnio", "") or "")
-        if wpis.get("skrot") and ost:
+        if (wpis.get("weryfikator") or wpis.get("skrot")) and ost:
             # bez daty ostatniego logowania online nie ma od czego liczyć —
             # wtedy decyduje zasada demo, nie bezterminowy zapas
             if _logowanie_offline_dozwolone(wpis):
@@ -1443,7 +1508,7 @@ def _haslo_znane_lokalnie(kod: str, haslo: str) -> bool:
     try:
         skrot = _hash_hasla(kod, str(haslo))
         znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
-        if znane.get("skrot") == skrot:
+        if _skrot_pasuje(znane, skrot):
             return True
         st = _wczytaj(PLIK_STATUSU, {})
         return str(st.get("kod", "")) == kod and st.get("skrot") == skrot
@@ -1485,7 +1550,7 @@ def online_zaloguj(kod: str, haslo: str):
         znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
         st = _wczytaj(PLIK_STATUSU, {})
         skrot = _hash_hasla(kod, haslo)
-        if znane.get("skrot") == skrot or (st.get("kod") == kod and st.get("skrot") == skrot):
+        if _skrot_pasuje(znane, skrot) or (st.get("kod") == kod and st.get("skrot") == skrot):
             if not _logowanie_offline_dozwolone(znane):
                 return False, "", ("Minęło ponad %d dni od ostatniego logowania z internetem. "
                                    "Połącz się z siecią i zaloguj raz online — potem znów "
@@ -1511,11 +1576,12 @@ def online_zaloguj(kod: str, haslo: str):
         return False, "", _powod
     if odp.get("status") != "ok":
         return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
-    st = _zapisz_status_po_logowaniu(kod, _hash_hasla(kod, haslo), str(odp.get("imie", "")))
+    skrot = _hash_hasla(kod, haslo)
+    st = _zapisz_status_po_logowaniu(kod, skrot, str(odp.get("imie", "")))
     if odp.get("wazne_do"):
         st["wazne_do"] = str(odp.get("wazne_do"))
         _zapisz(PLIK_STATUSU, st)
-    _zapisz_logowanie(kod, st.get("imie", ""), st["skrot"])
+    _zapisz_logowanie(kod, st.get("imie", ""), skrot)
     if odp.get("wazne_do"):
         _zapamietaj_waznosc_konta(kod, str(odp.get("wazne_do")), st.get("imie", ""))
     try:
@@ -1639,6 +1705,8 @@ def _wyczysc_status_osoby():
 def online_wyloguj():
     """Usuwa z komputera wszystko, co identyfikuje wylogowaną osobę:
     kod, skrót hasła, imię, rejon, ważność sesji i listę nieobecności."""
+    _SKROTY_SESJI.clear()
+    _usun_skroty_z_dysku()
     return _wyczysc_status_osoby()
 
 
@@ -4927,8 +4995,8 @@ def zmien_haslo_w_programie(rodzic, kod: str, ciemny: bool = True):
     if odp.get("status") == "ok":
         try:
             st = _wczytaj(PLIK_STATUSU, {})
-            if str(st.get("kod", "")) == kod:
-                st["skrot"] = _hash_hasla(kod, nowe)
+            if str(st.get("kod", "")) == kod and "skrot" in st:
+                st.pop("skrot", None)
                 _zapisz(PLIK_STATUSU, st)
             hist = _wczytaj(PLIK_LOGOWAN, {})
             im_ = str((hist.get(kod) or {}).get("imie", "") or st.get("imie", ""))
@@ -18021,6 +18089,7 @@ if __name__ == "__main__":
     # ── PRZEJŚCIE NA APLIKACJĘ WEB — informacja dla każdego użytkownika ──
     # Do terminu raz dziennie (można pracować dalej), od terminu sama informacja i koniec programu.
     # Działa tylko, gdy wersja.txt ma wiersz „web=" (patrz przejscie_na_web_stan).
+    _usun_skroty_z_dysku()
     try:
         if przejscie_na_web_przy_starcie():
             sys.exit(0)

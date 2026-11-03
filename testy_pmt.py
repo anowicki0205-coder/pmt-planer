@@ -12093,6 +12093,27 @@ for _M in (P, _S33):
     sprawdz("%s: kody z pogranicza (Ryki, Gorlice, Racibórz, Głogów, Sępólno, Wyrzysk, Żyrardów, Sochaczew) w swoich województwach"
             % ("program" if _M is P else "web"), not _zle33, str(_zle33))
 
+# adres na dokumencie: capitalize() nie psuje członów po łączniku ani liczb rzymskich; wpis małymi literami jak dotąd
+_adr33 = {"ul. Jana Pawła II 12, 43-300 Bielsko-Biała": ("ul. Jana Pawła II 12, 43-300 Bielsko-Biała", "Bielsko-Biała"),
+          "Grota-Roweckiego 5/3, 26-110 Skarżysko-Kamienna": ("Grota-Roweckiego 5/3, 26-110 Skarżysko-Kamienna", "Skarżysko-Kamienna"),
+          "al. Jana III Sobieskiego 3, 47-200 Kędzierzyn-Koźle": ("al. Jana III Sobieskiego 3, 47-200 Kędzierzyn-Koźle", "Kędzierzyn-Koźle"),
+          "ul. Kwiatowa 5, 89-100 Nakło nad Notecią": ("ul. Kwiatowa 5, 89-100 Nakło nad Notecią", "Nakło nad Notecią"),
+          "UL. LIPOWA 3, 26-600 RADOM": ("ul. Lipowa 3, 26-600 Radom", "Radom"),
+          # dotychczasowe wyniki bez zmian
+          "ul. 3-go Maja 5, 26-600 Radom": ("ul. 3-go Maja 5, 26-600 Radom", "Radom"),
+          "ul. 1000-lecia 3, 26-600 radom": ("ul. 1000-lecia 3, 26-600 Radom", "Radom"),
+          "ul. cyryla i metodego 4, 00-001 warszawa": ("ul. Cyryla I Metodego 4, 00-001 Warszawa", "Warszawa"),
+          "ul. Lilii 2, 26-600 Radom": ("ul. Lilii 2, 26-600 Radom", "Radom"),
+          "ul. Pod Lipami 3, 26-600 Radom": ("ul. Pod Lipami 3, 26-600 Radom", "Radom"),
+          "bielsko-biała 5, 43-300 bielsko-biała": ("Bielsko-biała 5, 43-300 Bielsko-biała", "Bielsko-biała")}
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _zle33 = [(k, (_a["adres_caly"], _a["baza_miasto"])) for k, w in _adr33.items()
+              for _a in [_M.waliduj_adres(k)] if (_a["adres_caly"], _a["baza_miasto"]) != w]
+    sprawdz("%s: adres na dokumencie — „Bielsko-Biała”, „Jana Pawła II”, „Nakło nad Notecią”; wpis małymi literami jak dotąd"
+            % ("program" if _M is P else "web"), not _zle33, str(_zle33))
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

@@ -7407,6 +7407,30 @@ def _wyglada_jak_miejscowosc(nazwa: str) -> bool:
     return _klasyfikuj_adres(nazwa) == 'wies'
 
 
+def _nazwa_wielka(tekst: str, miejscowosc: bool = False) -> str:
+    """Wielkie litery w nazwie ulicy/miejscowości jak dawne capitalize() każdego
+    słowa, ale bez psucia nazw własnych: liczba rzymska zostaje wielka („Jana
+    Pawła II", nie „Ii"), człon po łączniku wpisany wielką literą zostaje wielki
+    („Bielsko-Biała", „Grota-Roweckiego"), a w nazwie miejscowości przyimek
+    wpisany małą literą zostaje mały („Nakło nad Notecią"). Wpis małymi
+    literami wychodzi tak jak dotąd („3-go Maja", „XXX-lecia")."""
+    wynik = []
+    for i, slowo in enumerate(tekst.split()):
+        if i and miejscowosc and slowo in ("nad", "pod", "przy", "na", "w", "k.", "koło"):
+            wynik.append(slowo)
+            continue
+        czlony = slowo.split("-")
+        for j, c in enumerate(czlony):
+            if len(c) > 1 and re.fullmatch(r"(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})", c, re.IGNORECASE):
+                czlony[j] = c.upper()
+            elif j == 0 or (c[:1].isupper() and czlony[j - 1].isalpha()):
+                czlony[j] = c.capitalize()
+            else:
+                czlony[j] = c.lower()
+        wynik.append("-".join(czlony))
+    return " ".join(wynik)
+
+
 def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     """wymus_typ: None (auto), 'ulica' lub 'wies' — decyzja użytkownika dla
     adresów niejednoznacznych. Gdy typ jest niejednoznaczny i nie podano
@@ -7432,10 +7456,10 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     prefiks = {"ulica": "ul.", "aleja": "al.", "plac": "pl.",
                "osiedle": "os.", "os.": "os.", "ul.": "ul.",
                "al.": "al.", "pl.": "pl."}.get(prefiks_raw, prefiks_raw)
-    nazwa = ' '.join(w.capitalize() for w in m.group(2).split())   # "Sarnowa Góra" lub "Kowalskiego"
+    nazwa = _nazwa_wielka(m.group(2))                              # "Sarnowa Góra" lub "Kowalskiego"
     numer = m.group(3).strip()
     kod = m.group(4).strip()
-    poczta = ' '.join(w.capitalize() for w in m.group(5).split())  # "Sońsk" / "Warszawa"
+    poczta = _nazwa_wielka(m.group(5), miejscowosc=True)           # "Sońsk" / "Warszawa"
     # Jawny przedrostek to rozstrzygnięcie użytkownika — nie pytamy o typ.
     if prefiks and not wymus_typ:
         wymus_typ = 'ulica'

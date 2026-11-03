@@ -249,10 +249,12 @@ export function zainstalujPodpis(k) {
     for (const n of plikiDok(i)) if (!nowe.includes(n)) { try { await magPliki.usun(k.kluczPodp(i, n)); } catch (e) { /* plik mógł już zniknąć */ } }
     zmienPliki(i, nowe, metoda, Object.fromEntries(nowe.map((n, j) => [n, zrodla[j].orig])), zachowaj);
   }
-  /** Nowy podpis elektroniczny zastępuje pliki dokumentu z wcześniejszych wgrań (np. poprawiony podpis po „błędzie podpisu”), a skan — wcześniejszy, nieprzyjęty podpis elektroniczny:
-      inaczej sprawdzany byłby nadal stary plik, a do paczki szłyby obie wersje. Skan dokładany do skanów to kolejna strona dokumentu. */
+  /** Nowy podpis elektroniczny zastępuje pliki dokumentu z wcześniejszych wgrań (np. poprawiony podpis po „błędzie podpisu”), a skan — wcześniejszy, nieprzyjęty podpis elektroniczny
+      albo skan z kompletem stron, na którym nie widać podpisu (ponowny skan po „podpisz długopisem i zeskanuj ponownie”): inaczej sprawdzany byłby nadal stary plik,
+      a do paczki szłyby obie wersje. Poza tym skan dokładany do skanów to kolejna strona dokumentu. */
   async function przypisz(w, i) {
-    const zastap = w.rodzaj === 'e' || (Object.assign({}, rec().metodaPodpisu, M().metodaPodpisu)[i] === 'e' && !M().podpisane[i]);
+    const wer = weryfikacje()[i], odrzucony = !!wer && wer.stan === 'zle' && !wer.kontrole.some(c => c.id === 'strony');
+    const zastap = w.rodzaj === 'e' || (!M().podpisane[i] && (Object.assign({}, rec().metodaPodpisu, M().metodaPodpisu)[i] === 'e' || odrzucony));
     await zapiszPliki(i, { dodaj: { orig: w.plik.name, bajty: w.bajty }, metoda: w.rodzaj === 'e' ? 'e' : 'reczny', zastap }); w.i = i;
   }
   async function odlacz(w) {

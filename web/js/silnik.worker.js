@@ -6,8 +6,10 @@ const KORZEN = new URL('../', import.meta.url);
 const adres = s => new URL(s, KORZEN).href;
 let py = null, start = null;
 
+/* vendor/ (Pyodide, koła) nie zmienia się między wdrożeniami — z pamięci HTTP bez pytania; pliki silnika i czcionki rewalidujemy (304), inaczej na wdrożeniu bez SW (http)
+   nowy aplikacja.js dostawałby stary most.py / pmt_silnik.py z pamięci przeglądarki */
 async function pobierz(s, opcjonalnie = false) {
-  const r = await fetch(adres(s), { cache: 'force-cache' });
+  const r = await fetch(adres(s), { cache: s.startsWith('vendor/') ? 'force-cache' : 'no-cache' });
   if (!r.ok) { if (opcjonalnie) return null; throw new Error('Nie można pobrać ' + s + ' (' + r.status + ')'); }
   return new Uint8Array(await r.arrayBuffer());
 }

@@ -12007,6 +12007,40 @@ if _M33 is not None:
         _S33.generuj_trasy, _S33._menedzer = _org33
         _S33._geo_pytane.clear(); _S33._geo_braki = None
 
+# plan wizyt: każdy dzień zaczyna się w bazie — limit dnia obejmuje dojazd z domu, a godziny w aplikacji mieszczą się w oknie
+if _M33 is not None:
+    try:
+        import random as _rnd33
+        _r33 = _rnd33.Random(7)
+        _pkt33 = [_S33.PunktWizyty("Sklep %d" % _i, "Sklep %d" % _i, lat=50.87 + _r33.uniform(-0.12, 0.12),
+                                   lng=20.63 + _r33.uniform(-0.18, 0.18), miasto="Kielce") for _i in range(60)]
+        _baza33 = _S33.PunktWizyty("Baza (start)", "Radom", lat=51.40, lng=21.15, miasto="Radom")
+        _S33.ustaw_tryb_pracy("wieczory")
+        _M33.USTAWIENIA_WEB["plan_godziny"] = 5.5
+        _pl33 = _S33.planuj_wizyty(_pkt33, 2026, 12, baza=_baza33, offline=True)
+        _cw33 = _S33.ustawienia_planowania()["czas_wizyty"]
+        _konce33 = []
+        for _d33 in _pl33["dni"]:
+            _g33 = _M33._godziny_dnia(_d33, _baza33, "wieczory")[-1]
+            _konce33.append(int(_g33[:2]) * 60 + int(_g33[3:]) + _cw33)
+        _dojazd33 = [round(_S33._dyst_prosty(_baza33, _d33.wizyty[0]), 1) for _d33 in _pl33["dni"]]
+        sprawdz("plan wizyt (wieczory 16:30–22:00, sklepy ok. 70 km od bazy): żaden dzień nie kończy się po 22:00",
+                len(_pl33["dni"]) > 3 and max(_konce33) <= 22 * 60, str([("%02d:%02d" % divmod(int(_k), 60)) for _k in _konce33]))
+        sprawdz("plan wizyt: km każdego dnia obejmują dojazd z bazy do pierwszej wizyty",
+                all(_d33.km >= _dj - 0.1 for _d33, _dj in zip(_pl33["dni"], _dojazd33)), str([(_d33.km, _dj) for _d33, _dj in zip(_pl33["dni"], _dojazd33)][:5]))
+        _plp33 = P.planuj_wizyty([P.PunktWizyty(_p.nazwa, _p.adres, lat=_p.lat, lng=_p.lng, miasto=_p.miasto) for _p in _pkt33], 2026, 12,
+                                 baza=P.PunktWizyty("Baza (start)", "Radom", lat=51.40, lng=21.15, miasto="Radom"), offline=True)
+        sprawdz("program: plan wizyt zaczyna każdy dzień w bazie (ten sam rachunek co web)",
+                [[_w.nazwa for _w in _d.wizyty] for _d in _plp33["dni"]][:3] != [] and
+                all(_d.km >= P._dyst_prosty(P.PunktWizyty("b", "", lat=51.40, lng=21.15), _d.wizyty[0]) - 0.1 for _d in _plp33["dni"]))
+    except Exception as _e33:
+        sprawdz("plan wizyt: dzień z bazy", False, repr(_e33))
+        import traceback as _tb33
+        _tb33.print_exc()
+    finally:
+        _M33.USTAWIENIA_WEB.pop("plan_godziny", None)
+        _S33.ustaw_tryb_pracy("tydzien")
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

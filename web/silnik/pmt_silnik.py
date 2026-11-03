@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:f424b440e9d50be5
+# źródło: PMT_Delegacje.py sha256:3bd33b98ad316da8
 
 import sys
 
@@ -1716,13 +1716,15 @@ def planuj_wizyty(punkty: List[PunktWizyty], rok: int, miesiac: int,
         if od_daty:
             dni_robocze = [d for d in dni_robocze if d >= od_daty]
         dni_plan = []
-        aktualna_pozycja = baza
         for data in dni_robocze:
             if not pozostale:
                 break
             dzien = DzienPlanu(data)
             czas = 0.0; km_dnia = 0.0
-            pozycja = aktualna_pozycja
+            # każdy dzień z bazy (jak planuj_cyklicznie): dawniej od ostatniej wizyty
+            # dnia poprzedniego — limit dnia nie obejmował dojazdu z domu, a godziny
+            # w aplikacji (liczone od bazy) wychodziły poza okno, w wieczory po 22:00
+            pozycja = baza
             if postep_cb:
                 zrobione = len(z_pozycja) - len(pozostale)
                 postep_cb(f"Planowanie {cur_mies:02d}.{cur_rok} — {data.strftime('%d.%m')}...",
@@ -1751,7 +1753,6 @@ def planuj_wizyty(punkty: List[PunktWizyty], rok: int, miesiac: int,
             dzien.minuty = round(czas, 0)
             if dzien.wizyty:
                 dni_plan.append(dzien)
-                aktualna_pozycja = dzien.wizyty[-1]
 
         if dni_plan:
             miesiace_plan.append({

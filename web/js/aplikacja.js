@@ -1959,7 +1959,7 @@ async function arkuszPlan() {
       w.pozycje = POZYCJE_PLANU; w.zapisano = new Date().toISOString();
       if (!w.suma_wizyt) { tekst.innerHTML = '<span style="color:var(--a-burs)">Nie udało się ułożyć ani jednej wizyty. Sprawdź, czy lista zawiera miejscowości.</span>'; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); return; }
       magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zapiszPamiecSilnika(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
-      pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach`);
+      pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach${w.ile_bez_pozycji ? ` · bez lokalizacji: ${w.ile_bez_pozycji}` : ''}`);
     } catch (err) { tekst.innerHTML = `<span style="color:var(--a-blad)">${bezZnacznikow(err.message)}</span>`; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); }
   });
 }

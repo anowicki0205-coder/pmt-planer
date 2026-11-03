@@ -307,6 +307,17 @@ def plan_wczytaj(p):
     return {"ok": True, "pozycje": pozycje, "kolumny": sorted(mapa.keys())}
 
 
+def _z_serwera(adres, miasto, zapisz_cache=True):
+    """pobierz_coords bez zastępstwa: para tylko wtedy, gdy serwer naprawdę zna adres (wpis w pamięci geokodowania).
+    Po nieudanym zapytaniu silnik oddaje stolicę województwa — dla planu wizyt to fikcyjny punkt (Warszawa), lepiej „bez lokalizacji”."""
+    try:
+        S.pobierz_coords(adres, miasto, "mazowieckie", zapisz_cache=zapisz_cache)
+    except Exception:
+        pass
+    c = S._geo_cache.get(S._klucz_geo(adres))
+    return (float(c[0]), float(c[1])) if c else None
+
+
 def _baza_planu(adres_bazy):
     """Punkt startowy dnia (jak w PlanerWizytThread.run): cache dokładnego adresu → miasto z bazy offline → sieć."""
     if not adres_bazy:
@@ -318,14 +329,9 @@ def _baza_planu(adres_bazy):
     if klucz_b in S._geo_cache:
         lat_b, lng_b = tuple(S._geo_cache[klucz_b])
     else:
-        c = S.coords_z_miasta(miasto_b)
+        c = S.coords_z_miasta(miasto_b) or _z_serwera(adres_bazy, miasto_b or adres_bazy)
         if c:
             lat_b, lng_b = c
-        else:
-            try:
-                lat_b, lng_b = S.pobierz_coords(adres_bazy, miasto_b or adres_bazy, "mazowieckie")
-            except Exception:
-                lat_b = lng_b = None
     if lat_b is None:
         return None
     return S.PunktWizyty("Baza (start)", adres_bazy, lat=lat_b, lng=lng_b, miasto=miasto_b)
@@ -358,7 +364,7 @@ def _plan_json(plan, baza, tryb):
         miesiace.append({"rok": m["rok"], "miesiac": m["miesiac"], "suma_km": round(float(m.get("suma_km", 0)), 1),
                          "suma_wizyt": m.get("suma_wizyt", 0), "dni": dni})
     return {"miesiace": miesiace, "suma_km": round(float(plan.get("suma_km", 0)), 1), "suma_wizyt": plan.get("suma_wizyt", 0),
-            "bez_pozycji": [w.nazwa for w in plan.get("bez_pozycji", [])][:50],
+            "bez_pozycji": [w.nazwa for w in plan.get("bez_pozycji", [])][:50], "ile_bez_pozycji": len(plan.get("bez_pozycji", [])),
             "nierozplanowane": [w.nazwa for w in plan.get("nierozplanowane", [])][:50],
             "baza": ({"adres": baza.adres, "lat": baza.lat, "lng": baza.lng, "miasto": baza.miasto} if baza else None),
             "cykliczny": bool(plan.get("cykliczny")), "tryb": tryb}
@@ -387,6 +393,7 @@ def plan_generuj(p, postep=None):
         punkty.append(S.PunktWizyty(etykieta, adres, siec=siec, lat=lat, lng=lng, miasto=miasto))
         if i % 200 == 0:
             cb("Lokalizowanie z bazy miast (%d/%d)..." % (i + 1, n), (i + 1) / max(n, 1) * 0.5)
+    offline = not bool(p.get("siec", True))
     braki = {}
     for pt in punkty:
         if pt.lat is None and pt.miasto:
@@ -396,14 +403,15 @@ def plan_generuj(p, postep=None):
         for j, (mnorm, pm) in enumerate(lista):
             cb("Nowe miejscowości (%d/%d)..." % (j + 1, len(lista)), 0.5 + (j + 1) / max(len(lista), 1) * 0.3)
             nazwa = pm[0].miasto
-            try:
-                lat, lng = S.pobierz_coords(nazwa, nazwa, "mazowieckie", zapisz_cache=False)
-            except Exception:
-                lat = lng = None
-            if lat is not None:
-                S._zbuduj_indeks_miast()[mnorm] = (lat, lng)
+            if offline:         # bez sieci tylko to, co serwer podał wcześniej
+                c = S._geo_cache.get(S._klucz_geo(nazwa))
+                c = (float(c[0]), float(c[1])) if c else None
+            else:
+                c = _z_serwera(nazwa, nazwa, zapisz_cache=False)
+            if c:
+                S._zbuduj_indeks_miast()[mnorm] = c
                 for pt in pm:
-                    pt.lat, pt.lng = lat, lng
+                    pt.lat, pt.lng = c
         S.zapisz_geo_cache()
     adres_bazy = str(p.get("adres_bazy") or "").strip()
     cb("Lokalizowanie punktu startowego...", 0.82)
@@ -411,7 +419,6 @@ def plan_generuj(p, postep=None):
     cb("Układanie tras...", 0.85)
     rok, mies = int(p["rok"]), int(p["miesiac"])
     S.ustaw_tryb_pracy("wieczory" if str(p.get("tryb", "")).startswith("wiecz") else "tydzien")
-    offline = not bool(p.get("siec", True))
     # ustawienia planowania dostarcza interfejs (w programie: okno „Ustawienia planowania"): dzień wieczorny to okno 16:30–22:00 = 5,5 h
     USTAWIENIA_WEB["plan_godziny"] = 5.5 if str(p.get("tryb", "")).startswith("wiecz") else 8.0
     od_daty = datetime.date.fromisoformat(p["od_daty"]) if p.get("od_daty") else None

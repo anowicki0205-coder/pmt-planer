@@ -9262,9 +9262,13 @@ class PlanerWizytThread(QThread):
                                      0.5 + (j+1)/max(len(lista),1) * 0.3)
                     nazwa = punkty_miasta[0].miasto
                     try:
-                        lat, lng = pobierz_coords(nazwa, nazwa, "mazowieckie", zapisz_cache=False)
+                        pobierz_coords(nazwa, nazwa, "mazowieckie", zapisz_cache=False)
                     except Exception:
-                        lat = lng = None
+                        pass
+                    # tylko odpowiedź serwera: po nieudanym zapytaniu pobierz_coords
+                    # oddaje stolicę województwa i sklepy lądowały w Warszawie
+                    c = _geo_cache.get(_klucz_geo(nazwa))
+                    lat, lng = (float(c[0]), float(c[1])) if c else (None, None)
                     if lat is not None:
                         # zapamiętaj w indeksie miast — kolejne razy natychmiast
                         idx = _zbuduj_indeks_miast()
@@ -9293,11 +9297,15 @@ class PlanerWizytThread(QThread):
                     else:
                         # 3) dopiero teraz sieć (miasto nieznane bazie).
                         # UWAGA: pobierz_coords przy braku sieci zwraca domyślną
-                        # stolicę województwa — dlatego używamy go na końcu.
+                        # stolicę województwa — dlatego używamy go na końcu
+                        # i bierzemy tylko odpowiedź serwera (wpis w pamięci).
                         try:
-                            lat_b, lng_b = pobierz_coords(self.adres_bazy, miasto_b or self.adres_bazy, "mazowieckie")
+                            pobierz_coords(self.adres_bazy, miasto_b or self.adres_bazy, "mazowieckie")
                         except Exception:
-                            lat_b = lng_b = None
+                            pass
+                        c = _geo_cache.get(klucz_b)
+                        if c:
+                            lat_b, lng_b = float(c[0]), float(c[1])
                 if lat_b is not None:
                     baza = PunktWizyty("Baza (start)", self.adres_bazy, lat=lat_b, lng=lng_b, miasto=miasto_b)
 

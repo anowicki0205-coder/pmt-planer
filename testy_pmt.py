@@ -11837,6 +11837,91 @@ except Exception as _e32:
     _tb32.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("33. Silnik po przeglądzie: plan wizyt, kalendarz, adres, PESEL (program i warstwa web)")
+# Warstwa web (web/silnik/most.py + wyciągnięty silnik) chodzi tu w tym samym procesie: sieć jest odcięta
+# tak samo jak dla programu (ten sam moduł urllib.request), a atrapy serwera podstawiamy i przywracamy.
+_M33 = _S33 = None
+try:
+    sys.path.insert(0, os.path.join(KATALOG, "web", "silnik"))
+    import most as _M33
+    _S33 = _M33.S
+except Exception as _e33:
+    sprawdz("warstwa web (most.py + pmt_silnik.py) daje się zaimportować", False, repr(_e33))
+finally:
+    sys.path.remove(os.path.join(KATALOG, "web", "silnik"))
+
+
+class _Odp33:
+    def __init__(self, tresc):
+        self._tresc = tresc
+    def read(self, *a):
+        return self._tresc
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+if _M33 is not None:
+    # plan wizyt: miejscowość spoza bazy offline NIE dostaje współrzędnych Warszawy (zastępczej stolicy województwa)
+    _poz33 = [{"adres": "Słowackiego 200, 80-298 Rębiechowo", "siec": "Żabka", "miasto": ""},
+              {"adres": "Długa 1, 80-001 Gdańsk", "siec": "Biedronka", "miasto": ""}]
+    _wiz33 = lambda w: [(x["nazwa"], x["lat"], x["lng"]) for m in w["miesiace"] for d in m["dni"] for x in d["wizyty"]]
+    try:
+        _S33._geo_cache.clear(); _S33._geo_pytane.clear(); _S33._geo_braki = {}
+        sprawdz("plan wizyt: Rębiechowa nie ma w bazie offline (warunek testu)", _S33.coords_z_miasta("Rębiechowo") is None)
+        for _siec33 in (False, True):
+            _w33 = _M33.plan_generuj({"pozycje": _poz33, "siec": _siec33, "adres_bazy": "Długa 5, 80-001 Gdańsk",
+                                      "rok": 2026, "miesiac": 12, "od_daty": "2026-12-01"})
+            sprawdz("plan wizyt (%s): sklep z miejscowości spoza bazy trafia do „bez lokalizacji”, a nie do Warszawy"
+                    % ("offline" if not _siec33 else "sieć pada"),
+                    _w33["bez_pozycji"] == ["Żabka — Rębiechowo"] and _w33["ile_bez_pozycji"] == 1
+                    and _wiz33(_w33) == [("Biedronka — Gdańsk", 54.35, 18.65)], str((_w33["bez_pozycji"], _wiz33(_w33))))
+        sprawdz("plan wizyt: nieudane geokodowanie nie zostawia Warszawy w indeksie miast na resztę sesji",
+                _S33._zbuduj_indeks_miast().get(_S33._norm_miasto("Rębiechowo")) is None)
+        sprawdz("plan wizyt: punkt startowy spoza bazy bez odpowiedzi serwera = brak bazy (środek trasy), nie Warszawa",
+                _M33._baza_planu("Słowackiego 200, 80-298 Rębiechowo") is None)
+        _url33 = _S33.urllib.request.urlopen
+        _S33.urllib.request.urlopen = lambda *a, **k: _Odp33(b'[{"lat": "54.3800", "lon": "18.5000"}]')
+        try:
+            _S33._geo_pytane.clear()
+            _w33 = _M33.plan_generuj({"pozycje": _poz33, "siec": True, "adres_bazy": "Długa 5, 80-001 Gdańsk",
+                                      "rok": 2026, "miesiac": 12, "od_daty": "2026-12-01"})
+            sprawdz("plan wizyt: gdy serwer zna miejscowość, sklep dostaje JEGO współrzędne",
+                    ("Żabka — Rębiechowo", 54.38, 18.5) in _wiz33(_w33) and not _w33["bez_pozycji"], str(_wiz33(_w33)))
+        finally:
+            _S33.urllib.request.urlopen = _url33
+            _S33._zbuduj_indeks_miast().pop(_S33._norm_miasto("Rębiechowo"), None)
+            _S33._geo_cache.clear(); _S33._geo_pytane.clear()
+    except Exception as _e33:
+        sprawdz("plan wizyt bez fikcyjnej Warszawy", False, repr(_e33))
+        import traceback as _tb33
+        _tb33.print_exc()
+
+# to samo w programie na komputerze (PlanerWizytThread.run wołany wprost, bez wątku)
+try:
+    P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = {}
+    _plan33 = []
+    _t33 = P.PlanerWizytThread([{"adres": "Słowackiego 200, 80-298 Rębiechowo", "siec": "Żabka", "miasto": ""},
+                                {"adres": "Długa 1, 80-001 Gdańsk", "siec": "Biedronka", "miasto": ""}],
+                               2026, 12, False, adres_bazy="Słowackiego 7, 80-298 Rębiechowo")
+    _t33.sukces.connect(_plan33.append)
+    _t33.blad.connect(_plan33.append)
+    _t33.run()
+    _p33 = _plan33[0] if _plan33 else {}
+    _wp33 = [(w.nazwa, w.lat, w.lng) for d in (_p33.get("dni") or []) for w in d.wizyty] if isinstance(_p33, dict) else _p33
+    sprawdz("program: plan wizyt nie przenosi sklepu ani bazy spoza bazy offline do Warszawy",
+            isinstance(_p33, dict) and [w.nazwa for w in _p33.get("bez_pozycji", [])] == ["Żabka — Rębiechowo"]
+            and _wp33 == [("Biedronka — Gdańsk", 54.35, 18.65)]
+            and P._zbuduj_indeks_miast().get(P._norm_miasto("Rębiechowo")) is None, str(_wp33))
+except Exception as _e33:
+    sprawdz("program: plan wizyt bez fikcyjnej Warszawy", False, repr(_e33))
+finally:
+    P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = None
+
+# ── koniec sekcji 33 ──
+
+# ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)
 print("  WYNIK: %d / %d testów przeszło" % (len(WYNIKI) - len(_bledy), len(WYNIKI)))

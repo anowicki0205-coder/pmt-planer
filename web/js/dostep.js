@@ -64,12 +64,15 @@ export const skrotHasla = (kod, haslo) => sha256Hex(`PMT|${kod}|${haslo}`);
 /* ---------- sekret aplikacji (plik obok index.html; brak = zapytania bez podpisu) ---------- */
 let sekretObietnica = null;
 export function sekret() {
-  return sekretObietnica || (sekretObietnica = (async () => {
+  if (sekretObietnica) return sekretObietnica;
+  const p = sekretObietnica = (async () => {
     try {
       const r = await fetch('sekret.txt', { cache: 'no-store' }); if (!r.ok) return '';
       const t = (await r.text()).split(/\r?\n/)[0].trim(); return t && !t.startsWith('<') ? t : '';
     } catch (e) { return ''; }
-  })());
+  })();
+  p.then(t => { if (!t && sekretObietnica === p) sekretObietnica = null; });      // pusty wynik (brak sieci, 404 z pamięci SW) nie zostaje na całe życie strony: następne zapytanie spróbuje znowu
+  return p;
 }
 export const zapomnijSekret = () => { sekretObietnica = null; };
 /* Puls i rejestr sesji backend przyjmuje w pełni tylko z podpisem KLUCZEM POCHODNYM OD HASŁA: HMAC, którego kluczem jest skrót hasła „PMT|kod|hasło” (ten sam, który serwer

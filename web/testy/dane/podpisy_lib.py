@@ -1,5 +1,5 @@
 """Wspólne funkcje do tworzenia testowych podpisów elektronicznych (PAdES i XAdES). Używane przez generuj_podpisy.py i podpisz_pliki.py.
-Wymaga: pip install pyhanko lxml cryptography. Certyfikaty są testowe, samopodpisane; imiona, nazwiska i PESEL-e wymyślone."""
+Wymaga: pip install pyhanko lxml cryptography. Certyfikaty są testowe, podpisane własnym kluczem pod nazwą testowego centrum certyfikacji (samopodpisany=True: wystawca = podmiot); imiona, nazwiska i PESEL-e wymyślone."""
 import base64, datetime, hashlib, io, os, tempfile
 from cryptography import x509
 from cryptography.x509.oid import NameOID

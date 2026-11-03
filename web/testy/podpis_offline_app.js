@@ -236,6 +236,14 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pobAgain = await pobierz(wyslijSel); await p.waitForTimeout(600);
   ok('po powrocie internetu wysyłka działa i znów ustawia status „Wysłane” (ten stan sprawdzają kolejne kroki testu)', pobAgain.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  /* [G] telefon, na którym udostępnienie ZIP-a się nie udaje (Chrome na Androidzie odrzuca pliki ZIP błędem NotAllowedError): pobrana paczka + wiadomość przez mailto:, a nie błąd bez wyjścia */
+  await p.click('#cofnij'); await p.waitForTimeout(600);
+  await p.evaluate(() => { const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q); navigator.canShare = () => true; navigator.share = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); });
+  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900);
+  const zipTel = await pobierz(wyslijSel); await p.waitForTimeout(800);
+  const zipTelOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipTel.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
+  ok('telefon bez udostępniania ZIP-a: pobrana zahasłowana paczka (otwiera się hasłem administratora), wiadomość przez mailto:, status „Wysłane”', /^Dokumenty_.*\.zip$/.test(zipTel.nazwa) && Number(zipTelOk) >= 7 && /Pobrałem zahasłowaną paczkę/.test(await stanW()) && (await p.locator('#status').innerText()).includes('Wysłane'), `${zipTel.nazwa}, ${zipTelOk} plików — ${await stanW()}`);
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
 
   /* ---- zapis wyników sprawdzenia ---- */
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);

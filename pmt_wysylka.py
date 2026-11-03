@@ -31,6 +31,7 @@ import datetime
 import email.message
 import email.policy
 import email.utils
+import hashlib
 import json
 import mimetypes
 import os
@@ -392,8 +393,48 @@ def _szukaj_podpisanego(nazwa_zrodla, katalogi):
     return None
 
 
-def _z_manifestu(dane, katalogi, tylko_podpisane):
+def _suma_pliku(sciezka):
+    skrot = hashlib.sha256()
+    try:
+        with open(sciezka, "rb") as f:
+            for kawalek in iter(lambda: f.read(1024 * 1024), b""):
+                skrot.update(kawalek)
+    except OSError:
+        return None
+    return skrot.hexdigest()
+
+
+def _to_podpisane(katalog):
+    return os.path.basename(katalog.rstrip("\\/")).casefold() == PODFOLDER_PODPISANE.casefold()
+
+
+def _podpisany_egzemplarz(wpis, podpisane):
+    """Plik podpisanego egzemplarza wpisu albo None.
+
+    Szukamy WYŁĄCZNIE w podfolderach Podpisane: PDF podpisany na gov.pl ma
+    często nazwę oryginału, a po samej nazwie w folderze wyniku i w Do_podpisu
+    leży niepodpisany oryginał. Plik o sumie oryginału to kopia bez podpisu,
+    a plik o sumie innej niż zapisana przy podpisie nie jest tym, który
+    przyjęto jako podpisany."""
+    oryginal = str(wpis.get("skrot") or "")
+    podpisany = str(wpis.get("skrot_podpisanego") or "")
+    for sciezka in (_rozwin(wpis.get("podpisany_plik"), podpisane),
+                    _szukaj_podpisanego(wpis.get("plik") or wpis.get("plik_zrodlowy"),
+                                        podpisane)):
+        if not sciezka:
+            continue
+        if oryginal or podpisany:
+            suma = _suma_pliku(sciezka)
+            if suma is None or suma == oryginal or (podpisany and suma != podpisany):
+                continue
+        return sciezka
+    return None
+
+
+def _z_manifestu(dane, katalogi, tylko_podpisane, podpisane=None):
     """(lista plików, ile niepodpisanych) wg reguł paczki podpisowej."""
+    if podpisane is None:
+        podpisane = [k for k in katalogi if _to_podpisane(k)]
     pliki = []
     niepodpisane = 0
     wpisy = dane.get("pliki")
@@ -406,18 +447,13 @@ def _z_manifestu(dane, katalogi, tylko_podpisane):
         if status == STATUS_NIEAKTUALNY:
             continue                      # dokument z poprzedniej generacji
         if status == STATUS_PODPISANY:
-            sciezka = _rozwin(wpis.get("podpisany_plik"), katalogi)
-            if sciezka is None:
-                # Wpis mówi „podpisany", ale nie wskazuje pliku. Szukamy
-                # egzemplarza w Podpisane po rdzeniu nazwy — NIGDY nie
-                # podstawiamy w to miejsce kopii niepodpisanej, bo do kadr
-                # poszedłby dokument bez podpisu opisany jako podpisany.
-                sciezka = _szukaj_podpisanego(wpis.get("plik")
-                                              or wpis.get("plik_zrodlowy"), katalogi)
+            # NIGDY nie podstawiamy w to miejsce kopii niepodpisanej, bo do
+            # kadr poszedłby dokument bez podpisu opisany jako podpisany.
+            sciezka = _podpisany_egzemplarz(wpis, podpisane)
             if sciezka:
                 pliki.append(sciezka)
                 for pole in ("podpis_plik", "plik_podpisu", "podpis"):
-                    towarzysz = _rozwin(wpis.get(pole), katalogi)
+                    towarzysz = _rozwin(wpis.get(pole), podpisane + katalogi)
                     if towarzysz:
                         pliki.append(towarzysz)
                 pliki.extend(_pary_podpisu(sciezka))
@@ -531,7 +567,13 @@ def zalaczniki(folder, tylko_podpisane=True, limit_bajtow=LIMIT_ZALACZNIKOW_B):
             if os.path.isdir(dodatkowy) and dodatkowy not in katalogi:
                 katalogi.insert(0, dodatkowy)
     if dane is not None:
-        pliki, niepodpisane = _z_manifestu(dane, katalogi, tylko_podpisane)
+        # podpisane kopie zapisuje okno podpisu do <katalog manifestu>/Podpisane
+        podpisane = [k for k in katalogi if _to_podpisane(k)]
+        wlasny = os.path.join(katalog_manifestu, PODFOLDER_PODPISANE) if katalog_manifestu else ""
+        if wlasny in podpisane:
+            podpisane.remove(wlasny)
+            podpisane.insert(0, wlasny)
+        pliki, niepodpisane = _z_manifestu(dane, katalogi, tylko_podpisane, podpisane)
     else:
         pliki, niepodpisane = _ze_skanu(folder, tylko_podpisane)
 

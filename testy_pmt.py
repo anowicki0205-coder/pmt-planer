@@ -4061,6 +4061,45 @@ if _PW is not None:
     except Exception as _e:
         sprawdz("okno wysyłki pokazuje liczbę dokumentów bez podpisu", False, repr(_e))
 
+    # PDF podpisany na gov.pl ma często nazwę oryginału. Szukanie po samej
+    # nazwie trafiało najpierw na niepodpisany oryginał w folderze wyniku.
+    if _PS is not None:
+        try:
+            _s9n = os.path.join(_S9, "ta_sama_nazwa", "Rozliczenie_Jan_Kowalski_Lipiec_2026r")
+            _s9n_pob = os.path.join(_S9, "ta_sama_nazwa", "Pobrane")
+            os.makedirs(_s9n)
+            os.makedirs(_s9n_pob)
+            _s9n_nazwa = "delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf"
+            with open(os.path.join(_s9n, _s9n_nazwa), "wb") as _f:
+                _f.write(b"%PDF-1.4 NIEPODPISANY\n" + b"x" * 100)
+            _s9n_paczka, _ = _PS.przygotuj_paczke(_s9n)
+            _s9n_man = _PS.sciezka_manifestu(_s9n_paczka)
+            _s9n_od = time.time() - 1
+            with open(os.path.join(_s9n_pob, _s9n_nazwa), "wb") as _f:
+                _f.write(b"%PDF-1.4 PODPISANY PAdES\n" + b"y" * 300)
+            _s9n_wyn = [w for w in _PS.znajdz_podpisane(_s9n_man, [_s9n_pob, _s9n_paczka], _s9n_od)
+                        if w.get("decyzja") == "przyjmij"]
+            _s9n_cel = os.path.join(_s9n_paczka, "Podpisane")
+            os.makedirs(_s9n_cel)
+            for _w in _s9n_wyn:
+                shutil.copy2(_w["sciezka"], os.path.join(_s9n_cel, _s9n_nazwa))
+                _PS.oznacz_podpisany(_s9n_man, _w["plik"], dict(_w, podpisany_plik=_s9n_nazwa))
+            _s9n_z = _PW.zalaczniki(_s9n, tylko_podpisane=True)
+            _s9n_tresci = [open(_p, "rb").read(24) for _p in _s9n_z.pliki]
+            sprawdz("wysyłka „tylko podpisane”: podpisany PDF o nazwie oryginału idzie z Podpisane, nie oryginał",
+                    len(_s9n_wyn) == 1 and len(_s9n_tresci) == 1
+                    and _s9n_tresci[0].startswith(b"%PDF-1.4 PODPISANY")
+                    and _s9n_z.niepodpisane == 0,
+                    str((len(_s9n_wyn), _s9n_tresci, _s9n_z.niepodpisane)))
+            # do Podpisane trafiła kopia bez podpisu (suma oryginału)
+            shutil.copy2(os.path.join(_s9n, _s9n_nazwa), os.path.join(_s9n_cel, _s9n_nazwa))
+            _s9n_z = _PW.zalaczniki(_s9n, tylko_podpisane=True)
+            sprawdz("wysyłka „tylko podpisane”: plik w Podpisane o sumie oryginału nie uchodzi za podpisany",
+                    _s9n_z.pliki == [] and _s9n_z.niepodpisane == 1,
+                    str(([os.path.basename(_p) for _p in _s9n_z.pliki], _s9n_z.niepodpisane)))
+        except Exception as _e:
+            sprawdz("wysyłka „tylko podpisane” przy podpisanym PDF o nazwie oryginału", False, repr(_e))
+
 # ── etykieta wydania a czysty numer wersji ────────────────────────
 # testy_pmt.py robi int() na członach numeru POZA blokiem obsługi wyjątków —
 # dopisek w rodzaju „3.22.0-TEST" wysypałby cały skrypt, a nie jeden test.

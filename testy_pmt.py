@@ -11925,6 +11925,85 @@ sprawdz("updater_folder.bat nadal przechodzi sprawdzenie, którym programy 3.2x 
         "setlocal enabledelayedexpansion" in _bat33 and len(_bat33) < 20000
         and "setlocal enabledelayedexpansion" in inspect.getsource(P.przygotuj_skrypt_aktualizacji))
 
+# Paczki macOS i Linux to FOLDER (PMT_Planer + _internal). updater.sh przyjmował
+# tylko plik: program się zamykał, a skrypt kończył się „Brak pobranego pliku”.
+import subprocess as _sp33
+_bash33 = shutil.which("bash")
+if _bash33 and os.name != "nt":
+    sprawdz("updater.sh ma poprawną składnię (bash -n)",
+            _sp33.run([_bash33, "-n", os.path.join(KATALOG, "updater.sh")]).returncode == 0)
+
+    def _updater33(nowa_pisze_flage):
+        baza = tempfile.mkdtemp(prefix="pmt_upd33_")
+        tmp = os.path.join(baza, "tmp")
+        stary = os.path.join(baza, "app", "PMT_Planer")
+        nowy = os.path.join(baza, "pobrane", "PMT_Planer")
+        for k in (tmp, os.path.join(stary, "_internal"), os.path.join(nowy, "_internal")):
+            os.makedirs(k)
+        for katalog, wersja, tresc in (
+                (stary, "stara", 'echo stara > "$TMPDIR/stara_ruszyla"\n'),
+                (nowy, "nowa", 'echo $$ > "$TMPDIR/pmt_zyje.flag"\n' if nowa_pisze_flage else "exit 3\n")):
+            with open(os.path.join(katalog, "PMT_Planer"), "w") as f:
+                f.write("#!/bin/bash\n" + tresc)
+            os.chmod(os.path.join(katalog, "PMT_Planer"), 0o755)
+            with open(os.path.join(katalog, "_internal", "lib.txt"), "w") as f:
+                f.write(wersja)
+        # te same kroki, krótsze przerwy (sleep 25 czeka na Gatekeepera)
+        with open(os.path.join(KATALOG, "updater.sh"), encoding="utf-8") as f:
+            skrypt = re.sub(r"sleep \d+", "sleep 0.1", f.read())
+        sciezka = os.path.join(baza, "upd.sh")
+        with open(sciezka, "w", encoding="utf-8") as f:
+            f.write(skrypt)
+        kod = _sp33.run([_bash33, sciezka, nowy, os.path.join(stary, "PMT_Planer"), "999999"],
+                        env=dict(os.environ, TMPDIR=tmp), timeout=120).returncode
+        for _ in range(30):              # przywrócona wersja startuje w tle
+            if nowa_pisze_flage or os.path.exists(os.path.join(tmp, "stara_ruszyla")):
+                break
+            time.sleep(0.1)
+        with open(os.path.join(stary, "_internal", "lib.txt")) as f:
+            lib = f.read()
+        wynik = (kod, lib, os.path.isdir(stary + ".poprzednia"), os.path.exists(nowy),
+                 os.path.exists(os.path.join(tmp, "stara_ruszyla")))
+        shutil.rmtree(baza, ignore_errors=True)
+        return wynik
+
+    try:
+        _u33 = _updater33(True)
+        sprawdz("updater.sh: nowa wersja jako FOLDER podmienia cały folder programu i sprząta kopię",
+                _u33[:4] == (0, "nowa", False, False), str(_u33))
+        _u33 = _updater33(False)
+        sprawdz("updater.sh: folder bez flagi życia wraca do poprzedniej wersji i ją uruchamia",
+                _u33[0] == 1 and _u33[1] == "stara" and _u33[2] is False and _u33[4], str(_u33))
+    except Exception as _e33:
+        sprawdz("updater.sh podmienia wersję folderową", False, repr(_e33))
+
+# Wbudowane skrypty zapasowe (gdy nie da się pobrać skryptu z GitHuba) umieją
+# tylko pojedynczy plik. Dla folderu: błąd PRZED zamknięciem programu.
+_s33_folder = tempfile.mkdtemp(prefix="pmt_nowa33_")
+os.makedirs(os.path.join(_s33_folder, "_internal"))
+open(os.path.join(_s33_folder, "PMT_Planer.exe"), "w").close()
+_s33_win = P.CZY_WINDOWS
+_s33_pobierz = P.pobierz_tekst_url
+P.pobierz_tekst_url = lambda *_a, **_k: ""
+_s33_wyniki = []
+try:
+    for _w33 in (True, False):
+        P.CZY_WINDOWS = _w33
+        try:
+            P.przygotuj_skrypt_aktualizacji(_s33_folder, os.path.join(_TMP_HOME, "PMT_Planer.exe"), 1)
+            _s33_wyniki.append("bez błędu")
+        except RuntimeError as _e33:
+            _s33_wyniki.append(str(_e33))
+finally:
+    P.CZY_WINDOWS = _s33_win
+    P.pobierz_tekst_url = _s33_pobierz
+    shutil.rmtree(_s33_folder, ignore_errors=True)
+sprawdz("bez skryptu z GitHuba paczka folderowa kończy się czytelnym błędem (Windows i macOS/Linux), nie zamknięciem programu",
+        len(_s33_wyniki) == 2 and all("skryptu aktualizacji" in _t for _t in _s33_wyniki),
+        str(_s33_wyniki))
+sprawdz("okno aktualizacji pokazuje błąd instalacji zamiast znikać (obowiązkowa aktualizacja)",
+        "self._blad(" in inspect.getsource(P.OknoAktualizacji._pobrano))
+
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)

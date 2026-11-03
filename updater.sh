@@ -13,7 +13,9 @@
 #  procesu nic nie dowodzi, znacznik tak. Brak znacznika =
 #  automatyczny powrot do poprzedniej, dzialajacej wersji.
 #
-#  Argumenty: $1=nowy plik  $2=plik docelowy  $3=PID starego programu
+#  Argumenty: $1=nowy plik albo FOLDER nowej wersji (paczki macOS
+#             i Linux to folder PMT_Planer z _internal)
+#             $2=plik docelowy (program w folderze)  $3=PID starego programu
 # ============================================================
 NOWY="$1"
 CEL="$2"
@@ -22,6 +24,12 @@ TMPDIR_="${TMPDIR:-/tmp}"
 LOG="$TMPDIR_/pmt_aktualizacja.log"
 FLAGA="$TMPDIR_/pmt_zyje.flag"
 KOPIA="$CEL.poprzednia"
+FOLDER=0
+if [ -d "$NOWY" ]; then
+    FOLDER=1
+    CEL_DIR=$(dirname "$CEL")
+    KOPIA="$CEL_DIR.poprzednia"
+fi
 
 echo "==============================" >  "$LOG"
 echo "Start: $(date)"                 >> "$LOG"
@@ -29,7 +37,14 @@ echo "Nowy plik: $NOWY"               >> "$LOG"
 echo "Plik docelowy: $CEL"            >> "$LOG"
 echo "PID starego programu: $PID"     >> "$LOG"
 
-[ -f "$NOWY" ] || { echo "[BLAD] Brak pobranego pliku: $NOWY" >> "$LOG"; exit 1; }
+if [ "$FOLDER" = "1" ]; then
+    case "$CEL_DIR" in
+        ""|"/"|".") echo "[BLAD] Podejrzany folder programu: $CEL_DIR" >> "$LOG"; exit 1 ;;
+    esac
+    [ -f "$NOWY/$(basename "$CEL")" ] || { echo "[BLAD] W nowej wersji brak pliku $(basename "$CEL")" >> "$LOG"; exit 1; }
+else
+    [ -f "$NOWY" ] || { echo "[BLAD] Brak pobranego pliku: $NOWY" >> "$LOG"; exit 1; }
+fi
 
 # 1) czekaj, az stary proces sie zamknie (do ~2 min)
 echo "[1] Czekam na zamkniecie programu (PID $PID)..." >> "$LOG"
@@ -41,13 +56,20 @@ echo "[1] OK." >> "$LOG"
 
 # 2) kopia zapasowa starej, dzialajacej wersji
 echo "[2] Zapisuje kopie poprzedniej wersji..." >> "$LOG"
-[ -f "$CEL" ] && cp -f "$CEL" "$KOPIA" 2>>"$LOG"
+if [ "$FOLDER" = "1" ]; then
+    rm -rf "$KOPIA" 2>/dev/null
+    cp -R "$CEL_DIR" "$KOPIA" 2>>"$LOG" || echo "[2] UWAGA: kopia zapasowa niepelna." >> "$LOG"
+else
+    [ -f "$CEL" ] && cp -f "$CEL" "$KOPIA" 2>>"$LOG"
+fi
 
 # 3) podmiana pliku (z ponawianiem - bywa chwile zablokowany)
 echo "[3] Podmieniam plik..." >> "$LOG"
 OK=0
 for i in $(seq 1 15); do
-    if cp -f "$NOWY" "$CEL" 2>>"$LOG"; then OK=1; break; fi
+    if [ "$FOLDER" = "1" ]; then
+        if cp -Rf "$NOWY"/. "$CEL_DIR"/ 2>>"$LOG" && [ -f "$CEL" ]; then OK=1; break; fi
+    elif cp -f "$NOWY" "$CEL" 2>>"$LOG"; then OK=1; break; fi
     sleep 1
 done
 if [ "$OK" != "1" ]; then
@@ -55,7 +77,7 @@ if [ "$OK" != "1" ]; then
     exit 1
 fi
 chmod +x "$CEL" 2>>"$LOG"
-rm -f "$NOWY" 2>/dev/null
+if [ "$FOLDER" = "1" ]; then rm -rf "$NOWY" 2>/dev/null; else rm -f "$NOWY" 2>/dev/null; fi
 
 # 4) usun stary znacznik "program zyje" i uruchom nowa wersje
 rm -f "$FLAGA" 2>/dev/null
@@ -86,8 +108,13 @@ rm -rf "${TMPDIR:-/tmp}"/_MEI* 2>/dev/null
 # macOS: plik pobrany z sieci ma znacznik kwarantanny i system odmawia
 # uruchomienia go ze skryptu, czesto BEZ zadnego komunikatu.
 if command -v xattr >/dev/null 2>&1; then
-    xattr -d com.apple.quarantine "$CEL" 2>/dev/null && \
-        echo "[4] Zdjeto kwarantanne macOS." >> "$LOG"
+    if [ "$FOLDER" = "1" ]; then
+        xattr -dr com.apple.quarantine "$CEL_DIR" 2>/dev/null && \
+            echo "[4] Zdjeto kwarantanne macOS." >> "$LOG"
+    else
+        xattr -d com.apple.quarantine "$CEL" 2>/dev/null && \
+            echo "[4] Zdjeto kwarantanne macOS." >> "$LOG"
+    fi
 fi
 # czekamy tez, az stary proces naprawde zniknie z pamieci
 NAZWA=$(basename "$CEL")
@@ -102,6 +129,7 @@ done
 
 echo "[4] Uruchamiam nowa wersje..." >> "$LOG"
 nohup "$CEL" >/dev/null 2>&1 &
+NOWE_PIDY="$!"
 
 # 5) weryfikacja przez znacznik - jak w wersji Windows
 WYSTARTOWALA=0
@@ -112,20 +140,29 @@ for i in $(seq 1 20); do
     if [ "$PROBA2" = "0" ] && [ "$i" -ge 10 ]; then
         echo "[4] Znacznik sie nie pojawil - drugie podejscie..." >> "$LOG"
         nohup "$CEL" >/dev/null 2>&1 &
+        NOWE_PIDY="$NOWE_PIDY $!"
         PROBA2=1
     fi
 done
 
 if [ "$WYSTARTOWALA" = "1" ]; then
     echo "[OK] Nowa wersja dziala. $(date)" >> "$LOG"
-    rm -f "$KOPIA" 2>/dev/null
+    rm -rf "$KOPIA" 2>/dev/null
     rm -f "$0" 2>/dev/null
     exit 0
 fi
 
 # 6) rollback - przywroc poprzednia, dzialajaca wersje
 echo "[4] BLAD: nowa wersja sie nie uruchomila. Przywracam poprzednia..." >> "$LOG"
-if [ -f "$KOPIA" ]; then
+# wiszacy proces nowej wersji nie moze zostac obok przywroconej
+kill $NOWE_PIDY 2>/dev/null
+if [ "$FOLDER" = "1" ] && [ -d "$KOPIA" ]; then
+    cp -Rf "$KOPIA"/. "$CEL_DIR"/ 2>>"$LOG"
+    chmod +x "$CEL" 2>>"$LOG"
+    rm -rf "$KOPIA" 2>/dev/null
+    nohup "$CEL" >/dev/null 2>&1 &
+    echo "[OK] Przywrocono poprzednia wersje." >> "$LOG"
+elif [ -f "$KOPIA" ]; then
     cp -f "$KOPIA" "$CEL" 2>>"$LOG"
     chmod +x "$CEL" 2>>"$LOG"
     rm -f "$KOPIA" 2>/dev/null

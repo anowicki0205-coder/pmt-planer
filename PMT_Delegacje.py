@@ -3328,6 +3328,11 @@ def przygotuj_skrypt_aktualizacji(nowy_plik: str, docelowy: str, pid: int):
                 return sh, [nowy_plik, docelowy, str(pid)]
             except Exception:
                 pass
+        if os.path.isdir(nowy_plik):
+            # wbudowany skrypt podmienia jeden plik — z folderem zamknąłby
+            # program i niczego nie zainstalował
+            raise RuntimeError("Nie udało się pobrać skryptu aktualizacji (updater.sh). "
+                               "Sprawdź połączenie z internetem i spróbuj ponownie.")
         return zbuduj_skrypt_podmiany_sh(nowy_plik, docelowy, pid), []
 
     # Wersja folderowa ma wlasny skrypt — podmienia caly katalog programu,
@@ -3358,6 +3363,11 @@ def przygotuj_skrypt_aktualizacji(nowy_plik: str, docelowy: str, pid: int):
             return bat, [nowy_plik, docelowy, str(pid)]
         except Exception:
             pass
+    if _nowa_to_folder:
+        # wbudowany skrypt robi „copy folder → .exe”: psuje program, a _internal
+        # zostaje stary — lepiej odmówić, zanim program się zamknie
+        raise RuntimeError("Nie udało się pobrać skryptu aktualizacji (updater_folder.bat). "
+                           "Sprawdź połączenie z internetem i spróbuj ponownie.")
     # zapasowo: wbudowany generator (zawsze dostępny, nawet offline)
     return zbuduj_skrypt_podmiany(nowy_plik, docelowy, pid), []
 
@@ -12326,7 +12336,11 @@ class OknoAktualizacji(QDialog):
         self.btn_akt.setText("Instaluję…")
         QApplication.processEvents()
         if self._on_instaluj:
-            self._on_instaluj(sciezka)      # tu program się kończy
+            blad = self._on_instaluj(sciezka)      # tu program się kończy
+            if isinstance(blad, str) and blad:
+                # przy obowiązkowej aktualizacji błąd ginął razem z oknem
+                self._blad("Nie udało się zainstalować: " + blad)
+                return
         self.accept()
 
     def _blad(self, komunikat):

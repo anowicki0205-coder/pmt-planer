@@ -12041,6 +12041,30 @@ if _M33 is not None:
         _M33.USTAWIENIA_WEB.pop("plan_godziny", None)
         _S33.ustaw_tryb_pracy("tydzien")
 
+# import listy sklepów z CSV zapisanego przez polski Excel: cp1250 (domyślny „CSV”), UTF-8 z BOM, UTF-16 („Tekst Unicode”)
+_kat33 = tempfile.mkdtemp(prefix="pmt_csv33_")
+try:
+    _tresc33 = "Miasto;Ulica;Sieć\r\nŁódź;Piotrkowska 1;Żabka\r\nGdańsk;Długa 2;Biedronka\r\n"
+    _pliki33 = {}
+    for _nazwa33, _bajty33 in (("cp1250.csv", _tresc33.encode("cp1250")), ("utf8.csv", _tresc33.encode("utf-8-sig")),
+                               ("utf16.csv", _tresc33.replace(";", "\t").encode("utf-16"))):
+        _pliki33[_nazwa33] = os.path.join(_kat33, _nazwa33)
+        with open(_pliki33[_nazwa33], "wb") as _f33:
+            _f33.write(_bajty33)
+    _ocz33 = [["Miasto", "Ulica", "Sieć"], ["Łódź", "Piotrkowska 1", "Żabka"], ["Gdańsk", "Długa 2", "Biedronka"]]
+    sprawdz("program: CSV z polskiego Excela (cp1250, UTF-8 z BOM, UTF-16) wczytuje się z polskimi literami",
+            all(P._wiersze_csv(_s) == _ocz33 for _s in _pliki33.values()), str([P._wiersze_csv(_s)[:2] for _s in _pliki33.values()]))
+    if _M33 is not None:
+        _wyn33 = [_M33.plan_wczytaj({"sciezka": _s}) for _s in _pliki33.values()]
+        sprawdz("web: plan_wczytaj przyjmuje CSV w cp1250 / UTF-8 / UTF-16 (dawniej: błąd 'utf-8' codec can't decode)",
+                all(_w.get("ok") and _w["pozycje"] == [{"adres": "ul. Piotrkowska 1, Łódź", "siec": "Żabka", "miasto": "Łódź"},
+                                                       {"adres": "ul. Długa 2, Gdańsk", "siec": "Biedronka", "miasto": "Gdańsk"}]
+                    for _w in _wyn33), str(_wyn33[0]))
+except Exception as _e33:
+    sprawdz("import CSV w kodowaniach Excela", False, repr(_e33))
+finally:
+    shutil.rmtree(_kat33, ignore_errors=True)
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

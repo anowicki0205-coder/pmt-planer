@@ -279,12 +279,7 @@ def _wiersze_z_pliku(sciezka):
     """Jak `_wczytaj_pozycje_z_pliku`: CSV (separator z próbki) albo XLSX (openpyxl, pierwszy arkusz)."""
     wiersze = []
     if sciezka.lower().endswith(".csv"):
-        import csv
-        with open(sciezka, newline="", encoding="utf-8-sig") as f:
-            probka = f.read(2048); f.seek(0)
-            sep = ";" if probka.count(";") > probka.count(",") else ","
-            for w in csv.reader(f, delimiter=sep):
-                wiersze.append(w)
+        wiersze = S._wiersze_csv(sciezka)
     else:
         from openpyxl import load_workbook
         wb = load_workbook(sciezka, read_only=True, data_only=True)

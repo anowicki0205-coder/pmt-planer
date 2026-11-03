@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:3bd33b98ad316da8
+# źródło: PMT_Delegacje.py sha256:14bdf45e4e818dc4
 
 import sys
 
@@ -710,6 +710,29 @@ def _wiersz_na_adres(wiersz, mapa: dict) -> tuple:
     else:
         adres = lewa or prawa
     return adres.strip(), siec
+
+def _wiersze_csv(sciezka) -> list:
+    """Wiersze listy sklepów z CSV. Polski Excel zapisuje „CSV (rozdzielany
+    przecinkami)" w cp1250 ze średnikiem, a „Tekst Unicode" w UTF-16 —
+    czytanie wyłącznie jako UTF-8 kończyło się błędem na pierwszej polskiej
+    literze. Separator jak dotąd: z próbki początku pliku."""
+    import csv, io
+    with open(sciezka, "rb") as f:
+        b = f.read()
+    if b[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        tekst = b.decode("utf-16")
+    else:
+        for kodowanie in ("utf-8-sig", "cp1250", "latin-2"):
+            try:
+                tekst = b.decode(kodowanie)
+                break
+            except UnicodeDecodeError:
+                continue
+    probka = tekst[:2048]
+    sep = ";" if probka.count(";") > probka.count(",") else ","
+    if probka.count("\t") > max(probka.count(";"), probka.count(",")):
+        sep = "\t"                 # „Tekst Unicode" z Excela rozdziela tabulatorem
+    return [w for w in csv.reader(io.StringIO(tekst, newline=""), delimiter=sep)]
 
 _geo_cache = {}
 

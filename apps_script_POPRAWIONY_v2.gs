@@ -305,6 +305,12 @@ function _liczba(v, maks) {
   var n = Math.round(Number(v));
   return isFinite(n) ? Math.max(0, Math.min(maks, n)) : 0;
 }
+/* Wersja do kolumn „Wersja” (Uzytkownicy, Sesje): aplikacja web z dopiskiem — jej numer to wersja silnika, nie programu,
+   więc bez dopisku jej użytkownicy wyglądaliby na maruderów ze starym programem. */
+function _wersjaKlienta(dane) {
+  var w = _tekst(dane.wersja, 20);
+  return w && dane.klient === "web" ? _tekst("web " + w, 20) : w;
+}
 function _kodPoprawny(kod) { return /^\d{5}$/.test(String(kod)); }
 
 /* Licznik w CacheService z OKNEM STAŁYM (nie odnawia się przy kolejnych
@@ -477,7 +483,7 @@ function obsluzPuls(dane) {
   // Przy pustym polu zostaje dotychczasowa wartość — też przez _tekst(): arkusz oddaje zapisany „'=…” już bez apostrofu.
   if (pelne) {
     sh.getRange(nr, 5, 1, 6).setValues([[teraz,
-        _tekst(dane.wersja, 20) || _tekst(w[5], 20), _tekst(dane.system, 30) || _tekst(w[6], 30),
+        _wersjaKlienta(dane) || _tekst(w[5], 20), _tekst(dane.system, 30) || _tekst(w[6], 30),
         uruchomien, dokumentow, minut]]);
   }
 
@@ -583,9 +589,10 @@ function doPost(e) {
              + String(dane.akcja) + " — sekret w paczce rozni sie od SEKRETY_PMT", "raz");
       }
     }
-    // Kontrola wersji (WYMAGANA_WERSJA, domyślnie wyłączona).
+    // Kontrola wersji (WYMAGANA_WERSJA, domyślnie wyłączona) dotyczy programu na komputerze. Aplikacja web wysyła
+    // stały numer wersji silnika (3.24.0) i klient: "web" — bramka odcięłaby ją razem ze starymi programami.
     if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
-        && wersjaZaStara(dane.wersja)) {
+        && dane.klient !== "web" && wersjaZaStara(dane.wersja)) {
       return _json({ status: "blad",
         opis: "Ta wersja programu nie jest juz obslugiwana. Pobierz nowa wersje." });
     }
@@ -818,7 +825,7 @@ function zapiszSesje(dane) {
                 nazwy[String(dane.rodzaj)] || _tekst(dane.rodzaj || "?", 30),
                 _liczba(dane.minuty, 1440) || "",
                 _liczba(dane.dokumenty, 10000) || "", _liczba(dane.plany, 10000) || "",
-                _tekst(dane.wersja, 20)]);
+                _wersjaKlienta(dane)]);
   return { status: "ok" };
 }
 

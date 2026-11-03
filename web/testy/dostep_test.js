@@ -11,7 +11,7 @@ const B = new BackendMock({ uzytkownicy: {
   '22222': { imie: 'Anna Nowa', telefon: '501502503', hash: '', wazne_do: '2099-12-31' },
   '44444': { imie: 'Ola Blokowana', telefon: '700800901', hash: nc.createHash('sha256').update('PMT|44444|haslo444').digest('hex'), wazne_do: '2099-12-31' },
 } });
-let sekretPada = false, wyslanePulsy = 0, zegarUrzadzenia = 0;
+let sekretPada = false, wyslanePulsy = 0, zegarUrzadzenia = 0, ostatnieZapytanie = null;
 const prawdziwyCzas = Date.now; Date.now = () => prawdziwyCzas() + zegarUrzadzenia;      // zegar urządzenia (aplikacji) da się przestawić; atrapa serwera liczy czas prawdziwy
 const naSerwerze = f => { const z = Date.now; Date.now = prawdziwyCzas; try { return f(); } finally { Date.now = z; } };
 globalThis.fetch = async (url, o = {}) => {
@@ -19,7 +19,7 @@ globalThis.fetch = async (url, o = {}) => {
   if (u === 'sekret.txt') { if (sekretPada) throw new TypeError('Failed to fetch'); return { ok: true, text: async () => 'SEKRET-TESTOWY\n' }; }
   if (B.martwy) throw new TypeError('Failed to fetch');
   if (!o.body) return { ok: true, text: async () => '' };
-  if (JSON.parse(o.body).akcja === 'puls') wyslanePulsy++;
+  ostatnieZapytanie = JSON.parse(o.body); if (ostatnieZapytanie.akcja === 'puls') wyslanePulsy++;
   await new Promise(r => setTimeout(r, 5));
   const odp = naSerwerze(() => JSON.stringify(B.obsluz(o.body))); return { ok: true, text: async () => odp };
 };
@@ -102,6 +102,11 @@ globalThis.fetch = async (url, o = {}) => {
   const hp = await D.pobierzHasloPaczki();
   ok('zegar +15 min: hasło paczki przychodzi (podpis hasłem w oknie serwera)', hp.ok && hp.haslo === 'Tajne-Haslo-1', JSON.stringify(hp));
   zegarUrzadzenia = 0; B.podpisObowiazkowy = false; D.wyloguj();
+
+  /* oznaczenie klienta: backend nie stosuje do aplikacji web bramki wersji programu (WYMAGANA_WERSJA) */
+  w = await D.zaloguj('12345', 'haslo123'); const zLogowania = ostatnieZapytanie; await D.puls();
+  ok('każde zapytanie aplikacji niesie klient: "web" (logowanie, puls)', w.ok && zLogowania.klient === 'web' && ostatnieZapytanie.akcja === 'puls' && ostatnieZapytanie.klient === 'web', JSON.stringify([zLogowania && zLogowania.klient, ostatnieZapytanie && ostatnieZapytanie.klient]));
+  D.wyloguj();
 
   console.log(kod ? 'BŁĘDY' : 'WSZYSTKO OK'); process.exit(kod);
 })().catch(e => { console.error(e); process.exit(1); });

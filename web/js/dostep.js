@@ -86,7 +86,7 @@ const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki'];
 let przesuniecie = 0;
 async function podpisz(dane, skrotZ = null) {
   const czas = String(Math.floor(teraz() / 1000 + przesuniecie)), s = await sekret();
-  const d = { ...dane, klucz_czas: czas, wersja: WERSJA };
+  const d = { ...dane, klucz_czas: czas, wersja: WERSJA, klient: 'web' };      // klient: backend nie stosuje do aplikacji web bramki wersji programu (WYMAGANA_WERSJA)
   const baza = `${d.kod || ''}|${d.akcja || ''}|${czas}`;
   if (s) d.podpis = await hmacHex(s, baza); else delete d.podpis;
   const klucz = AKCJE_Z_HASLEM.includes(d.akcja) ? (skrotZ || skrotSesji(d.kod)) : '';

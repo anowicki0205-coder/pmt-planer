@@ -168,7 +168,7 @@ function aktywuj(kod, imie, skrot) {
   const d = stan();
   if (d.kod !== kod) for (const p of OSOBISTE) delete d.status[p];     // nowe konto nie dziedziczy cudzych danych
   const k = d.konta[kod] || {};
-  delete d.status.status; delete d.status.wazne_do; delete k.wazne_do;      // logowanie online = świeży kontakt; ważność odświeży zaraz puls
+  delete d.status.status; delete d.status.wazne_do; delete k.wazne_do;      // logowanie online = świeży kontakt; ważność odświeży zaraz puls (k.zablokowane zdejmie dopiero puls „ok” — samo logowanie nie sprawdza ważności)
   ustawSkrot(kod, skrot); ustawImie(imie); k.kontakt = teraz();      // skrót hasła i imię tylko na czas sesji (imię wraca w wyniku logowania); dawny zapis znika po utworzeniu sejfu (przygotujSejf)
   d.konta[kod] = k; d.kod = kod; d.ostatni = kod; d.status.dokumenty_sesja = 0; d.status.plany_sesja = 0; zapisz(d);
 }
@@ -177,7 +177,7 @@ function aktywuj(kod, imie, skrot) {
 export function ocenaSesji() {
   const d = stan(), kod = d.kod; if (!kod) return { wazna: false, powod: 'brak' };
   const k = d.konta[kod] || {}, st = d.status || {};
-  if (st.status === 'wygasla') return { wazna: false, dni: 0, powod: 'wygasla' };
+  if (st.status === 'wygasla' || k.zablokowane) return { wazna: false, dni: 0, powod: 'wygasla' };
   // zablokowane w arkuszu konto nie może żyć w nieskończoność na danych z pamięci: po OFFLINE_DNI bez kontaktu z serwerem trzeba go odnowić
   if (k.kontakt && (teraz() - k.kontakt) / 86400000 > OFFLINE_DNI) return { wazna: false, dni: 0, powod: 'offline' };
   const wd = String(st.wazne_do || k.wazne_do || '');
@@ -213,6 +213,7 @@ export async function zaloguj(kod, haslo) {
     // konto z sejfem: hasło sprawdza otwarcie sejfu (zwraca też klucz danych); konto sprzed sejfu: dawny skrót (po zalogowaniu powstanie sejf)
     const dek = sejf.maSejf(kod) ? await sejf.otworzSejf(kod, haslo) : null, znane = sejf.maSejf(kod) ? !!dek : !!(k && k.skrot === skrot);
     if (k && znane) {
+      if (k.zablokowane) return { ok: false, komunikat: 'Dostęp do tego konta wygasł — skontaktuj się z administratorem. Po przedłużeniu zaloguj się raz z internetem.' };
       if (!offlineDozwolone(k)) return { ok: false, komunikat: `Minęło ponad ${OFFLINE_DNI} dni od ostatniego kontaktu z serwerem. Połącz się z internetem i zaloguj raz online — potem znów zadziała logowanie bez zasięgu.` };
       const d = stan(); if (d.kod !== kod) for (const p of OSOBISTE) delete d.status[p];
       d.kod = kod; d.ostatni = kod; zapisz(d); oznaczKarte(kod); ustawSkrot(kod, skrot);
@@ -295,7 +296,8 @@ async function pulsWlasciwy() {
   d.kolejka = { uruchomienia: Math.max(0, d.kolejka.uruchomienia - q.uruchomienia), dokumenty: Math.max(0, d.kolejka.dokumenty - q.dokumenty), minuty: Math.max(0, d.kolejka.minuty - q.minuty) };
   const pelne = odp.pelne !== false;      // false: serwer nie rozpoznał podpisu hasłem i oddał tylko status i datę — zapamiętanych danych nie nadpisujemy pustymi
   Object.assign(d.status, { kod, status: odp.status, wazne_do: odp.wazne_do || '', ostatnia_synchronizacja: dzis() });      // imię, rejon i nieobecności (L4) odpowiedzi nie są zapisywane: aplikacja ich nie używa, a nie ma po co trzymać ich jawnie na dysku
-  const k = d.konta[kod] || {}; k.kontakt = teraz();
+  /* odebrany dostęp zapisujemy przy koncie (poza OSOBISTE), żeby przeżył wylogowanie — bez tego logowanie bez sieci działałoby jeszcze OFFLINE_DNI; blokada nie odnawia też okna pracy bez sieci */
+  const k = d.konta[kod] || {}; if (odp.status === 'ok') { k.kontakt = teraz(); delete k.zablokowane; } else k.zablokowane = true;
   if (odp.wazne_do) k.wazne_do = odp.wazne_do; else delete k.wazne_do;
   d.konta[kod] = k; zapisz(d);
   return odp;

@@ -20,6 +20,9 @@ export function obrazyZPdf(bajty) {
   }
   return wynik;
 }
+/** PDF z obrazem strony, ale bez JPEG-a (skaner w trybie czarno-białym: CCITT, JBIG2, JPEG 2000, Flate) i bez czcionek — skan, którego obrazu nie odczytam.
+    Wygenerowany dokument ma czcionki i nie ma obrazów, więc go z tym nie pomylę. */
+export function skanBezJpeg(bajty) { const t = new TextDecoder('latin1').decode(bajty); return /\/Subtype\s*\/Image/.test(t) && !/\/Type\s*\/Font/.test(t); }
 const TYPY_OBRAZOW = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp' };
 export const typObrazu = nazwa => TYPY_OBRAZOW[(String(nazwa).toLowerCase().match(/\.([a-z0-9]+)$/) || [, ''])[1]] || '';
 
@@ -27,7 +30,7 @@ export const typObrazu = nazwa => TYPY_OBRAZOW[(String(nazwa).toLowerCase().matc
 export async function stronyZeSkanu(bajty, nazwa) {
   try {
     if (/\.pdf$/i.test(nazwa)) {
-      const o = obrazyZPdf(bajty); if (!o.length) return { strony: [], powod: 'ten PDF nie zawiera skanu, który umiem odczytać (obrazu JPEG)' };
+      const o = obrazyZPdf(bajty); if (!o.length) return { strony: [], powod: skanBezJpeg(bajty) ? 'to skan zapisany w formacie, którego nie umiem odczytać (np. czarno-biały)' : 'ten PDF nie zawiera skanu, który umiem odczytać (obrazu JPEG)' };
       return { strony: await Promise.all(o.map(d => createImageBitmap(new Blob([d], { type: 'image/jpeg' })))), powod: '' };
     }
     const typ = typObrazu(nazwa); if (!typ) return { strony: [], powod: 'ten format zdjęcia nie jest odczytywany w tej przeglądarce (np. HEIC)' };

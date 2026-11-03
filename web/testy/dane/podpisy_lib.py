@@ -1,5 +1,5 @@
 """Wspólne funkcje do tworzenia testowych podpisów elektronicznych (PAdES i XAdES). Używane przez generuj_podpisy.py i podpisz_pliki.py.
-Wymaga: pip install pyhanko lxml cryptography. Certyfikaty są testowe, samopodpisane; imiona, nazwiska i PESEL-e wymyślone."""
+Wymaga: pip install pyhanko lxml cryptography. Certyfikaty są testowe, podpisane własnym kluczem pod nazwą testowego centrum certyfikacji (samopodpisany=True: wystawca = podmiot); imiona, nazwiska i PESEL-e wymyślone."""
 import base64, datetime, hashlib, io, os, tempfile
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -10,22 +10,24 @@ from pyhanko.sign import signers, fields
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
 
-def certyfikat(imie, nazwisko, pesel, klucz, nazwa_poz=None):
+def certyfikat(imie, nazwisko, pesel, klucz, nazwa_poz=None, samopodpisany=False):
+    """samopodpisany=True: wystawca = podmiot (jak „cyfrowy identyfikator” utworzony w Acrobacie), zamiast testowego centrum certyfikacji."""
     pod = [x509.NameAttribute(NameOID.COMMON_NAME, f'{imie} {nazwisko}'), x509.NameAttribute(NameOID.GIVEN_NAME, imie), x509.NameAttribute(NameOID.SURNAME, nazwisko),
            x509.NameAttribute(NameOID.COUNTRY_NAME, 'PL')]
     if pesel: pod.insert(3, x509.NameAttribute(NameOID.SERIAL_NUMBER, f'PNOPL-{pesel}'))
-    n = x509.Name(pod); wyst = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Testowe Centrum Certyfikacji (nie do użytku)'), x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'PMT Planer testy')])
+    n = x509.Name(pod); wyst = n if samopodpisany else x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'Testowe Centrum Certyfikacji (nie do użytku)'), x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'PMT Planer testy')])
     t0 = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
     b = (x509.CertificateBuilder().subject_name(n).issuer_name(wyst).public_key(klucz.public_key()).serial_number(x509.random_serial_number())
          .not_valid_before(t0).not_valid_after(t0 + datetime.timedelta(days=3650))
          .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=True, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
          .add_extension(x509.SubjectKeyIdentifier.from_public_key(klucz.public_key()), critical=False))
+    if samopodpisany: b = b.add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(klucz.public_key()), critical=False)
     h = hashes.SHA256()
     return b.sign(klucz, h)
 
-def podpisujacy(imie, nazwisko, pesel, ec_klucz=False):
+def podpisujacy(imie, nazwisko, pesel, ec_klucz=False, samopodpisany=False):
     klucz = ec.generate_private_key(ec.SECP256R1()) if ec_klucz else rsa.generate_private_key(65537, 2048)
-    cert = certyfikat(imie, nazwisko, pesel, klucz)
+    cert = certyfikat(imie, nazwisko, pesel, klucz, samopodpisany=samopodpisany)
     sciezka = tempfile.mkdtemp(prefix='podpisy_')
     kf, cf = os.path.join(sciezka, 'k.pem'), os.path.join(sciezka, 'c.pem')
     open(kf, 'wb').write(klucz.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))

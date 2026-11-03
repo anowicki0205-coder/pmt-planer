@@ -40,7 +40,7 @@ export function karuzela(scena, pier, opcje) {
   const docelowyKat = i => { const d = roznicaKata(-i * krok, kat); return kat + d; };
   function start() { if (!raf && zywa) raf = requestAnimationFrame(klatka); }
   function klatka() {
-    raf = 0; if (!scena.isConnected) { zywa = false; return; }
+    raf = 0; if (!scena.isConnected) { zywa = false; document.removeEventListener('visibilitychange', naWidocznosc); return; }
     if (!przeciaganie) {
       if (Math.abs(v) > 0.02) { kat += v; v *= 0.94; if (Math.abs(v) <= 0.02) { v = 0; cel = naNajblizszy(); } }
       else if (cel !== null) { const d = cel - kat; if (Math.abs(d) < 0.05) { kat = cel; cel = null; } else kat += d * 0.14; }
@@ -67,6 +67,9 @@ export function karuzela(scena, pier, opcje) {
     if (!zycie || Math.abs(v) < 0.4) { v = 0; ustawCel(naNajblizszy()); } start(); setTimeout(() => { przesunieto = false; }, 0);
   };
   scena.addEventListener('pointerup', koniec); scena.addEventListener('pointercancel', koniec);
+  // pętla klatek kończy się, gdy auto() mówi „stój” (kursor lub fokus na scenie, ukryta karta) — wznawiam ją, gdy ten powód mija
+  const naWidocznosc = () => { if (!document.hidden) start(); };
+  scena.addEventListener('pointerleave', start); scena.addEventListener('focusout', start); document.addEventListener('visibilitychange', naWidocznosc);
   scena.addEventListener('wheel', e => { if (Math.abs(e.deltaY) + Math.abs(e.deltaX) < 4) return; e.preventDefault(); kroki((e.deltaY + e.deltaX) > 0 ? -1 : 1); }, { passive: false });
   scena.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft') { e.preventDefault(); kroki(1); } else if (e.key === 'ArrowRight') { e.preventDefault(); kroki(-1); }
@@ -82,5 +85,5 @@ export function karuzela(scena, pier, opcje) {
   if (obserwator) obserwator.observe(scena); else addEventListener('resize', naRozmiar);
   if (opcje.start > 0 && opcje.start < pier.children.length) kat = -opcje.start * (360 / pier.children.length);      // wracamy do karuzeli z oglądanym dokumentem z przodu
   przelicz(); start();
-  return { przelicz, doKarty, kroki, przod, odswiez: rysuj, zniszcz() { zywa = false; if (raf) cancelAnimationFrame(raf); raf = 0; if (obserwator) obserwator.disconnect(); else removeEventListener('resize', naRozmiar); } };
+  return { przelicz, doKarty, kroki, przod, odswiez: rysuj, zniszcz() { zywa = false; if (raf) cancelAnimationFrame(raf); raf = 0; document.removeEventListener('visibilitychange', naWidocznosc); if (obserwator) obserwator.disconnect(); else removeEventListener('resize', naRozmiar); } };
 }

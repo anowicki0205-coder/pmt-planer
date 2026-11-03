@@ -23,6 +23,13 @@ const { chromium } = require('playwright'); const { serwer } = require('./wspoln
   }
   const brakPdf = await p.evaluate(async () => { const m = await import('/js/podpis_reczny.js'); const r = await m.stronyZeSkanu(new TextEncoder().encode('%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF'), 'zwykly.pdf'); return r; });
   ok('PDF bez obrazu (nie skan) — jasny powód zamiast błędu', brakPdf.strony.length === 0 && /nie zawiera skanu/.test(brakPdf.powod), brakPdf.powod);
+  // skaner biurowy w trybie czarno-białym zapisuje stronę jako CCITT/JBIG2 (nie JPEG): obrazu nie odczytam, ale to skan (do ręcznego potwierdzenia), a nie „zwykły PDF”
+  const cb = await p.evaluate(async () => {
+    const m = await import('/js/podpis_reczny.js'), pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj << /Type /XObject /Subtype /Image /Width 1700 /Height 2338 /BitsPerComponent 1 /ColorSpace /DeviceGray /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 1700 >> /Length 4 >>\nstream\nabcd\nendstream\nendobj\n%%EOF');
+    const oryg = new Uint8Array(await (await fetch('/testy/dane/podpisy/oryg.pdf')).arrayBuffer()), r = await m.stronyZeSkanu(pdf, 'skan_cb.pdf');
+    return { skan: m.skanBezJpeg(pdf), oryg: m.skanBezJpeg(oryg), strony: r.strony.length, powod: r.powod };
+  });
+  ok('skan czarno-biały (CCITT, bez JPEG-a): rozpoznany jako skan z powodem „nie umiem odczytać”; wygenerowany dokument (czcionki, bez obrazów) nie', cb.skan && !cb.oryg && cb.strony === 0 && /czarno-biały/.test(cb.powod), JSON.stringify(cb));
   const zwykle = wyniki.w.filter(x => !x.stol), stol = wyniki.w.filter(x => x.stol);
   const fa = zwykle.filter(x => !x.jest && x.stan === 'jest'), przeoczone = zwykle.filter(x => x.jest && x.stan !== 'jest');
   console.log('  strefa podpisu (mm):', JSON.stringify(wyniki.strefa.strefa));

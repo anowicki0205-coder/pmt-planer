@@ -46,6 +46,8 @@ const fs = require('fs'), path = require('path'), os = require('os'), cp = requi
   // „podpisany” PDF = oryginał + dopisany blok (tak robi podpis PAdES)
   const podpisany = i => { const d = new Uint8Array(bajty[i].length + 300); d.set(bajty[i]); d.set(new TextEncoder().encode('\n%podpis\n/ByteRange [0 1 2 3]\n'), bajty[i].length); return d; };
   ok('zawieraOryginal: podpisany PDF tak, cudzy PDF nie', zawieraOryginal(podpisany(0), bajty[0]) && !zawieraOryginal(podpisany(1), bajty[0]) && !zawieraOryginal(bajty[0].subarray(0, 100), bajty[0]));
+  const srodek = podpisany(0); srodek[Math.floor(bajty[0].length / 2)] ^= 1;
+  ok('zawieraOryginal: bajt zmieniony w środku oryginału (poza pierwszymi 4 KB i ostatnim 1 KB) — to już nie oryginał', bajty[0].length > 6000 && !zawieraOryginal(srodek, bajty[0]), String(bajty[0].length));
   const dok = [{ i: 0, nazwa: 'Polecenie_1_Jan_wrzesien_2026.pdf', tytul: 'Polecenie 1', wolny: true, bajty: async () => bajty[0] }, { i: 1, nazwa: 'Polecenie_2_Jan_wrzesien_2026.pdf', tytul: 'Polecenie 2', wolny: true, bajty: async () => bajty[1] },
     { i: 2, nazwa: 'Rozliczenie_Jan_wrzesien_2026.pdf', tytul: 'Rozliczenie', wolny: true, bajty: async () => bajty[2] }];
   const F = (name, b) => ({ name, _b: b });
@@ -55,7 +57,16 @@ const fs = require('fs'), path = require('path'), os = require('os'), cp = requi
   ok('po zawartości: pliki o przypadkowych nazwach trafiają do właściwych dokumentów', w[0].i === 2 && w[0].jak === 'tresc' && w[1].i === 0 && w[1].jak === 'tresc', JSON.stringify(w.map(x => [x.plik.name, x.i, x.jak])));
   // b) po nazwie — skany (JPG) nie mają oryginału w środku
   w = await dopasujPliki([F('IMG_Polecenie 2.jpg', new Uint8Array(10)), F('Rozliczenie.jpg', new Uint8Array(10)), F('skan 1.png', new Uint8Array(10))], dok, odczyt);
-  ok('po nazwie: „Polecenie 2”, „Rozliczenie”, „skan 1”', w[0].i === 1 && w[1].i === 2 && w[2].i === 0 && w.every(x => x.jak === 'nazwa'), JSON.stringify(w.map(x => [x.plik.name, x.i, x.jak])));
+  ok('po nazwie: „Polecenie 2”, „Rozliczenie”; „skan 1” po jedynej liczbie w nazwie (oznaczone do sprawdzenia)', w[0].i === 1 && w[1].i === 2 && w[2].i === 0 && w[0].jak === 'nazwa' && w[1].jak === 'nazwa' && w[2].jak === 'liczba', JSON.stringify(w.map(x => [x.plik.name, x.i, x.jak])));
+  // daty i dopiski aplikacji skanujących nie są numerem dokumentu: skany zrobione 2 listopada nie trafiają hurtem do „Polecenia 2”
+  const dok5 = [0, 1, 2, 3].map(i => ({ i, nazwa: `delegacja_0${i + 1}_Jan_Testowy_pazdziernik_2026.pdf`, tytul: `Polecenie ${i + 1}`, wolny: true })).concat([{ i: 4, nazwa: 'rozliczenie_Jan_Testowy_pazdziernik_2026.pdf', tytul: 'Rozliczenie', wolny: true }]);
+  for (const zestaw of [['Adobe Scan 2 lis 2026_str01.jpg', 'Adobe Scan 2 lis 2026 (1)_str01.jpg', 'Adobe Scan 2 lis 2026 (2)_str01.jpg', 'Adobe Scan 2 lis 2026 (3)_str01.jpg', 'Adobe Scan 2 lis 2026 (4)_str01.jpg'],
+    ['Skan 02.11.2026 10_15.jpg', 'Skan 02.11.2026 10_16.jpg', 'Skan 02.11.2026 10_17.jpg'], ['Adobe Scan Nov 02, 2026_str01.jpg', 'Adobe Scan Nov 02, 2026_str02.jpg'], ['IMG_20261102_101500.jpg', 'Scan 2026-11-02.jpg']]) {
+    w = await dopasujPliki(zestaw.map(n => F(n, new Uint8Array(10))), dok5, odczyt);
+    ok(`daty w nazwach skanów („${zestaw[0]}”…) nie kierują plików do „Polecenia <dzień>”: każdy plik do innego dokumentu, według kolejności`, new Set(w.map(x => x.i)).size === w.length && w.every(x => x.jak === 'kolejnosc'), JSON.stringify(w.map(x => [x.plik.name, x.i, x.jak])));
+  }
+  w = await dopasujPliki([F('skan 3.jpg', new Uint8Array(10)), F('3.jpg', new Uint8Array(10))], dok5, odczyt);
+  ok('dwa pliki z tą samą liczbą w nazwie (strony albo kopie) nie trafiają razem do jednego dokumentu — zostają dla kolejności', w.every(x => x.jak === 'kolejnosc') && new Set(w.map(x => x.i)).size === 2, JSON.stringify(w.map(x => [x.plik.name, x.i, x.jak])));
   w = await dopasujPliki([F('delegacja_02_Jan_Testowy_wrzesien_2026r_podpisany.pdf', new Uint8Array(10)), F('rozliczenie_wydatków_Jan_Testowy.jpg', new Uint8Array(10))], dok, odczyt);
   ok('po nazwie z silnika: „delegacja_02…” → Polecenie 2, „rozliczenie_wydatków…” → Rozliczenie', w[0].i === 1 && w[1].i === 2, JSON.stringify(w.map(x => [x.i, x.jak])));
   // c) według kolejności — nazwy z aparatu

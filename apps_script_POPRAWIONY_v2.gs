@@ -640,7 +640,8 @@ function logowanie(dane) {
     _wyczyscProby(kod);
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_" + zrodlo,
          "OK" + (haslem ? " (haslo)" : " (telefon)"));
-    return { status: "ok", imie: String(w[i][1] || "") };
+    // "przez": klient zakłada sejf danych tą samą postacią hasła co serwer (telefon = ostatnie 9 cyfr)
+    return { status: "ok", imie: String(w[i][1] || ""), przez: haslem ? "haslo" : "telefon" };
   }
   _nieudanaProba(kod);       // zgadywanie kodów liczy się tak samo jak zgadywanie haseł
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };

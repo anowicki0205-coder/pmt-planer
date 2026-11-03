@@ -155,10 +155,25 @@ export const kodAktywny = () => stan().kod || '';
 export const skrotAktywny = () => skrotSesji(stan().kod || '');      // skrót hasła zalogowanego konta (tylko na czas sesji) — klucz do pliku z danymi z programu (js/przeniesienie.js)
 export const ostatniKod = () => stan().ostatni || '';
 export const status = () => stan().status;
+/* POSTAĆ HASŁA jak na serwerze: backend przycina odstępy, a telefon porównuje po ostatnich 9 cyfrach. Z tej postaci liczymy skrót sesji (= „Haslo hash”) i klucz sejfu —
+   inaczej hasło wklejone ze spacją albo telefon wpisany raz „600 100 200”, raz „600100200” dawały zły podpis hasłem i „obcy” sejf. */
+export const postacHasla = h => String(h || '').trim();
+const postacTelefonu = h => String(h || '').replace(/\D/g, '').slice(-9);
+/** Postaci, którymi mógł być zaszyfrowany sejf: przycięta, telefon (gdy tekst wygląda na numer) i surowy tekst (sejf założony przed ujednoliceniem). */
+const postaciSejfu = h => { const t = postacHasla(h), w = [t]; if (/^\+?[\d\s()-]+$/.test(t) && postacTelefonu(t).length === 9) w.push(postacTelefonu(t)); w.push(String(h || '')); return w; };
+/** Otwiera sejf pierwszą pasującą postacią; inna niż `docelowa` od razu przepisuje sejf na docelową (następne logowanie trafi za pierwszym razem). */
+async function otworzSejfPostacia(kod, postaci, docelowa) {
+  for (const p of [...new Set(postaci)]) {
+    const dek = await sejf.otworzSejf(kod, p); if (!dek) continue;
+    if (docelowa && p !== docelowa) { try { await sejf.przepiszSejf(kod, dek, docelowa); } catch (e) { /* zostaje dawna postać; przepisze się przy następnym logowaniu */ } }
+    return dek;
+  }
+  return null;
+}
 /** Czy to hasło jest znane na tym urządzeniu (autologowanie): konto z sejfem — próba otwarcia sejfu (PBKDF2, ok. 0,3 s); konto sprzed sejfu — dawny skrót. */
 export const czyHasloZnane = async (kod, haslo) => {
-  if (sejf.maSejf(kod)) return !!(await sejf.otworzSejf(kod, haslo));
-  const k = stan().konta[kod]; return !!(k && k.skrot && k.skrot === await skrotHasla(kod, haslo));
+  if (sejf.maSejf(kod)) return !!(await otworzSejfPostacia(kod, postaciSejfu(haslo), null));
+  const k = stan().konta[kod]; return !!(k && k.skrot && (k.skrot === await skrotHasla(kod, postacHasla(haslo)) || k.skrot === await skrotHasla(kod, String(haslo || ''))));
 };
 
 function zapiszKonto(kod, pola) {
@@ -201,7 +216,7 @@ const odznaczKarte = () => { try { sessionStorage.removeItem(KLUCZ_KARTY); } cat
 export const sesjaTejKarty = () => { const kod = stan().kod; if (!kod) return false; if (!pamiecKarty) return true; try { return sessionStorage.getItem(KLUCZ_KARTY) === kod; } catch (e) { return true; } };
 const jestKod = k => /^\d{5}$/.test(k);
 export async function zaloguj(kod, haslo) {
-  kod = String(kod || '').trim(); haslo = String(haslo || '');
+  const wpisane = String(haslo || ''); kod = String(kod || '').trim(); haslo = postacHasla(wpisane);
   if (!jestKod(kod)) return { ok: false, komunikat: 'Login to dokładnie 5 cyfr.' };
   if (haslo.length < 4) return { ok: false, komunikat: 'Podaj hasło (lub numer telefonu).' };
   let odp;
@@ -211,13 +226,13 @@ export async function zaloguj(kod, haslo) {
     // bez sieci: porównanie skrótu z zapisanym przy poprzednim udanym logowaniu tego konta
     const k = stan().konta[kod], skrot = await skrotHasla(kod, haslo);
     // konto z sejfem: hasło sprawdza otwarcie sejfu (zwraca też klucz danych); konto sprzed sejfu: dawny skrót (po zalogowaniu powstanie sejf)
-    const dek = sejf.maSejf(kod) ? await sejf.otworzSejf(kod, haslo) : null, znane = sejf.maSejf(kod) ? !!dek : !!(k && k.skrot === skrot);
+    const dek = sejf.maSejf(kod) ? await otworzSejfPostacia(kod, postaciSejfu(wpisane), null) : null, znane = sejf.maSejf(kod) ? !!dek : !!(k && (k.skrot === skrot || k.skrot === await skrotHasla(kod, wpisane)));
     if (k && znane) {
       if (k.zablokowane) return { ok: false, komunikat: 'Dostęp do tego konta wygasł — skontaktuj się z administratorem. Po przedłużeniu zaloguj się raz z internetem.' };
       if (!offlineDozwolone(k)) return { ok: false, komunikat: `Minęło ponad ${OFFLINE_DNI} dni od ostatniego kontaktu z serwerem. Połącz się z internetem i zaloguj raz online — potem znów zadziała logowanie bez zasięgu.` };
       const d = stan(); if (d.kod !== kod) for (const p of OSOBISTE) delete d.status[p];
       d.kod = kod; d.ostatni = kod; zapisz(d); oznaczKarte(kod); ustawSkrot(kod, skrot);
-      return { ok: true, imie: '', offline: true, dek };      // imienia nie trzymamy na dysku jawnie (jest w zaszyfrowanym profilu)
+      return { ok: true, imie: '', offline: true, dek, haslo, wpisane };      // imienia nie trzymamy na dysku jawnie (jest w zaszyfrowanym profilu)
     }
     return { ok: false, komunikat: b.message };
   }
@@ -235,7 +250,8 @@ export async function zaloguj(kod, haslo) {
   oznaczKarte(kod);
   zdarzenieSesji('logowanie');
   const cyfry = haslo.replace(/[\s+-]/g, '');
-  return { ok: true, imie: String(odp.imie || ''), telefon: /^\d{9,}$/.test(cyfry) && !(stan().konta[kod] || {}).maHaslo };   // logowanie telefonem = konto bez hasła
+  const telefon = odp.przez ? odp.przez === 'telefon' : /^\d{9,}$/.test(cyfry) && !(stan().konta[kod] || {}).maHaslo;   // logowanie telefonem = konto bez hasła (starszy backend nie mówi „przez”: zgadujemy po treści)
+  return { ok: true, imie: String(odp.imie || ''), telefon, haslo: telefon ? postacTelefonu(haslo) : haslo, wpisane };      // haslo = postać do sejfu (telefon zawsze jako 9 cyfr), wpisane = tekst z pola
 }
 
 export function wyloguj() {
@@ -254,20 +270,20 @@ export function zapomnijKonto(kod) {
 export const kluczDanych = () => sejf.odczytajKlucz();
 /** Po zalogowaniu: otwiera sejf konta tym hasłem albo (pierwsze logowanie na tym urządzeniu) zakłada go. Zwraca { stan: 'ok', dek } albo { stan: 'obcy' } — sejf istnieje, ale to hasło go nie otwiera
  *  (hasło zmieniono na innym urządzeniu albo zresetowano). Konto sprzed sejfu traci wtedy dawny zapis skrótu hasła z dysku. */
-export async function przygotujSejf(kod, haslo) {
-  let dek, nowy = false;
-  if (sejf.maSejf(kod)) { dek = await sejf.otworzSejf(kod, haslo); if (!dek) return { stan: 'obcy' }; } else { dek = await sejf.utworzSejf(kod, haslo); nowy = true; }
+export async function przygotujSejf(kod, haslo, wpisane = haslo) {
+  let dek, nowy = false; haslo = postacHasla(haslo);
+  if (sejf.maSejf(kod)) { dek = await otworzSejfPostacia(kod, [haslo, ...postaciSejfu(wpisane)], haslo); if (!dek) return { stan: 'obcy' }; } else { dek = await sejf.utworzSejf(kod, haslo); nowy = true; }
   sejf.zapamietajKlucz(dek);
   const d = stan(), k = d.konta[kod]; if (k) { delete k.skrot; delete k.imie; } for (const f of ['imie', 'rejon', 'nieobecnosci']) delete d.status[f]; zapisz(d);      // sprzątanie po wersji sprzed szyfrowania: skrót hasła, imię, rejon i nieobecności nie leżą już jawnie na dysku
   return { stan: 'ok', dek, nowy };
 }
 /** Sejf zaszyfrowany POPRZEDNIM hasłem: poprzednie hasło odblokowuje go i przepisuje pod bieżące. null = to hasło nie pasuje. */
 export async function odzyskajSejf(kod, stareHaslo, noweHaslo) {
-  const dek = await sejf.otworzSejf(kod, stareHaslo); if (!dek) return null;
-  await sejf.przepiszSejf(kod, dek, noweHaslo); sejf.zapamietajKlucz(dek); return dek;
+  const dek = await otworzSejfPostacia(kod, postaciSejfu(stareHaslo), null); if (!dek) return null;
+  await sejf.przepiszSejf(kod, dek, postacHasla(noweHaslo)); sejf.zapamietajKlucz(dek); return dek;
 }
 /** „Zacznij od nowa”: stary sejf (i dane) znikają, powstaje nowy pod bieżącym hasłem. Dane z urządzenia kasuje wołający (magazyn). */
-export async function nowySejf(kod, haslo) { sejf.usunSejf(kod); const dek = await sejf.utworzSejf(kod, haslo); sejf.zapamietajKlucz(dek); return dek; }
+export async function nowySejf(kod, haslo) { sejf.usunSejf(kod); const dek = await sejf.utworzSejf(kod, postacHasla(haslo)); sejf.zapamietajKlucz(dek); return dek; }
 export const zapamietajKluczDanych = dek => sejf.zapamietajKlucz(dek);
 
 /* ---------- puls i sesja ---------- */

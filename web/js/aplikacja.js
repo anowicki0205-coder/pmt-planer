@@ -2211,7 +2211,7 @@ function ekranLogowania(wstep, kodStart) {
         const koniec = oczekiwanie(ok, 'Sprawdzam…'); if (!auto) kodEl.disabled = hasloEl.disabled = true;   // przy automacie pole hasła zostaje aktywne: żaden znak nie ginie
         let w; try { w = await dostep.zaloguj(k, h); } catch (e) { w = { ok: false, komunikat: 'Nie udało się zalogować: ' + e.message }; }
         koniec(); wToku = false; kodEl.disabled = hasloEl.disabled = false; sprawdz();
-        if (w.ok) { rozwiaz({ ...w, kod: k, haslo: h }); return; }
+        if (w.ok) { rozwiaz({ haslo: h, ...w, kod: k }); return; }      // w.haslo = postać hasła jak na serwerze (przycięta, telefon jako 9 cyfr) — nią zakładamy i otwieramy sejf
         if (auto && (kodEl.value.trim() !== k || hasloEl.value !== h)) { probuj('tekst'); return; }    // odpowiedź dotyczy starego tekstu — pisano dalej
         if (auto && !wazny(w.komunikat)) { dzInfo('Dokończ wpisywanie hasła albo naciśnij Enter.'); return; }
         dzInfo(w.komunikat, 'zle'); hasloEl.focus(); if (!auto) hasloEl.select();
@@ -2363,7 +2363,7 @@ async function start() {
   /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty bierze klucz z sessionStorage; po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
   let dek = sesja ? (sesja.dek || null) : dostep.kluczDanych();
   if (!dek && sesja) {
-    let s = await dostep.przygotujSejf(kodKonta, sesja.haslo);
+    let s = await dostep.przygotujSejf(kodKonta, sesja.haslo, sesja.wpisane);
     if (s.stan === 'obcy') s = await arkuszOdzyskaniaSejfu(kodKonta, sesja.haslo);
     dek = s.dek;
   }

@@ -68,7 +68,7 @@ class BackendMock {
       return { status: 'blad', opis: u.hash ? 'Nieprawidlowe haslo' : 'Nieprawidlowy numer telefonu' };
     }
     this.zapisz(kod, 'logowanie_' + (d.zrodlo || 'www'), haslem ? 'OK (haslo)' : 'OK (telefon)');
-    return { status: 'ok', imie: u.imie };
+    return { status: 'ok', imie: u.imie, przez: haslem ? 'haslo' : 'telefon' };
   }
   puls(d) {
     const kod = String(d.kod || '').trim(); if (!/^\d{5}$/.test(kod)) return { status: 'zly_kod' };

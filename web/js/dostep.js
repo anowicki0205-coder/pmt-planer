@@ -3,7 +3,7 @@
 // zapytania podpisuje HMAC-SHA256 sekretem aplikacji (plik sekret.txt obok aplikacji — NIGDY w kodzie), a bez sieci
 // wolno wejść tylko kontem, które już raz zalogowało się na tym urządzeniu, i tylko przez OFFLINE_DNI od ostatniego kontaktu z serwerem.
 // UWAGA: sekret w paczce webowej to filtr przed botami, nie tajemnica — każdy może go odczytać z przeglądarki (tak samo jak w programie).
-// SKRÓT HASŁA nie leży już na dysku (był szybki do złamania, gdyby ktoś dostał profil przeglądarki): zostaje w sessionStorage karty na czas sesji (do podpisywania pulsu),
+// SKRÓT HASŁA nie leży już na dysku (był szybki do złamania, gdyby ktoś dostał profil przeglądarki): zostaje w pamięci strony na czas sesji (do podpisywania pulsu),
 // a poprawność hasła przy logowaniu bez sieci i autologowaniu sprawdza SEJF (js/sejf.js) — zaszyfrowany klucz danych, wolny PBKDF2.
 import * as sejf from './sejf.js';
 
@@ -142,15 +142,28 @@ export function rozgrzej() { try { fetch(BACKEND, { mode: 'no-cors', cache: 'no-
 /* ---------- stan na urządzeniu ---------- */
 const OSOBISTE = ['status', 'imie', 'rejon', 'wazne_do', 'nieobecnosci', 'dokumenty_sesja', 'plany_sesja'];
 const stan = () => { const d = czytaj(); d.konta = d.konta || {}; d.status = d.status || {}; d.kolejka = d.kolejka || { uruchomienia: 0, dokumenty: 0, minuty: 0 }; return d; };
-/* skrót hasła na czas sesji karty: pamięć + sessionStorage (odświeżenie strony go nie gubi, zamknięcie karty tak) */
-const KLUCZ_SKROTU = 'pmt-web-skrot'; let skrotPamiec = null;
-const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; bezpiecznie(() => sessionStorage.setItem(KLUCZ_SKROTU, JSON.stringify(skrotPamiec))); };
-const skrotSesji = kod => { if (!skrotPamiec) skrotPamiec = bezpiecznie(() => JSON.parse(sessionStorage.getItem(KLUCZ_SKROTU)), null); return skrotPamiec && skrotPamiec.kod === kod ? skrotPamiec.skrot : ''; };
-const zapomnijSkrot = () => { skrotPamiec = null; bezpiecznie(() => sessionStorage.removeItem(KLUCZ_SKROTU)); bezpiecznie(() => sessionStorage.removeItem(KLUCZ_IMIENIA)); };
-/* imię z odpowiedzi logowania: tylko na czas sesji karty (podpowiedź w „Moje dane” przy pierwszym logowaniu); na dysku jawnie go nie trzymamy */
-const KLUCZ_IMIENIA = 'pmt-web-imie'; let imieSesji = '';
-const ustawImie = imie => { imieSesji = String(imie || '').trim(); bezpiecznie(() => sessionStorage.setItem(KLUCZ_IMIENIA, imieSesji)); };
-export const imieZSerwera = () => imieSesji || bezpiecznie(() => sessionStorage.getItem(KLUCZ_IMIENIA) || '', '');
+/* SESJA STRONY: skrót hasła, imię z logowania, znacznik „ta karta jest zalogowana” i klucz danych (sejf) żyją TYLKO w pamięci strony. sessionStorage przeglądarka trzyma
+   na dysku i przywraca razem z kartą (Ctrl+Shift+T, „Kontynuuj tam, gdzie skończyłem”, po awarii), więc wpis dla odświeżenia (F5) kładziemy tam dopiero przy zamykaniu
+   strony (pagehide), a nowa strona przyjmuje go wyłącznie przy przeładowaniu, świeży (do 15 s) — i od razu go usuwa. Przywrócona i nowa karta pokazują logowanie. */
+const PRZEKAZ = 'pmt-web-przekaz', WAZNOSC_PRZEKAZU = 15000;
+const przeladowanie = () => bezpiecznie(() => { const n = performance.getEntriesByType('navigation')[0]; return n ? n.type === 'reload' : performance.navigation.type === 1; }, false);
+const przekaz = bezpiecznie(() => {
+  const t = sessionStorage.getItem(PRZEKAZ); for (const k of [PRZEKAZ, 'pmt-web-dek', 'pmt-web-skrot', 'pmt-web-imie', 'pmt-web-sesja-karty']) sessionStorage.removeItem(k);      // także wpisy wersji, która trzymała je tu przez całą sesję
+  const o = t ? JSON.parse(t) : null, wiek = o ? Date.now() - Number(o.t) : -1;
+  return o && wiek >= 0 && wiek < WAZNOSC_PRZEKAZU && przeladowanie() ? o : null;
+}, null) || {};
+let skrotPamiec = przekaz.skrot && przekaz.skrot.kod ? przekaz.skrot : null, imieSesji = String(przekaz.imie || ''), kartaPamiec = String(przekaz.karta || '');
+if (przekaz.dek) bezpiecznie(() => sejf.zapamietajKlucz(sejf.unb64(przekaz.dek)));
+if (typeof addEventListener === 'function') addEventListener('pagehide', e => {
+  const kod = stan().kod, dek = sejf.odczytajKlucz(); if (e.persisted || !kod || kartaPamiec !== kod) return;      // persisted: strona zostaje w pamięci (bfcache), nic nie trzeba przekazywać
+  bezpiecznie(() => sessionStorage.setItem(PRZEKAZ, JSON.stringify({ t: Date.now(), karta: kartaPamiec, skrot: skrotPamiec, imie: imieSesji, dek: dek ? sejf.b64(dek) : '' })));
+});
+const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; };
+const skrotSesji = kod => skrotPamiec && skrotPamiec.kod === kod ? skrotPamiec.skrot : '';
+const zapomnijSkrot = () => { skrotPamiec = null; imieSesji = ''; };
+/* imię z odpowiedzi logowania: tylko na czas sesji (podpowiedź w „Moje dane” przy pierwszym logowaniu); na dysku jawnie go nie trzymamy */
+const ustawImie = imie => { imieSesji = String(imie || '').trim(); };
+export const imieZSerwera = () => imieSesji;
 export const kodAktywny = () => stan().kod || '';
 export const skrotAktywny = () => skrotSesji(stan().kod || '');      // skrót hasła zalogowanego konta (tylko na czas sesji) — klucz do pliku z danymi z programu (js/przeniesienie.js)
 export const ostatniKod = () => stan().ostatni || '';
@@ -207,13 +220,11 @@ export function ocenaSesji() {
 const offlineDozwolone = k => !k || !k.kontakt || (teraz() - k.kontakt) / 86400000 <= OFFLINE_DNI;
 
 /* ---------- logowanie ---------- */
-/* SESJA KARTY: jak w programie na komputerze, logowanie jest wymagane przy KAŻDYM uruchomieniu (nowa karta, ponowne otwarcie przeglądarki), a nie „na zawsze” po pierwszym razie.
-   Odświeżenie tej samej karty (F5) logowania nie powtarza — znacznik leży w sessionStorage, który ginie z kartą. Hasło znane na urządzeniu loguje potem od razu (autologowanie). */
-const KLUCZ_KARTY = 'pmt-web-sesja-karty';
-const pamiecKarty = (() => { try { sessionStorage.setItem('__p', '1'); sessionStorage.removeItem('__p'); return true; } catch (e) { return false; } })();
-const oznaczKarte = kod => { try { sessionStorage.setItem(KLUCZ_KARTY, kod); } catch (e) { /* bez pamięci karty logowanie nie będzie pamiętane do odświeżenia */ } };
-const odznaczKarte = () => { try { sessionStorage.removeItem(KLUCZ_KARTY); } catch (e) { /* jak wyżej */ } };
-export const sesjaTejKarty = () => { const kod = stan().kod; if (!kod) return false; if (!pamiecKarty) return true; try { return sessionStorage.getItem(KLUCZ_KARTY) === kod; } catch (e) { return true; } };
+/* SESJA KARTY: jak w programie na komputerze, logowanie jest wymagane przy KAŻDYM uruchomieniu (nowa karta, ponowne otwarcie przeglądarki, przywrócona karta), a nie „na zawsze”
+   po pierwszym razie. Odświeżenie tej samej karty (F5) logowania nie powtarza — znacznik przechodzi przez krótkie przekazanie przy przeładowaniu (wyżej). Hasło znane na urządzeniu loguje potem od razu (autologowanie). */
+const oznaczKarte = kod => { kartaPamiec = kod; };
+const odznaczKarte = () => { kartaPamiec = ''; };
+export const sesjaTejKarty = () => { const kod = stan().kod; return !!kod && kartaPamiec === kod; };
 const jestKod = k => /^\d{5}$/.test(k);
 export async function zaloguj(kod, haslo) {
   const wpisane = String(haslo || ''); kod = String(kod || '').trim(); haslo = postacHasla(wpisane);

@@ -30,7 +30,11 @@ async function otworz({ w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = fal
   await backend.podepnij(ctx);
   if (zalogowany) {                                  // domyślnie: konto 12345 już zalogowane na tym urządzeniu (testy logowania ustawiają zalogowany:false)
     const ziarno = { kod: '12345', ostatni: '12345', konta: { 12345: { imie: 'Jan Testowy', kontakt: Date.now() } }, status: {}, kolejka: { uruchomienia: 0, dokumenty: 0, minuty: 0 } };      // skrótu hasła na dysku już nie ma (sejf)
-    await ctx.addInitScript(z => { try { if (!localStorage.getItem('pmt-web-dostep-v1')) localStorage.setItem('pmt-web-dostep-v1', JSON.stringify(z)); sessionStorage.setItem('pmt-web-sesja-karty', '12345'); sessionStorage.setItem('pmt-web-dek', z.dek); sessionStorage.setItem('pmt-web-skrot', JSON.stringify({ kod: '12345', skrot: z.skrot })); } catch (e) {} }, { ...ziarno, dek: Buffer.from(new Uint8Array(32).map((_, i) => i * 7 + 3)).toString('base64'), skrot: hash('12345', 'haslo123') });      // sessionStorage: zalogowano już na tej karcie (logowanie jest wymagane przy każdym uruchomieniu)
+    await ctx.addInitScript(z => { try {      // zalogowano już na tej karcie: sesja żyje w pamięci strony, a do nowej strony przechodzi tylko przekazaniem przy przeładowaniu (js/dostep.js) — tu każde wejście udaje F5 ze świeżym przekazaniem
+      if (!localStorage.getItem('pmt-web-dostep-v1')) localStorage.setItem('pmt-web-dostep-v1', JSON.stringify(z));
+      sessionStorage.setItem('pmt-web-przekaz', JSON.stringify({ t: Date.now(), karta: '12345', skrot: { kod: '12345', skrot: z.skrot }, imie: '', dek: z.dek }));
+      Object.defineProperty(PerformanceNavigationTiming.prototype, 'type', { configurable: true, get: () => 'reload' });
+    } catch (e) {} }, { ...ziarno, dek: Buffer.from(new Uint8Array(32).map((_, i) => i * 7 + 3)).toString('base64'), skrot: hash('12345', 'haslo123') });
   }
   await ctx.addInitScript(dzien => {      // „dzisiaj” dla aplikacji jest stałe (domyślnie 15.10.2026 → program otwiera się na wrześniu, jak w całym zestawie testów): testy opisują konkretne dni września i nie mogą zależeć od dnia uruchomienia
     const R = Date, przesuniecie = new R(dzien).getTime() - R.now();

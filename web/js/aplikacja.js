@@ -2299,7 +2299,7 @@ function arkuszUszkodzonychDanych() {
     $('#uszk-usun', arkTresc).addEventListener('click', () => { magWyczysc(); dostepBlokada = false; arkTlo.classList.remove('dostep'); zamknijArkusz(); rozwiaz(); });
   });
 }
-/** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z sessionStorage), przeładowanie. */
+/** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z pamięci strony), przeładowanie. */
 async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(true); location.reload(); }
 /* zmiana hasła z menu konta albo „ustaw własne” po pierwszym logowaniu telefonem (wtedy stare = telefon, wpisany przed chwilą) */
 function arkuszZmianyHasla(pierwsze, telefon, poZamknieciu) {
@@ -2360,7 +2360,7 @@ async function start() {
   if (!(dostep.kodAktywny() && ocena.wazna && dostep.sesjaTejKarty() && dostep.kluczDanych())) sesja = await zalogujSie(kom || (ocena.powod === 'offline' || ocena.powod === 'wygasla' ? komunikatBlokady(ocena) : ''));      // logowanie przy każdym uruchomieniu (nowa karta), jak w programie na komputerze
   const kodKonta = dostep.kodAktywny() || (sesja && sesja.kod);
   ustawKonto(kodKonta); dostep.uruchomienie();
-  /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty bierze klucz z sessionStorage; po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
+  /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty (F5) dostaje klucz z krótkiego przekazania przy przeładowaniu (js/dostep.js); po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
   let dek = sesja ? (sesja.dek || null) : dostep.kluczDanych();
   if (!dek && sesja) {
     let s = await dostep.przygotujSejf(kodKonta, sesja.haslo, sesja.wpisane);

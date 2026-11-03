@@ -186,6 +186,12 @@ def generuj(p, postep=None):
     _odnow_siec()
     cb("Pobieranie współrzędnych GPS...", 0.10)
     baza_lat, baza_lng = S.pobierz_coords(pr["adres_geo"], pr["baza_miasto"], pr["woj"])
+    if S._klucz_geo(pr["adres_geo"]) not in S._geo_cache and not any(
+            S.coords_z_miasta(n) for n in (pr["baza_miasto"], S._poczta_z_adresu(pr["adres_geo"])) if n):
+        # silnik oddałby stolicę województwa: dokumenty z kilometrami liczonymi np. z Warszawy, bez słowa ostrzeżenia
+        raise ValueError("Nie udało się ustalić, gdzie leży adres zamieszkania: serwer map nie odpowiada albo nie zna adresu, "
+                         "a miejscowości %s nie ma w bazie offline. Połącz się z internetem i spróbuj ponownie "
+                         "(sprawdź też pisownię adresu). Żaden dokument nie został utworzony." % pr["baza_miasto"])
     imie = " ".join(str(p["imie"]).split()); pesel = "".join(str(p["pesel"]).split())
     prac = S.DanePracownika(imie=imie, pesel=pesel, adres=pr["adres_caly"], stanowisko=p.get("stanowisko") or "KR",
                             kod_pocztowy=pr["kod_pocztowy"], baza_miasto=pr["baza_miasto"], baza_lat=baza_lat,

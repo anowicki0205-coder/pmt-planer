@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:8eddd2951d3f3113
+# źródło: PMT_Delegacje.py sha256:f424b440e9d50be5
 
 import sys
 
@@ -2323,7 +2323,7 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
         _geo_cache[klucz] = _geo_cache[stary]
         return tuple(_geo_cache[klucz])
     if _geo_brak_znany(klucz):
-        return _wspolrzedne_zastepcze(miasto, woj)
+        return _wspolrzedne_zastepcze(miasto, woj, adres_caly)
     odpowiedz_serwera = False
     for zapytanie in _warianty_geo(adres_caly, miasto):
         try:
@@ -2347,21 +2347,29 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
     _geo_pytane.add(klucz)
     if odpowiedz_serwera:
         _zapamietaj_geo_brak(klucz)
-    return _wspolrzedne_zastepcze(miasto, woj)
+    return _wspolrzedne_zastepcze(miasto, woj, adres_caly)
 
-def _wspolrzedne_zastepcze(miasto: str, woj: str) -> Tuple[float, float]:
+def _poczta_z_adresu(adres) -> str:
+    """„Dębowa Wola, 26-660 Jedlińsk" → „Jedlińsk" (człon po kodzie pocztowym)."""
+    m = re.search(r"\d{2}-\d{3}\s+(.+)$", str(adres or "").strip())
+    return m.group(1).strip() if m else ""
+
+def _wspolrzedne_zastepcze(miasto: str, woj: str, adres: str = "") -> Tuple[float, float]:
     """Gdy geokodowanie zawiodło: najpierw miasto z bazy offline programu,
-    dopiero potem stolica województwa. Wcześniej brak internetu (albo
-    adres, którego serwer nie zna) cofał bazę prosto do stolicy — pracownik
-    z Radomia dostawał dokumenty z trasami liczonymi z Warszawy, choć Radom
-    leży w bazie miast programu. Ta sama kolejność, co w podglądzie
+    potem poczta z adresu, dopiero potem stolica województwa. Wcześniej brak
+    internetu (albo adres, którego serwer nie zna) cofał bazę prosto do
+    stolicy — pracownik z Radomia dostawał dokumenty z trasami liczonymi
+    z Warszawy, choć Radom leży w bazie miast programu. Małych wsi w bazie
+    nie ma, ale ich poczta (gmina) zwykle jest: „Dębowa Wola, 26-660
+    Jedlińsk" to Jedlińsk, nie Warszawa. Ta sama kolejność, co w podglądzie
     (nowy_wyglad.wspolrzedne_bazy)."""
-    try:
-        z_bazy = coords_z_miasta(miasto)
-    except Exception:
-        z_bazy = None
-    if z_bazy:
-        return float(z_bazy[0]), float(z_bazy[1])
+    for nazwa in (miasto, _poczta_z_adresu(adres)):
+        try:
+            z_bazy = coords_z_miasta(nazwa) if nazwa else None
+        except Exception:
+            z_bazy = None
+        if z_bazy:
+            return float(z_bazy[0]), float(z_bazy[1])
     return STOLICE.get(woj, (52.23, 21.01))
 
 def zapisz_geo_cache(sciezka=None):

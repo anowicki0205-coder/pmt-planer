@@ -11965,6 +11965,48 @@ finally:
     P.pobierz_coords, P.log_error = _org33
     P._osrm_dostepny = P._google_dostepny = None; P._geo_pytane.clear()
 
+# baza na wsi spoza bazy offline, bez sieci: poczta (gmina) z adresu zamiast stolicy województwa;
+# gdy i poczty nie ma w bazie — web odmawia generowania zamiast liczyć kilometry np. z Krakowa
+try:
+    P._geo_cache.pop(P._klucz_geo("Dębowa Wola, 26-660 Jedlińsk"), None)
+    sprawdz("bez sieci baza we wsi spoza bazy miast = jej poczta (Dębowa Wola → Jedlińsk), nie Warszawa",
+            P.coords_z_miasta("Dębowa Wola") is None and tuple(P.pobierz_coords("Dębowa Wola, 26-660 Jedlińsk", "Dębowa Wola",
+                                                                            "mazowieckie", zapisz_cache=False)) == (51.52, 21.11))
+    sprawdz("bez sieci poczta spoza bazy miast — jak dotąd stolica województwa (Frydrychowice → Kraków)",
+            tuple(P.pobierz_coords("Zielona 3, 34-108 Frydrychowice", "Frydrychowice", "małopolskie",
+                                   zapisz_cache=False)) == tuple(P.STOLICE["małopolskie"]))
+    import nowy_wyglad as _NW33
+    sprawdz("podgląd programu bierze bazę w tej samej kolejności (wieś → poczta → stolica)",
+            tuple(_NW33.wspolrzedne_bazy("Dębowa Wola", "Dębowa Wola, 26-660 Jedlińsk", "mazowieckie")) == (51.52, 21.11))
+except Exception as _e33:
+    sprawdz("baza we wsi bez sieci", False, repr(_e33))
+finally:
+    P._geo_pytane.clear()
+
+if _M33 is not None:
+    _baza33, _bl33 = [], []
+    _org33 = (_S33.generuj_trasy, _S33._menedzer)
+    try:
+        _S33._geo_cache.clear(); _S33._geo_braki = {}
+        _S33.generuj_trasy = lambda kw, bm, lat, lng, *a, **k: (_baza33.append((bm, lat, lng)), [])[1]
+        _S33._menedzer = lambda: "Jan Przełożony"
+        for _adr33 in ("Dębowa Wola 12, 26-660 Jedlińsk", "Zielona 3, 34-108 Frydrychowice"):
+            try:
+                _M33.generuj({"imie": "Jan Test", "pesel": "90010112349", "adres": _adr33, "wymus_typ": "wies" if "Dębowa" in _adr33 else "ulica",
+                              "kwota": 500, "rok": 2026, "miesiac": 11, "tryb": "tydzien"})
+            except ValueError as _e33:
+                _bl33.append(str(_e33))
+        sprawdz("web bez sieci: baza we wsi spoza bazy miast liczona z jej poczty (Jedlińsk), nie z Warszawy",
+                _baza33 == [("Dębowa Wola", 51.52, 21.11)], str(_baza33))
+        sprawdz("web bez sieci: adres, którego położenia nie da się ustalić, zatrzymuje generowanie czytelnym komunikatem (bez fikcyjnej bazy w stolicy)",
+                len(_bl33) == 2 and "ANI JEDNEGO" in _bl33[0] and "Nie udało się ustalić, gdzie leży adres" in _bl33[1]
+                and "Frydrychowice" in _bl33[1], str(_bl33))
+    except Exception as _e33:
+        sprawdz("web: baza we wsi bez sieci", False, repr(_e33))
+    finally:
+        _S33.generuj_trasy, _S33._menedzer = _org33
+        _S33._geo_pytane.clear(); _S33._geo_braki = None
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

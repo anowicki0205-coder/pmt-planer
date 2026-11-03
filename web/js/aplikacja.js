@@ -437,6 +437,7 @@ function budujKalendarz() {
   let h = '';
   for (let i = 0; i < off; i++) h += '<div class="dz pusty" aria-hidden="true"></div>';
   const nazwaM = MIES_D[M.mies - 1];
+  siatka.setAttribute('aria-label', `Dni ${nazwaM} ${M.rok} — poziom cieczy: kwota dnia wobec limitu ${fmt(LIMIT_DZIEN)} zł`);
   for (let d = 1, k = 0; d <= N; d++, k++) {
     const t = typDnia(d), wd = dzienTyg(d), tr = M.trasy[d];
     if (t === 'trasa') {
@@ -580,7 +581,7 @@ function mapkaSVG(tr) {
   const cx = (Math.min(...Q.map(q => q[0])) + Math.max(...Q.map(q => q[0]))) / 2;
   let pk = '';
   for (let i = 0; i < N; i++) {
-    const [x, y] = Q[i], lewo = x < cx, nazwa = pt[i].m;
+    const [x, y] = Q[i], lewo = x < cx, nazwa = bezZnacznikow(pt[i].m);      // nazwy miejscowości (także z adresu użytkownika) idą do innerHTML
     const poz = `x="${(x + (lewo ? -6 : 6)).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${lewo ? 'end' : 'start'}" dominant-baseline="central"`;
     const et = `<text class="tr-et-halo" ${poz} aria-hidden="true">${nazwa}</text><text class="tr-et" ${poz}>${nazwa}</text>`;
     pk += i === 0
@@ -596,13 +597,13 @@ function podrozHTML(odc, op, tr) {
   let h = '';
   odc.forEach((o, i) => {
     const nast = odc[i + 1];
-    const nazwa = o.dom ? 'Dom' : o.m;
+    const nazwa = o.dom ? 'Dom' : bezZnacznikow(o.m);
     const czasT = o.dom ? (i === 0 ? o.odj : o.przyj) : `${o.przyj}–${o.odj}`;
     const wezel = o.dom ? `<span class="pr-wezel">${ik('i-dom')}</span>` : `<span class="pr-wezel"><span class="pr-nr">${i}</span></span>`;
     const sw = nast ? ((sz(i) / 2 + sz(i + 1) / 2) / sz(i) * 100).toFixed(1) + '%' : '0%';
     const wy = nast ? `<span class="pr-odc"><i></i></span><span class="pr-km wy num"><b>${fmt(nast.km, 1)} km</b><span>${fmt(nast.zl)} zł</span></span>` : '';
     const we = o.km != null ? `<span class="pr-km we num"><b>${fmt(o.km, 1)} km</b><span>${fmt(o.zl)} zł</span></span>` : '<span class="pr-km we num"><span>start</span></span>';
-    h += `<li class="pr${o.dom ? ' dom' : ''}" style="--s:${i};--sw:${sw}" title="${o.dom ? o.m : o.m}"><span class="pr-nazwa">${nazwa}</span><span class="pr-czas num">${czasT}</span>` +
+    h += `<li class="pr${o.dom ? ' dom' : ''}" style="--s:${i};--sw:${sw}" title="${bezZnacznikow(o.m)}"><span class="pr-nazwa">${nazwa}</span><span class="pr-czas num">${czasT}</span>` +
       `<span class="pr-os">${wezel}${wy}</span>${we}</li>`;
   });
   return `<ol class="podroz rysuj" style="--op:${op}ms;grid-template-columns:.6fr repeat(${odc.length - 2},minmax(0,1fr)) .6fr" aria-label="Trasa: ${odc.length - 2} miejscowości i powrót; ${odc.length - 1} odcinków, ${fmt(tr.km, 1)} km, ${fmt(tr.suma)} zł">${h}<span class="pr-kometa" aria-hidden="true"></span></ol>`;
@@ -627,7 +628,7 @@ function tabelaHTML(odc, tr) {
   for (const o of odc) {
     const znak = o.dom ? `<i class="dom">${ik('i-dom')}</i>` : `<i>${++nr}</i>`;
     const km = o.km != null ? `<span class="kmp"><i style="--p:${(o.km / maxKm).toFixed(3)}" aria-hidden="true"></i>${fmt(o.km, 1)}</span>` : '';
-    w += `<tr><td class="s">${o.przyj}</td><td><span class="m">${znak}${o.m}</span></td><td class="odj">${o.odj}</td><td class="r s">${km}</td><td class="r">${o.zl != null ? fmt(o.zl) : ''}</td></tr>`;
+    w += `<tr><td class="s">${o.przyj}</td><td><span class="m">${znak}${bezZnacznikow(o.m)}</span></td><td class="odj">${o.odj}</td><td class="r s">${km}</td><td class="r">${o.zl != null ? fmt(o.zl) : ''}</td></tr>`;
   }
   return `<div class="tabela-w"><table class="odcinki"><thead><tr><th>Przyj.</th><th>Miejscowość</th><th class="odj">Odj.</th><th class="r">km</th><th class="r">zł</th></tr></thead><tbody>${w}</tbody>` +
     `<tfoot><tr><td colspan="2" class="s">Razem · ${odc.length - 1} odcinków</td><td class="odj"></td><td class="r">${fmt(tr.km, 1)}</td><td class="r">${fmt(tr.suma)}</td></tr></tfoot></table></div>`;
@@ -758,8 +759,10 @@ function zbudujPlanDzis() {
 /* pusty stan „Dziś”: bezszelestna zapowiedź listy — trzy wiersze wjeżdżają jeden po drugim, pierwszy zostaje odhaczony (bez żadnych zmyślonych danych) */
 const DUCH_LISTY = '<div class="duch-lista" aria-hidden="true">' + [0, 1, 2].map(i => `<i style="--s:${i}"><span class="dl-znak"></span><span class="dl-pasek"></span><span class="dl-godz"></span></i>`).join('') + '</div>';
 const sklepowWPlanie = () => { const z = new Set(); if (PLAN) for (const m of PLAN.miesiace) for (const d of m.dni) for (const w of d.wizyty) z.add(w.adres); return z.size; };
+let dataRysowania = '';      // dzień, dla którego narysowano kafel „Dziś” (aplikacja na telefonie wraca z tła bez przeładowania, także następnego dnia)
+const nowyDzien = () => { if (isoDzis() === dataRysowania) return false; rysujDzis(); return true; };
 function rysujDzis() {
-  zbudujPlanDzis();
+  dataRysowania = isoDzis(); zbudujPlanDzis();
   const lista = $('#przystanki'), plan = $('#d-plan'), os = $('#d-os');
   const dataTxt = PLAN_DATA ? (() => { const t = new Date(PLAN_DATA + 'T12:00:00'); return `${DK[(t.getDay() + 6) % 7]} ${dwa(t.getDate())}.${dwa(t.getMonth() + 1)}`; })() : '';
   { const bl = $('#kD .blask'); if (bl) bl.dataset.d = String(PLAN_DATA ? Number(PLAN_DATA.slice(8, 10)) : new Date().getDate()); }
@@ -1485,9 +1488,11 @@ const arkTlo = $('#arkusz-tlo'), arkTresc = $('#arkusz-tresc');
 let arkuszKoniec = 0;
 function otworzArkusz(html, poZamknieciu, opcje) {
   clearTimeout(arkuszKoniec); arkTlo.classList.remove('zamyka');
-  fokusPrzed = doc.activeElement; arkuszPoZamknieciu = poZamknieciu || null;
+  if (!arkTresc.contains(doc.activeElement)) fokusPrzed = doc.activeElement;      // okno otwierane z okna: fokus wraca potem tam, skąd otwarto pierwsze (stara treść zaraz zniknie)
+  arkuszPoZamknieciu = poZamknieciu || null;
   $('#arkusz').classList.toggle('szeroki', !!(opcje && opcje.szeroki));
   arkTresc.innerHTML = html; arkTlo.classList.add('otwarty'); arkuszOtwarty = true; root.classList.toggle('okno', !dostepBlokada);      // pulpit pod otwartym oknem blaknie i się rozmywa (poza oknem logowania)
+  app.inert = true;      // aria-modal: Tab i czytnik ekranu nie wychodzą z okna do pulpitu pod spodem
   $('#arkusz').scrollTop = 0;
   const pierwsze = $('[data-pierwsze]', arkTresc) || $('input,select,button', arkTresc); pierwsze && pierwsze.focus({ preventScroll: true });
   dodajPodpowiedzi(arkTresc);
@@ -1503,16 +1508,16 @@ function zmienArkusz(html) {
 let dostepBlokada = false;      // okno logowania nie zamyka się Esc, tłem ani krzyżykiem
 function zamknijArkusz() {
   if (!arkuszOtwarty || dostepBlokada) return;
-  arkuszOtwarty = false; root.classList.remove('okno');
+  arkuszOtwarty = false; root.classList.remove('okno'); app.inert = !!RUCH.zewn;      // paleta albo wycieczka same trzymają pulpit nieaktywny
   if (spokoj) { arkTlo.classList.remove('otwarty'); arkTresc.innerHTML = ''; }
   else { arkTlo.classList.add('zamyka'); arkuszKoniec = setTimeout(() => { arkTlo.classList.remove('otwarty', 'zamyka'); arkTresc.innerHTML = ''; }, 200); }
   const f = arkuszPoZamknieciu; arkuszPoZamknieciu = null; f && f();
-  fokusPrzed && fokusPrzed.focus && fokusPrzed.focus({ preventScroll: true });
+  fokusPrzed && fokusPrzed.isConnected && fokusPrzed.focus && fokusPrzed.focus({ preventScroll: true });
 }
 arkTlo.addEventListener('click', e => { if (e.target === arkTlo) zamknijArkusz(); });
 arkTresc.addEventListener('click', e => { if (e.target.closest('[data-zamknij]')) zamknijArkusz(); });
 const naglowekArkusza = (tytul) => `<div class="ark-gora"><h2 id="ark-tyt">${tytul}</h2><button type="button" class="ark-zam" data-zamknij aria-label="Zamknij">${ik('i-zamknij')}</button></div>`;
-const bezZnacznikow = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function bezZnacznikow(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }      // deklaracja (nie const): używają jej też funkcje rysujące trasę dnia, zapisane wyżej
 
 /** Plan wizyt z programu na komputerze: silnik dolicza sumy, punkt startowy i godziny, plan trafia do magazynu konta (kafel Dziś ma od razu wizyty),
     odhaczone w programie wizyty zostają odhaczone. Zwraca liczbę dni planu (0 = nie udało się; wtedy zostaje sama lista sklepów). */
@@ -1599,11 +1604,13 @@ function otworzMojeDane(pierwsze) {
       blokTypu.hidden = false; opisTypu.textContent = `„${adr.nazwa_do_pytania}” — to nazwa ulicy czy miejscowości? Wybierz, żebym wiedział, skąd liczyć trasy.`; opisTypu.classList.add('zle'); potrzasnij(blokTypu); ok = false;
     }
     if (!ok) return;
-    PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? p.silnik_powyzej_900 ?? true, tryb: trybDom(p), tryb_wybrany: !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
+    const zModelu = !PROFIL && M && !M.demo && M.stan === 'plan' ? M : null;      // pierwsze Moje dane: tryb i auto wybrane już na pulpicie (np. po przykładzie, przed „Generuj”) zostają
+    PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? (zModelu ? zModelu.silnik : p.silnik_powyzej_900) ?? true,
+      tryb: zModelu ? zModelu.tryb : trybDom(p), tryb_wybrany: zModelu ? zModelu.tryb !== 'tydzien' || !!p.tryb_wybrany : !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
     magProfil.zapisz(PROFIL);
     if (sklepyZPliku && sklepyZPliku.length) magUst.ustaw('sklepy-z-programu', { pozycje: sklepyZPliku, zapisano: new Date().toISOString() });      // czeka w oknie „Plan wizyt”, aż ułożysz plan
     let planDni = 0; if (planZPliku) { try { planDni = await wgrajPlanZProgramu(planZPliku, odhaczeniaZPliku, sklepyZPliku); } catch (err) { planDni = 0; } }      // gotowy plan z programu: kafel Dziś od razu ma wizyty
-    if (M && M.stan === 'plan') { M.silnik = PROFIL.silnik_powyzej_900; M.tryb = trybDom(PROFIL); }
+    if (M && M.stan === 'plan' && silnikZPliku != null) M.silnik = PROFIL.silnik_powyzej_900;      // auto z pliku programu; bez pliku pulpit zostaje przy swoim wyborze
     zamknijArkusz(); odswiezProfilWNaglowku(); if (M && M.demo) await wyjdzZPrzykladu(true); else await przeladujMiesiac(M.rok, M.mies, true);
     if (planDni) rysujDzis();
     pokazToast(planDni ? `Zapisano Twoje dane. Plan wizyt z programu (${planDni} ${planDni === 1 ? 'dzień' : 'dni'}) jest już w kaflu Dziś.` : sklepyZPliku && sklepyZPliku.length ? `Zapisano Twoje dane. Lista ${sklepyZPliku.length} sklepów z programu jest gotowa — ułóż z niej plan.` : 'Zapisano Twoje dane'); sygnal('profil');
@@ -1683,6 +1690,9 @@ async function odswiezParametry() {
 
 /* ====================== generowanie: prawdziwy silnik ====================== */
 let generowanie = false;
+/** Na czas generowania miesiąc stoi w miejscu: strzałki i okno roku są wyłączone (wynik zapisuje się pod miesiąc, dla którego go liczymy). */
+const nawigacjaMiesiecy = on => { for (const s of ['#m-wstecz', '#m-dalej', '#m-nazwa']) $(s).disabled = !on; };
+function koniecGenerowania() { generowanie = false; nawigacjaMiesiecy(true); btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy'); }
 /** Pytanie z programu na komputerze: „X” — to nazwa ulicy czy miejscowości? Zwraca 'ulica', 'wies' albo null (zamknięto bez wyboru). */
 function zapytajOTypAdresu(nazwa) {
   return new Promise(res => {
@@ -1738,9 +1748,12 @@ async function generuj() {
   if (generowanie) { silnik.przerwij(); return; }
   if (M && M.demo) { zacznijOdSwoich(); return; }      // dane pokazowe nigdy nie wchodzą w liczenie delegacji
   if (!PROFIL) { otworzMojeDane(true); return; }
+  if (!M || M.stan !== 'plan') return;      // wygenerowany miesiąc zmienia się tylko przez „od nowa” (kasuje też podpisane)
+  const rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies), tenSam = () => M && !M.demo && M.rok === rok && M.mies === mies;      // M może się zmienić w trakcie (strzałki, okno roku, spóźniona odpowiedź silnika): zapis idzie zawsze pod miesiąc, dla którego liczymy
   M.kwota = parsujKwote($('#kwota-in').value);
   const par = parametrySilnika();
   let pr; try { pr = await silnik.przygotuj(par); } catch (e) { pokazToast('Silnik nie odpowiada — spróbuj ponownie'); return; }
+  if (!tenSam()) return;
   if (!pr.ok && pr.powod === 'brak menedzer.txt') { arkuszBrakuMenedzera(pr.szczegoly || {}); return; }
   if (!pr.ok) {
     const opisy = { 'brak menedzer.txt': 'Brakuje pliku menedzer.txt obok aplikacji (nazwisko przełożonego na dokumentach).', 'PESEL': 'PESEL jest niepoprawny — popraw go w Moich danych.', 'adres': 'Adres jest niepoprawny — popraw go w Moich danych.', 'brak dni': 'Ten miesiąc nie ma dni roboczych przy tych ustawieniach.' };
@@ -1751,10 +1764,11 @@ async function generuj() {
     PROFIL.typ_adresu = typ; magProfil.zapisz(PROFIL); par.wymus_typ = typ;
     try { pr = await silnik.przygotuj(par); } catch (e) { pokazToast('Silnik nie odpowiada — spróbuj ponownie'); return; }
     if (!pr.ok) { pokazToast('Nie można generować: ' + pr.powod); return; }
+    if (!tenSam()) return;
   }
   if (!(await arkuszPotwierdzenia(pr))) return;            // użytkownik sprawdza dane, zanim cokolwiek powstanie
-  magUst.ustaw('kwota-' + magMiesiace.klucz(M.rok, M.mies), M.kwota);
-  generowanie = true; btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
+  magUst.ustaw('kwota-' + kl, par.kwota);
+  generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
   btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35);
   const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
   wid && wid.start();
@@ -1762,23 +1776,31 @@ async function generuj() {
   try {
     w = await silnik.generuj(par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
-    wid && wid.przerwij();
-    generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
+    wid && wid.przerwij(); koniecGenerowania();
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {
       otworzArkusz(`${naglowekArkusza('Nie udało się wygenerować')}<p class="ark-opis">${bezZnacznikow(e.message)}</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
     }
     odswiezHero(); await odswiezParametry(); return;
   }
   const rec = { params: par, wynik: w.wynik, podpisane: [], wyslane: false, utworzono: new Date().toISOString() };
-  magMiesiace.zapisz(M.rok, M.mies, rec);
-  dostep.policzDokumenty(w.pdf.length);
-  await magPliki.usunMiesiac(magMiesiace.klucz(M.rok, M.mies) + '/');
-  for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(M.rok, M.mies, p.nazwa), p.bajty);
+  try {
+    await magPliki.usunMiesiac(kl + '/');
+    for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(rok, mies, p.nazwa), p.bajty);
+    magMiesiace.zapisz(rok, mies, rec);      // rekord na końcu: bez kompletu plików miesiąc nie może wyglądać na wygenerowany
+    if (!(magMiesiace.daj(rok, mies) || {}).wynik) throw new Error('brak miejsca w pamięci przeglądarki');      // pełny localStorage nie zgłasza błędu przy zapisie
+  } catch (e) {
+    wid && wid.przerwij(); koniecGenerowania(); magPliki.usunMiesiac(kl + '/').catch(() => {});
+    otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}). Zwolnij miejsce w pamięci i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
+    odswiezHero(); await odswiezParametry(); return;
+  }
+  magUst.ustaw('wolne-' + kl, null); dostep.policzDokumenty(w.pdf.length);
   postepGeneracji('', 1);
-  if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
-  else await zegar(450);
-  generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
-  M = zbudujModel(M.rok, M.mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
+  try {
+    if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
+    else await zegar(450);
+  } finally { koniecGenerowania(); }
+  if (!tenSam()) { odswiezHero(); pokazToast(`Gotowe: dokumenty za ${MIES[mies - 1]} ${rok} są zapisane`); return; }
+  M = zbudujModel(rok, mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
   zorza && zorza.flara(1); kurtyna && kurtyna.swieto();
   pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}`);
@@ -1811,9 +1833,12 @@ function wizytaUstaw(data, adres, ok, godz) {
 }
 function opuscPrzyklad() { if (!M || !M.demo) return; root.classList.remove('przyklad'); PLAN = magPlan.wczytaj(); WIZYTY_DEMO = {}; const b = $('#pokaz-przyklad'); if (b) b.hidden = false; }
 async function pokazPrzyklad() {
-  const pr = await wczytajPrzyklad(); if (!pr) return false;
+  if (generowanie) return false;
+  const pr = await wczytajPrzyklad(); if (!pr || generowanie) return false;
+  const nr = ++nrLadowania; celLadowania = null;
   const { rok, mies, params, wynik } = pr.miesiac;
   const r0 = await dniRoboczeZSilnika(rok, mies, params.tryb);
+  if (nr !== nrLadowania || generowanie) return false;
   M = zbudujModel(rok, mies, { params, wynik, podpisane: [], wyslane: false }, r0.dni.map(s => Number(s.slice(8))));
   M.demo = true; PLAN = pr.plan; WIZYTY_DEMO = {}; root.classList.add('przyklad'); const b = $('#pokaz-przyklad'); if (b) b.hidden = true;
   wybrany = M.dniT[0] || 0; odswiezWszystko(); return true;
@@ -1829,34 +1854,49 @@ function fokusujKwote() {
   w.value = M.kwota ? fmt(M.kwota).replace(/\s/g, '') : '';      // pole w fokusie nie jest odświeżane w tle, więc wartość ustawiamy tu
   w.focus({ preventScroll: true }); try { w.select(); } catch (e) {}
 }
-async function przeladujMiesiac(rok, mies, cicho, fokusKwoty) {
+let nrLadowania = 0, celLadowania = null;      // wczytania miesiąca mogą się wyprzedzać (odpowiedzi silnika, ponowienia): liczy się ostatnie, a strzałki liczą od miesiąca, który się właśnie wczytuje
+/** ust = { tryb, silnik }: ustawienia miesiąca bez rekordu, gdy nie przechodzą z bieżącego modelu („od nowa” przywraca te, z którymi go wygenerowano). */
+async function przeladujMiesiac(rok, mies, cicho, fokusKwoty, ust) {
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }      // wynik generowania zapisuje się pod miesiąc, który jest na ekranie
   opuscPrzyklad();
-  const r0 = await dniRoboczeZSilnika(rok, mies);
-  const rec = magMiesiace.daj(rok, mies);
+  const nr = ++nrLadowania; celLadowania = { rok, mies };
+  const teraz = M && !M.demo && M.rok === rok && M.mies === mies && M.stan === 'plan' ? M : null;      // ten sam miesiąc przed generowaniem: dni robocze dla trybu z pulpitu (także bez Moich danych)
+  const r0 = await dniRoboczeZSilnika(rok, mies, (ust && ust.tryb) || (teraz && teraz.tryb));
+  if (nr !== nrLadowania) return;
+  celLadowania = null; if (generowanie) return;
+  const rec = magMiesiace.daj(rok, mies), kl = magMiesiace.klucz(rok, mies);
   const robocze = r0.dni.map(s => Number(s.slice(8)));
-  const pred = M && M.rok === rok && M.mies === mies ? M : null;
+  const pred = M && M.rok === rok && M.mies === mies && M.stan === 'plan' ? M : null;
   M = zbudujModel(rok, mies, rec, robocze);
-  if (!rec) { M.kwota = magUst.daj('kwota-' + magMiesiace.klucz(rok, mies), 0); if (pred && pred.stan === 'plan') { M.tryb = pred.tryb; M.silnik = pred.silnik; M.wolne = pred.wolne; for (const d of M.robocze0) if (!M.wolne.has(d)) M.robocze.add(d); } }
+  if (!rec) {
+    const z = pred || ust; M.kwota = magUst.daj('kwota-' + kl, 0);
+    if (z && z.tryb) M.tryb = z.tryb; if (z && z.silnik != null) M.silnik = z.silnik;
+    M.wolne = new Set(pred ? pred.wolne : (magUst.daj('wolne-' + kl, null) || []).map(Number).filter(d => M.robocze0.has(d)));      // dni wolne zaznaczone przed generowaniem pamiętamy na urządzeniu, jak kwotę
+    M.robocze = new Set([...M.robocze0].filter(d => !M.wolne.has(d)));
+  }
   wybrany = M.stan === 'gotowe' ? (M.trasy[wybrany] ? wybrany : M.dniT[0]) : 0;
   const odswiez = () => { odswiezWszystko(); if (fokusKwoty && M.stan === 'plan') fokusujKwote(); };
   if (cicho) odswiez(); else przejscie(odswiez, () => { kurtyna && kurtyna.wybierz(wybrany); });
 }
 async function przelaczTryb(tryb) {
-  if (M.stan !== 'plan' || M.tryb === tryb) return; M.tryb = tryb;
+  if (M.stan !== 'plan' || M.tryb === tryb) return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }      // dni robocze przelicza przeladujMiesiac, a ten w trakcie generowania odmawia (tryb rozjechałby się z kalendarzem)
+  M.tryb = tryb;
   if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; magProfil.zapisz(PROFIL); }
-  M.wolne = new Set(); await przeladujMiesiac(M.rok, M.mies, true);
+  M.wolne = new Set(); zapiszWolne(); await przeladujMiesiac(M.rok, M.mies, true);
 }
+const zapiszWolne = () => magUst.ustaw('wolne-' + magMiesiace.klucz(M.rok, M.mies), M.wolne.size ? [...M.wolne].sort((a, b) => a - b) : null);
 async function przelaczWolne(d) {
   if (M.stan !== 'plan') return;
   if (M.wolne.has(d)) M.wolne.delete(d); else M.wolne.add(d);
-  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x)));
+  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); zapiszWolne();
   tytulKalendarza(); budujKalendarz(); odswiezHero(); await odswiezParametry();
 }
 /** Wiele dni naraz (przeciąganie po kalendarzu): wolne = true oznacza dni jako wolne, false przywraca je do pracy. */
 async function ustawWolne(dni, wolne) {
   if (!M || M.stan !== 'plan') return;
   for (const d of dni) { if (!M.robocze0.has(d)) continue; if (wolne) M.wolne.add(d); else M.wolne.delete(d); }
-  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x)));
+  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); zapiszWolne();
   tytulKalendarza(); budujKalendarz(); odswiezHero(); await odswiezParametry();
 }
 
@@ -1958,11 +1998,10 @@ function arkuszOdNowa(zKwoty) {
     <p class="ark-opis">${zKwoty ? `Dokumenty za <b>${mn}</b> powstały dla kwoty <b>${fmt(M.suma)} zł</b>. Żeby ją zmienić, usunę je` : `Usunę dokumenty za <b>${mn}</b>`}${pod ? ` razem z <b>${pod} wgranymi podpisami</b>` : ''}. ${zKwoty ? 'Wpiszesz nową kwotę i wygenerujesz je ponownie; dni wolne zostawię.' : 'Kwotę i dni wolne zostawię, żebyś mógł je poprawić.'}</p>
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw jak jest</button><button type="button" class="przycisk" id="od-nowa-tak">${zKwoty ? 'Usuń i wpisz nową kwotę' : 'Usuń i zacznij od nowa'}</button></div>`);
   $('#od-nowa-tak', arkTresc).addEventListener('click', async () => {
-    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies;
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(magMiesiace.klucz(rok, mies) + '/');
-    magUst.ustaw('kwota-' + magMiesiace.klucz(rok, mies), par.kwota || 0);
-    zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty);
-    if (par.wolne && par.wolne.length) { M.wolne = new Set(par.wolne); M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); odswiezWszystko(); if (zKwoty) fokusujKwote(); }
+    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies);
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, par.wolne && par.wolne.length ? par.wolne : null);
+    zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty, { tryb: par.tryb, silnik: par.silnik_powyzej_900 });      // tryb i auto miesiąca, nie te, które profil ma teraz (zmienia się przy każdym przełączeniu w innym miesiącu)
     pokazToast(zKwoty ? 'Usunięto dokumenty — wpisz nową kwotę i wygeneruj ponownie' : 'Usunięto dokumenty — ustaw dane i wygeneruj ponownie');
   });
 }
@@ -1987,12 +2026,11 @@ function arkuszUstawienia() {
   $$('[data-u-tryb]', arkTresc).forEach(b => b.addEventListener('click', () => { tryb = b.dataset.uTryb; odswiez(); }));
   $$('[data-u-silnik]', arkTresc).forEach(b => b.addEventListener('click', () => { silnik = b.dataset.uSilnik === '1'; odswiez(); }));
   $('#ust-tak', arkTresc).addEventListener('click', async () => {
-    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, zmianaTrybu = tryb !== stary.tryb;
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(magMiesiace.klucz(rok, mies) + '/');
-    magUst.ustaw('kwota-' + magMiesiace.klucz(rok, mies), par.kwota || 0);
+    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, zmianaTrybu = tryb !== stary.tryb, kl = magMiesiace.klucz(rok, mies);
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, !zmianaTrybu && par.wolne && par.wolne.length ? par.wolne : null);
     if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; PROFIL.silnik_powyzej_900 = silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); }
-    zamknijArkusz(); await przeladujMiesiac(rok, mies, true, false);
-    if (!zmianaTrybu && par.wolne && par.wolne.length) { M.wolne = new Set(par.wolne); M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); odswiezWszystko(); }
+    zamknijArkusz(); await przeladujMiesiac(rok, mies, true, false, { tryb, silnik });
     pokazToast('Ustawienia zmienione — sprawdź kwotę i wygeneruj dokumenty ponownie');
   });
 }
@@ -2013,7 +2051,7 @@ let toastNr = 0;
 async function pokazToast(t) {
   const el = $('#toast'), nr = ++toastNr;
   $('#toast-tekst').textContent = t; el.classList.add('widoczny');
-  await zegar(2800);
+  await new Promise(r => setTimeout(r, 2800));      // nie zegar(): w trybie spokojnym ten liczy 0 ms i komunikat znikałby, zanim się narysuje
   if (nr === toastNr) el.classList.remove('widoczny');
 }
 function ustawZakladke(t, animuj = true) {
@@ -2099,6 +2137,7 @@ function zdarzenia() {
   $('#przystanki').addEventListener('click', e => {
     if (e.target.closest('#plan-otworz')) { arkuszPlan(); return; }
     const nav = e.target.closest('.nawiguj');
+    if ((nav || e.target.closest('.p-znak')) && nowyDzien()) return;      // lista sprzed północy: najpierw dzisiejsze wizyty, odhaczenie nie trafi do wczoraj
     if (nav) {
       const i = Number(nav.dataset.i), on = nawigacja !== i; nawigacja = on ? i : -1;
       nav.classList.toggle('prowadzi', on); nav.setAttribute('aria-pressed', String(on)); $('span', nav).textContent = on ? 'Prowadzę' : 'Nawiguj';
@@ -2129,7 +2168,7 @@ function zdarzenia() {
   $('#wyloguj').addEventListener('click', () => { zamknijDymki(null); wylogujICzysc(); });
   $$('.przel [data-motyw]').forEach(b => b.addEventListener('click', () => { ustawMotyw(b.dataset.motyw, b); zegar(700).then(() => zamknijDymki(null)); }));
   $('#motyw').addEventListener('click', e => ustawMotyw(motywTeraz() === 'light' ? 'dark' : 'light', e.currentTarget));
-  const zmienMiesiac = k => { let r = M.rok, m = M.mies + k; if (m < 1) { m = 12; r--; } if (m > 12) { m = 1; r++; } przeladujMiesiac(r, m); };
+  const zmienMiesiac = k => { const z = celLadowania || M; let r = z.rok, m = z.mies + k; if (m < 1) { m = 12; r--; } if (m > 12) { m = 1; r++; } przeladujMiesiac(r, m); };
   $('#m-wstecz').addEventListener('click', () => zmienMiesiac(-1));
   $('#m-nazwa').addEventListener('click', () => arkuszRok(M.rok));
   $('#m-dalej').addEventListener('click', () => zmienMiesiac(1));
@@ -2255,23 +2294,35 @@ function arkuszOdzyskaniaSejfu(kod, noweHaslo) {
   return new Promise(rozwiaz => {
     dostepBlokada = true; arkTlo.classList.add('dostep');
     const koniec = dek => { dostepBlokada = false; arkTlo.classList.remove('dostep'); zamknijArkusz(); rozwiaz({ stan: 'ok', dek }); };
-    otworzArkusz(`${znakDostepu('Dane z tego urządzenia', 'są zaszyfrowane poprzednim hasłem')}
-      <p class="ark-opis">Hasło tego konta zostało zmienione (albo zresetowane), a Twoje dane na tym urządzeniu — PESEL, plan, dokumenty — są zaszyfrowane hasłem, które obowiązywało wcześniej. Wpisz je, żeby je odblokować. Jeśli go nie pamiętasz, usuń dane z tego urządzenia i zacznij od nowa: dokumenty wygenerujesz ponownie.</p>
-      <form id="sj-form" class="dz-pola" novalidate>
-        ${poleHasla('sj-stare', 'Poprzednie hasło', 'current-password').replace('<input ', '<input data-pierwsze ')}
+    const formularz = pierwszy => {
+      (pierwszy ? otworzArkusz : zmienArkusz)(`${znakDostepu('Dane z tego urządzenia', 'są zaszyfrowane poprzednim hasłem')}
+        <p class="ark-opis">Hasło tego konta zostało zmienione (albo zresetowane), a Twoje dane na tym urządzeniu — PESEL, plan, dokumenty — są zaszyfrowane hasłem, które obowiązywało wcześniej. Wpisz je, żeby je odblokować. Jeśli go nie pamiętasz, usuń dane z tego urządzenia i zacznij od nowa: dokumenty wygenerujesz ponownie.</p>
+        <form id="sj-form" class="dz-pola" novalidate>
+          ${poleHasla('sj-stare', 'Poprzednie hasło', 'current-password').replace('<input ', '<input data-pierwsze ')}
+          <p class="dz-info" id="dz-info" role="status" aria-live="polite"></p>
+          <div class="ark-dol"><button type="button" class="przycisk" id="sj-usun">Usuń dane i zacznij od nowa</button><button type="submit" class="przycisk glowny" id="sj-ok">Odblokuj</button></div>
+        </form>`);
+      $('#sj-form', arkTresc).addEventListener('submit', async e => {
+        e.preventDefault(); const stare = $('#sj-stare', arkTresc).value; if (!stare) return;
+        const k = oczekiwanie($('#sj-ok', arkTresc), 'Sprawdzam…'); dzInfo('');
+        let dek = null; try { dek = await dostep.odzyskajSejf(kod, stare, noweHaslo); } catch (err) { dek = null; }
+        k(); if (dek) { koniec(dek); return; } dzInfo('To hasło nie pasuje do zaszyfrowanych danych.', 'zle');
+      });
+      $('#sj-usun', arkTresc).addEventListener('click', potwierdzUsuniecie);
+    };
+    /* drugi krok jak w „Usuń dane z urządzenia”: przycisk stoi tuż obok „Odblokuj”, a usunięcia (także podpisanych dokumentów) nie da się cofnąć */
+    const potwierdzUsuniecie = () => {
+      zmienArkusz(`${znakDostepu('Usunąć dane z tego urządzenia?', 'tego nie da się cofnąć')}
+        <p class="ark-opis">Usunę stąd <b>wszystko, co zapisałeś w aplikacji</b>: imię, PESEL i adres, miesiące, plan wizyt oraz wygenerowane i <b>podpisane dokumenty</b>. Jeśli pamiętasz poprzednie hasło, wróć i odblokuj nim dane.</p>
         <p class="dz-info" id="dz-info" role="status" aria-live="polite"></p>
-        <div class="ark-dol"><button type="button" class="przycisk" id="sj-usun">Usuń dane i zacznij od nowa</button><button type="submit" class="przycisk glowny" id="sj-ok">Odblokuj</button></div>
-      </form>`);
-    $('#sj-form', arkTresc).addEventListener('submit', async e => {
-      e.preventDefault(); const stare = $('#sj-stare', arkTresc).value; if (!stare) return;
-      const k = oczekiwanie($('#sj-ok', arkTresc), 'Sprawdzam…'); dzInfo('');
-      let dek = null; try { dek = await dostep.odzyskajSejf(kod, stare, noweHaslo); } catch (err) { dek = null; }
-      k(); if (dek) { koniec(dek); return; } dzInfo('To hasło nie pasuje do zaszyfrowanych danych.', 'zle');
-    });
-    $('#sj-usun', arkTresc).addEventListener('click', async () => {
-      const k = oczekiwanie($('#sj-usun', arkTresc), 'Usuwam…');
-      try { await magUsunKonto(); const dek = await dostep.nowySejf(kod, noweHaslo); koniec(dek); } catch (err) { k(); dzInfo('Nie udało się usunąć danych: ' + err.message, 'zle'); }
-    });
+        <div class="ark-dol"><button type="button" class="przycisk" id="sj-usun-tak">Usuń wszystko</button><button type="button" class="przycisk glowny" id="sj-wroc" data-pierwsze>Wróć do hasła</button></div>`);
+      $('#sj-wroc', arkTresc).addEventListener('click', () => formularz(false));
+      $('#sj-usun-tak', arkTresc).addEventListener('click', async () => {
+        const k = oczekiwanie($('#sj-usun-tak', arkTresc), 'Usuwam…');
+        try { await magUsunKonto(); const dek = await dostep.nowySejf(kod, noweHaslo); koniec(dek); } catch (err) { k(); dzInfo('Nie udało się usunąć danych: ' + err.message, 'zle'); }
+      });
+    };
+    formularz(true);
   });
 }
 /** Zaszyfrowane dane konta nie przechodzą kontroli podpisu (uszkodzone albo zmienione): pokazujemy to wprost i pozwalamy je usunąć. Okno nie zamyka się Esc ani tłem. */
@@ -2410,9 +2461,9 @@ async function start() {
   if (PROFIL && PROFIL.imie) setTimeout(() => pokazToast(`${powitanie()}, ${PROFIL.imie.split(' ')[0]}`), 1800);
   const potem = () => { if (!PROFIL && !(M && M.demo)) otworzMojeDane(true); };
   if (sesja && sesja.telefon) arkuszZmianyHasla(true, sesja.haslo, potem); else potem();
-  sprawdzDostep(); setInterval(sprawdzDostep, dostep.PULS_CO_MIN * 60000);
+  sprawdzDostep(); setInterval(sprawdzDostep, dostep.PULS_CO_MIN * 60000); setInterval(nowyDzien, 60000); addEventListener('focus', nowyDzien);
   setTimeout(ostrzezGrafike, 3500);
-  doc.addEventListener('visibilitychange', () => { if (!doc.hidden && Date.now() - ostatniPuls > 5 * 60000) sprawdzDostep(); });
+  doc.addEventListener('visibilitychange', () => { if (doc.hidden) return; nowyDzien(); if (Date.now() - ostatniPuls > 5 * 60000) sprawdzDostep(); });
   addEventListener('pagehide', e => { if (!e.persisted) { dostep.dopiszMinuty(); dostep.zdarzenieSesji('zamkniecie', true); } });
   /* dane żyją w przeglądarce: prosimy o trwały magazyn, żeby system nie sprzątał ich przy braku miejsca */
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { /* bez tej funkcji dane działają jak zwykle */ }

@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:b084caf1fdc5de8f
+# źródło: PMT_Delegacje.py sha256:9a4e1ce8eb440c6e
 
 import sys
 
@@ -2417,6 +2417,7 @@ def zapisz_geo_cache(sciezka=None):
         pass
 
 WYJATKI_WOJEWODZTW = {
+    "08-5": "lubelskie",                                            # Ryki, Dęblin
     "19-3": "warmińsko-mazurskie", "19-4": "warmińsko-mazurskie",   # Ełk, Olecko
     "19-5": "warmińsko-mazurskie",                                  # Gołdap
     "26-3": "łódzkie",                                              # Opoczno, Drzewica
@@ -2425,11 +2426,16 @@ WYJATKI_WOJEWODZTW = {
     "26-8": "mazowieckie", "26-9": "mazowieckie",                   # Białobrzegi, Kozienice
     "27-1": "mazowieckie", "27-3": "mazowieckie",                   # Iłża, Lipsko
     "34-3": "śląskie",                                              # Żywiec
+    "38-3": "małopolskie",                                          # Gorlice, Biecz
+    "47-4": "śląskie",                                              # Racibórz
+    "67-2": "dolnośląskie",                                         # Głogów
     "76-2": "pomorskie",                                            # Słupsk, Ustka
     "77-1": "pomorskie", "77-2": "pomorskie", "77-3": "pomorskie",  # Bytów, Miastko, Człuchów
     "77-4": "wielkopolskie",                                        # Złotów
     "82-3": "warmińsko-mazurskie",                                  # Elbląg, Pasłęk
-    "89-4": "pomorskie", "89-6": "pomorskie",                       # Chojnice, Czersk
+    "89-3": "wielkopolskie",                                        # Wyrzysk, Łobżenica (pow. pilski)
+    "89-6": "pomorskie",                                            # Chojnice, Czersk (89-4 Sępólno to kujawsko-pomorskie)
+    "96-3": "mazowieckie", "96-5": "mazowieckie",                   # Żyrardów, Sochaczew
 }
 
 def rozpoznaj_wojewodztwo(kod: str) -> str:

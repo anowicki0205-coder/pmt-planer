@@ -12080,6 +12080,19 @@ try:
 except Exception as _e33:
     sprawdz("grudniowe niedziele handlowe", False, repr(_e33))
 
+# województwo po kodzie: pogranicza, które dwie pierwsze cyfry przypisywały sąsiadowi
+_kody33 = {"08-500": "lubelskie", "08-530": "lubelskie", "08-400": "mazowieckie",         # Ryki, Dęblin / Garwolin
+           "38-300": "małopolskie", "38-340": "małopolskie", "38-400": "podkarpackie",    # Gorlice, Biecz / Krosno
+           "47-400": "śląskie", "47-200": "opolskie", "67-200": "dolnośląskie", "67-100": "lubuskie",
+           "89-400": "kujawsko-pomorskie", "89-300": "wielkopolskie", "89-500": "kujawsko-pomorskie",
+           "89-600": "pomorskie", "96-300": "mazowieckie", "96-500": "mazowieckie", "96-100": "łódzkie"}
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _zle33 = [(k, _M.rozpoznaj_wojewodztwo(k)) for k, w in _kody33.items() if _M.rozpoznaj_wojewodztwo(k) != w]
+    sprawdz("%s: kody z pogranicza (Ryki, Gorlice, Racibórz, Głogów, Sępólno, Wyrzysk, Żyrardów, Sochaczew) w swoich województwach"
+            % ("program" if _M is P else "web"), not _zle33, str(_zle33))
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

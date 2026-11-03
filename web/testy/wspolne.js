@@ -6,6 +6,8 @@ function serwer(opcje = {}) {
   return new Promise(ok => {
     const s = http.createServer((q, o) => {
       const u = decodeURIComponent(q.url.split('?')[0]);
+      if (opcje.dziennik) opcje.dziennik.push(u);      // opcja dziennik: [] — lista pobranych ścieżek (test service workera)
+      if (opcje.zepsute && opcje.zepsute.includes(u)) { o.writeHead(500); return o.end(); }      // opcja zepsute: ścieżki, których serwer nie oddaje (zerwane pobieranie)
       if (u === '/sekret.txt') { if (!opcje.sekret) { o.writeHead(404); return o.end(); } o.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); return o.end(opcje.sekret + '\n'); }
       if (u === '/odbiorca.txt') { if (!opcje.odbiorca) { o.writeHead(404); return o.end(); } o.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); return o.end('# adres Kierownika regionu\n' + opcje.odbiorca + '\n'); }
       if (u === '/adres_aplikacji.txt' && opcje.adresPubliczny !== undefined) { o.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); return o.end('# stały adres aplikacji\n' + opcje.adresPubliczny + '\n'); }      // opcja adresPubliczny: zawartość adres_aplikacji.txt (bez niej serwer oddaje pusty plik z repozytorium)

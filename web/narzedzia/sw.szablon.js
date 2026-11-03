@@ -3,10 +3,28 @@
 const WERSJA = '__WERSJA__';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = __LISTA__;
+const SKROTY = __SKROTY__;
+/* Poprzednie pamięci z mapą skrótów (zapisaną na końcu udanej instalacji): plik o tym samym skrócie jest identyczny, więc można go skopiować. */
+async function pamieciPoprzednie() {
+  const w = [];
+  for (const k of await caches.keys()) {
+    if (!k.startsWith('pmt-web-') || k === CACHE) continue;
+    const c = await caches.open(k), r = await c.match('./__skroty.json');
+    if (r) { try { w.push({ c, skroty: await r.json() }); } catch (err) { /* uszkodzona mapa: tej pamięci nie używamy */ } }
+  }
+  return w;
+}
+/* Instalacja jest NIEPODZIELNA: nowa wersja trafia do pamięci cała albo wcale. Brak któregoś pliku przerywa instalację — poprzedni service worker zostaje
+   z kompletem (dawniej błąd był połykany, a aktywacja kasowała starą pamięć, więc bez zasięgu silnik nie wstawał). Niezmienione pliki są kopiowane ze starej pamięci. */
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
-    const c = await caches.open(CACHE);
-    await Promise.all(PLIKI.map(async u => { try { await c.add(new Request(u, { cache: 'reload' })); } catch (err) { /* brak pojedynczego pliku nie blokuje instalacji */ } }));
+    const c = await caches.open(CACHE), stare = await pamieciPoprzednie();
+    await Promise.all(PLIKI.map(async u => {
+      for (const s of stare) if (SKROTY[u] && s.skroty[u] === SKROTY[u]) { const r = await s.c.match(u); if (r) { await c.put(u, r); return; } }
+      await c.add(new Request(u, { cache: 'reload' }));
+    }));
+    try { await c.add(new Request('./sekret.txt', { cache: 'reload' })); } catch (err) { /* plik dokłada dopiero wdrożenie (web-pages.yml); bez niego zapytania idą bez podpisu */ }
+    await c.put('./__skroty.json', new Response(JSON.stringify(SKROTY), { headers: { 'content-type': 'application/json' } }));
     self.skipWaiting();
   })());
 });
@@ -16,8 +34,9 @@ self.addEventListener('activate', e => {
     await self.clients.claim();
   })());
 });
-/* Kod aplikacji (strona, skrypty, style, silnik) pobieramy NAJPIERW z sieci — dzięki temu po aktualizacji od razu widać nową wersję, a bez internetu działa kopia z pamięci.
-   Duże, rzadko zmieniane pliki (silnik Pythona w przeglądarce, czcionki, ikony) idą z pamięci od razu. */
+/* Kod aplikacji (strona, skrypty, style, silnik) idzie z pamięci TEJ wersji: wszystkie moduły pochodzą z jednego wydania. Dawniej każdy plik szedł najpierw z sieci
+   z limitem 4 s, więc na wolnym łączu po wdrożeniu mieszały się nowe i stare moduły (SyntaxError przy imporcie). Nową wersję przynosi w całości nowy service worker
+   (wersja zmienia się z każdym plikiem), a aplikacja prosi wtedy o odświeżenie. Sieć tylko, gdy pliku w pamięci nie ma. */
 const KOD = /\/(index\.html|manifest\.webmanifest|css\/[^/]+|js\/[^/]+|silnik\/[^/]+\.py)?$/;
 async function ZSieci(c, q, limitMs) {
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), limitMs);
@@ -32,8 +51,8 @@ self.addEventListener('fetch', e => {
     if (/\/__adres\.json$/.test(u.pathname)) { try { return await fetch(q, { cache: 'no-store' }); } catch (err) { return new Response('{"adres":""}', { status: 200, headers: { 'content-type': 'application/json' } }); } }      // adres komputera w sieci zmienia się: nigdy z pamięci
     if (/\/(menedzer|sekret|odbiorca|uwagi|adres_aplikacji)\.txt(\.txt)?$/.test(u.pathname)) { try { return await ZSieci(c, q, 8000) } catch (err) {} return trafienie || new Response('', { status: 404 }); }      // pliki ustawień: zawsze najpierw z sieci (zmiana adresu/odbiorcy działa od razu), kopia tylko bez internetu
     if (KOD.test(u.pathname) && !/\/vendor\//.test(u.pathname)) {
-      try { const r = await ZSieci(c, q, trafienie ? 4000 : 20000); if (r.ok || !trafienie) return r; } catch (err) { /* bez sieci albo za wolno: kopia z pamięci */ }
-      return trafienie || new Response('Brak połączenia', { status: 503 });
+      if (trafienie) return trafienie;
+      try { return await fetch(q, { cache: 'no-cache' }); } catch (err) { return new Response('Brak połączenia', { status: 503 }); }      // bez zapisu do pamięci: nie dokładamy do niej pliku z innego wydania
     }
     if (trafienie) return trafienie;
     try { const r = await fetch(q); if (r.ok) c.put(q, r.clone()); return r; } catch (err) { return new Response('Brak połączenia', { status: 503 }); }

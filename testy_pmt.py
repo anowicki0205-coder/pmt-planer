@@ -7604,6 +7604,31 @@ try:
     import wersja_pomocnik as _WP21
     sprawdz("zbuduj.py i wersja_pomocnik.py czytają numer z PMT_Delegacje.py — ten sam",
             _ZB21.wersja_zrodla() == P.WERSJA_PROGRAMU == _WP21.wersja_zrodla(KATALOG))
+    # job „wersja” w build.yml wycina numer sedem — zachłanne „.*” brało OSTATNI
+    # napis w cudzysłowie w wierszu, więc komentarz z cudzysłowem dawał wersja.txt
+    # inny numer niż w paczce
+    _numer21 = [l.strip() for l in open(os.path.join(KATALOG, ".github", "workflows", "build.yml"),
+                                        encoding="utf-8").read().splitlines()
+                if l.strip().startswith("NUMER=$(grep -m1 -E '^WERSJA_PROGRAMU")]
+    _bash21 = shutil.which("bash")
+    if _bash21 and len(_numer21) == 1:
+        import subprocess as _sp21
+        _wyc21 = []
+        for _zr_wiersz21 in (None, 'WERSJA_PROGRAMU = "3.26.0"   # poprzednio "3.25.1", "x"\r\n'):
+            _plik_n21 = os.path.join(_kat21, "zrodlo_numer.py")
+            if _zr_wiersz21 is None:
+                shutil.copy(os.path.join(KATALOG, "PMT_Delegacje.py"), _plik_n21)
+            else:
+                with open(_plik_n21, "w", encoding="utf-8", newline="") as _f21:
+                    _f21.write("import os\n" + _zr_wiersz21)
+            _r21 = _sp21.run([_bash21, "-c", 'TMP_SRC="$1"\n' + _numer21[0] + '\nprintf %s "$NUMER"', "x", _plik_n21],
+                             capture_output=True, timeout=30)
+            _wyc21.append(_r21.stdout.decode("utf-8", "replace"))
+        sprawdz("build.yml (bash): job „wersja” bierze numer jak zbuduj.py — pierwszy napis w cudzysłowie, nie ostatni z komentarza",
+                _wyc21 == [P.WERSJA_PROGRAMU, "3.26.0"], str(_wyc21))
+    else:
+        sprawdz("build.yml: jeden wiersz wycinający NUMER w jobie „wersja”", bool(_bash21) is False or len(_numer21) == 1,
+                str(_numer21))
     _stale21 = []
     for _plik21, _wzor21 in (("START_TUTAJ.txt", "PMT PLANER %s"),
                              ("WYDANIE.txt", "PMT PLANER %s"),

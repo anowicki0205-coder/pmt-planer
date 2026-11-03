@@ -469,11 +469,13 @@ jobs:
           # pisze do potoku, wiec nie ma komu dostac SIGPIPE.
           TMP_SRC="$(mktemp)"
           git show "refs/tags/$TAG:PMT_Delegacje.py" > "$TMP_SRC" 2>/dev/null || true
-          NUMER=$(grep -m1 -E '^WERSJA_PROGRAMU *= *"' "$TMP_SRC" | tr -d '\r' | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          # PIERWSZY napis w cudzyslowie, jak w zbuduj.py (to on trafia do paczki) -
+          # zachlanne ".*" bralo OSTATNI, np. z komentarza  # poprzednio "3.25.1".
+          NUMER=$(grep -m1 -E '^WERSJA_PROGRAMU *= *"' "$TMP_SRC" | tr -d '\r' | sed -E 's/^WERSJA_PROGRAMU *= *"([^"]+)".*/\1/' || true)
           rm -f "$TMP_SRC"
           if [ -z "$NUMER" ]; then NUMER="${TAG#v}"; fi
           if [ "$NUMER" != "${TAG#v}" ]; then
-            echo "UWAGA: tag $TAG, a w zrodle WERSJA_PROGRAMU=$NUMER - do wersja.txt idzie numer ze zrodla."
+            echo "::warning::Tag $TAG, a w zrodle WERSJA_PROGRAMU=$NUMER - do wersja.txt idzie numer ze zrodla (ten jest w paczce)."
           fi
           OBECNA=$(head -n1 wersja.txt 2>/dev/null | tr -d '\r' || true)
           # Nie cofamy: przebudowanie starszego tagu nie moze obnizyc numeru.

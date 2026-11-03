@@ -1053,24 +1053,55 @@ _yml3b = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encodi
 _poczatek3b = _yml3b.index("OPIS=${OPIS:-")
 _koniec3b = _yml3b.index('echo "--- wersja.txt po zapisie ---"')
 _skrypt3b = _yml3b[_poczatek3b:_koniec3b]
-sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie=",
-        all(("'^%s='" % k) in _skrypt3b and ('"$%s"' % z) in _skrypt3b
-            for k, z in (("min", "MIN"), ("blokada", "BLOKADA"), ("web", "WEB"), ("wygaszenie", "WYGASZENIE"))))
+sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie= — każde wystąpienie, bez względu na wielkość liter i wcięcie",
+        "grep -iE '^[[:space:]]*(min|blokada|web|wygaszenie)[[:space:]]*='" in _skrypt3b)
 _bash3b = shutil.which("bash")
 if _bash3b:
     import subprocess as _sp3b
-    _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
-    with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
-        _f3b.write(_PLIK3b.replace("3.25.1", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
-    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
-                         cwd=_kat3b, capture_output=True, timeout=30)
-    _po3b = open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8")
+
+    def _podbij3b(tresc):
+        _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
+        try:
+            with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
+                _f3b.write(tresc.replace("\n", "\r\n").encode("utf-8"))
+            _w3b = _sp3b.run([_bash3b, "-e", "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b],
+                             cwd=_kat3b, capture_output=True, timeout=30)
+            return (_w3b.returncode, open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8"),
+                    (_w3b.stdout + _w3b.stderr).decode("utf-8", "replace"))
+        finally:
+            shutil.rmtree(_kat3b, ignore_errors=True)
+
+    def _czytaj3b(tresc):
+        _zeruj_przejscie3b()
+        P._czytaj_wymagania_z_tekstu(tresc)
+        return (P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.ADRES_WEB, P.TERMIN_WYGASZENIA)
+
+    _kod3b, _po3b, _log3b = _podbij3b(_PLIK3b.replace("3.25.1", "3.24.0"))
     _wiersze3b = [l for l in _po3b.replace("\r\n", "\n").split("\n") if l]
     sprawdz("build.yml (uruchomiony w bashu na próbnym pliku): nowy numer i opis, a wiersze min=, blokada=, web=, wygaszenie= zostają, końce wierszy CRLF",
-            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
+            _kod3b == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
             and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
-            and _po3b.count("\r\n") == len(_wiersze3b), repr(_po3b) + _wynik3b.stderr.decode()[:200])
-    shutil.rmtree(_kat3b, ignore_errors=True)
+            and _po3b.count("\r\n") == len(_wiersze3b) and "::warning::" not in _log3b, repr(_po3b) + _log3b[:200])
+    # Program czyta wiersze kluczowe pobłażliwie (strip, lower, ostatnie wygrywa) —
+    # bot musi zostawić wszystko, co program respektuje. Do 3.25.1 brał tylko
+    # pierwsze „^min=”: wcięte wiersze z wyjścia przygotuj_przejscie.py znikały
+    # po cichu, a przy powtórce wracała stara data wygaszenia.
+    _proby3b = {
+        "wcięte jak w wyjściu przygotuj_przejscie.py":
+            "3.24.0\nOpis.\n    min=3.24.0\n    blokada=2099-12-01\n    web=%s\n    wygaszenie=2099-12-20\n" % _ADRES3b,
+        "wielkie litery, spacje wokół „=” i powtórzone web=/wygaszenie=":
+            "3.24.0\nOpis.\nMin = 3.24.0\n\tBLOKADA=2099-12-01  \nweb=%s\nwygaszenie=2099-11-30\nweb=%s\nwygaszenie=2099-12-20\n"
+            % (_ADRES3b, _ADRES3b),
+    }
+    for _nazwa3b, _tresc3b in _proby3b.items():
+        _kod3b, _po3b, _log3b = _podbij3b(_tresc3b)
+        _przed3b, _po_odczyt3b = _czytaj3b(_tresc3b), _czytaj3b(_po3b)
+        sprawdz("build.yml (bash): po podbiciu program czyta min=, blokada=, web= i wygaszenie= tak samo jak przed — " + _nazwa3b,
+                _kod3b == 0 and _po3b.startswith("3.25.1\r\nNowy opis.\r\n")
+                and _przed3b == _po_odczyt3b == ("3.24.0", "2099-12-01", _ADRES3b, "2099-12-20")
+                and (("::warning::" in _log3b and "wygaszenie" in _log3b) == ("powtórzone" in _nazwa3b)),
+                "%r -> %r %s" % (_przed3b, _po_odczyt3b, _log3b[:200]))
+    _zeruj_przejscie3b()
 
 # ── teksty i okno przy starcie ──
 _zeruj_przejscie3b()

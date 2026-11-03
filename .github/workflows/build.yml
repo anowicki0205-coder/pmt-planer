@@ -487,16 +487,21 @@ jobs:
           OPIS=${OPIS:-"Nowa wersja programu."}
           OPIS=${OPIS:0:160}
           # Wiersze min= i blokada= steruja OBOWIAZKOWA AKTUALIZACJA, a web= i wygaszenie=
-          # - INFORMACJA O PRZEJSCIU NA APLIKACJE WEB (od 3.25.0). Wszystkie zostaja.
-          MIN=$(grep -m1 '^min=' wersja.txt 2>/dev/null | tr -d '\r' || true)
-          BLOKADA=$(grep -m1 '^blokada=' wersja.txt 2>/dev/null | tr -d '\r' || true)
-          WEB=$(grep -m1 '^web=' wersja.txt 2>/dev/null | tr -d '\r' || true)
-          WYGASZENIE=$(grep -m1 '^wygaszenie=' wersja.txt 2>/dev/null | tr -d '\r' || true)
+          # - INFORMACJA O PRZEJSCIU NA APLIKACJE WEB (od 3.25.0). Wszystkie zostaja, i to
+          # tak, jak czyta je program (_czytaj_wymagania_z_tekstu): kazde wystapienie,
+          # w tej samej kolejnosci (przy powtorce program bierze OSTATNIE), bez wzgledu
+          # na wielkosc liter i spacje wokol. Do 3.25.1 bot bral tylko pierwsze "^min=" -
+          # wciety wiersz (np. skopiowany z wyjscia przygotuj_przejscie.py) znikal po
+          # cichu, a przy powtorce wracala stara data.
+          KLUCZE=$(tr -d '\r' 2>/dev/null < wersja.txt | grep -iE '^[[:space:]]*(min|blokada|web|wygaszenie)[[:space:]]*=' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' || true)
+          POWTORZONE=$(printf '%s\n' "$KLUCZE" | sed -E 's/[[:space:]]*=.*//' | tr 'A-Z' 'a-z' | sort | uniq -d | tr '\n' ' ')
+          if [ -n "$POWTORZONE" ]; then
+            echo "::warning::wersja.txt ma powtorzone wiersze: ${POWTORZONE}- program bierze OSTATNI z kazdego. Zostawiam wszystkie w tej samej kolejnosci; usun stare recznie."
+          fi
           printf '%s\r\n%s\r\n' "$NUMER" "$OPIS" > wersja.txt
-          if [ -n "$MIN" ]; then printf '%s\r\n' "$MIN" >> wersja.txt; fi
-          if [ -n "$BLOKADA" ]; then printf '%s\r\n' "$BLOKADA" >> wersja.txt; fi
-          if [ -n "$WEB" ]; then printf '%s\r\n' "$WEB" >> wersja.txt; fi
-          if [ -n "$WYGASZENIE" ]; then printf '%s\r\n' "$WYGASZENIE" >> wersja.txt; fi
+          if [ -n "$KLUCZE" ]; then
+            printf '%s\n' "$KLUCZE" | while IFS= read -r WIERSZ; do printf '%s\r\n' "$WIERSZ"; done >> wersja.txt
+          fi
           echo "--- wersja.txt po zapisie ---"; cat wersja.txt
           git config user.name "pmt-bot"
           git config user.email "actions@users.noreply.github.com"

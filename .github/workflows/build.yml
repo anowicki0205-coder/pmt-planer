@@ -521,7 +521,7 @@ jobs:
           # - INFORMACJA O PRZEJSCIU NA APLIKACJE WEB (od 3.25.0). Wszystkie zostaja, i to
           # tak, jak czyta je program (_czytaj_wymagania_z_tekstu): kazde wystapienie,
           # w tej samej kolejnosci (przy powtorce program bierze OSTATNIE), bez wzgledu
-          # na wielkosc liter i spacje wokol. Do 3.25.1 bot bral tylko pierwsze "^min=" -
+          # na wielkosc liter i spacje wokol. Do 3.25.0 bot bral tylko pierwsze "^min=" -
           # wciety wiersz (np. skopiowany z wyjscia przygotuj_przejscie.py) znikal po
           # cichu, a przy powtorce wracala stara data.
           KLUCZE=$(tr -d '\r' 2>/dev/null < wersja.txt | grep -iE '^[[:space:]]*(min|blokada|web|wygaszenie)[[:space:]]*=' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' || true)

@@ -1083,7 +1083,7 @@ if _bash3b:
             and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
             and _po3b.count("\r\n") == len(_wiersze3b) and "::warning::" not in _log3b, repr(_po3b) + _log3b[:200])
     # Program czyta wiersze kluczowe pobłażliwie (strip, lower, ostatnie wygrywa) —
-    # bot musi zostawić wszystko, co program respektuje. Do 3.25.1 brał tylko
+    # bot musi zostawić wszystko, co program respektuje. Do 3.25.0 brał tylko
     # pierwsze „^min=”: wcięte wiersze z wyjścia przygotuj_przejscie.py znikały
     # po cichu, a przy powtórce wracała stara data wygaszenia.
     _proby3b = {
@@ -7814,7 +7814,7 @@ try:
     sprawdz("budowanie testowe nie buduje macOS/Linux i nie podbija wersja.txt — tylko tag",
             _jobif21("pozostale")
             and all(_tag21 in _kod21.get(n, "").split("steps:")[0] for n in ("wydanie_pozostale", "wersja")))
-    # Do 3.25.1 contents: write miał CAŁY workflow, a checkout zostawiał token
+    # Do 3.25.0 contents: write miał CAŁY workflow, a checkout zostawiał token
     # w .git/config — kod z PyPI (pip install, fontTools ze źródeł) mógł nim
     # wypchnąć na main updater.bat, który programy pobierają i uruchamiają.
     _pisza21 = sorted(n for n, t in _kod21.items() if re.search(r"^\s+contents: write\s*$", t, re.M))
@@ -7844,14 +7844,14 @@ try:
     sprawdz("testy.yml: token tylko do odczytu i bez zapisanych poświadczeń (pip uruchamia kod z PyPI)",
             re.search(r"^permissions:\n  contents: read\n", _tyml21, re.M) is not None
             and "persist-credentials: false" in _tyml21 and "contents: write" not in _tyml21)
-    # testy.yml nie startuje dla tagu, a build.yml do 3.25.1 nie czekał na testy —
+    # testy.yml nie startuje dla tagu, a build.yml do 3.25.0 nie czekał na testy —
     # commit wypchnięty prosto na main szedł do zespołu, zanim testy zdążyły paść
     sprawdz("build.yml: paczka z tagu powstaje dopiero po zielonych testach (testy.yml przez workflow_call), budowanie ręczne bez zmian",
             re.search(r"^    uses: \./\.github/workflows/testy\.yml$", _kod21.get("testy", ""), re.M) is not None
             and _jobif21("testy") and re.search(r"^    needs: testy$", _kod21.get("windows", ""), re.M) is not None
             and ("if: ${{ !cancelled() && (needs.testy.result == 'success' || !%s) }}" % _tag21) in _kod21.get("windows", "")
             and re.search(r"^  workflow_call:", _tyml21, re.M) is not None)
-    # filtr „paths” w testy.yml: do 3.25.1 lista plików pomijała moduły z paczki
+    # filtr „paths” w testy.yml: do 3.25.0 lista plików pomijała moduły z paczki
     # i build.yml — ich zmiana wypchnięta na main nie uruchamiała testów wcale
     _wzorce21 = re.findall(r'^      - "([^"]+)"$', _tyml21.split("\n    paths:\n")[1].split("\n  pull_request:")[0], re.M) \
         if "\n    paths:\n" in _tyml21 else []

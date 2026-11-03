@@ -67,7 +67,7 @@ const { otworz } = require('./wspolne');
     const b = document.querySelector('#podpisz'); window.__wyscig = null;
     const o = new MutationObserver(() => { if (!b.classList.contains('zbiera') || window.__wyscig) return; o.disconnect();
       window.__wyscig = { wylaczone: ['#m-wstecz', '#m-dalej', '#m-nazwa'].every(s => document.querySelector(s).disabled) };
-      const w = document.querySelector('#m-wstecz'); w.click(); setTimeout(() => w.click(), 60); });
+      const w = document.querySelector('#m-wstecz'); w.click(); setTimeout(() => w.click(), 60); document.querySelector('#parametry [data-tryb="tydzien"]').click(); });
     o.observe(b, { attributes: true, attributeFilter: ['class'] });
   });
   await p.click('#podpisz'); await p.waitForSelector('#potwierdz-gen', { timeout: 60000 }); await p.click('#potwierdz-gen');
@@ -78,6 +78,7 @@ const { otworz } = require('./wspolne');
   ok('po generowaniu na ekranie wrzesień, strzałki znów działają', /wrzesień/i.test(await miesiac()) && !(await p.evaluate(() => document.querySelector('#m-wstecz').disabled)), await miesiac());
   const par = (mies['2026-09'] || {}).params || {};
   ok('dokumenty powstały dla wyboru z pulpitu: Wieczory, do 900 cm³, wolne 8 września', par.tryb === 'wieczory' && par.silnik_powyzej_900 === false && JSON.stringify(par.wolne) === '[8]', JSON.stringify({ t: par.tryb, s: par.silnik_powyzej_900, w: par.wolne }));
+  ok('klik „Tydzień” w trakcie generowania nie zmienia trybu (profil dalej Wieczory, pulpit pokazuje tryb dokumentów)', ((await dane()).profil || {}).tryb === 'wieczory' && await wcisniete('#parametry [data-tryb="wieczory"]'), ((await dane()).profil || {}).tryb);
   ok('po udanym generowaniu zapamiętane dni wolne miesiąca są wyczyszczone (są w rekordzie)', ((await dane()).ustawienia || {})['wolne-2026-09'] == null);
 
   /* ---- nazwy miejscowości ze znacznikami (np. z adresu w Moich danych) ---- */

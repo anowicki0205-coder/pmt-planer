@@ -1879,7 +1879,9 @@ async function przeladujMiesiac(rok, mies, cicho, fokusKwoty, ust) {
   if (cicho) odswiez(); else przejscie(odswiez, () => { kurtyna && kurtyna.wybierz(wybrany); });
 }
 async function przelaczTryb(tryb) {
-  if (M.stan !== 'plan' || M.tryb === tryb) return; M.tryb = tryb;
+  if (M.stan !== 'plan' || M.tryb === tryb) return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }      // dni robocze przelicza przeladujMiesiac, a ten w trakcie generowania odmawia (tryb rozjechałby się z kalendarzem)
+  M.tryb = tryb;
   if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; magProfil.zapisz(PROFIL); }
   M.wolne = new Set(); zapiszWolne(); await przeladujMiesiac(M.rok, M.mies, true);
 }

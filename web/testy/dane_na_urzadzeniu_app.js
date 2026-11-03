@@ -33,7 +33,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
 
   /* zmiana konta: pamięć silnika należała do innego konta — po starcie jest czyszczona */
   await p.evaluate(() => localStorage.setItem('pmt-silnik-wlasciciel', '99999'));
-  await p.reload(); await czekajAplikacje(); await p.waitForTimeout(3000);
+  await p.keyboard.press('F5').catch(() => {}); await p.reload(); await czekajAplikacje(); await p.waitForTimeout(3000);
   m = await pamiec();
   ok('po zmianie konta ślady silnika poprzedniego użytkownika są skasowane, a dane bieżącego konta zostają', m.silnik.length === 0 && m.ls.includes('pmt-web-v1:12345') && m.pdf >= 6, JSON.stringify({ silnik: m.silnik, pdf: m.pdf }));
   ok('właścicielem pamięci silnika jest teraz bieżące konto', await p.evaluate(() => localStorage.getItem('pmt-silnik-wlasciciel')) === '12345');

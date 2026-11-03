@@ -481,7 +481,7 @@ export function zainstalujZywe(k) {
     const zo = zorza(); zo && zo.flara(.15);
   }
   function zamknijPal() {
-    if (!palOtw) return; k.ruchOkno(false); palOtw = false; app.inert = false; paleta.classList.add('zamyka'); paleta.classList.remove('otwarta');
+    if (!palOtw) return; k.ruchOkno(false); palOtw = false; app.inert = !!S().arkuszOtwarty; paleta.classList.add('zamyka'); paleta.classList.remove('otwarta');
     setTimeout(() => { if (!palOtw) paleta.hidden = true; }, 220);
     palFokus && palFokus.focus && palFokus.focus({ preventScroll: true });
   }
@@ -558,7 +558,7 @@ export function zainstalujZywe(k) {
       $('.wyc-karta', wyc).focus({ preventScroll: true }); pokaz(0);
     }
     function koniec() {
-      if (!trwa) return; trwa = false; k.ruchOkno(false); pamiec.set('wycieczka', '1'); app.inert = false; wyc.classList.remove('otwarta'); wyc.classList.add('zamyka');
+      if (!trwa) return; trwa = false; k.ruchOkno(false); pamiec.set('wycieczka', '1'); app.inert = !!S().arkuszOtwarty;      // okno otwarte w trakcie wycieczki dalej trzyma pulpit nieaktywny wyc.classList.remove('otwarta'); wyc.classList.add('zamyka');
       setTimeout(() => { if (!trwa && wyc) wyc.hidden = true; }, 360); if (telefon() && wtorna) k.ustawZakladke('dzis', false);
     }
     addEventListener('keydown', e => {

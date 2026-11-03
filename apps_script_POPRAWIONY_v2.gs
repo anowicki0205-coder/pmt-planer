@@ -755,8 +755,12 @@ function _ustawieniaPaczki(ss) {
   var klucze = {};
   var w = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues() : [];
   for (var i = 0; i < w.length; i++) klucze[String(w[i][0]).trim()] = true;
-  if (!klucze[USTAWIENIE_HASLO_PACZKI]) sh.appendRow([USTAWIENIE_HASLO_PACZKI, "",
-    "Haslo, ktorym aplikacja zahaslowuje paczke z dokumentami (min. 8 znakow; nie zaczynaj od = + - @). Odbiorca poczty dostaje je od Ciebie. Zostaw puste, by wylaczyc wysylke."]);
+  if (!klucze[USTAWIENIE_HASLO_PACZKI]) {
+    sh.appendRow([USTAWIENIE_HASLO_PACZKI, "",
+      "Haslo, ktorym aplikacja zahaslowuje paczke z dokumentami (min. 8 znakow; nie zaczynaj od = + - @). Odbiorca poczty dostaje je od Ciebie. Zostaw puste, by wylaczyc wysylke."]);
+    // komórka hasła jako zwykły tekst: inaczej arkusz zamienia „0012345678” w liczbę 12345678, a „15.01.2027” w datę
+    sh.getRange(sh.getLastRow(), 2).setNumberFormat("@");
+  }
   if (!klucze[USTAWIENIE_HASLO_PACZKI_DO]) sh.appendRow([USTAWIENIE_HASLO_PACZKI_DO, "",
     "Ostatni dzien waznosci hasla, np. 2026-12-31 (po tej dacie aplikacja nie wysle paczki, dopoki nie wpiszesz nowego hasla i nowej daty)."]);
   if (!klucze[USTAWIENIE_ADRES_ODBIORCY]) sh.appendRow([USTAWIENIE_ADRES_ODBIORCY, "",
@@ -768,6 +772,15 @@ function _dataIso(v) {
   if (!d || isNaN(d.getTime())) return "";
   var p = function (n) { return ("0" + n).slice(-2); };
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+/* Hasło paczki z komórki: tekst albo liczba całkowita (arkusz zamienia wpisane same cyfry na liczbę). Data, wartość logiczna,
+   ułamek albo liczba bez pełnej precyzji to już nie to, co wpisał administrator (np. „1234,5678” → „1234.5678”, data →
+   „Fri Jan 15 2027…”), a paczki zaszyfrowanej takim hasłem odbiorca nie otworzy — wtedy hasła nie wydajemy („brak”). */
+function _hasloZKomorki(ss, kod, v) {
+  if (v === null || v === undefined || typeof v === "string") return String(v || "").trim();
+  if (typeof v === "number" && Number.isSafeInteger(v) && v >= 0) return String(v);
+  _log(ss, kod, "haslo_paczki_blad", "komorka hasla w zakladce Ustawienia nie jest tekstem — ustaw jej format Zwykly tekst i wpisz haslo ponownie", "raz");
+  return "";
 }
 function hasloPaczki(dane) {
   var kod = String(dane.kod || "").trim();
@@ -788,7 +801,7 @@ function hasloPaczki(dane) {
   var haslo = "", doDaty = "", adres = "";
   for (var j = 0; j < u.length; j++) {
     var k = String(u[j][0]).trim();
-    if (k === USTAWIENIE_HASLO_PACZKI) haslo = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
+    if (k === USTAWIENIE_HASLO_PACZKI) haslo = _hasloZKomorki(ss, kod, u[j][1]);
     else if (k === USTAWIENIE_HASLO_PACZKI_DO) doDaty = _dataIso(u[j][1]);
     else if (k === USTAWIENIE_ADRES_ODBIORCY) adres = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
   }

@@ -8,7 +8,7 @@ const czyFormula = v => typeof v === 'string' && /^[=+\-@]/.test(v);
 const odczyt = v => (typeof v === 'string' && v.charAt(0) === "'" ? v.slice(1) : v);
 
 class Zakladka {
-  constructor(nazwa) { this.nazwa = nazwa; this.w = []; }
+  constructor(nazwa) { this.nazwa = nazwa; this.w = []; this.formaty = {}; }
   getLastRow() { return this.w.length; }
   appendRow(r) { this.w.push(r.slice()); }
   setFrozenRows() {}
@@ -21,6 +21,7 @@ class Zakladka {
       setValues: v => { v.forEach((rz, i) => rz.forEach((x, j) => { t.w[r - 1 + i] = t.w[r - 1 + i] || []; t.w[r - 1 + i][c - 1 + j] = x; })); },
       setValue: x => { t.w[r - 1] = t.w[r - 1] || []; t.w[r - 1][c - 1] = x; },
       setFontWeight() {},
+      setNumberFormat: f => { t.formaty[r + ',' + c] = f; },
     };
   }
 }

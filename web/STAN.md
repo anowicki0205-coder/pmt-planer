@@ -193,3 +193,21 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       wyniku; podpis „rysuje się”, zły dokument drży, pieczęć „Wysłano” opada; klik w probówkę prowadzi do jej dokumentu. Ruch dla wszystkich (html.zyje, animacje „zycie-…” z !important przebijają tryb spokojny),
       wyjątek: „Ogranicz ruch” w systemie. Pliki: js/widowisko.js, podpis.js, dokument_atrapa.js, aplikacja.css; testy: widowisko_app.js (+ karty3d_app, podpis_offline_app także z ZYCIE=tak).
       Odrzucone przez właściciela: miesiąc jako pierścień dni (nie robimy).
+
+## Pełny przegląd (listopad 2026): błędy, bezpieczeństwo, dane osobowe
+Przegląd w obszarach (aplikacja web, podpisy, dostęp i sejf, backend, silnik, CI, program, bezpieczeństwo), każde zgłoszenie sprawdzone przez osobnego weryfikatora
+(ok. 110 zgłoszeń, większość potwierdzona), poprawki w pakietach z recenzją diffu. Część web — zrobiona:
+- [x] APLIKACJA: zmiana miesiąca w trakcie generowania nie przenosi dokumentów (miesiąc zapamiętany przed pierwszym await, strzałki wyłączone); komunikaty widoczne w trybie spokojnym;
+      okna trzymają fokus (pulpit pod spodem inert); tryb i auto wybrane przed „Moimi danymi” zostają; „Wieczory” bez profilu liczą soboty; dni wolne, tryb i auto miesiąca bez rekordu
+      pamiętane na urządzeniu jak kwota ('wolne-RRRR-MM', 'ust-RRRR-MM'; „od nowa” i zmiana trybu po wygenerowaniu nie wracają do profilu po wizycie w innym miesiącu); w trakcie
+      generowania tryb, auto i dni wolne zablokowane; „Dziś” po północy; błąd zapisu (pełna pamięć) nie zostawia „generowania” ani połowy plików; nazwy miejscowości jako tekst;
+      szybkie strzałki liczą od wczytywanego miesiąca; okno odzyskiwania sejfu pyta przed usunięciem (bezpieczny przycisk w miejscu tego, który otwiera ostrzeżenie).
+- [x] PODPISY: zmiany zapisane w PDF-ie PRZED podpisem (strona zamalowana, adnotacja, podmieniony strumień, też w /ObjStm) → odrzucone; atrybuty strony porównywane z dziedziczeniem
+      (iText/OpenPDF wpisują odziedziczony MediaBox i „/Rotate 0” — to nie zmiana); certyfikat samopodpisany → „uwaga”; ponowny skan zastępuje pliki tylko dokumentu jednostronicowego;
+      wznowienie przerwanego sprawdzania; Android bez udostępniania ZIP-ów: pobranie + odnośnik „Otwórz wiadomość”.
+- [x] DOSTĘP I SEJF: klucz danych i skrót hasła tylko w pamięci strony; do sessionStorage trafiają wyłącznie przy ZAMIERZONYM odświeżeniu (F5, Ctrl+R, przeładowanie przez aplikację),
+      nie przy zamknięciu karty (sessionStorage leży na dysku); pamięć silnika (współrzędne domu, trasy) w zaszyfrowanym magazynie konta zamiast jawnej bazy IDBFS (kasowanej);
+      blokada konta przeżywa wylogowanie; normalizacja hasła (spacje, telefon); czas serwera koryguje zegar urządzenia; autologowanie bez PBKDF2 po pauzie i najwyżej jedna automatyczna
+      próba nieznanego hasła (limit prób na serwerze); niepodzielna instalacja service workera; „Usuń dane” kasuje też login ze statusu; wymuszone wylogowanie czyści silnik.
+- Testy: naprawy_aplikacja_app.js (nowy), weryfikacja_test.js (+ nowe pliki w dane/podpisy), karuzela_test.js, dostep_test.js, sw_instalacja_app.js, szyfrowanie_app.js, logowanie_app.js,
+  dane_na_urzadzeniu_app.js, podpis_offline_app.js, przeplyw_app.js, xss_app.js, widowisko_app.js, zywe_app.js — wszystkie przechodzą. Testy odświeżające stronę bez gotowej sesji udają F5.

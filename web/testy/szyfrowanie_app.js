@@ -1,5 +1,5 @@
 // Szyfrowanie danych na urządzeniu (PESEL, adres, miesiące, plan, PDF-y) w prawdziwym przepływie z logowaniem (atrapa backendu):
-// na dysku nie ma jawnego PESEL-u, adresu ani PDF-ów, ani skrótu hasła; odświeżenie karty nie pyta o hasło, nowa karta tak; autologowanie i logowanie bez sieci otwierają sejf;
+// na dysku nie ma jawnego PESEL-u, adresu ani PDF-ów, ani skrótu hasła, a klucz danych nie leży w sessionStorage; odświeżenie karty nie pyta o hasło, nowa i przywrócona karta tak; autologowanie i logowanie bez sieci otwierają sejf;
 // zmiana hasła zachowuje dane; hasło zmienione gdzie indziej → okno odzyskiwania (poprzednie hasło albo usunięcie); dane sprzed szyfrowania są migrowane; uszkodzone dane nie są nadpisywane.
 // NODE_PATH=/opt/node22/lib/node_modules node szyfrowanie_app.js
 const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
@@ -30,14 +30,16 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   ok('skrótu hasła nie ma na dysku (ani w danych dostępu, ani nigdzie w localStorage)', !/skrot/.test(d.ls['pmt-web-dostep-v1'] || '') && !wszystkieLs.includes(hash('12345', 'haslo123')));
   ok('sejf konta jest na dysku i nie zawiera hasła ani klucza jawnie', !!d.ls['pmt-web-sejf:12345'] && !d.ls['pmt-web-sejf:12345'].includes('haslo123'));
   ok('PDF-y w IndexedDB są zaszyfrowane (koperta PMT1, brak nagłówka %PDF i PESEL-u w treści)', d.pdf && d.pdf.length >= 6 && d.pdf.every(b => b[0] === 0x50 && b[1] === 0x4d && b[2] === 0x54 && b[3] === 0x31 && !Buffer.from(b).toString('latin1').includes('%PDF') && !Buffer.from(b).toString('latin1').includes(PESEL)), d.pdf ? d.pdf.length + ' plików' : 'brak');
-  ok('klucz danych jest tylko w sessionStorage karty (ginie z kartą)', !!d.ss['pmt-web-dek'] && !wszystkieLs.includes(d.ss['pmt-web-dek']));
+  ok('klucz danych i skrót hasła nie leżą w czasie sesji ani w localStorage, ani w sessionStorage (przeglądarka zapisuje ją na dysk i przywraca z kartą)', Object.keys(d.ss).filter(k => /^pmt-web-(dek|skrot|imie|sesja-karty|przekaz)$/.test(k)).length === 0 && !Object.values(d.ss).join('\n').includes(hash('12345', 'haslo123').slice(0, 40)), JSON.stringify(Object.keys(d.ss)));
   /* ---- 2. odświeżenie i nowa karta ---- */
   await p.reload(); await czekajApp(p); await p.waitForTimeout(2500);
   ok('odświeżenie karty nie pyta o hasło, a dane są odczytane (imię w nagłówku, miesiąc wygenerowany)', (await p.locator('#dz-form').count()) === 0 && (await p.locator('#imie-pasek').innerText()) === IMIE && /Wygenerowane/.test(await p.locator('#status').innerText()));
   const pdfOk = await p.evaluate(async () => { const d = window.__pmtDane.czytaj(); return Object.keys(d.miesiace || {}).length; });
   ok('po odświeżeniu pliki PDF da się otworzyć z szyfrowanego magazynu (okno dokumentów)', await (async () => { await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); const w = await p.evaluate(async () => { const el = document.querySelector('[data-akcja="otworz"]'); return !!el; }); await p.keyboard.press('Escape'); await p.waitForTimeout(500); return w && pdfOk >= 1; })());
+  ok('po odświeżeniu przekazanie zniknęło z sessionStorage (było tam tylko na czas przeładowania)', !(await p.evaluate(() => sessionStorage.getItem('pmt-web-przekaz'))));
+  ok('wejście w tej samej karcie, które nie jest odświeżeniem (jak przywrócona karta), pyta o logowanie', await (async () => { const q = await nowaKarta(); await zaloguj(q); await q.goto(t.adres + '/?inna=1'); await q.waitForSelector('#dz-form', { state: 'attached', timeout: 120000 }); await q.waitForTimeout(800); const w = (await q.locator('#dz-kod').count()) === 1 && !(await q.evaluate(() => sessionStorage.getItem('pmt-web-przekaz'))); await q.close(); return w; })());
   const k2 = await nowaKarta(); await k2.waitForSelector('#dz-form', { state: 'attached', timeout: 120000 }); await k2.waitForTimeout(800);
-  ok('nowa karta pyta o logowanie i nie zna klucza danych', (await k2.locator('#dz-kod').count()) === 1 && !(await k2.evaluate(() => sessionStorage.getItem('pmt-web-dek'))));
+  ok('nowa karta pyta o logowanie i nie zna klucza danych', (await k2.locator('#dz-kod').count()) === 1 && !(await k2.evaluate(() => sessionStorage.getItem('pmt-web-dek') || sessionStorage.getItem('pmt-web-przekaz'))));
   /* ---- 3. autologowanie przez sejf (hasło znane na urządzeniu) ---- */
   await k2.fill('#dz-kod', '12345'); await k2.fill('#dz-haslo', 'haslo123'); await czekajApp(k2); await k2.waitForTimeout(2500);
   ok('autologowanie po wpisaniu hasła otwiera sejf, a dane są na miejscu', (await k2.locator('#imie-pasek').innerText()) === IMIE);

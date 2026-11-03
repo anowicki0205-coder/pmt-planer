@@ -1,4 +1,5 @@
-// Dane na urządzeniu: wylogowanie, zmiana konta i „Usuń dane z urządzenia” nie zostawiają śladów cudzych adresów (pamięć silnika jest wspólna dla kont przeglądarki),
+// Dane na urządzeniu: pamięć silnika (współrzędne adresów i trasy) leży zaszyfrowana w magazynie konta, nie w jawnej bazie „/home/pyodide”, i wraca do silnika po starcie;
+// wylogowanie, zmiana konta i „Usuń dane z urządzenia” nie zostawiają śladów cudzych adresów,
 // a usunięcie danych kasuje profil z PESEL-em, miesiące, PDF-y i zapamiętane konto. Oraz: pliki ustawień (adres_aplikacji.txt, odbiorca.txt) idą z sieci, nie z pamięci.
 // NODE_PATH=/opt/node22/lib/node_modules node dane_na_urzadzeniu_app.js
 const { otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock');
@@ -10,16 +11,24 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
   const pamiec = () => p.evaluate(async () => {
     const baza = n => new Promise(ok => { const q = indexedDB.open(n); q.onsuccess = () => { const db = q.result, o = {}; const nazwy = [...db.objectStoreNames]; if (!nazwy.length) { db.close(); ok([]); return; } const r = db.transaction(nazwy[0]).objectStore(nazwy[0]).getAllKeys(); r.onsuccess = () => { db.close(); ok(r.result.map(String)); }; r.onerror = () => ok([]); }; q.onerror = () => ok([]); });
     const nazwy = (await indexedDB.databases()).map(d => d.name);
-    return { bazy: nazwy, silnik: nazwy.includes('/home/pyodide') ? (await baza('/home/pyodide')).filter(x => /\.pmt_|menedzer/.test(x)) : [], pdf: nazwy.includes('pmt-web-pliki:12345') ? (await baza('pmt-web-pliki:12345')).length : 0,
+    const konta = nazwy.includes('pmt-web-pliki:12345') ? await baza('pmt-web-pliki:12345') : [];
+    const wartosc = k => new Promise(ok => { const q = indexedDB.open('pmt-web-pliki:12345'); q.onsuccess = () => { const db = q.result, r = db.transaction('pliki').objectStore('pliki').get(k); r.onsuccess = () => { db.close(); ok(Array.from(new Uint8Array(r.result || []))); }; }; });
+    const silnikKonta = []; for (const k of konta.filter(x => x.startsWith('__silnik/'))) silnikKonta.push({ k, b: await wartosc(k) });
+    return { bazy: nazwy, silnik: nazwy.includes('/home/pyodide') ? (await baza('/home/pyodide')).filter(x => /\.pmt_|menedzer/.test(x)) : [], pdf: konta.length, silnikKonta,
       ls: Object.keys(localStorage), dostep: JSON.parse(localStorage.getItem('pmt-web-dostep-v1') || '{}') };
   });
 
+  await p.route(/nominatim\.openstreetmap\.org\/search/, r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '[{"lat":"52.2297","lon":"21.0122"}]' }));      // współrzędne domu trafiają do pamięci silnika (reszta sieci zablokowana)
   await p.goto(t.adres + '/index.html'); await zaloguj();
   await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 }); await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200); await generuj(p); await p.waitForTimeout(3500);
   let m = await pamiec();
-  ok('po generowaniu: profil, PDF-y i ślady silnika są na urządzeniu', m.ls.includes('pmt-web-v1:12345') && m.pdf >= 6 && m.silnik.length >= 1, JSON.stringify({ pdf: m.pdf, silnik: m.silnik.map(x => x.replace('/home/pyodide/', '')) }));
+  ok('po generowaniu: profil i PDF-y są na urządzeniu', m.ls.includes('pmt-web-v1:12345') && m.pdf >= 6, JSON.stringify({ pdf: m.pdf }));
+  ok('pamięci silnika nie ma w jawnej bazie „/home/pyodide” (IDBFS)', !m.bazy.includes('/home/pyodide'), JSON.stringify(m.bazy));
+  ok('pamięć silnika leży w magazynie konta jako zaszyfrowana koperta (bez jawnego adresu)', m.silnikKonta.length >= 1 && m.silnikKonta.every(x => x.b[0] === 0x50 && x.b[1] === 0x4d && x.b[2] === 0x54 && x.b[3] === 0x31 && !/testowa|warszawa/i.test(Buffer.from(x.b).toString('latin1'))), JSON.stringify(m.silnikKonta.map(x => x.k + ':' + x.b.length)));
+  const pamiecSilnika = () => p.evaluate(async () => (await window.__pmtSilnik.eksportPamieci()).pliki.map(x => x.nazwa + ':' + new TextDecoder().decode(x.bajty)).sort().join('|'));
+  const przed = await pamiecSilnika();
   ok('silnik zapamiętał, do kogo należy jego pamięć', await p.evaluate(() => localStorage.getItem('pmt-silnik-wlasciciel')) === '12345');
 
   /* zmiana konta: pamięć silnika należała do innego konta — po starcie jest czyszczona */
@@ -28,6 +37,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
   m = await pamiec();
   ok('po zmianie konta ślady silnika poprzedniego użytkownika są skasowane, a dane bieżącego konta zostają', m.silnik.length === 0 && m.ls.includes('pmt-web-v1:12345') && m.pdf >= 6, JSON.stringify({ silnik: m.silnik, pdf: m.pdf }));
   ok('właścicielem pamięci silnika jest teraz bieżące konto', await p.evaluate(() => localStorage.getItem('pmt-silnik-wlasciciel')) === '12345');
+  ok('po starcie silnik dostał z powrotem swoją pamięć z magazynu konta (te same pliki i treść, z adresem domu)', /testowa 1/.test(przed) && await pamiecSilnika() === przed, przed.slice(0, 160));
 
   /* wylogowanie czyści pamięć silnika, ale nie dane konta */
   await generuj(p, {}).catch(() => {}); await p.waitForTimeout(500);

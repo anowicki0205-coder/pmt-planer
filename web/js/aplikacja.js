@@ -276,6 +276,7 @@ const DK = ['pn', 'wt', 'śr', 'cz', 'pt', 'sb', 'nd'];
 let LIMIT_DZIEN = 587.19, LIMIT_POL = 986.34, MIN_KWOTA = 50;   // nadpisywane stałymi z silnika (stale())
 const ik = (id, kl = 'ik') => `<svg class="${kl}" aria-hidden="true"><use href="#${id}"/></svg>`;
 const silnik = new Silnik();
+if (window.__testy) window.__pmtSilnik = silnik;      // tylko dla testów (strona z ustawionym window.__testy): pamięć silnika w workerze
 let PROFIL = null;           // dane pracownika z urządzenia
 let M = null;                // aktywny miesiąc (patrz zbudujModel)
 let wybrany = 0;             // wybrany dzień miesiąca (1..N) albo 0
@@ -1790,10 +1791,10 @@ async function generuj() {
     if (!(magMiesiace.daj(rok, mies) || {}).wynik) throw new Error('brak miejsca w pamięci przeglądarki');      // pełny localStorage nie zgłasza błędu przy zapisie
   } catch (e) {
     wid && wid.przerwij(); koniecGenerowania(); magPliki.usunMiesiac(kl + '/').catch(() => {});
-    otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}). Zwolnij miejsce w pamięci i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
+    otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">${e && e.name === 'QuotaExceededError' ? 'Na urządzeniu zabrakło miejsca na dokumenty.' : `Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}).`} Zwolnij miejsce w pamięci przeglądarki i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
     odswiezHero(); await odswiezParametry(); return;
   }
-  magUst.ustaw('wolne-' + kl, null); dostep.policzDokumenty(w.pdf.length);
+  magUst.ustaw('wolne-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
   try {
     if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
@@ -1952,7 +1953,7 @@ async function arkuszPlan() {
         tryb: trybDom(PROFIL), siec: navigator.onLine, od_daty: isoDzis() }, (t, v) => { tekst.textContent = t; pasek.style.setProperty('--p', Math.round(Math.max(3, v * 100)) + '%'); zorza && zorza.flara(.08); });
       w.pozycje = POZYCJE_PLANU; w.zapisano = new Date().toISOString();
       if (!w.suma_wizyt) { tekst.innerHTML = '<span style="color:var(--a-burs)">Nie udało się ułożyć ani jednej wizyty. Sprawdź, czy lista zawiera miejscowości.</span>'; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); return; }
-      magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
+      magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zapiszPamiecSilnika(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
       pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach`);
     } catch (err) { tekst.innerHTML = `<span style="color:var(--a-blad)">${bezZnacznikow(err.message)}</span>`; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); }
   });
@@ -1973,11 +1974,24 @@ const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
-/** Pamięć silnika (trasy, współrzędne, liczniki) leży w IndexedDB wspólnej dla wszystkich kont tej przeglądarki: czyścimy ją przy wylogowaniu i przy zmianie konta,
- *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
-async function czyscSilnik() {
-  try { await Promise.race([silnik.start().then(() => silnik.czysc()), zegar(4000)]); } catch (e) { /* silnik nie wstał: nie ma czego czyścić */ }
+/** Pamięć silnika żyje tylko w workerze (jej trwała kopia jest w zaszyfrowanym magazynie konta). Przy zmianie konta czyścimy ją w workerze (najwyżej 4 s — brak silnika nie blokuje startu),
+ *  a przed przeładowaniem (wylogowanie, „Usuń dane”) worker i tak ginie: zamykamy go i kasujemy jeszcze dawną, jawną bazę IDBFS wersji sprzed szyfrowania pamięci silnika,
+ *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. */
+async function czyscSilnik(przedPrzeladowaniem) {
+  if (przedPrzeladowaniem) {
+    try { silnik.w.terminate(); } catch (e) { /* worker już nie żyje */ }      // zamknięty worker nie blokuje usunięcia bazy
+    await new Promise(ok => { setTimeout(ok, 2000); try { const q = indexedDB.deleteDatabase('/home/pyodide'); q.onsuccess = q.onerror = () => ok(); } catch (e) { ok(); } });
+  } else {
+    const limit = new Promise(r => setTimeout(r, 4000));      // prawdziwe 4 s: zegar() w trybie spokojnym to 0 ms
+    try { await Promise.race([silnik.start().then(() => silnik.czysc()), limit]); } catch (e) { /* silnik nie wstał: nie ma czego czyścić */ }
+  }
   try { localStorage.removeItem('pmt-silnik-wlasciciel'); } catch (e) { /* bez pamięci */ }
+}
+/* Pamięć silnika (współrzędne adresów, także domu, i trasy) leży w ZASZYFROWANYM magazynie konta, nie jawnie w bazie silnika: zapis po generowaniu, odczyt przy starcie. */
+const PAMIEC_SILNIKA = ['.pmt_geo_cache.json', '.pmt_geo_braki.json', '.pmt_road_cache.json'];
+async function zapiszPamiecSilnika() { try { const { pliki } = await silnik.eksportPamieci(); for (const p of pliki) await magPliki.zapisz('__silnik/' + p.nazwa, p.bajty); } catch (e) { /* bez zapisu silnik zapyta sieć jeszcze raz */ } }
+async function wczytajPamiecSilnika() {
+  try { const pliki = []; for (const n of PAMIEC_SILNIKA) { const b = await magPliki.daj('__silnik/' + n); if (b) pliki.push({ nazwa: n, bajty: b }); } if (pliki.length) await silnik.importPamieci(pliki); } catch (e) { /* zaczyna od pustej pamięci */ }
 }
 /** „Usuń dane z tego urządzenia”: profil z PESEL-em, miesiące, plan, wygenerowane PDF-y, ślady silnika i zapamiętane konto. Na serwerze nic nie ma — dane są tylko tu. */
 function arkuszUsunDane() {
@@ -1987,7 +2001,7 @@ function arkuszUsunDane() {
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw dane</button><button type="button" class="przycisk" id="usun-dane-tak">Usuń wszystko</button></div>`);
   $('#usun-dane-tak', arkTresc).addEventListener('click', async e => {
     e.currentTarget.disabled = true; e.currentTarget.textContent = 'Usuwam…';
-    await magUsunKonto(); dostep.zapomnijKonto(kod); await czyscSilnik(); location.reload();
+    await magUsunKonto(); dostep.zapomnijKonto(kod); await czyscSilnik(true); location.reload();
   });
 }
 /** Dokumenty powstają dla jednej, konkretnej kwoty, więc jej zmiana = wygenerowanie od nowa. zKwoty: otwarte kliknięciem w dużą kwotę (kursor od razu w polu kwoty). */
@@ -2225,17 +2239,17 @@ function ekranLogowania(wstep, kodStart) {
         <div class="dz-linki"><button type="button" class="dz-link" id="dz-reset">Nie pamiętam hasła</button></div>
         <p class="dz-pod">Pierwsze logowanie? Jako hasło wpisz numer telefonu z kartoteki — potem ustawisz własne. Logowanie rusza samo po wpisaniu hasła.</p>`);
       const kodEl = $('#dz-kod', arkTresc), hasloEl = $('#dz-haslo', arkTresc), ok = $('#dz-ok', arkTresc);
-      let wToku = false, zegarAuto = 0;
+      let wToku = false, zegarAuto = 0, zegarZnanego = 0;
       const sprawdz = () => { ok.disabled = wToku || !(/^\d{5}$/.test(kodEl.value) && hasloEl.value.length >= 4); };
       /* odmowy, które trzeba pokazać zawsze, także po próbie automatycznej (sieć, blokada, wygaśnięcie…); zwykłe „złe hasło” po automacie to tylko łagodna podpowiedź */
       const wazny = t => /sieć|sieci|internet|serwer|wersj|zablok|certyf|połącz|wygas|dni od|aktualiz|czasie|vpn|cors|ustawione haslo/i.test(t || '');
       const zaloguj = async (auto = false) => {
         if (wToku || !doc.contains(hasloEl)) return; const k = kodEl.value.trim(), h = hasloEl.value; if (!/^\d{5}$/.test(k) || h.length < 4) return;
-        proby.add(k + '|' + h); wToku = true; clearTimeout(zegarAuto); dzInfo('');
+        proby.add(k + '|' + h); wToku = true; clearTimeout(zegarAuto); clearTimeout(zegarZnanego); dzInfo('');
         const koniec = oczekiwanie(ok, 'Sprawdzam…'); if (!auto) kodEl.disabled = hasloEl.disabled = true;   // przy automacie pole hasła zostaje aktywne: żaden znak nie ginie
         let w; try { w = await dostep.zaloguj(k, h); } catch (e) { w = { ok: false, komunikat: 'Nie udało się zalogować: ' + e.message }; }
         koniec(); wToku = false; kodEl.disabled = hasloEl.disabled = false; sprawdz();
-        if (w.ok) { rozwiaz({ ...w, kod: k, haslo: h }); return; }
+        if (w.ok) { rozwiaz({ haslo: h, ...w, kod: k }); return; }      // w.haslo = postać hasła jak na serwerze (przycięta, telefon jako 9 cyfr) — nią zakładamy i otwieramy sejf
         if (auto && (kodEl.value.trim() !== k || hasloEl.value !== h)) { probuj('tekst'); return; }    // odpowiedź dotyczy starego tekstu — pisano dalej
         if (auto && !wazny(w.komunikat)) { dzInfo('Dokończ wpisywanie hasła albo naciśnij Enter.'); return; }
         dzInfo(w.komunikat, 'zle'); hasloEl.focus(); if (!auto) hasloEl.select();
@@ -2250,7 +2264,8 @@ function ekranLogowania(wstep, kodStart) {
         zaloguj(true);
       };
       kodEl.addEventListener('input', () => { kodEl.value = kodEl.value.replace(/\D/g, '').slice(0, 5); sprawdz(); if (kodEl.value.length === 5 && !hasloEl.value) hasloEl.focus(); else if (kodEl.value.length === 5) probuj('tekst'); });
-      hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); probuj('tekst'); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
+      /* sprawdzenie „znanego” hasła to PBKDF2 (600 tys. iteracji): po krótkiej pauzie, nie przy każdym znaku; bez Web Crypto (strona po http) liczy się w wątku strony, więc tylko po 1,3 s i Enter */
+      hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); clearTimeout(zegarZnanego); if (globalThis.crypto && crypto.subtle) zegarZnanego = setTimeout(() => probuj('tekst'), 450); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
       $('#dz-form', arkTresc).addEventListener('submit', e => { e.preventDefault(); zaloguj(false); });
       $('#dz-reset', arkTresc).addEventListener('click', () => widokResetu(kodEl.value));
       if (haslo) hasloEl.value = haslo; sprawdz();
@@ -2335,8 +2350,8 @@ function arkuszUszkodzonychDanych() {
     $('#uszk-usun', arkTresc).addEventListener('click', () => { magWyczysc(); dostepBlokada = false; arkTlo.classList.remove('dostep'); zamknijArkusz(); rozwiaz(); });
   });
 }
-/** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z sessionStorage), przeładowanie. */
-async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(); location.reload(); }
+/** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z pamięci strony), przeładowanie. */
+async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(true); location.reload(); }
 /* zmiana hasła z menu konta albo „ustaw własne” po pierwszym logowaniu telefonem (wtedy stare = telefon, wpisany przed chwilą) */
 function arkuszZmianyHasla(pierwsze, telefon, poZamknieciu) {
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Ustaw własne hasło' : 'Zmiana hasła')}
@@ -2389,6 +2404,7 @@ async function start() {
   let postepStartu = ['Uruchamianie…', .03], pokazLadowanie = false;
   const silnikGotowy = silnik.start((t, v) => { postepStartu = [t, v]; if (pokazLadowanie) ladowanie(true, t, v); });
   silnikGotowy.catch(() => {});                                   // błąd silnika obsługujemy po zalogowaniu
+  try { indexedDB.deleteDatabase('/home/pyodide'); } catch (e) { /* bez IndexedDB nie ma czego kasować */ }      // dawna, JAWNA pamięć silnika (IDBFS) — teraz jest w zaszyfrowanym magazynie konta
   dostep.rozgrzej();
   let kom = ''; try { kom = sessionStorage.getItem('pmt-dostep-komunikat') || ''; sessionStorage.removeItem('pmt-dostep-komunikat'); } catch (e) { /* bez pamięci karty */ }
   let sesja = null, ocena = dostep.ocenaSesji();
@@ -2396,10 +2412,10 @@ async function start() {
   if (!(dostep.kodAktywny() && ocena.wazna && dostep.sesjaTejKarty() && dostep.kluczDanych())) sesja = await zalogujSie(kom || (ocena.powod === 'offline' || ocena.powod === 'wygasla' ? komunikatBlokady(ocena) : ''));      // logowanie przy każdym uruchomieniu (nowa karta), jak w programie na komputerze
   const kodKonta = dostep.kodAktywny() || (sesja && sesja.kod);
   ustawKonto(kodKonta); dostep.uruchomienie();
-  /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty bierze klucz z sessionStorage; po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
+  /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty (F5) dostaje klucz z krótkiego przekazania przy przeładowaniu (js/dostep.js); po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
   let dek = sesja ? (sesja.dek || null) : dostep.kluczDanych();
   if (!dek && sesja) {
-    let s = await dostep.przygotujSejf(kodKonta, sesja.haslo);
+    let s = await dostep.przygotujSejf(kodKonta, sesja.haslo, sesja.wpisane);
     if (s.stan === 'obcy') s = await arkuszOdzyskaniaSejfu(kodKonta, sesja.haslo);
     dek = s.dek;
   }
@@ -2412,6 +2428,7 @@ async function start() {
     await silnikGotowy;
     if ((() => { try { return localStorage.getItem('pmt-silnik-wlasciciel'); } catch (e) { return null; } })() !== kodKonta) await czyscSilnik();      // pamięć silnika należała do innego konta (albo do nikogo)
     try { localStorage.setItem('pmt-silnik-wlasciciel', kodKonta); } catch (e) { /* bez pamięci */ }
+    if (dek) await wczytajPamiecSilnika();
     const st = await silnik.stale(); LIMIT_DZIEN = st.limit_dnia; LIMIT_POL = st.limit_dokumentu; MIN_KWOTA = st.min_kwota;
   } catch (e) {
     $('#lad-tekst').innerHTML = `Nie udało się uruchomić silnika delegacji.<br><small>${bezZnacznikow(e.message)}</small><br><br><button class="przycisk" type="button" id="lad-ponow">Spróbuj ponownie</button>`;

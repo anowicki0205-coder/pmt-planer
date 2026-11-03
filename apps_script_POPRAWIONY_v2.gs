@@ -404,6 +404,8 @@ function doGet(e) {
 }
 
 function _json(obiekt) {
+  // czas serwera w każdej odpowiedzi (także w odmowie): klient z przestawionym zegarem poprawia nim czas podpisu (okno 600 s)
+  if (obiekt && typeof obiekt === "object" && !Array.isArray(obiekt)) obiekt.czas_serwera = Math.floor(Date.now() / 1000);
   return ContentService.createTextOutput(JSON.stringify(obiekt))
                        .setMimeType(ContentService.MimeType.JSON);
 }
@@ -640,7 +642,8 @@ function logowanie(dane) {
     _wyczyscProby(kod);
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_" + zrodlo,
          "OK" + (haslem ? " (haslo)" : " (telefon)"));
-    return { status: "ok", imie: String(w[i][1] || "") };
+    // "przez": klient zakłada sejf danych tą samą postacią hasła co serwer (telefon = ostatnie 9 cyfr)
+    return { status: "ok", imie: String(w[i][1] || ""), przez: haslem ? "haslo" : "telefon" };
   }
   _nieudanaProba(kod);       // zgadywanie kodów liczy się tak samo jak zgadywanie haseł
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };

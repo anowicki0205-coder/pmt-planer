@@ -60,6 +60,14 @@ const nc = require('crypto');
   ok('po zmianie hasła dane zaszyfrowane wcześniej nadal da się odczytać (przepisany został tylko klucz)', S.odszyfrujTekst(S.klucze(po), dane) === json);
   const m = JSON.parse(localStorage.getItem('pmt-web-sejf:12345')); m.dek = S.b64((() => { const b = S.unb64(m.dek); b[30] ^= 1; return b; })()); localStorage.setItem('pmt-web-sejf:12345', JSON.stringify(m));
   ok('uszkodzony sejf nie otwiera się (zamiast oddać śmieci)', (await S.otworzSejf('12345', 'nowehaslo9')) === null);
+  /* ponowne otwarcie tym samym hasłem (autologowanie, potem logowanie) nie liczy PBKDF2 drugi raz; zmiana zapisu sejfu to unieważnia */
+  const dek2 = await S.utworzSejf('55555', 'haslo555'); await S.otworzSejf('55555', 'haslo555');
+  t0 = Date.now(); const pon = await S.otworzSejf('55555', 'haslo555'); const msPon = Date.now() - t0;
+  ok('drugie otwarcie tym samym hasłem: ten sam klucz, bez ponownego PBKDF2', pon && hex(pon) === hex(dek2) && msPon < 30, msPon + ' ms');
+  ok('…a inne hasło dalej jest odrzucane', (await S.otworzSejf('55555', 'haslo556')) === null);
+  await S.przepiszSejf('55555', dek2, 'inne5555');
+  ok('po przepisaniu sejfu dawne hasło już nie otwiera (zapamiętane otwarcie nieważne)', (await S.otworzSejf('55555', 'haslo555')) === null && !!(await S.otworzSejf('55555', 'inne5555')));
+  S.usunSejf('55555');
   S.zapamietajKlucz(dek1); ok('klucz na czas sesji karty: zapis i odczyt', hex(S.odczytajKlucz()) === hex(dek1)); S.zapomnijKlucz(); ok('po wylogowaniu klucza w sesji nie ma', S.odczytajKlucz() === null);
   S.usunSejf('12345'); ok('usunięcie sejfu', !S.maSejf('12345'));
   process.exit(kod);

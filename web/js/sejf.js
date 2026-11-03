@@ -6,7 +6,7 @@
 //   • DEK leży na dysku tylko ZASZYFROWANY kluczem wyprowadzonym z hasła użytkownika (PBKDF2-HMAC-SHA256, losowa sól, setki tysięcy iteracji). Samego hasła ani jego
 //     skrótu na dysku nie ma — poprawność hasła sprawdza sam sejf (podpis zaszyfrowanego DEK), więc kradzież profilu przeglądarki nie daje szybkiego łamania hasła.
 //   • Zmiana hasła przepisuje tylko zaszyfrowany DEK (dane zostają). Zapomniane hasło = dane z tego urządzenia nie do odczytania (dokumenty da się wygenerować od nowa).
-//   • Po zalogowaniu DEK jest w pamięci i w sessionStorage karty (ginie z kartą), żeby odświeżenie strony nie pytało o hasło.
+//   • Po zalogowaniu DEK jest tylko w pamięci strony; odświeżenie (F5) przekazuje go nowej stronie przez krótki wpis przy przeładowaniu (js/dostep.js), a przywrócona karta go nie dostaje.
 // Wszystko jest SYNCHRONICZNE i napisane w czystym JS (działa także na stronie bez https, gdzie nie ma Web Crypto); tylko PBKDF2 korzysta z Web Crypto, gdy jest.
 // Poprawność AES, SHA-256, HMAC i PBKDF2 sprawdza testy/sejf_test.js na wektorach z norm i w porównaniu z modułem crypto Node'a.
 
@@ -177,7 +177,7 @@ export const czyTekstZaszyfrowany = t => typeof t === 'string' && t.startsWith(P
 export function odszyfrujTekst(kl, t) { if (!czyTekstZaszyfrowany(t)) return null; try { const o = odszyfruj(kl, unb64(t.slice(PREFIKS.length))); return o ? dec.decode(o) : null; } catch (e) { return null; } }
 
 /* ---------------------------------- sejf konta: zaszyfrowany klucz danych w localStorage ---------------------------------- */
-const KLUCZ_SEJFU = kod => `pmt-web-sejf:${kod}`, KLUCZ_SESJI = 'pmt-web-dek';
+const KLUCZ_SEJFU = kod => `pmt-web-sejf:${kod}`;
 export const ITERACJE = 600000;      // zalecenie OWASP dla PBKDF2-HMAC-SHA256; liczba zapisana w sejfie, więc można ją później podnieść
 const ls = (f, dom) => { try { return f(); } catch (e) { return dom; } };
 const wczytajSejf = kod => ls(() => JSON.parse(localStorage.getItem(KLUCZ_SEJFU(kod))), null);
@@ -191,16 +191,26 @@ export async function utworzSejf(kod, haslo) {
   const dek = losowe(32); const m = await opakuj(dek, haslo);
   localStorage.setItem(KLUCZ_SEJFU(kod), JSON.stringify(m)); return dek;
 }
+/* ostatnie udane otwarcie (tylko w pamięci strony): to samo hasło do tego samego zapisu sejfu nie liczy PBKDF2 drugi raz (autologowanie, zaraz potem logowanie i przygotowanie sejfu);
+   każda zmiana zapisu (nowe hasło, nowy sejf) unieważnia je, bo porównujemy cały zapisany tekst sejfu */
+let ostatnieOtwarcie = null;
 /** Otwiera sejf hasłem: DEK albo null (złe hasło / uszkodzony sejf / brak sejfu). */
 export async function otworzSejf(kod, haslo) {
+  const zapis = ls(() => localStorage.getItem(KLUCZ_SEJFU(kod)), null), o = ostatnieOtwarcie;
+  if (o && zapis && o.kod === kod && o.haslo === haslo && o.zapis === zapis) return Uint8Array.from(o.dek);
   const m = wczytajSejf(kod); if (!m || !m.sol || !m.dek) return null;
-  try { const kek = await pbkdf2(haslo, unb64(m.sol), Number(m.iter) || ITERACJE); return odszyfruj(klucze(kek), unb64(m.dek)); } catch (e) { return null; }
+  try {
+    const kek = await pbkdf2(haslo, unb64(m.sol), Number(m.iter) || ITERACJE), dek = odszyfruj(klucze(kek), unb64(m.dek));
+    if (dek) ostatnieOtwarcie = { kod, haslo, zapis, dek: Uint8Array.from(dek) };
+    return dek;
+  } catch (e) { return null; }
 }
 /** Zmiana hasła: ten sam DEK, zaszyfrowany nowym hasłem (nowa sól) — dane na dysku zostają nietknięte. */
 export async function przepiszSejf(kod, dek, noweHaslo) { const m = await opakuj(dek, noweHaslo); localStorage.setItem(KLUCZ_SEJFU(kod), JSON.stringify(m)); }
 export const usunSejf = kod => ls(() => localStorage.removeItem(KLUCZ_SEJFU(kod)));
 
-/* ---------------------------------- klucz danych na czas sesji karty ---------------------------------- */
-export const zapamietajKlucz = dek => ls(() => sessionStorage.setItem(KLUCZ_SESJI, b64(dek)));
-export const odczytajKlucz = () => ls(() => { const t = sessionStorage.getItem(KLUCZ_SESJI); return t ? unb64(t) : null; }, null);
-export const zapomnijKlucz = () => ls(() => sessionStorage.removeItem(KLUCZ_SESJI));
+/* ---------------------------------- klucz danych na czas sesji: tylko w pamięci strony ---------------------------------- */
+let dekSesji = null;
+export const zapamietajKlucz = dek => { dekSesji = dek ? Uint8Array.from(dek) : null; ostatnieOtwarcie = null; };      // po zalogowaniu hasło z ostatniego otwarcia nie jest już potrzebne w pamięci
+export const odczytajKlucz = () => dekSesji;
+export const zapomnijKlucz = () => { dekSesji = null; ostatnieOtwarcie = null; };

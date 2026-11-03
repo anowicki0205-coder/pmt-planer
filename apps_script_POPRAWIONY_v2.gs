@@ -279,6 +279,11 @@ var WYMAGAJ_HASLA_W_PULSIE = true;
 // Nieudane logowania/zmiany hasła na jeden kod: krótkie okno i długie okno.
 var LOGOWANIE_NIEUDANYCH_KROTKO = 8;     var LOGOWANIE_OKNO_KROTKIE = 900;      // 8 prób na 15 minut
 var LOGOWANIE_NIEUDANYCH_DLUGO  = 25;    var LOGOWANIE_OKNO_DLUGIE  = 21600;    // 25 prób na 6 godzin (maks. TTL CacheService)
+// Złe podpisy hasłem (puls, sesja, haslo_paczki) na jeden kod. Klucz podpisu to skrót „PMT|kod|hasło”, który każdy policzy
+// dla dowolnego kandydata, a odpowiedź (pelne, odmowa) mówi, czy trafił — bez limitu to zgadywanie hasła z pominięciem
+// limitu logowania. Osobny licznik, nie lg:*: urządzenie ze starym hasłem (zmienionym gdzie indziej) pulsuje co 15 minut,
+// ok. 24 razy na 6 godzin, i nie może przez to blokować logowania. Udane logowanie licznik zeruje.
+var PODPIS_HASLA_ZLYCH = 60;             var PODPIS_HASLA_OKNO = 21600;
 // Ile wpisów na godzinę wolno dopisać do dzienników (Log, Sesje).
 var WPISOW_NA_GODZINE = 3000;
 
@@ -320,7 +325,7 @@ function _nieudanaProba(kod) {
   _licznik("lg:d:" + kod, LOGOWANIE_OKNO_DLUGIE, true);
 }
 function _wyczyscProby(kod) {
-  var pam = CacheService.getScriptCache(); pam.remove("lg:k:" + kod); pam.remove("lg:d:" + kod);
+  var pam = CacheService.getScriptCache(); pam.remove("lg:k:" + kod); pam.remove("lg:d:" + kod); pam.remove("ph:" + kod);
 }
 var KOMUNIKAT_BLOKADY = "Za duzo nieudanych prob — konto zablokowane na pewien czas (do kilku godzin). " +
                         "Mozesz odblokowac je od razu przez „Nie pamietam hasla” (numer telefonu) albo napisac do administratora.";
@@ -333,7 +338,9 @@ function _wolnoDopisac() {
 /* Uwierzytelnienie HASŁEM dla puls/sesja: podpis HMAC-SHA256 kluczem = skrót hasła
    (hashBaza z kolumny „Haslo hash”). Konto bez hasła (jeszcze go nie ustawiło) nie ma
    klucza, więc nie przechodzi — musi najpierw ustawić hasło, czego i tak wymaga program.
-   Znacznik czasu ten sam co w podpisie aplikacji (okno 10 minut). */
+   Znacznik czasu ten sam co w podpisie aplikacji (okno 10 minut).
+   Każdy zły podpis liczy się jak próba hasła (PODPIS_HASLA_ZLYCH): po przekroczeniu limitu podpis nie jest już
+   sprawdzany wcale (także dobry), aż minie okno albo konto zaloguje się hasłem. */
 function _podpisHaslaOk(dane, hashBaza) {
   try {
     if (!hashBaza) return false;
@@ -341,9 +348,15 @@ function _podpisHaslaOk(dane, hashBaza) {
     if (!czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
     var podany = String(dane.podpis_hasla || "");
     if (!podany) return false;
+    var kod = String(dane.kod || "").trim(), klucz = "ph:" + kod;
+    if (_licznik(klucz, PODPIS_HASLA_OKNO, false) >= PODPIS_HASLA_ZLYCH) return false;
     var baza = String(dane.kod || "") + "|" + String(dane.akcja || "") + "|" + czas;
     var sig = Utilities.computeHmacSha256Signature(baza, String(hashBaza));
-    return _pmtHex(sig) === podany;
+    if (_pmtHex(sig) === podany) return true;
+    if (_licznik(klucz, PODPIS_HASLA_OKNO, true) === PODPIS_HASLA_ZLYCH)
+      _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "podpis_hasla",
+           "ZABLOKOWANY (" + PODPIS_HASLA_ZLYCH + " zlych podpisow haslem) — puls i haslo paczki bez danych do zalogowania haslem");
+    return false;
   } catch (e) { return false; }
 }
 function _czyUwierzytelniony(dane, hashBaza) {

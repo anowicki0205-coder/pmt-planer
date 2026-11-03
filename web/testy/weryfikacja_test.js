@@ -63,6 +63,15 @@ const { chromium } = require('playwright'); const { serwer } = require('./wspoln
   ok('certyfikat samopodpisany: imię i PESEL się zgadzają, ale stan „uwaga” z wyjaśnieniem (to nie jest podpis zaufany ani kwalifikowany)', r.stan === 'uwaga' && k(r, 'osoba') === 'ok' && k(r, 'wystawca') === 'uwaga' && /samopodpisany/.test(tekst(r, 'wystawca')), opis(r));
   r = await oceń('samopodpisany.xades');
   ok('  …tak samo w osobnym pliku podpisu XAdES', r.stan === 'uwaga' && k(r, 'kryptografia') === 'ok' && k(r, 'wystawca') === 'uwaga', opis(r));
+  // strona zapisana wcześniej w strumieniu obiektów, którego nie rozpakuję (filtr z predyktorem): jej późniejsza wersja (np. z /Annots podpisu) to „nie wiem”, a nie „dodano stronę”
+  const zt = await p.evaluate(async () => {
+    const m = await import('/js/weryfikacja.js'), t = s => new TextEncoder().encode(s);
+    const przed = '%PDF-1.7\n5 0 obj << /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >> /Length 3 >>\nstream\nabc\nendstream\nendobj\n';
+    const strona = '3 0 obj << /Type /Page /Parent 1 0 R /Contents 4 0 R /Annots [9 0 R] >>\nendobj\n', b = t(przed + strona), od = t(przed).length;
+    const czysty = t('%PDF-1.7\n1 0 obj << /Type /Pages /Kids [] /Count 0 >>\nendobj\n' + strona), od2 = czysty.length - t(strona).length;
+    return [await m.zmianyTresci(b, od, b.length), await m.zmianyTresci(czysty, od2, czysty.length)];
+  });
+  ok('zmiany w PDF-ie: strona ze strumienia obiektów, którego nie rozpakuję — „nie wiem” (uwaga), a nie fałszywe „dodano stronę”; bez takiego strumienia nowa strona jest wykrywana', zt[0].zmiany.length === 0 && zt[0].nieznane === true && JSON.stringify(zt[1].zmiany) === '["dodano stronę"]' && !zt[1].nieznane, JSON.stringify(zt));
   r = await oceń('pole_bez_podpisu.pdf');
   ok('PDF bez podpisu (puste pole) — odrzucony z wyjaśnieniem', r.stan === 'zle' && r.rodzaj === 'brak' && /nie ma podpisu/.test(r.kontrole[0].tekst), r.kontrole[0].tekst);
   r = await oceń('oryg.pdf');

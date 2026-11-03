@@ -355,17 +355,17 @@ export async function zmianyTresci(bajty, od, doo) {
   const info = new Set([...latin1(bajty.subarray(0, od)).matchAll(/\/Info\s+(\d+)\s+\d+\s+R/g)].map(x => x[1]));
   const zasoby = new Set([...stan.values()].filter(o => STRONA.test(o.sl)).map(o => wartoscPdf(o.sl, 'Resources').split(' ')[0]));
   const chroniony = o => !!o && ((o.strumien && !/\/Type\s*\/(Metadata|XRef|ObjStm)(?![\w.])/.test(o.sl)) || /\/Type\s*\/(Font|FontDescriptor|XObject|ExtGState|Pattern|Shading)(?![\w.])/.test(o.sl) || zasoby.has(o.nr));
-  const katalog = [...stan.values()].filter(o => KATALOG.test(o.sl)).pop(), zmiany = new Set();
+  const katalog = [...stan.values()].filter(o => KATALOG.test(o.sl)).pop(), zmiany = new Set(); let nieznane = po.nieznane;
   for (const o of po.obiekty) {
     const st = stan.get(o.nr), rozne = (...klucze) => klucze.some(k => wartoscPdf(o.sl, k) !== wartoscPdf(st.sl, k));
-    if (STRONA.test(o.sl)) { if (!st || !STRONA.test(st.sl)) zmiany.add('dodano stronę'); else if (rozne('Contents', 'Resources', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono treść strony'); }
+    if (STRONA.test(o.sl)) { if (!st && przed.nieznane) nieznane = true; else if (!st || !STRONA.test(st.sl)) zmiany.add('dodano stronę'); else if (rozne('Contents', 'Resources', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono treść strony'); }      // strona z nierozpakowanego strumienia obiektów to nie nowa strona
     else if (STRONY.test(o.sl)) { if (st && rozne('Kids', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono układ stron'); }
     else if (KATALOG.test(o.sl)) { if (katalog && wartoscPdf(o.sl, 'Pages') !== wartoscPdf(katalog.sl, 'Pages')) zmiany.add('zmieniono układ stron'); }
     else if (chroniony(st) && !info.has(o.nr)) zmiany.add('podmieniono treść, czcionkę albo zasoby strony');
     if (ADNOTACJE.test(o.sl)) zmiany.add('dodano adnotację albo tekst');
     if (/\/FT\s*\/(Tx|Ch|Btn)(?![\w.])/.test(o.sl)) zmiany.add('dodano pole formularza');
   }
-  return { zmiany: [...zmiany], nieznane: po.nieznane };
+  return { zmiany: [...zmiany], nieznane };
 }
 
 /* ---------------------------------- kompletna ocena podpisanego pliku ---------------------------------- */

@@ -495,6 +495,14 @@ jobs:
             fi
             exit 0
           fi
+          # Program szuka paczki przez releases/latest, ktore pomija pre-release i wydania
+          # bez znacznika "Latest". Numer bez paczki pod tym adresem = u wszystkich
+          # "Na serwerze lezy jeszcze poprzednia paczka" przy kazdym starcie.
+          NAJNOWSZE=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" -q .tag_name) || NAJNOWSZE=""
+          if [ "$NAJNOWSZE" != "$TAG" ]; then
+            echo "::error::Wydanie $TAG nie jest oznaczone jako najnowsze (Latest: ${NAJNOWSZE:-brak}) albo jest pre-release - programy pobralyby inna paczke, wiec wersja.txt zostaje bez zmian. Releases -> $TAG -> Edit: odznacz \"Set as a pre-release\", zaznacz \"Set as the latest release\" -> Update release, potem Re-run failed jobs."
+            exit 1
+          fi
           OPIS=$(gh release view "$TAG" --json body -q .body 2>/dev/null | tr -d '\r' | grep -m1 . || true)
           OPIS=${OPIS:-"Nowa wersja programu."}
           OPIS=${OPIS:0:160}

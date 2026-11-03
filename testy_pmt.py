@@ -1104,8 +1104,10 @@ if _bash3b:
     _zeruj_przejscie3b()
     # „Re-run failed jobs” po HAMULCU AWARYJNYM (ręczne cofnięcie pierwszej linii
     # wersja.txt) nie może po cichu wpisać numeru z powrotem
-    _git3b = shutil.which("git")
-    _a3b, _b3b = _yml3b.index("OBECNA=$(head -n1 wersja.txt"), _yml3b.index("OPIS=$(gh release view")
+    # (tylko poza Windows: bash z WSL nie widzi git ani podstawionego gh z PATH Windows;
+    # CI, które zatrzymuje wydanie, biegnie na Linuksie)
+    _git3b = shutil.which("git") if os.name != "nt" else None
+    _a3b, _b3b = _yml3b.index("OBECNA=$(head -n1 wersja.txt"), _yml3b.index("# Program szuka paczki przez releases/latest")
     _przed_opisem3b = _yml3b[_a3b:_b3b]
     if _git3b:
         def _rerun3b(historia, numer):
@@ -1136,6 +1138,32 @@ if _bash3b:
                 and _nowy_nr3b == (0, "DALEJ\n")
                 and _starszy3b[0] == 0 and "nowszy numer" in _starszy3b[1] and "DALEJ" not in _starszy3b[1],
                 repr((_hamulec3b, _drugi3b, _nowy_nr3b, _starszy3b)))
+    # program pobiera paczkę z releases/latest — numer dla wydania pre-release albo
+    # bez „Latest” to pętla „poprzednia paczka” u wszystkich
+    _c3b = _yml3b.index("# Program szuka paczki przez releases/latest")
+    _latest3b = _yml3b[_c3b:_yml3b.index("OPIS=$(gh release view", _c3b)]
+    if os.name != "nt":
+        _katgh3b = tempfile.mkdtemp(prefix="pmt_wersja_gh_")
+        try:
+            with open(os.path.join(_katgh3b, "gh"), "w", encoding="utf-8", newline="\n") as _f3b:
+                _f3b.write('#!/bin/sh\n[ "$1 $2" = "api repos/wlasciciel/repo/releases/latest" ] || exit 2\n'
+                           '[ -n "$NAJNOWSZE_PROBA" ] || { echo "HTTP 404" >&2; exit 1; }\necho "$NAJNOWSZE_PROBA"\n')
+            os.chmod(os.path.join(_katgh3b, "gh"), 0o755)
+
+            def _latest_proba3b(najnowsze):
+                _env3b = dict(os.environ, PATH=_katgh3b + os.pathsep + os.environ.get("PATH", ""),
+                              NAJNOWSZE_PROBA=najnowsze, GITHUB_REPOSITORY="wlasciciel/repo", TAG="v3.25.1")
+                _w3b = _sp3b.run([_bash3b, "-e", "-c", _latest3b + "\necho DALEJ"], env=_env3b,
+                                 capture_output=True, timeout=30)
+                return _w3b.returncode, _w3b.stdout.decode("utf-8", "replace")
+            _l_ok3b, _l_inne3b, _l_brak3b = _latest_proba3b("v3.25.1"), _latest_proba3b("v3.25.0"), _latest_proba3b("")
+            sprawdz("build.yml (bash): wersja.txt idzie dalej tylko dla wydania „Latest” — pre-release / bez „Latest” / błąd API zatrzymuje podbicie (::error::)",
+                    _l_ok3b == (0, "DALEJ\n")
+                    and _l_inne3b[0] != 0 and "::error::" in _l_inne3b[1] and "DALEJ" not in _l_inne3b[1]
+                    and _l_brak3b[0] != 0 and "::error::" in _l_brak3b[1] and "DALEJ" not in _l_brak3b[1],
+                    repr((_l_ok3b, _l_inne3b, _l_brak3b)))
+        finally:
+            shutil.rmtree(_katgh3b, ignore_errors=True)
 
 # ── teksty i okno przy starcie ──
 _zeruj_przejscie3b()
@@ -7675,7 +7703,8 @@ try:
     _numer21 = [l.strip() for l in open(os.path.join(KATALOG, ".github", "workflows", "build.yml"),
                                         encoding="utf-8").read().splitlines()
                 if l.strip().startswith("NUMER=$(grep -m1 -E '^WERSJA_PROGRAMU")]
-    _bash21 = shutil.which("bash")
+    sprawdz("build.yml: jeden wiersz wycinający NUMER w jobie „wersja”", len(_numer21) == 1, str(_numer21))
+    _bash21 = shutil.which("bash") if os.name != "nt" else None     # (bash z WSL nie czyta ścieżek Windows)
     if _bash21 and len(_numer21) == 1:
         import subprocess as _sp21
         _wyc21 = []
@@ -7691,9 +7720,6 @@ try:
             _wyc21.append(_r21.stdout.decode("utf-8", "replace"))
         sprawdz("build.yml (bash): job „wersja” bierze numer jak zbuduj.py — pierwszy napis w cudzysłowie, nie ostatni z komentarza",
                 _wyc21 == [P.WERSJA_PROGRAMU, "3.26.0"], str(_wyc21))
-    else:
-        sprawdz("build.yml: jeden wiersz wycinający NUMER w jobie „wersja”", bool(_bash21) is False or len(_numer21) == 1,
-                str(_numer21))
     _stale21 = []
     for _plik21, _wzor21 in (("START_TUTAJ.txt", "PMT PLANER %s"),
                              ("WYDANIE.txt", "PMT PLANER %s"),

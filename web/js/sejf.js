@@ -6,7 +6,8 @@
 //   • DEK leży na dysku tylko ZASZYFROWANY kluczem wyprowadzonym z hasła użytkownika (PBKDF2-HMAC-SHA256, losowa sól, setki tysięcy iteracji). Samego hasła ani jego
 //     skrótu na dysku nie ma — poprawność hasła sprawdza sam sejf (podpis zaszyfrowanego DEK), więc kradzież profilu przeglądarki nie daje szybkiego łamania hasła.
 //   • Zmiana hasła przepisuje tylko zaszyfrowany DEK (dane zostają). Zapomniane hasło = dane z tego urządzenia nie do odczytania (dokumenty da się wygenerować od nowa).
-//   • Po zalogowaniu DEK jest tylko w pamięci strony; odświeżenie (F5) przekazuje go nowej stronie przez krótki wpis przy przeładowaniu (js/dostep.js), a przywrócona karta go nie dostaje.
+//   • Po zalogowaniu DEK jest tylko w pamięci strony. Tylko zamierzone odświeżenie (F5, Ctrl+R, przeładowanie przez aplikację) przekazuje go nowej stronie krótkim wpisem
+//     (js/dostep.js); zamknięcie karty niczego nie zapisuje, a przywrócona karta go nie dostaje.
 // Wszystko jest SYNCHRONICZNE i napisane w czystym JS (działa także na stronie bez https, gdzie nie ma Web Crypto); tylko PBKDF2 korzysta z Web Crypto, gdy jest.
 // Poprawność AES, SHA-256, HMAC i PBKDF2 sprawdza testy/sejf_test.js na wektorach z norm i w porównaniu z modułem crypto Node'a.
 

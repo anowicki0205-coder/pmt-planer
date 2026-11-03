@@ -356,8 +356,17 @@ export async function zmianyTresci(bajty, od, doo) {
   const zasoby = new Set([...stan.values()].filter(o => STRONA.test(o.sl)).map(o => wartoscPdf(o.sl, 'Resources').split(' ')[0]));
   const chroniony = o => !!o && ((o.strumien && !/\/Type\s*\/(Metadata|XRef|ObjStm)(?![\w.])/.test(o.sl)) || /\/Type\s*\/(Font|FontDescriptor|XObject|ExtGState|Pattern|Shading)(?![\w.])/.test(o.sl) || zasoby.has(o.nr));
   const katalog = [...stan.values()].filter(o => KATALOG.test(o.sl)).pop(), zmiany = new Set(); let nieznane = po.nieznane;
+  const nowe = new Map(po.obiekty.map(o => [o.nr, o])), PUSTE = new Map();
+  // Wartość, która naprawdę obowiązuje: MediaBox, CropBox, Resources i Rotate dziedziczą się po /Parent, a brak to Rotate 0 i CropBox = MediaBox. Narzędzia do podpisu
+  // (np. iText 5 / OpenPDF) przepisują stronę z odziedziczonymi wartościami wpisanymi wprost albo z „/Rotate 0” — to ta sama strona, a nie zmieniona treść.
+  const dziedzicz = (sl, k, gdzie, n = 0) => {
+    const w = wartoscPdf(sl, k); if (w || k === 'Contents' || k === 'Kids') return w;
+    const r = wartoscPdf(sl, 'Parent').split(' ')[0], rodzic = r && n < 32 ? gdzie.get(r) || stan.get(r) : null;
+    return rodzic ? dziedzicz(rodzic.sl, k, gdzie, n + 1) : '';
+  };
+  const efekt = (sl, k, gdzie) => dziedzicz(sl, k, gdzie) || (k === 'Rotate' ? '0' : k === 'CropBox' ? dziedzicz(sl, 'MediaBox', gdzie) : '');
   for (const o of po.obiekty) {
-    const st = stan.get(o.nr), rozne = (...klucze) => klucze.some(k => wartoscPdf(o.sl, k) !== wartoscPdf(st.sl, k));
+    const st = stan.get(o.nr), rozne = (...klucze) => klucze.some(k => efekt(o.sl, k, nowe) !== efekt(st.sl, k, PUSTE));
     if (STRONA.test(o.sl)) { if (!st && przed.nieznane) nieznane = true; else if (!st || !STRONA.test(st.sl)) zmiany.add('dodano stronę'); else if (rozne('Contents', 'Resources', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono treść strony'); }      // strona z nierozpakowanego strumienia obiektów to nie nowa strona
     else if (STRONY.test(o.sl)) { if (st && rozne('Kids', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono układ stron'); }
     else if (KATALOG.test(o.sl)) { if (katalog && wartoscPdf(o.sl, 'Pages') !== wartoscPdf(katalog.sl, 'Pages')) zmiany.add('zmieniono układ stron'); }

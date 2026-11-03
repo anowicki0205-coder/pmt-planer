@@ -76,11 +76,14 @@ export function widowisko(opcje = {}) {
     const t0 = performance.now(), DL = 900;
     await new Promise(ok => {
       liczenie = () => { liczenie = null; ok(); };
+      const nastepna = () => {      // klatka animacji, a gdy jej nie ma (obciążona strona, karta w tle) — zegar: liczenie zawsze dobiega końca w ~DL, a nie czeka na powrót do karty
+        let bylo = false; const raz = () => { if (bylo) return; bylo = true; clearTimeout(t); klatka(); }; const t = setTimeout(raz, 80); requestAnimationFrame(raz);
+      };
       const klatka = () => {
         if (!root || !liczenie) return;
         const x = pominiete ? 1 : ogranicz((performance.now() - t0) / DL), e = 1 - Math.pow(1 - x, 3);
         liczniki.forEach(l => { l.el.textContent = fmt(l.do * e); }); ustawSume((Number(d.suma) || 0) * e);
-        x < 1 ? requestAnimationFrame(klatka) : liczenie();
+        x < 1 ? nastepna() : liczenie();
       };
       klatka();
     });

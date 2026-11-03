@@ -67,7 +67,7 @@ const { otworz } = require('./wspolne');
     const b = document.querySelector('#podpisz'); window.__wyscig = null;
     const o = new MutationObserver(() => { if (!b.classList.contains('zbiera') || window.__wyscig) return; o.disconnect();
       window.__wyscig = { wylaczone: ['#m-wstecz', '#m-dalej', '#m-nazwa'].every(s => document.querySelector(s).disabled) };
-      const w = document.querySelector('#m-wstecz'); w.click(); setTimeout(() => w.click(), 60); document.querySelector('#parametry [data-tryb="tydzien"]').click(); });
+      const w = document.querySelector('#m-wstecz'); w.click(); setTimeout(() => w.click(), 60); document.querySelector('#parametry [data-tryb="tydzien"]').click(); document.querySelector('#parametry [data-silnik="1"]').click(); });
     o.observe(b, { attributes: true, attributeFilter: ['class'] });
   });
   await p.click('#podpisz'); await p.waitForSelector('#potwierdz-gen', { timeout: 60000 }); await p.click('#potwierdz-gen');
@@ -79,6 +79,7 @@ const { otworz } = require('./wspolne');
   const par = (mies['2026-09'] || {}).params || {};
   ok('dokumenty powstały dla wyboru z pulpitu: Wieczory, do 900 cm³, wolne 8 września', par.tryb === 'wieczory' && par.silnik_powyzej_900 === false && JSON.stringify(par.wolne) === '[8]', JSON.stringify({ t: par.tryb, s: par.silnik_powyzej_900, w: par.wolne }));
   ok('klik „Tydzień” w trakcie generowania nie zmienia trybu (profil dalej Wieczory, pulpit pokazuje tryb dokumentów)', ((await dane()).profil || {}).tryb === 'wieczory' && await wcisniete('#parametry [data-tryb="wieczory"]'), ((await dane()).profil || {}).tryb);
+  ok('klik „powyżej 900 cm³” w trakcie generowania nie zmienia auta (profil dalej do 900 cm³)', ((await dane()).profil || {}).silnik_powyzej_900 === false && await wcisniete('#parametry [data-silnik="0"]'), String(((await dane()).profil || {}).silnik_powyzej_900));
   ok('po udanym generowaniu zapamiętane dni wolne miesiąca są wyczyszczone (są w rekordzie)', ((await dane()).ustawienia || {})['wolne-2026-09'] == null);
 
   /* ---- nazwy miejscowości ze znacznikami (np. z adresu w Moich danych) ---- */
@@ -100,6 +101,10 @@ const { otworz } = require('./wspolne');
   await p.waitForFunction(() => document.querySelector('#kA.przed'), null, { timeout: 60000, polling: 200 }); await p.waitForTimeout(1500);
   ok('po „Usuń i wpisz nową kwotę” wrzesień dalej ma Wieczory i do 900 cm³ (nie ustawienia z profilu)', await wcisniete('#parametry [data-tryb="wieczory"]') && await wcisniete('#parametry [data-silnik="0"]'));
   ok('… dni robocze są dla Wieczorów (sobota 5 roboczy), a dzień wolny 8 i kwota zostały', /przelacz/.test(await klasy(5)) && /urlop/.test(await klasy(8)) && /^3\s?000/.test(await p.inputValue('#kwota-in')), `${await klasy(5)} · ${await klasy(8)} · ${await p.inputValue('#kwota-in')}`);
+  ok('… tryb i auto miesiąca są zapamiętane na urządzeniu (jak kwota i dni wolne)', JSON.stringify(((await dane()).ustawienia || {})['ust-2026-09']) === JSON.stringify({ tryb: 'wieczory', silnik: false }), JSON.stringify(((await dane()).ustawienia || {})['ust-2026-09']));
+  await p.click('#m-dalej'); await czekajMiesiac('październik'); await p.click('#m-wstecz'); await czekajMiesiac('wrzesień');
+  ok('po wizycie w październiku wrzesień „od nowa” dalej ma Wieczory, do 900 cm³, sobotę 5 roboczą i wolny 8 (nie wraca do profilu)', await wcisniete('#parametry [data-tryb="wieczory"]') && await wcisniete('#parametry [data-silnik="0"]') && /przelacz/.test(await klasy(5)) && /urlop/.test(await klasy(8)), `${await klasy(5)} · ${await klasy(8)}`);
+  ok('… a październik nadal idzie za profilem (Tydzień, powyżej 900 cm³)', ((await dane()).ustawienia || {})['ust-2026-10'] == null);
 
   /* ---- kafel „Dziś” po północy (aplikacja wraca z tła następnego dnia) ---- */
   const dzien0 = await p.evaluate(() => document.querySelector('#kD .blask').dataset.d);

@@ -251,9 +251,11 @@ export function zainstalujPodpis(k) {
   }
   /** Nowy podpis elektroniczny zastępuje pliki dokumentu z wcześniejszych wgrań (np. poprawiony podpis po „błędzie podpisu”), a skan — wcześniejszy, nieprzyjęty podpis elektroniczny
       albo skan z kompletem stron, na którym nie widać podpisu (ponowny skan po „podpisz długopisem i zeskanuj ponownie”): inaczej sprawdzany byłby nadal stary plik,
-      a do paczki szłyby obie wersje. Poza tym skan dokładany do skanów to kolejna strona dokumentu. */
+      a do paczki szłyby obie wersje. Poza tym skan dokładany do skanów to kolejna strona dokumentu — także przy dokumencie wielostronicowym po „nie widać podpisu”
+      (ponownie skanuje się zwykle tylko stronę z podpisem; zastąpienie skasowałoby pozostałe strony, a do paczki poszedłby niepełny dokument). */
   async function przypisz(w, i) {
-    const wer = weryfikacje()[i], odrzucony = !!wer && wer.stan === 'zle' && !wer.kontrole.some(c => c.id === 'strony');
+    const d = k.nazwyDok().find(x => x.i === i), jednaStrona = (Number((d && miejscaPodpisu(d) || {}).strony) || 1) <= 1;
+    const wer = weryfikacje()[i], odrzucony = jednaStrona && !!wer && wer.stan === 'zle' && !wer.kontrole.some(c => c.id === 'strony');
     const zastap = w.rodzaj === 'e' || (!M().podpisane[i] && (Object.assign({}, rec().metodaPodpisu, M().metodaPodpisu)[i] === 'e' || odrzucony));
     await zapiszPliki(i, { dodaj: { orig: w.plik.name, bajty: w.bajty }, metoda: w.rodzaj === 'e' ? 'e' : 'reczny', zastap }); w.i = i;
   }
@@ -458,9 +460,10 @@ export function zainstalujPodpis(k) {
           try { await navigator.share({ files: [plik], title: tem, text: tr }); oznaczWyslane(); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}`); return; }
           catch (e) { if (e.name === 'AbortError') { stanW(''); return; } }      // Chrome na Androidzie nie udostępnia plików ZIP (NotAllowedError) — wtedy jak w przeglądarce bez udostępniania plików
         }
+        const mailto = `mailto:${encodeURIComponent(adres)}?subject=${encodeURIComponent(tem)}&body=${encodeURIComponent(tr + `\n\n(Dołącz pobrany plik ${nazwaZip()})`)}`;
         k.pobierzBlob(blob, nazwaZip()); await czekaj(450);      // pauza: przejście do poczty tuż po pobraniu potrafi je przerwać
-        location.href = `mailto:${encodeURIComponent(adres)}?subject=${encodeURIComponent(tem)}&body=${encodeURIComponent(tr + `\n\n(Dołącz pobrany plik ${nazwaZip()})`)}`;
-        oznaczWyslane(); stanW(`Pobrałem zahasłowaną paczkę <span class="adr">${esc(nazwaZip())}</span>. W otwartej wiadomości do <span class="adr">${esc(adres)}</span> dołącz ją jako załącznik (folder Pobrane) i wyślij.${duza}`);
+        try { location.href = mailto; } catch (e) { /* bez gestu (zużyło go udostępnianie) przeglądarka może nie otworzyć poczty — wtedy odnośnik niżej */ }
+        oznaczWyslane(); stanW(`Pobrałem zahasłowaną paczkę <span class="adr">${esc(nazwaZip())}</span>. W wiadomości do <span class="adr">${esc(adres)}</span> dołącz ją jako załącznik (folder Pobrane) i wyślij. Jeśli poczta się nie otworzyła, dotknij: <a class="przycisk maly" id="podp-otworz-poczte" href="${esc(mailto)}">Otwórz wiadomość</a>${duza}`);
         return;
       }
       const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });

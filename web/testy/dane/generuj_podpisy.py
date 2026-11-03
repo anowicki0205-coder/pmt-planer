@@ -68,6 +68,9 @@ zapisz('zmieniony_przed_podpisem.pdf', podpisz_pdf(aktualizacja(ORYG, {21: (b'<<
 zapisz('podmieniona_tresc_przed_podpisem.pdf', podpisz_pdf(aktualizacja(ORYG, {4: (b'<< >>', ZAMALOWANA)}), jan))
 zapisz('adnotacja_przed_podpisem.pdf', podpisz_pdf(aktualizacja(ORYG, {21: ADNOTACJA, 3: STRONA % (b'4 0 R', b' /Annots [21 0 R]')}), jan))
 zapisz('adnotacja_w_strumieniu_obiektow.pdf', podpisz_pdf(aktualizacja(ORYG, {}, {3: STRONA % (b'4 0 R', b' /Annots [21 0 R]'), 21: ADNOTACJA}), jan))
+# narzędzia do podpisu (np. iText 5 / OpenPDF) przepisują stronę z odziedziczonym /MediaBox wpisanym wprost i z „/Rotate 0” — ta sama strona, nie zmiana treści; obrót strony już tak
+zapisz('strona_z_odziedziczonymi_atrybutami.pdf', podpisz_pdf(aktualizacja(ORYG, {3: STRONA % (b'4 0 R', b' /MediaBox [0 0 595.28 841.89] /CropBox [0 0 595.28 841.89] /Rotate 0')}), jan))
+zapisz('obrocona_strona_przed_podpisem.pdf', podpisz_pdf(aktualizacja(ORYG, {3: STRONA % (b'4 0 R', b' /Rotate 90')}), jan))
 zapisz('strumien_obiektow_bez_zmian.pdf', podpisz_pdf(aktualizacja(ORYG, {}, {20: b'<< /CreationDate (D:20261027132020Z) /Producer (Acrobat) >>'}), jan))
 # po podpisie Jana ktoś zmienia treść strony i podpisuje całość (Anna): podpis Jana tych zmian nie obejmuje
 p1 = podpisz_pdf(ORYG, jan, 'Podpis1'); annots = re.findall(rb'/Annots\s*\[[^\]]*\]', p1)[-1]

@@ -558,7 +558,7 @@ export function zainstalujZywe(k) {
       $('.wyc-karta', wyc).focus({ preventScroll: true }); pokaz(0);
     }
     function koniec() {
-      if (!trwa) return; trwa = false; k.ruchOkno(false); pamiec.set('wycieczka', '1'); app.inert = !!S().arkuszOtwarty;      // okno otwarte w trakcie wycieczki dalej trzyma pulpit nieaktywny wyc.classList.remove('otwarta'); wyc.classList.add('zamyka');
+      if (!trwa) return; trwa = false; k.ruchOkno(false); pamiec.set('wycieczka', '1'); app.inert = !!S().arkuszOtwarty; wyc.classList.remove('otwarta'); wyc.classList.add('zamyka');      // okno otwarte w trakcie wycieczki dalej trzyma pulpit nieaktywny
       setTimeout(() => { if (!trwa && wyc) wyc.hidden = true; }, 360); if (telefon() && wtorna) k.ustawZakladke('dzis', false);
     }
     addEventListener('keydown', e => {

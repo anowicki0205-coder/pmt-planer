@@ -284,7 +284,9 @@ LOGOWANIE
   przełożonego w menedzer.txt; oba pliki są na liście ignorowanych i nie wolno ich wrzucać do repozytorium.
   Bez sekret.txt aplikacja działa, ale podpis zapytań znika (backend z PODPIS_OBOWIAZKOWY=true odmówi).
   Logowanie jest wymagane przy KAŻDYM uruchomieniu, tak jak w programie na komputerze: nowa karta, ponowne otwarcie przeglądarki albo okna po zamknięciu — okno logowania pojawia się zawsze i podpowiada ostatni
-  login (w Edge, Firefoksie i Chrome tak samo). Odświeżenie TEJ SAMEJ karty (F5) logowania nie powtarza. Hasło znane na tym urządzeniu loguje od razu po wpisaniu (bez Enter); dane (profil, PESEL, plan, dokumenty) zostają
+  login (w Edge, Firefoksie i Chrome tak samo). Odświeżenie TEJ SAMEJ karty klawiszem F5 (albo Ctrl+R) logowania nie powtarza; przycisk odświeżania w pasku przeglądarki i „pociągnij, by odświeżyć” na telefonie
+  pokażą logowanie (celowo: klucz do danych nie trafia wtedy na dysk). Hasło znane na tym urządzeniu loguje od razu po wpisaniu (bez Enter); nowe hasło — po chwili przerwy w pisaniu, ale
+  automatycznie tylko raz (kolejne próby: Enter), żeby niedokończone hasło nie zjadało limitu prób na serwerze; dane (profil, PESEL, plan, dokumenty) zostają
   na urządzeniu, osobno dla każdego konta. „Wyloguj” (menu konta) zamyka też sesję tej karty.
   WAŻNOŚĆ DOSTĘPU sprawdzam od razu po poprawnym haśle (a nie dopiero po wejściu do aplikacji): jeśli kolumna „Ważne do” w arkuszu Użytkownicy jest PUSTA albo zawiera datę z przeszłości, konto jest dla programu wygasłe
   (tak samo jak w programie na komputerze) — okno logowania mówi to wprost („ważny był do …” albo „kolumna Ważne do jest pusta”), zamiast wpuścić na kilka sekund i cofnąć na ekran logowania.

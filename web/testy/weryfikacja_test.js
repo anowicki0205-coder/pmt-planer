@@ -53,6 +53,10 @@ const { chromium } = require('playwright'); const { serwer } = require('./wspoln
   ok('adnotacja schowana w skompresowanym strumieniu obiektów (/ObjStm, jak zapisuje Acrobat) — rozpakowana i odrzucona', r.stan === 'zle' && k(r, 'dokument') === 'zle' && /adnotację/.test(tekst(r, 'dokument')), opis(r) + ' — ' + tekst(r, 'dokument'));
   r = await oceń('strumien_obiektow_bez_zmian.pdf');
   ok('aktualizacja w strumieniu obiektów bez zmian treści (tylko /Info) — nadal „ten sam dokument”', r.stan === 'ok' && k(r, 'dokument') === 'ok', opis(r));
+  r = await oceń('strona_z_odziedziczonymi_atrybutami.pdf');
+  ok('strona przepisana z odziedziczonym /MediaBox, /CropBox i „/Rotate 0” wpisanymi wprost (iText 5 / OpenPDF) — ta sama strona, „ten sam dokument”', r.stan === 'ok' && k(r, 'dokument') === 'ok', opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('obrocona_strona_przed_podpisem.pdf');
+  ok('  …a strona obrócona o 90° PRZED podpisem nadal jest wykrywana jako zmiana treści', r.stan === 'zle' && k(r, 'dokument') === 'zle' && /zmieniono treść strony/.test(tekst(r, 'dokument')), opis(r) + ' — ' + tekst(r, 'dokument'));
   r = await oceń('zmiana_miedzy_podpisami.pdf');
   ok('po podpisie Jana zmieniono treść, a potem Anna podpisała całość — podpis Jana tych zmian nie obejmuje (odrzucone)', r.stan === 'zle' && r.sygnatariusz === 'Jan Testowy' && k(r, 'calosc') === 'zle' && /Po podpisaniu zmieniono treść/.test(tekst(r, 'calosc')), opis(r) + ' — ' + tekst(r, 'calosc'));
   r = await oceń('dwa_podpisy.pdf');

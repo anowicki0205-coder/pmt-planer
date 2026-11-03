@@ -32,7 +32,10 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   ok('PDF-y w IndexedDB są zaszyfrowane (koperta PMT1, brak nagłówka %PDF i PESEL-u w treści)', d.pdf && d.pdf.length >= 6 && d.pdf.every(b => b[0] === 0x50 && b[1] === 0x4d && b[2] === 0x54 && b[3] === 0x31 && !Buffer.from(b).toString('latin1').includes('%PDF') && !Buffer.from(b).toString('latin1').includes(PESEL)), d.pdf ? d.pdf.length + ' plików' : 'brak');
   ok('klucz danych i skrót hasła nie leżą w czasie sesji ani w localStorage, ani w sessionStorage (przeglądarka zapisuje ją na dysk i przywraca z kartą)', Object.keys(d.ss).filter(k => /^pmt-web-(dek|skrot|imie|sesja-karty|przekaz)$/.test(k)).length === 0 && !Object.values(d.ss).join('\n').includes(hash('12345', 'haslo123').slice(0, 40)), JSON.stringify(Object.keys(d.ss)));
   /* ---- 2. odświeżenie i nowa karta ---- */
-  await p.reload(); await czekajApp(p); await p.waitForTimeout(2500);
+  await p.reload(); await p.waitForSelector('#dz-form', { state: 'attached', timeout: 120000 }); await p.waitForTimeout(800);      // przycisk odświeżania w pasku / zamknięcie karty: bez F5 ani Ctrl+R
+  ok('przeładowanie bez F5 / Ctrl+R (przycisk w pasku, zamknięcie karty) nie zostawia klucza w sessionStorage i pyta o logowanie', (await p.locator('#dz-kod').count()) === 1 && !(await p.evaluate(() => sessionStorage.getItem('pmt-web-przekaz'))));
+  await zaloguj(p); await p.waitForTimeout(1500);
+  await p.keyboard.press('F5').catch(() => {}); await p.reload(); await czekajApp(p); await p.waitForTimeout(2500);      // F5 (klawisz trafia do strony; samo przeładowanie robi tu Playwright)
   ok('odświeżenie karty nie pyta o hasło, a dane są odczytane (imię w nagłówku, miesiąc wygenerowany)', (await p.locator('#dz-form').count()) === 0 && (await p.locator('#imie-pasek').innerText()) === IMIE && /Wygenerowane/.test(await p.locator('#status').innerText()));
   const pdfOk = await p.evaluate(async () => { const d = window.__pmtDane.czytaj(); return Object.keys(d.miesiace || {}).length; });
   ok('po odświeżeniu pliki PDF da się otworzyć z szyfrowanego magazynu (okno dokumentów)', await (async () => { await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); const w = await p.evaluate(async () => { const el = document.querySelector('[data-akcja="otworz"]'); return !!el; }); await p.keyboard.press('Escape'); await p.waitForTimeout(500); return w && pdfOk >= 1; })());
@@ -92,7 +95,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   const k10 = await nowaKarta(); await zaloguj(k10, 'jeszczeInne5', false); await k10.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 120000 });
   await k10.fill('#d-imie', IMIE); await k10.fill('#d-pesel', PESEL); await k10.fill('#d-adres', `ul. ${ADRES}, 00-001 Warszawa`); await k10.click('#zapisz-dane'); await k10.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await k10.waitForTimeout(2500);
   await k10.evaluate(() => { const k = 'pmt-web-v1:12345'; const v = localStorage.getItem(k); const i = Math.floor(v.length / 2); localStorage.setItem(k, v.slice(0, i) + (v[i] === 'A' ? 'B' : 'A') + v.slice(i + 1)); });
-  await k10.reload(); await k10.waitForSelector('#uszk-usun', { timeout: 180000 }).catch(() => {});
+  await k10.keyboard.press('F5').catch(() => {}); await k10.reload(); await k10.waitForSelector('#uszk-usun', { timeout: 180000 }).catch(() => {});      // F5: ta sama sesja, klucz przechodzi do nowej strony
   ok('zmieniony szyfrogram jest wykryty: aplikacja pokazuje „Dane na tym urządzeniu są uszkodzone” zamiast ich nadpisać', (await k10.locator('#uszk-usun').count()) === 1);
   ok('okna z uszkodzonymi danymi nie da się zamknąć Esc, a sejf i pliki zostają', await (async () => { await k10.keyboard.press('Escape'); await k10.waitForTimeout(400); return (await k10.locator('#uszk-usun').count()) === 1 && !!(await k10.evaluate(() => localStorage.getItem('pmt-web-sejf:12345'))); })());
   await k10.click('#uszk-usun'); await czekajApp(k10); await k10.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });

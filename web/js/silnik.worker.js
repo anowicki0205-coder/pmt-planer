@@ -102,7 +102,8 @@ for _f in glob.glob(os.path.join(_d, ".pmt_*")) + [os.path.join(_d, "menedzer.tx
     except OSError: pass
 _m = sys.modules.get("pmt_silnik")
 if _m is not None:
-    _m._road_cache.clear(); _m._geo_cache.clear(); _m._geo_braki = None
+    _m._road_cache.clear(); _m._geo_cache.clear(); _m._geo_braki = None; _m._geo_pytane.clear()
+    _m._osrm_dostepny = None; _m._google_dostepny = None; _m._INDEKS_MIAST = None      # także miejscowości dogeokodowane przez plan poprzedniego konta
 `);
     return {};
   },

@@ -1746,7 +1746,7 @@ function arkuszBrakuMenedzera(d) {
   const b = $('#menedzer-ponow', arkTresc); b && b.addEventListener('click', () => { zamknijArkusz(); setTimeout(generuj, 250); });
 }
 async function generuj() {
-  if (generowanie) { silnik.przerwij(); return; }
+  if (generowanie) { silnik.przerwij(); wczytajPamiecSilnika(); return; }      // nowy worker zaczyna z pustą pamięcią: współrzędne domu i trasy wracają z zaszyfrowanego magazynu
   if (M && M.demo) { zacznijOdSwoich(); return; }      // dane pokazowe nigdy nie wchodzą w liczenie delegacji
   if (!PROFIL) { otworzMojeDane(true); return; }
   if (!M || M.stan !== 'plan') return;      // wygenerowany miesiąc zmienia się tylko przez „od nowa” (kasuje też podpisane)
@@ -1794,7 +1794,7 @@ async function generuj() {
     otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">${e && e.name === 'QuotaExceededError' ? 'Na urządzeniu zabrakło miejsca na dokumenty.' : `Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}).`} Zwolnij miejsce w pamięci przeglądarki i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
     odswiezHero(); await odswiezParametry(); return;
   }
-  magUst.ustaw('wolne-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
+  magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
   try {
     if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
@@ -1862,6 +1862,7 @@ async function przeladujMiesiac(rok, mies, cicho, fokusKwoty, ust) {
   opuscPrzyklad();
   const nr = ++nrLadowania; celLadowania = { rok, mies };
   const teraz = M && !M.demo && M.rok === rok && M.mies === mies && M.stan === 'plan' ? M : null;      // ten sam miesiąc przed generowaniem: dni robocze dla trybu z pulpitu (także bez Moich danych)
+  if (!ust && !teraz && !magMiesiace.daj(rok, mies)) ust = magUst.daj('ust-' + magMiesiace.klucz(rok, mies), null);      // miesiąc „od nowa”: wraca z trybem i autem, z którymi go wygenerowano, także po wizycie w innym miesiącu
   const r0 = await dniRoboczeZSilnika(rok, mies, (ust && ust.tryb) || (teraz && teraz.tryb));
   if (nr !== nrLadowania) return;
   celLadowania = null; if (generowanie) return;
@@ -1884,11 +1885,14 @@ async function przelaczTryb(tryb) {
   if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }      // dni robocze przelicza przeladujMiesiac, a ten w trakcie generowania odmawia (tryb rozjechałby się z kalendarzem)
   M.tryb = tryb;
   if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; magProfil.zapisz(PROFIL); }
-  M.wolne = new Set(); zapiszWolne(); await przeladujMiesiac(M.rok, M.mies, true);
+  zapiszUstMiesiaca(); M.wolne = new Set(); zapiszWolne(); await przeladujMiesiac(M.rok, M.mies, true);
 }
 const zapiszWolne = () => magUst.ustaw('wolne-' + magMiesiace.klucz(M.rok, M.mies), M.wolne.size ? [...M.wolne].sort((a, b) => a - b) : null);
+/** Miesiąc z zapamiętanymi ustawieniami („od nowa”, zmiana trybu po wygenerowaniu) trzyma bieżący wybór — bez wpisu miesiąc idzie za profilem (po udanym generowaniu wpis znika). */
+const zapiszUstMiesiaca = () => { if (!M || M.demo) return; const k = 'ust-' + magMiesiace.klucz(M.rok, M.mies); if (magUst.daj(k, null) || !PROFIL) magUst.ustaw(k, { tryb: M.tryb, silnik: M.silnik }); };      // bez Moich danych wybór nie ma gdzie trwać poza miesiącem
 async function przelaczWolne(d) {
   if (M.stan !== 'plan') return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }
   if (M.wolne.has(d)) M.wolne.delete(d); else M.wolne.add(d);
   M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); zapiszWolne();
   tytulKalendarza(); budujKalendarz(); odswiezHero(); await odswiezParametry();
@@ -1896,6 +1900,7 @@ async function przelaczWolne(d) {
 /** Wiele dni naraz (przeciąganie po kalendarzu): wolne = true oznacza dni jako wolne, false przywraca je do pracy. */
 async function ustawWolne(dni, wolne) {
   if (!M || M.stan !== 'plan') return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }
   for (const d of dni) { if (!M.robocze0.has(d)) continue; if (wolne) M.wolne.add(d); else M.wolne.delete(d); }
   M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); zapiszWolne();
   tytulKalendarza(); budujKalendarz(); odswiezHero(); await odswiezParametry();
@@ -2015,7 +2020,8 @@ function arkuszOdNowa(zKwoty) {
     const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies);
     magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
     magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, par.wolne && par.wolne.length ? par.wolne : null);
-    zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty, { tryb: par.tryb, silnik: par.silnik_powyzej_900 });      // tryb i auto miesiąca, nie te, które profil ma teraz (zmienia się przy każdym przełączeniu w innym miesiącu)
+    const ust = { tryb: par.tryb || M.tryb, silnik: par.silnik_powyzej_900 != null ? !!par.silnik_powyzej_900 : M.silnik }; magUst.ustaw('ust-' + kl, ust);
+    zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty, ust);      // tryb i auto miesiąca, nie te, które profil ma teraz (zmienia się przy każdym przełączeniu w innym miesiącu)
     pokazToast(zKwoty ? 'Usunięto dokumenty — wpisz nową kwotę i wygeneruj ponownie' : 'Usunięto dokumenty — ustaw dane i wygeneruj ponownie');
   });
 }
@@ -2044,6 +2050,7 @@ function arkuszUstawienia() {
     magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
     magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, !zmianaTrybu && par.wolne && par.wolne.length ? par.wolne : null);
     if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; PROFIL.silnik_powyzej_900 = silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); }
+    magUst.ustaw('ust-' + kl, { tryb, silnik });
     zamknijArkusz(); await przeladujMiesiac(rok, mies, true, false, { tryb, silnik });
     pokazToast('Ustawienia zmienione — sprawdź kwotę i wygeneruj dokumenty ponownie');
   });
@@ -2140,7 +2147,7 @@ function zdarzenia() {
   kwotaKlik.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); kliknietoKwote(); } });
   $('#parametry').addEventListener('click', e => {
     const t = e.target.closest('[data-tryb]'); if (t) { przelaczTryb(t.dataset.tryb); return; }
-    const s = e.target.closest('[data-silnik]'); if (s && M.stan === 'plan') { M.silnik = s.dataset.silnik === '1'; if (PROFIL) { PROFIL.silnik_powyzej_900 = M.silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); } odswiezParametry(); }
+    const s = e.target.closest('[data-silnik]'); if (s && M.stan === 'plan') { if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; } M.silnik = s.dataset.silnik === '1'; if (PROFIL) { PROFIL.silnik_powyzej_900 = M.silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); } zapiszUstMiesiaca(); odswiezParametry(); }
   });
   let tK = 0;
   const wej = $('#kwota-in');
@@ -2239,7 +2246,7 @@ function ekranLogowania(wstep, kodStart) {
         <div class="dz-linki"><button type="button" class="dz-link" id="dz-reset">Nie pamiętam hasła</button></div>
         <p class="dz-pod">Pierwsze logowanie? Jako hasło wpisz numer telefonu z kartoteki — potem ustawisz własne. Logowanie rusza samo po wpisaniu hasła.</p>`);
       const kodEl = $('#dz-kod', arkTresc), hasloEl = $('#dz-haslo', arkTresc), ok = $('#dz-ok', arkTresc);
-      let wToku = false, zegarAuto = 0, zegarZnanego = 0;
+      let wToku = false, zegarAuto = 0, zegarZnanego = 0, autoNieznane = 0;
       const sprawdz = () => { ok.disabled = wToku || !(/^\d{5}$/.test(kodEl.value) && hasloEl.value.length >= 4); };
       /* odmowy, które trzeba pokazać zawsze, także po próbie automatycznej (sieć, blokada, wygaśnięcie…); zwykłe „złe hasło” po automacie to tylko łagodna podpowiedź */
       const wazny = t => /sieć|sieci|internet|serwer|wersj|zablok|certyf|połącz|wygas|dni od|aktualiz|czasie|vpn|cors|ustawione haslo/i.test(t || '');
@@ -2258,12 +2265,14 @@ function ekranLogowania(wstep, kodStart) {
       const probuj = async zrodlo => {
         if (wToku || !doc.contains(hasloEl)) return; const k = kodEl.value.trim(), h = hasloEl.value;
         if (!/^\d{5}$/.test(k) || h.length < 5 || proby.has(k + '|' + h)) return;
-        const znane = await dostep.czyHasloZnane(k, h);
-        if (zrodlo === 'tekst' && !znane) return;
+        // „tekst”: hasło znane na urządzeniu (PBKDF2) loguje od razu. „zegar” (pauza 1,3 s): bez PBKDF2 — znane hasło zalogowało już „tekst” (z Web Crypto), a po http liczenie
+        // w wątku strony tylko by ją zamroziło. Wtedy idzie do serwera, więc najwyżej raz na ekran logowania i nie z wyraźnie niedokończonym tekstem: zła próba zjada limit prób.
+        if (zrodlo === 'tekst') { if (!(await dostep.czyHasloZnane(k, h))) return; }
+        else { if (autoNieznane >= 1 || h.length < 6 || (/^[\d\s+-]+$/.test(h) && h.replace(/\D/g, '').length < 9)) return; autoNieznane++; }
         if (kodEl.value.trim() !== k || hasloEl.value !== h) return;
         zaloguj(true);
       };
-      kodEl.addEventListener('input', () => { kodEl.value = kodEl.value.replace(/\D/g, '').slice(0, 5); sprawdz(); if (kodEl.value.length === 5 && !hasloEl.value) hasloEl.focus(); else if (kodEl.value.length === 5) probuj('tekst'); });
+      kodEl.addEventListener('input', () => { kodEl.value = kodEl.value.replace(/\D/g, '').slice(0, 5); sprawdz(); if (kodEl.value.length === 5 && !hasloEl.value) hasloEl.focus(); else if (kodEl.value.length === 5 && globalThis.crypto && crypto.subtle) probuj('tekst'); });
       /* sprawdzenie „znanego” hasła to PBKDF2 (600 tys. iteracji): po krótkiej pauzie, nie przy każdym znaku; bez Web Crypto (strona po http) liczy się w wątku strony, więc tylko po 1,3 s i Enter */
       hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); clearTimeout(zegarZnanego); if (globalThis.crypto && crypto.subtle) zegarZnanego = setTimeout(() => probuj('tekst'), 450); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
       $('#dz-form', arkTresc).addEventListener('submit', e => { e.preventDefault(); zaloguj(false); });
@@ -2330,9 +2339,9 @@ function arkuszOdzyskaniaSejfu(kod, noweHaslo) {
       zmienArkusz(`${znakDostepu('Usunąć dane z tego urządzenia?', 'tego nie da się cofnąć')}
         <p class="ark-opis">Usunę stąd <b>wszystko, co zapisałeś w aplikacji</b>: imię, PESEL i adres, miesiące, plan wizyt oraz wygenerowane i <b>podpisane dokumenty</b>. Jeśli pamiętasz poprzednie hasło, wróć i odblokuj nim dane.</p>
         <p class="dz-info" id="dz-info" role="status" aria-live="polite"></p>
-        <div class="ark-dol"><button type="button" class="przycisk" id="sj-usun-tak">Usuń wszystko</button><button type="button" class="przycisk glowny" id="sj-wroc" data-pierwsze>Wróć do hasła</button></div>`);
+        <div class="ark-dol"><button type="button" class="przycisk glowny" id="sj-wroc" data-pierwsze>Wróć do hasła</button><button type="button" class="przycisk" id="sj-usun-tak">Usuń wszystko</button></div>`);      // „Wróć” w miejscu klikniętego „Usuń dane…”: podwójne kliknięcie nie trafi w „Usuń wszystko”
       $('#sj-wroc', arkTresc).addEventListener('click', () => formularz(false));
-      $('#sj-usun-tak', arkTresc).addEventListener('click', async () => {
+      $('#sj-usun-tak', arkTresc).addEventListener('click', async e => { if (e.detail > 1) return;
         const k = oczekiwanie($('#sj-usun-tak', arkTresc), 'Usuwam…');
         try { await magUsunKonto(); const dek = await dostep.nowySejf(kod, noweHaslo); koniec(dek); } catch (err) { k(); dzInfo('Nie udało się usunąć danych: ' + err.message, 'zle'); }
       });
@@ -2375,9 +2384,9 @@ function arkuszZmianyHasla(pierwsze, telefon, poZamknieciu) {
   });
 }
 const komunikatBlokady = s => s.powod === 'offline' ? `Minęło ponad ${dostep.OFFLINE_DNI} dni od ostatniego kontaktu z serwerem. Połącz się z internetem i zaloguj się ponownie.` : 'Dostęp do konta wygasł. Skontaktuj się z administratorem — po przedłużeniu zaloguj się ponownie.';
-function zablokujDostep(komunikat) {
+async function zablokujDostep(komunikat) {
   try { sessionStorage.setItem('pmt-dostep-komunikat', komunikat); } catch (e) { /* bez pamięci karty komunikat po prostu nie wróci */ }
-  dostep.wyloguj(); location.reload();
+  dostep.wyloguj(); await czyscSilnik(true); location.reload();      // jak przy „Wyloguj”: pamięć silnika nie zostaje po wymuszonym wylogowaniu
 }
 let ostatniPuls = 0;
 async function sprawdzDostep() {
@@ -2432,7 +2441,7 @@ async function start() {
     const st = await silnik.stale(); LIMIT_DZIEN = st.limit_dnia; LIMIT_POL = st.limit_dokumentu; MIN_KWOTA = st.min_kwota;
   } catch (e) {
     $('#lad-tekst').innerHTML = `Nie udało się uruchomić silnika delegacji.<br><small>${bezZnacznikow(e.message)}</small><br><br><button class="przycisk" type="button" id="lad-ponow">Spróbuj ponownie</button>`;
-    $('#lad-ponow').addEventListener('click', () => location.reload());
+    $('#lad-ponow').addEventListener('click', () => dostep.przeladuj());
     return;
   }
   /* start na miesiącu, który minął (jak w programie): w październiku — wrzesień */

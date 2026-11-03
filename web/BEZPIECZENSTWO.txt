@@ -38,13 +38,19 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
     (IndexedDB, koperta „PMT1…”). Szyfr: AES-256-CTR z nowym losowym wektorem przy każdym zapisie + podpis HMAC-SHA256: zmieniony choćby jeden bajt = odczyt odrzucony.
   • Sam klucz danych leży na dysku tylko zaszyfrowany kluczem z hasła (PBKDF2-HMAC-SHA256, 600 000 iteracji, losowa sól). Hasła ani jego skrótu NA DYSKU NIE MA (dawniej był szybki do złamania
     skrót) — poprawność hasła przy logowaniu bez sieci i autologowaniu sprawdza otwarcie sejfu. Kradzież profilu przeglądarki nie daje więc ani PESEL-u, ani szybkiego łamania hasła.
-  • Po zalogowaniu klucz danych i skrót hasła (do podpisu pulsu) są tylko w sessionStorage karty — giną z kartą. Wylogowanie i „Usuń dane z urządzenia” usuwają je od razu.
+  • Po zalogowaniu klucz danych i skrót hasła (do podpisu pulsu) są TYLKO W PAMIĘCI strony (nie w localStorage ani sessionStorage — tę przeglądarka zapisuje na dysk i przywraca z kartą,
+    także zamkniętą). Wyjątek: zamierzone odświeżenie (F5, Ctrl+R / Cmd+R albo przycisk „Spróbuj ponownie” w aplikacji) kładzie je w sessionStorage na chwilę przeładowania; nowa strona
+    przyjmuje wpis tylko przy przeładowaniu i tylko świeży (do 15 s), po czym go usuwa. Zamknięcie karty lub okna, przejście na inną stronę, przycisk odświeżania w pasku przeglądarki
+    i gest „pociągnij, by odświeżyć” niczego nie zapisują — pokażą logowanie (hasło zapamiętane w przeglądarce loguje od razu). Wylogowanie i „Usuń dane z urządzenia” czyszczą wszystko.
+  • Pamięć silnika (współrzędne adresów, w tym domu, i trasy) też jest w zaszyfrowanym magazynie konta (pliki „__silnik/…”), a w samym silniku tylko w pamięci — dawna jawna baza
+    IndexedDB „/home/pyodide” jest kasowana. Przy zmianie konta, wylogowaniu (także wymuszonym: wygasły dostęp, 45 dni bez kontaktu) i „Usuń dane” silnik zapomina ją całą.
   • Zmiana hasła w aplikacji przepisuje tylko zaszyfrowany klucz — dane zostają. Hasło zmienione na innym urządzeniu albo zresetowane („Nie pamiętam hasła”): dane z TEGO urządzenia są
     zaszyfrowane starym hasłem, więc aplikacja pyta o poprzednie hasło albo pozwala usunąć dane i zacząć od nowa (dokumenty wygenerujesz ponownie po wpisaniu danych).
     ZAPOMNIANE HASŁO = utrata danych lokalnych z tego urządzenia (nie ma tylnych drzwi — gdyby były, szyfrowanie nic by nie dawało).
   • Dane sprzed szyfrowania (jawny JSON, surowe PDF-y, dawny skrót hasła) są przy pierwszym logowaniu zaszyfrowane / usuwane automatycznie.
   • Uszkodzone lub zmienione dane (podpis się nie zgadza): aplikacja mówi o tym wprost i oferuje usunięcie — nie nadpisuje ich po cichu.
   • Nadal jawne na dysku (świadomie, bez PESEL-u i adresu): login, data ważności i czas ostatniego kontaktu (potrzebne przed zalogowaniem), motyw i ustawienia wyglądu, znacznik wycieczki.
+    „Usuń dane z urządzenia” kasuje także login (również ten zapisany przy synchronizacji).
     Imię z odpowiedzi serwera, rejon i nieobecności nie są już zapisywane na dysku (aplikacja ich nie używa).
   • Czego szyfrowanie NIE załatwia: szkodnika działającego w tej samej przeglądarce, gdy użytkownik jest zalogowany (klucz jest wtedy w pamięci karty), ani słabego hasła (sól i 600 000 iteracji
     spowalniają zgadywanie, ale hasło „123456” dalej padnie szybko).

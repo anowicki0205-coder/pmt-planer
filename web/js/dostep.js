@@ -65,13 +65,16 @@ export const skrotHasla = (kod, haslo) => sha256Hex(`PMT|${kod}|${haslo}`);
 let sekretObietnica = null;
 export function sekret() {
   if (sekretObietnica) return sekretObietnica;
+  let brakPliku = false;
   const p = sekretObietnica = (async () => {
     try {
-      const r = await fetch('sekret.txt', { cache: 'no-store' }); if (!r.ok) return '';
-      const t = (await r.text()).split(/\r?\n/)[0].trim(); return t && !t.startsWith('<') ? t : '';
+      const r = await fetch('sekret.txt', { cache: 'no-store' }); if (!r.ok) { brakPliku = true; return ''; }
+      const t = (await r.text()).split(/\r?\n/)[0].trim(); if (!(t && !t.startsWith('<'))) brakPliku = true; return brakPliku ? '' : t;
     } catch (e) { return ''; }
   })();
-  p.then(t => { if (!t && sekretObietnica === p) sekretObietnica = null; });      // pusty wynik (brak sieci, 404 z pamięci SW) nie zostaje na całe życie strony: następne zapytanie spróbuje znowu
+  // pusty wynik nie zostaje na całe życie strony: po błędzie sieci następne zapytanie pyta od razu (szybki błąd bez sieci), a gdy pliku po prostu nie ma (wdrożenie
+  // lokalne, 404) — dopiero po minucie, żeby nie pobierać go przy każdym zapytaniu (np. tuż przed beaconem przy zamykaniu strony)
+  p.then(t => { if (t) return; const zapomnij = () => { if (sekretObietnica === p) sekretObietnica = null; }; if (brakPliku) setTimeout(zapomnij, 60000); else zapomnij(); });
   return p;
 }
 export const zapomnijSekret = () => { sekretObietnica = null; };
@@ -119,6 +122,7 @@ const opisBledu = {
   odpowiedz: 'Serwer odpowiedział w nieoczekiwany sposób. Spróbuj ponownie za chwilę; jeśli błąd wraca, napisz do administratora.',
 };
 export async function wyslij(dane, limit = CZAS_ODPOWIEDZI, ponowka = false) {
+  const uzyte = przesuniecie;      // przesunięcie zegara użyte do TEGO podpisu (równoległa odpowiedź mogła je już poprawić)
   const cialo = JSON.stringify(await podpisz(dane)), ac = new AbortController(), t = setTimeout(() => ac.abort(), limit);
   let tekst;
   try {
@@ -133,8 +137,8 @@ export async function wyslij(dane, limit = CZAS_ODPOWIEDZI, ponowka = false) {
   } finally { clearTimeout(t); }
   let o = null; try { o = JSON.parse(tekst); } catch (e) { /* poniżej */ }
   if (!o || typeof o !== 'object') throw new BladSieci('odpowiedz', opisBledu.odpowiedz);
-  const bylo = przesuniecie, cs = Number(o.czas_serwera); if (cs > 0) przesuniecie = cs - teraz() / 1000;
-  if (!ponowka && Math.abs(przesuniecie - bylo) > 300 && (o.opis === 'odmowa' || o.status === 'odmowa' || o.pelne === false)) return wyslij(dane, limit, true);      // odmowa przez zegar urządzenia: raz jeszcze, już z czasem serwera
+  const cs = Number(o.czas_serwera); if (cs > 0) przesuniecie = cs - teraz() / 1000;
+  if (!ponowka && Math.abs(przesuniecie - uzyte) > 300 && (o.opis === 'odmowa' || o.status === 'odmowa' || o.pelne === false)) return wyslij(dane, limit, true);      // odmowa przez zegar urządzenia: raz jeszcze, już z czasem serwera
   return o;
 }
 async function serwerOsiagalny() {
@@ -146,11 +150,13 @@ const poZimnymStarcie = async (dane, limit) => { try { return await wyslij(dane,
 export function rozgrzej() { try { fetch(BACKEND, { mode: 'no-cors', cache: 'no-store' }).catch(() => {}); } catch (e) { /* bez sieci */ } }
 
 /* ---------- stan na urządzeniu ---------- */
-const OSOBISTE = ['status', 'imie', 'rejon', 'wazne_do', 'nieobecnosci', 'dokumenty_sesja', 'plany_sesja'];
+const OSOBISTE = ['status', 'imie', 'rejon', 'wazne_do', 'nieobecnosci', 'dokumenty_sesja', 'plany_sesja', 'kod', 'ostatnia_synchronizacja'];      // kod i data synchronizacji z pulsu też: po wylogowaniu i „Usuń dane” loginu nie ma w statusie
 const stan = () => { const d = czytaj(); d.konta = d.konta || {}; d.status = d.status || {}; d.kolejka = d.kolejka || { uruchomienia: 0, dokumenty: 0, minuty: 0 }; return d; };
 /* SESJA STRONY: skrót hasła, imię z logowania, znacznik „ta karta jest zalogowana” i klucz danych (sejf) żyją TYLKO w pamięci strony. sessionStorage przeglądarka trzyma
-   na dysku i przywraca razem z kartą (Ctrl+Shift+T, „Kontynuuj tam, gdzie skończyłem”, po awarii), więc wpis dla odświeżenia (F5) kładziemy tam dopiero przy zamykaniu
-   strony (pagehide), a nowa strona przyjmuje go wyłącznie przy przeładowaniu, świeży (do 15 s) — i od razu go usuwa. Przywrócona i nowa karta pokazują logowanie. */
+   na dysku i przywraca razem z kartą (Ctrl+Shift+T, „Kontynuuj tam, gdzie skończyłem”, po awarii) — także karty ZAMKNIĘTEJ. Dlatego wpis dla odświeżenia kładziemy tam
+   wyłącznie przy ZAMIERZONYM przeładowaniu: F5, Ctrl+R / Cmd+R albo przeładowanie przez samą aplikację (przeladuj()). Zamknięcie karty, okna, przejście na inną stronę,
+   przycisk odświeżania w pasku przeglądarki i gest „pociągnij, by odświeżyć” niczego nie zapisują (pokażą logowanie; hasło zapamiętane w przeglądarce loguje od razu).
+   Nowa strona przyjmuje wpis tylko przy przeładowaniu, świeży (do 15 s), i od razu go usuwa. */
 const PRZEKAZ = 'pmt-web-przekaz', WAZNOSC_PRZEKAZU = 15000;
 const przeladowanie = () => bezpiecznie(() => { const n = performance.getEntriesByType('navigation')[0]; return n ? n.type === 'reload' : performance.navigation.type === 1; }, false);
 const przekaz = bezpiecznie(() => {
@@ -160,8 +166,13 @@ const przekaz = bezpiecznie(() => {
 }, null) || {};
 let skrotPamiec = przekaz.skrot && przekaz.skrot.kod ? przekaz.skrot : null, imieSesji = String(przekaz.imie || ''), kartaPamiec = String(przekaz.karta || '');
 if (przekaz.dek) bezpiecznie(() => sejf.zapamietajKlucz(sejf.unb64(przekaz.dek)));
+let doPrzeladowania = 0;      // chwila zamierzonego przeładowania (klawisz albo przeladuj()); 0 = żadnego
+if (typeof addEventListener === 'function') addEventListener('keydown', e => { if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && !e.altKey && /^r$/i.test(e.key))) doPrzeladowania = Date.now(); }, true);
+/** Przeładowanie strony bez ponownego logowania (klucz danych przechodzi krótkim wpisem do nowej strony). */
+export const przeladuj = () => { doPrzeladowania = Date.now(); location.reload(); };
 if (typeof addEventListener === 'function') addEventListener('pagehide', e => {
   const kod = stan().kod, dek = sejf.odczytajKlucz(); if (e.persisted || !kod || kartaPamiec !== kod) return;      // persisted: strona zostaje w pamięci (bfcache), nic nie trzeba przekazywać
+  if (!doPrzeladowania || Date.now() - doPrzeladowania > 10000) return;      // zamknięcie karty / okna, inna strona: klucz nie trafia na dysk
   bezpiecznie(() => sessionStorage.setItem(PRZEKAZ, JSON.stringify({ t: Date.now(), karta: kartaPamiec, skrot: skrotPamiec, imie: imieSesji, dek: dek ? sejf.b64(dek) : '' })));
 });
 const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; };
@@ -280,6 +291,7 @@ export function wyloguj() {
 /** Zapomina konto na tym urządzeniu: login, skrót hasła do wejścia bez sieci i ostatni status (bez tego nie da się wejść bez internetu, a okno logowania nie podpowiada loginu). */
 export function zapomnijKonto(kod) {
   const d = stan(); if (d.kod === kod) { zdarzenieSesji('wylogowanie', true); delete d.kod; for (const p of OSOBISTE) delete d.status[p]; odznaczKarte(); }
+  if (d.status.kod === kod) { delete d.status.kod; delete d.status.ostatnia_synchronizacja; }
   delete d.konta[kod]; if (d.ostatni === kod) delete d.ostatni; zapisz(d); zapomnijSkrot(); sejf.zapomnijKlucz(); sejf.usunSejf(kod);
 }
 

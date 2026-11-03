@@ -12178,6 +12178,53 @@ finally:
     P._SKROTY_SESJI.clear()
     _dom33()
 
+# Ręczne „Wskaż plik”: niepodpisana kopia z Do_podpisu (suma oryginału) nie może zostać
+# „podpisana”, a plik o obcej nazwie nie może trafić z automatu do pierwszego dokumentu.
+try:
+    from PyQt6.QtWidgets import QApplication as _QA33, QInputDialog as _QID33
+    import pmt_podpis as _PS33
+    _app33 = _QA33.instance() or _QA33(sys.argv)
+    _f33 = tempfile.mkdtemp(prefix="pmt_wskaz33_")
+    _wyn33 = os.path.join(_f33, "Rozliczenie_Jan_Kowalski_Lipiec_2026r")
+    os.makedirs(_wyn33)
+    for _n33 in ("delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf", "delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf"):
+        with open(os.path.join(_wyn33, _n33), "wb") as _f:
+            _f.write(b"%PDF-1.4 " + _n33.encode() + b" bez podpisu")
+    _skan33 = os.path.join(_f33, "IMG_0045.pdf")
+    with open(_skan33, "wb") as _f:
+        _f.write(b"%PDF-1.4 skan z podpisem odrecznym")
+    _dlg33 = P.DialogPodpis(None, folder=_wyn33)
+    _dlg33.paczka, _ = _PS33.przygotuj_paczke(_wyn33)
+    _dlg33.manifest = _PS33.sciezka_manifestu(_dlg33.paczka)
+    _wybor33 = []
+    _stary_fd33, _stary_id33 = P.QFileDialog.getOpenFileName, _QID33.getItem
+    _QID33.getItem = staticmethod(lambda *a, **k: _wybor33.pop(0) if _wybor33 else ("", False))
+    try:
+        def _wskaz33(sciezka):
+            P.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (sciezka, ""))
+            _dlg33._wskaz_plik()
+            return {w["plik"]: w.get("status") for w in _dlg33._wpisy()}
+        _st_kopia33 = _wskaz33(os.path.join(_dlg33.paczka, "delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf"))
+        _st_anul33 = _wskaz33(_skan33)                       # pytanie o dokument: „Anuluj”
+        _wybor33.append(("delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf", True))
+        _st_skan33 = _wskaz33(_skan33)
+    finally:
+        P.QFileDialog.getOpenFileName, _QID33.getItem = _stary_fd33, _stary_id33
+        _dlg33.zatrzymaj_zegar() if hasattr(_dlg33, "zatrzymaj_zegar") else None
+        _dlg33.deleteLater()
+    sprawdz("„Wskaż plik”: niepodpisana kopia z Do_podpisu nie dostaje statusu „podpisany”",
+            set(_st_kopia33.values()) == {"do_podpisu"}, str(_st_kopia33))
+    sprawdz("„Wskaż plik”: plik o obcej nazwie — pytanie, który to dokument (anulowanie niczego nie oznacza)",
+            set(_st_anul33.values()) == {"do_podpisu"}
+            and _st_skan33.get("delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf") == "podpisany"
+            and _st_skan33.get("delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf") == "do_podpisu",
+            str((_st_anul33, _st_skan33)))
+    shutil.rmtree(_f33, ignore_errors=True)
+except Exception as _e33:
+    import traceback as _tb33
+    _tb33.print_exc()
+    sprawdz("„Wskaż plik” sprawdza sumę i pyta o dokument", False, repr(_e33))
+
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)

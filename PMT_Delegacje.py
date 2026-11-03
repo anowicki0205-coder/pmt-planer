@@ -16929,7 +16929,18 @@ class DialogPodpis(QDialog):
             rdzen = os.path.splitext(w.get("plik") or "")[0].lower()
             if rdzen and rdzen in prosta:
                 return w
-        return wpisy[0]
+        if len(wpisy) == 1:
+            return wpisy[0]
+        # nazwa nie wskazuje dokumentu (np. skan „IMG_0045.pdf”): pytamy, zamiast
+        # oznaczać pierwszy z brzegu
+        from PyQt6.QtWidgets import QInputDialog
+        nazwy = [str(w.get("plik") or "") for w in wpisy]
+        wybor, ok = QInputDialog.getItem(self, "Podpisany plik",
+                                         "Który dokument jest w pliku %s?" % os.path.basename(nazwa_pliku),
+                                         nazwy, 0, False)
+        if not ok or wybor not in nazwy:
+            return None
+        return wpisy[nazwy.index(wybor)]
 
     def _wskaz_plik(self):
         modul = modul_pomocniczy("pmt_podpis")
@@ -16951,11 +16962,20 @@ class DialogPodpis(QDialog):
                 "Dokumenty i podpisy (*.pdf *.xades *.xml *.sig *.p7s *.p7m);;Wszystkie pliki (*)")
             if not sciezka:
                 return
+            try:
+                suma = modul.suma_sha256(sciezka)
+            except Exception:
+                suma = ""
+            # weto jak w znajdz_podpisane: suma oryginału = plik bez podpisu
+            if suma and any(w.get("skrot") == suma for w in self._wpisy()):
+                self._komunikat("To niepodpisana kopia dokumentu — wskaż plik po podpisaniu.")
+                return
             wpis = self._wpis_do_recznego(sciezka)
             if wpis is None:
                 self._komunikat("Brak wpisu do oznaczenia.")
                 return
-            dopasowanie = {"sciezka": sciezka, "dostawca_deklarowany": self.c_sposob.currentText()}
+            dopasowanie = {"sciezka": sciezka, "dostawca_deklarowany": self.c_sposob.currentText(),
+                           "skrot": suma or None}
             kopia = self._do_podpisanych(sciezka)
             if kopia:
                 dopasowanie["podpisany_plik"] = os.path.basename(kopia)

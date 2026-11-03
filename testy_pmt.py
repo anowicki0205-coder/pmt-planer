@@ -7719,6 +7719,11 @@ try:
             and all("gh release upload" in _kod21.get(n, "") for n in ("wydanie_windows", "wydanie_pozostale"))
             and re.search(r"^    needs: \[wydanie_windows, pozostale\]$", _kod21.get("wydanie_pozostale", ""), re.M)
             is not None)
+    sprawdz("build.yml: „Cancel workflow” zatrzymuje wydanie — joby wydania i wersja mają !cancelled(), nigdzie always()",
+            "always()" not in "".join(_kod21.values())
+            and all(re.search(r"^    if: \$\{\{ !cancelled\(\) && needs\.wydanie_windows\.result == 'success' && "
+                              + re.escape(_tag21) + r" \}\}$", _kod21.get(n, ""), re.M)
+                    for n in ("wydanie_pozostale", "wersja")))
     _tyml21 = open(os.path.join(KATALOG, ".github", "workflows", "testy.yml"), encoding="utf-8").read()
     sprawdz("testy.yml: token tylko do odczytu i bez zapisanych poświadczeń (pip uruchamia kod z PyPI)",
             re.search(r"^permissions:\n  contents: read\n", _tyml21, re.M) is not None

@@ -1945,8 +1945,13 @@ const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
 /** Pamięć silnika (trasy, współrzędne, liczniki) leży w IndexedDB wspólnej dla wszystkich kont tej przeglądarki: czyścimy ją przy wylogowaniu i przy zmianie konta,
  *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
-async function czyscSilnik() {
-  try { await Promise.race([silnik.start().then(() => silnik.czysc()), zegar(4000)]); } catch (e) { /* silnik nie wstał: nie ma czego czyścić */ }
+async function czyscSilnik(przedPrzeladowaniem) {
+  const limit = new Promise(r => setTimeout(() => r(false), 4000));      // prawdziwe 4 s: zegar() w trybie spokojnym to 0 ms, a przeładowanie zaraz potem zabijało workera przed zapisem kasowania
+  let gotowe = false; try { gotowe = await Promise.race([silnik.start().then(() => silnik.czysc()).then(() => true), limit]); } catch (e) { /* silnik nie wstał */ }
+  if (!gotowe && przedPrzeladowaniem) {      // nie zdążył (albo nie wstał): kasujemy całą bazę pamięci silnika; zamknięty worker nie blokuje jej usunięcia
+    try { silnik.w.terminate(); } catch (e) { /* worker już nie żyje */ }
+    await new Promise(ok => { setTimeout(ok, 2000); try { const q = indexedDB.deleteDatabase('/home/pyodide'); q.onsuccess = q.onerror = () => ok(); } catch (e) { ok(); } });
+  }
   try { localStorage.removeItem('pmt-silnik-wlasciciel'); } catch (e) { /* bez pamięci */ }
 }
 /** „Usuń dane z tego urządzenia”: profil z PESEL-em, miesiące, plan, wygenerowane PDF-y, ślady silnika i zapamiętane konto. Na serwerze nic nie ma — dane są tylko tu. */
@@ -1957,7 +1962,7 @@ function arkuszUsunDane() {
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw dane</button><button type="button" class="przycisk" id="usun-dane-tak">Usuń wszystko</button></div>`);
   $('#usun-dane-tak', arkTresc).addEventListener('click', async e => {
     e.currentTarget.disabled = true; e.currentTarget.textContent = 'Usuwam…';
-    await magUsunKonto(); dostep.zapomnijKonto(kod); await czyscSilnik(); location.reload();
+    await magUsunKonto(); dostep.zapomnijKonto(kod); await czyscSilnik(true); location.reload();
   });
 }
 /** Dokumenty powstają dla jednej, konkretnej kwoty, więc jej zmiana = wygenerowanie od nowa. zKwoty: otwarte kliknięciem w dużą kwotę (kursor od razu w polu kwoty). */
@@ -2295,7 +2300,7 @@ function arkuszUszkodzonychDanych() {
   });
 }
 /** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z sessionStorage), przeładowanie. */
-async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(); location.reload(); }
+async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(true); location.reload(); }
 /* zmiana hasła z menu konta albo „ustaw własne” po pierwszym logowaniu telefonem (wtedy stare = telefon, wpisany przed chwilą) */
 function arkuszZmianyHasla(pierwsze, telefon, poZamknieciu) {
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Ustaw własne hasło' : 'Zmiana hasła')}

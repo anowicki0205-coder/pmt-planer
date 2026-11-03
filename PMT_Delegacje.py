@@ -461,6 +461,51 @@ def _skrot_zweryfikowany(kod: str, haslo: str) -> str:
     return ""
 
 
+def _skrot_potwierdzony_online(kod: str, haslo: str) -> str:
+    """Skrót AKTUALNEGO hasła, gdy potwierdzi je serwer (akcja „logowanie”); pusty tekst bez sieci
+    albo przy złym haśle. Po zmianie albo resecie hasła w aplikacji web ten komputer zna tylko stare
+    hasło, a aplikacja odczytuje plik skrótem bieżącego — od wygaszenia programu nie da się już
+    odświeżyć lokalnego skrótu logowaniem."""
+    kod = "".join(ch for ch in str(kod or "") if ch.isdigit())
+    haslo = str(haslo or "").strip()           # backend i aplikacja obcinają spacje
+    if len(kod) != 5 or not haslo:
+        return ""
+
+    def _zapytaj():
+        cialo = json.dumps(_podpisz_zadanie({"akcja": "logowanie", "kod": kod, "haslo": haslo,
+                                             "zrodlo": "przeniesienie",
+                                             "wersja": WERSJA_PROGRAMU})).encode("utf-8")
+        req = urllib.request.Request(URL_BACKENDU, data=cialo, headers={
+            "Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            wynik["odp"] = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+    wynik = {}
+    try:
+        if QApplication.instance() is None:
+            _zapytaj()
+        else:                                  # okno nie zastyga na czas zimnego startu Apps Script
+            w = threading.Thread(target=lambda: _bez_wyjatku(_zapytaj), daemon=True)
+            w.start()
+            t0 = time.time()
+            while w.is_alive() and time.time() - t0 < 20:
+                QApplication.processEvents()
+                time.sleep(0.03)
+    except Exception:
+        return ""
+    odp = wynik.get("odp")
+    if isinstance(odp, dict) and odp.get("status") == "ok":
+        return _hash_hasla(kod, haslo)
+    return ""
+
+
+def _bez_wyjatku(funkcja):
+    try:
+        funkcja()
+    except Exception:
+        pass
+
+
 def przenies_dane_do_web(rodzic=None) -> bool:
     """Okna przeniesienia danych do aplikacji web (przycisk w informacji o przejściu). Działa bez
     logowania, ale NIE pokazuje żadnych kont: każdy przenosi wyłącznie swoje dane, więc podaje własny kod
@@ -480,16 +525,18 @@ def przenies_dane_do_web(rodzic=None) -> bool:
         if wpisany is None:
             return False
         haslo = _okno_pmt(rodzic, "Przenieś dane",
-                          "Podaj swoje hasło do PMT Planer — to samo, którym logujesz się do programu "
-                          "i aplikacji. Plik jest nim zaszyfrowany.", pole=True, haslo=True)
+                          "Podaj swoje hasło do PMT Planer — to, którym logujesz się teraz do aplikacji "
+                          "(także po zmianie hasła w aplikacji). Plik jest nim zaszyfrowany.",
+                          pole=True, haslo=True)
         if not haslo:
             return False
         kod = "".join(ch for ch in str(wpisany) if ch.isdigit())
-        skrot = _skrot_zweryfikowany(kod, haslo)
+        skrot = _skrot_zweryfikowany(kod, haslo) or _skrot_potwierdzony_online(kod, haslo)
         if skrot:
             break
         _okno_pmt(rodzic, "Przenieś dane",
-                  "Nieprawidłowy kod lub hasło (albo to konto nie logowało się na tym komputerze)."
+                  "Nieprawidłowy kod lub hasło. Hasło zmienione w aplikacji sprawdzam na serwerze — "
+                  "potrzebny jest do tego internet."
                   + (" Spróbuj jeszcze raz." if proba < 2 else " Zbyt wiele prób — zamykam to okno."),
                   tylko_ok=True)
     if not skrot:

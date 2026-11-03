@@ -12121,6 +12121,63 @@ finally:
     P._SKROTY_SESJI.clear()
     _dom33()
 
+# „Przenieś dane” po zmianie albo resecie hasła w aplikacji web: ten komputer zna tylko stare hasło,
+# a aplikacja odczytuje plik skrótem bieżącego. Nowe hasło potwierdza serwer (akcja „logowanie”).
+class _Odp33:
+    def __init__(self, dane):
+        self._d = json.dumps(dane).encode("utf-8")
+    def read(self):
+        return self._d
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+_zapytania33 = []
+
+
+def _serwer33(req, *a, **k):
+    d = json.loads(req.data.decode("utf-8"))
+    _zapytania33.append(d)
+    if d.get("akcja") == "logowanie" and d.get("kod") == "11111" and d.get("haslo") == "Nowe haslo z webu":
+        return _Odp33({"status": "ok", "imie": "Anna Kowalska", "przez": "haslo"})
+    return _Odp33({"status": "blad", "opis": "Nieprawidlowe haslo"})
+
+
+try:
+    _dom33()
+    P._SKROTY_SESJI.clear()
+    P._zapisz(P.PLIK_LOGOWAN, {"11111": {"imie": "Anna Kowalska",
+                                         "weryfikator": P._weryfikator_skrotu(P._hash_hasla("11111", "Stare haslo")),
+                                         "ostatnio": "2026-10-28T10:00:00"}})
+    _ur33 = P.urllib.request.urlopen
+    P.urllib.request.urlopen = _serwer33
+    try:
+        _nowe33 = P._skrot_potwierdzony_online("11111", " Nowe haslo z webu ")
+        _zle33 = P._skrot_potwierdzony_online("11111", "Zle haslo")
+    finally:
+        P.urllib.request.urlopen = _ur33
+    P.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("bez sieci (test)"))
+    try:
+        _bez_sieci33 = P._skrot_potwierdzony_online("11111", "Nowe haslo z webu")
+    finally:
+        P.urllib.request.urlopen = _ur33
+    sprawdz("„Przenieś dane”: hasło zmienione w aplikacji potwierdza serwer i plik dostaje klucz bieżącego hasła",
+            P._skrot_zweryfikowany("11111", "Nowe haslo z webu") == ""
+            and _nowe33 == P._hash_hasla("11111", "Nowe haslo z webu") and _zle33 == "" and _bez_sieci33 == ""
+            and _zapytania33 and _zapytania33[0].get("zrodlo") == "przeniesienie",
+            str((_nowe33[:8], _zle33, _bez_sieci33, _zapytania33[:1])))
+    sprawdz("„Przenieś dane” sprawdza hasło na serwerze, gdy lokalny skrót go nie zna",
+            "_skrot_potwierdzony_online(kod, haslo)" in inspect.getsource(P.przenies_dane_do_web))
+except Exception as _e33:
+    import traceback as _tb33
+    _tb33.print_exc()
+    sprawdz("„Przenieś dane” po zmianie hasła w aplikacji", False, repr(_e33))
+finally:
+    P._SKROTY_SESJI.clear()
+    _dom33()
+
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)

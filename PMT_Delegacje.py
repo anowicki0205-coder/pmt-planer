@@ -5639,7 +5639,9 @@ def czy_dzien_wolny(data: datetime.date) -> bool:
 # albo przeniesieniu programu na inny komputer.
 def wszystkie_magazyny() -> dict:
     """Magazyny danych ZALOGOWANEGO konta — liczone przy każdym wywołaniu,
-    bo ścieżki zależą od tego, kto jest zalogowany."""
+    bo ścieżki zależą od tego, kto jest zalogowany. „ustawienia" i
+    „uzytkownicy" są wspólne dla komputera: do kopii i z kopii idzie z nich
+    tylko część tego konta (_tylko_tego_konta)."""
     return {
         "punkty": _plik_punktow(),
         "plan": _plik_planu(),
@@ -5651,6 +5653,47 @@ def wszystkie_magazyny() -> dict:
         "uzytkownicy": USER_STORE,
         "notatki_dni": _plik_notatek(),
     }
+
+
+# Ustawienia bez przyrostka konta, które przed 3.21.0 były osobiste (adres
+# bazy, poczta) albo wskazują osobę — mogą należeć do kogoś innego.
+_USTAWIENIA_NIE_DO_KOPII = ("adres_bazy", "wysylka_", "kod_przed_aktualizacja")
+
+
+def _profile_tego_konta(store: dict) -> dict:
+    """Wpisy magazynu profili zalogowanej osoby: po imieniu z konta, a na
+    komputerze jednego konta z jednym wpisem — ten wpis. Cudzy PESEL nie
+    może trafić do kopii ani nadpisać cudzego wpisu przy odtworzeniu."""
+    kod = "".join(ch for ch in str(online_kod_uzytkownika() or "") if ch.isdigit())
+    imiona = {str(online_imie_uzytkownika() or "").strip().lower()}
+    try:
+        imiona.add(str(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "")).strip().lower())
+    except Exception:
+        pass
+    imiona.discard("")
+    wlasne = {k: w for k, w in store.items() if isinstance(w, dict)
+              and str((w.get("profil") or {}).get("imie", "")).strip().lower() in imiona}
+    if not wlasne and len(store) == 1 and kod and _tylko_jedno_konto_na_komputerze(kod):
+        wlasne = dict(store)
+    return wlasne
+
+
+def _tylko_tego_konta(klucz: str, dane):
+    """Część wspólnego magazynu („ustawienia", „uzytkownicy") należąca do
+    zalogowanego konta; inne magazyny bez zmian."""
+    if klucz == "uzytkownicy":
+        return _profile_tego_konta(dane if isinstance(dane, dict) else {})
+    if klucz == "ustawienia":
+        wynik = {}
+        for k, v in (dane if isinstance(dane, dict) else {}).items():
+            m = re.search(r"__([0-9a-f]{16})$", str(k))
+            if m:
+                if AKTYWNY_UZYTKOWNIK and m.group(1) == AKTYWNY_UZYTKOWNIK:
+                    wynik[k] = v
+            elif not str(k).startswith(_USTAWIENIA_NIE_DO_KOPII):
+                wynik[k] = v
+        return wynik
+    return dane
 
 
 def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
@@ -5665,10 +5708,17 @@ def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
     ile = 0
     with zipfile.ZipFile(sciezka_zip, "w", zipfile.ZIP_DEFLATED) as z:
         for klucz, sciezka in wszystkie_magazyny().items():
-            if os.path.exists(sciezka):
+            if not os.path.exists(sciezka):
+                continue
+            if klucz in ("ustawienia", "uzytkownicy"):
+                czesc = _tylko_tego_konta(klucz, _json_z_pliku(sciezka))
+                if not czesc:
+                    continue
+                z.writestr(os.path.basename(sciezka), json.dumps(czesc, ensure_ascii=False, indent=1))
+            else:
                 z.write(sciezka, arcname=os.path.basename(sciezka))
-                manifest["pliki"].append(klucz)
-                ile += 1
+            manifest["pliki"].append(klucz)
+            ile += 1
         z.writestr("_manifest_pmt.json", json.dumps(manifest, ensure_ascii=False, indent=2))
     return ile
 
@@ -5711,6 +5761,26 @@ def przywroc_z_kopii(sciezka_zip: str) -> int:
                 nazwa_pliku = _stare_nazwy.get(klucz, "")
                 if not nazwa_pliku or nazwa_pliku not in nazwy_w_zip:
                     continue
+            if klucz in ("ustawienia", "uzytkownicy"):
+                # wspólne pliki komputera: dopisujemy część tego konta, nie
+                # nadpisujemy całości (znikałyby dane innych kont)
+                try:
+                    z_kopii = json.loads(z.read(nazwa_pliku).decode("utf-8"))
+                except Exception:
+                    continue
+                czesc = _tylko_tego_konta(klucz, z_kopii)
+                if not czesc:
+                    continue
+                if klucz == "uzytkownicy":
+                    store = _wczytaj_store()
+                    store.update(czesc)
+                    _zapisz_store(store)
+                else:
+                    _ustawienia_reset()
+                    for k, v in czesc.items():
+                        zapisz_ustawienie(k, v)
+                ile += 1
+                continue
             with z.open(nazwa_pliku) as src, open(sciezka, "wb") as dst:
                 dst.write(src.read())
             ile += 1

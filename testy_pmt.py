@@ -12004,6 +12004,71 @@ sprawdz("bez skryptu z GitHuba paczka folderowa kończy się czytelnym błędem 
 sprawdz("okno aktualizacji pokazuje błąd instalacji zamiast znikać (obowiązkowa aktualizacja)",
         "self._blad(" in inspect.getsource(P.OknoAktualizacji._pobrano))
 
+# Kopia zapasowa: wspólne pliki komputera (.pmt_uzytkownicy.json z PESEL-ami
+# wszystkich, .pmt_ustawienia.json z adresami baz) szły do ZIP-a w całości,
+# a odtworzenie nadpisywało je w całości — znikały dane innych kont.
+def _dom33():
+    for w in glob.glob(os.path.join(_TMP_HOME, ".pmt_*")):
+        try:
+            os.remove(w)
+        except Exception:
+            pass
+    P._ustawienia_reset()
+    P._resetuj_pamiec_kont()
+
+
+def _zaloguj33(imie, kod):
+    P.online_zapisz_kod(kod)
+    P._zapisz(P.PLIK_STATUSU, dict(P._wczytaj(P.PLIK_STATUSU, {}), kod=kod, imie=imie))
+    P.ustaw_uzytkownika_planu(imie, kod)
+
+
+try:
+    _dom33()
+    _zaloguj33("Anna Kowalska", "11111")
+    P.zapisz_profil("Anna Kowalska", "90010112349", "ul. Anny 1, Radom", "Merchandiser", 0)
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Anny 1, Radom")
+    _zaloguj33("Bogdan Nowak", "22222")
+    P.zapisz_profil("Bogdan Nowak", "85020212344", "ul. Bogdana 2, Płock", "Merchandiser", 1)
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Bogdana 2, Płock")
+    P.zapisz_ustawienie("ciemny_motyw", False)
+    P.zapisz_punkty([{"adres": "Sklep B", "siec": "Lidl", "miasto": "Płock"}])
+    _zip33 = os.path.join(_TMP_HOME, "kopia33.zip")
+    _ile33 = P.eksportuj_kopie_zapasowa(_zip33)
+    import zipfile as _zf33
+    with _zf33.ZipFile(_zip33) as _z33:
+        _tresc33 = {n: _z33.read(n).decode("utf-8") for n in _z33.namelist()}
+    _razem33 = "\n".join(_tresc33.values())
+    sprawdz("kopia zapasowa nie zabiera PESEL-u ani adresu bazy innego konta z tego komputera",
+            "90010112349" not in _razem33 and "ul. Anny 1" not in _razem33, str(sorted(_tresc33)))
+    sprawdz("kopia zapasowa ma własny profil, własny adres bazy i wspólne ustawienia programu",
+            "85020212344" in _razem33 and "ul. Bogdana 2" in _razem33
+            and json.loads(_tresc33[os.path.basename(P.USTAWIENIA_STORE)]).get("ciemny_motyw") is False,
+            str((_ile33, sorted(_tresc33))))
+    # po kopii: Anna zmienia adres, dochodzi trzecie konto; Bogdan odtwarza swoją kopię
+    _zaloguj33("Anna Kowalska", "11111")
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Anny 5, Radom")
+    _zaloguj33("Celina Wiśniewska", "33333")
+    P.zapisz_profil("Celina Wiśniewska", "92030312345", "ul. Celiny 3, Kielce", "Merchandiser", 0)
+    _zaloguj33("Bogdan Nowak", "22222")
+    P.zapisz_ustawienie_osobiste("adres_bazy", "zmieniony po kopii")
+    P.przywroc_z_kopii(_zip33)
+    P._ustawienia_reset()
+    _po33 = (P.ustawienie_osobiste("adres_bazy"), bool(P.szukaj_profilu_po_nazwisku("Bogdan Nowak")))
+    _zaloguj33("Anna Kowalska", "11111")
+    _anna33 = (P.ustawienie_osobiste("adres_bazy"), bool(P.szukaj_profilu_po_nazwisku("Anna Kowalska")),
+               bool(P.szukaj_profilu_po_nazwisku("Celina Wiśniewska")))
+    sprawdz("odtworzenie kopii przywraca dane tego konta",
+            _po33 == ("ul. Bogdana 2, Płock", True), str(_po33))
+    sprawdz("odtworzenie kopii nie kasuje ani nie cofa danych innych kont",
+            _anna33 == ("ul. Anny 5, Radom", True, True), str(_anna33))
+except Exception as _e33:
+    import traceback as _tb33
+    _tb33.print_exc()
+    sprawdz("kopia zapasowa tylko z danymi zalogowanego konta", False, repr(_e33))
+finally:
+    _dom33()
+
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)

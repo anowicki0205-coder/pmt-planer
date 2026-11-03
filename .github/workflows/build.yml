@@ -483,6 +483,18 @@ jobs:
             echo "wersja.txt ma juz nowszy numer ($OBECNA > $NUMER) - zostawiam."
             exit 0
           fi
+          # Raz wpisany numer nie wraca drugi raz: "Re-run failed jobs" (np. po czerwonym
+          # macOS) uruchamia ten job ponownie na AKTUALNYM main - po HAMULCU AWARYJNYM
+          # (reczne cofniecie pierwszej linii, WYDANIE.txt) po cichu by go odkrecil.
+          PODBICIA=$(git log --format=%s -- wersja.txt || true)
+          if grep -qxF "wersja.txt -> $NUMER [skip ci]" <<< "$PODBICIA"; then
+            if [ "$OBECNA" = "$NUMER" ]; then
+              echo "wersja.txt ma juz $NUMER - zostawiam."
+            else
+              echo "::warning::wersja.txt byl juz podbity do $NUMER, a teraz ma $OBECNA (hamulec awaryjny?) - nie nadpisuje. Jesli $NUMER ma jednak wrocic, wpisz go recznie w pierwszej linii wersja.txt."
+            fi
+            exit 0
+          fi
           OPIS=$(gh release view "$TAG" --json body -q .body 2>/dev/null | tr -d '\r' | grep -m1 . || true)
           OPIS=${OPIS:-"Nowa wersja programu."}
           OPIS=${OPIS:0:160}

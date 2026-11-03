@@ -1102,6 +1102,40 @@ if _bash3b:
                 and (("::warning::" in _log3b and "wygaszenie" in _log3b) == ("powtórzone" in _nazwa3b)),
                 "%r -> %r %s" % (_przed3b, _po_odczyt3b, _log3b[:200]))
     _zeruj_przejscie3b()
+    # „Re-run failed jobs” po HAMULCU AWARYJNYM (ręczne cofnięcie pierwszej linii
+    # wersja.txt) nie może po cichu wpisać numeru z powrotem
+    _git3b = shutil.which("git")
+    _a3b, _b3b = _yml3b.index("OBECNA=$(head -n1 wersja.txt"), _yml3b.index("OPIS=$(gh release view")
+    _przed_opisem3b = _yml3b[_a3b:_b3b]
+    if _git3b:
+        def _rerun3b(historia, numer):
+            _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_git_")
+            try:
+                _g3b = lambda *a: _sp3b.run([_git3b, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                                             "-C", _kat3b] + list(a), capture_output=True, timeout=30)
+                _g3b("init", "-q")
+                for _tresc3b, _opis_c3b in historia:
+                    with open(os.path.join(_kat3b, "wersja.txt"), "w", encoding="utf-8", newline="\r\n") as _f3b:
+                        _f3b.write(_tresc3b)
+                    _g3b("add", "wersja.txt")
+                    _g3b("commit", "-q", "-m", _opis_c3b)
+                _w3b = _sp3b.run([_bash3b, "-e", "-c", "NUMER=%s\n" % numer + _przed_opisem3b + "\necho DALEJ"],
+                                 cwd=_kat3b, capture_output=True, timeout=30)
+                return _w3b.returncode, _w3b.stdout.decode("utf-8", "replace")
+            finally:
+                shutil.rmtree(_kat3b, ignore_errors=True)
+        _hist3b = [("3.25.0\nStary opis.\nmin=3.25.0\n", "wydanie 3.25.0"),
+                   ("3.25.1\nNowy opis.\nmin=3.25.0\n", "wersja.txt -> 3.25.1 [skip ci]")]
+        _hamulec3b = _rerun3b(_hist3b + [("3.25.0\nNowy opis.\nmin=3.25.0\n", "Update wersja.txt")], "3.25.1")
+        _drugi3b = _rerun3b(_hist3b, "3.25.1")
+        _nowy_nr3b = _rerun3b(_hist3b, "3.25.2")
+        _starszy3b = _rerun3b(_hist3b, "3.24.9")
+        sprawdz("build.yml (bash + git): ponowny przebieg po hamulcu awaryjnym NIE wpisuje numeru z powrotem (::warning::), drugi przebieg nic nie zmienia, nowy numer idzie dalej, starszy nie cofa",
+                _hamulec3b[0] == 0 and "::warning::" in _hamulec3b[1] and "DALEJ" not in _hamulec3b[1]
+                and _drugi3b[0] == 0 and "DALEJ" not in _drugi3b[1] and "::warning::" not in _drugi3b[1]
+                and _nowy_nr3b == (0, "DALEJ\n")
+                and _starszy3b[0] == 0 and "nowszy numer" in _starszy3b[1] and "DALEJ" not in _starszy3b[1],
+                repr((_hamulec3b, _drugi3b, _nowy_nr3b, _starszy3b)))
 
 # ── teksty i okno przy starcie ──
 _zeruj_przejscie3b()

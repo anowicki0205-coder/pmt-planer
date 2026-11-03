@@ -1,6 +1,7 @@
 name: Testy
 
-# Uruchamia testy_pmt.py przy kazdej zmianie kodu i przed wydaniem.
+# Uruchamia testy_pmt.py przy kazdej zmianie kodu i przed wydaniem
+# (build.yml wywoluje ten plik przez workflow_call przed budowaniem paczki z tagu).
 # Cel jest prosty: zeby do wydania nie trafila wersja, ktora nie przechodzi
 # wlasnych testow. Trwa okolo trzech minut.
 
@@ -22,6 +23,7 @@ on:
       - ".github/workflows/testy.yml"
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 # pip uruchamia przy instalacji kod z PyPI - token tylko do odczytu i nie
 # zostaje w .git/config (persist-credentials: false), tak jak w build.yml.

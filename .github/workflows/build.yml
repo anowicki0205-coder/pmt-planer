@@ -55,8 +55,19 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ---------- 0) TESTY — paczka z tagu powstaje tylko z kodu, który je przechodzi ----------
+  # testy.yml sam nie startuje dla tagu (push: branches), a tag może wskazywać
+  # commit wypchnięty prosto na main, którego testy jeszcze biegną albo padły.
+  # Budowanie testowe (Run workflow) nie czeka na testy — jak dotąd.
+  testy:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/testy.yml
+
   # ---------- 1) WINDOWS — buduje się i wysyła jako pierwszy ----------
   windows:
+    needs: testy
+    # !cancelled(): pominięte testy (budowanie ręczne) nie zatrzymują paczki testowej
+    if: ${{ !cancelled() && (needs.testy.result == 'success' || !startsWith(github.ref, 'refs/tags/')) }}
     runs-on: windows-latest
     steps:
       - name: Pobierz kod

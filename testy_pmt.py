@@ -7844,6 +7844,13 @@ try:
     sprawdz("testy.yml: token tylko do odczytu i bez zapisanych poświadczeń (pip uruchamia kod z PyPI)",
             re.search(r"^permissions:\n  contents: read\n", _tyml21, re.M) is not None
             and "persist-credentials: false" in _tyml21 and "contents: write" not in _tyml21)
+    # testy.yml nie startuje dla tagu, a build.yml do 3.25.1 nie czekał na testy —
+    # commit wypchnięty prosto na main szedł do zespołu, zanim testy zdążyły paść
+    sprawdz("build.yml: paczka z tagu powstaje dopiero po zielonych testach (testy.yml przez workflow_call), budowanie ręczne bez zmian",
+            re.search(r"^    uses: \./\.github/workflows/testy\.yml$", _kod21.get("testy", ""), re.M) is not None
+            and _jobif21("testy") and re.search(r"^    needs: testy$", _kod21.get("windows", ""), re.M) is not None
+            and ("if: ${{ !cancelled() && (needs.testy.result == 'success' || !%s) }}" % _tag21) in _kod21.get("windows", "")
+            and re.search(r"^  workflow_call:", _tyml21, re.M) is not None)
     sprawdz("nie ma już ZABEZPIECZENIA_BACKEND.txt (kazał włączyć podpis dla wszystkich — odcinało telefon)",
             not os.path.exists(os.path.join(KATALOG, "ZABEZPIECZENIA_BACKEND.txt"))
             and "ZABEZPIECZENIA_BACKEND" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"),

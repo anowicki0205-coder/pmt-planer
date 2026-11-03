@@ -23,12 +23,19 @@ on:
   pull_request:
   workflow_dispatch:
 
+# pip uruchamia przy instalacji kod z PyPI - token tylko do odczytu i nie
+# zostaje w .git/config (persist-credentials: false), tak jak w build.yml.
+permissions:
+  contents: read
+
 jobs:
   testy:
     runs-on: ubuntu-latest
     steps:
       - name: Pobierz kod
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Zainstaluj Pythona 3.13
         uses: actions/setup-python@v5

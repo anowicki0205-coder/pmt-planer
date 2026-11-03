@@ -13,12 +13,21 @@
 #  Starsze wersje programu (3.12.x) pobierają PIERWSZE archiwum z wydania,
 #  bez sprawdzania systemu. Kropka sortuje się przed podkreśleniem, więc
 #  "PMT_Planer.Windows.zip" trafia na początek listy i stare instalacje
-#  pobierają właściwy plik. Dodatkowo job Windows kończy się jako pierwszy
-#  (pozostałe czekają przez "needs"), więc kolejność wysyłki też się zgadza.
+#  pobierają właściwy plik. Dodatkowo paczkę Windows dołącza do wydania
+#  job wydanie_windows, a macOS/Linux — wydanie_pozostale, który na niego
+#  czeka przez "needs", więc kolejność wysyłki też się zgadza.
 #  Nowsze wersje (3.13.2+) i tak szukają nazwy zawierającej "windows".
 #
 #  3. Gdy paczka Windows jest już w wydaniu, ostatni krok (job „wersja")
 #     sam wpisuje numer do wersja.txt — patrz komentarz przy tym jobie.
+#
+#  ZAPIS DO REPOZYTORIUM mają TYLKO joby wydanie_windows, wydanie_pozostale
+#  i wersja — żaden z nich nie instaluje niczego z PyPI. Joby budujące mają
+#  token tylko do odczytu i nie zostawiają go w .git/config
+#  (persist-credentials: false): pip uruchamia przy instalacji kod pobrany
+#  z PyPI (fontTools buduje się ze źródeł), a token z prawem zapisu pozwoliłby
+#  mu wypchnąć na main np. updater.bat, który programy pobierają i uruchamiają.
+#  Paczki przechodzą między jobami przez Artifacts przebiegu.
 #
 #  CZYM BUDUJEMY: na każdym systemie tym samym poleceniem, co na komputerze:
 #     python zbuduj.py --folder
@@ -36,7 +45,7 @@
 name: Buduj wydanie
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -52,6 +61,8 @@ jobs:
     steps:
       - name: Pobierz kod
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Zainstaluj Pythona 3.13
         uses: actions/setup-python@v5
@@ -213,13 +224,16 @@ jobs:
           cd ..
           7z l PMT_Planer.Windows.zip | head -25
 
-      - name: Dołącz do wydania
+      # Do wydania paczkę dołącza job wydanie_windows (ten job nie ma prawa zapisu).
+      - name: Przekaż paczkę do wydania
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@v4
         with:
-          files: PMT_Planer.Windows.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: wydanie-Windows
+          path: PMT_Planer.Windows.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
 
       # BUDOWANIE TESTOWE (Actions -> Buduj wydanie -> Run workflow): ta sama
       # paczka, co w wydaniu, ale NIE trafia do Releases i NIE rusza wersja.txt
@@ -233,9 +247,36 @@ jobs:
           path: dist/PMT_Planer
           retention-days: 7
 
+  # ---------- 1b) paczka Windows do wydania — bez instalowania czegokolwiek ----------
+  wydanie_windows:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Pobierz paczkę z joba windows
+        uses: actions/download-artifact@v4
+        with:
+          name: wydanie-Windows
+
+      - name: Dołącz do wydania
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          test -f PMT_Planer.Windows.zip || { echo "::error::Brak PMT_Planer.Windows.zip z joba windows"; exit 1; }
+          # Zwykle wydanie juz jest (Publish release). Dla tagu wypchnietego bez
+          # wydania tworzymy je tu - tak, jak robila to wczesniej akcja
+          # softprops/action-gh-release (tytul = tag, pusty opis).
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "$TAG" --notes ""
+          gh release upload "$TAG" PMT_Planer.Windows.zip --clobber
+
   # ---------- 2) macOS i Linux — dopiero po Windows, tylko w wydaniu ----------
   pozostale:
-    needs: windows            # gwarantuje, że Windows jest w wydaniu pierwszy
+    needs: windows
     # Budowanie testowe sprawdza tylko paczke Windows — macOS i Linux
     # buduja sie wylacznie dla prawdziwego wydania (tag).
     if: startsWith(github.ref, 'refs/tags/')
@@ -253,6 +294,8 @@ jobs:
     steps:
       - name: Pobierz kod
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Zainstaluj Pythona 3.13
         uses: actions/setup-python@v5
@@ -340,12 +383,45 @@ jobs:
           cd dist
           zip -r ../PMT_Planer_${{ matrix.nazwa }}.zip PMT_Planer
 
-      - name: Dołącz do wydania
-        uses: softprops/action-gh-release@v2
+      - name: Przekaż paczkę do wydania
+        uses: actions/upload-artifact@v4
         with:
-          files: PMT_Planer_${{ matrix.nazwa }}.zip
+          name: wydanie-inne-${{ matrix.nazwa }}
+          path: PMT_Planer_${{ matrix.nazwa }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  # ---------- 2b) paczki macOS/Linux do wydania — PO paczce Windows ----------
+  wydanie_pozostale:
+    needs: [wydanie_windows, pozostale]
+    # Bez always()/!cancelled() czerwony macOS zatrzymalby tez paczke Linux
+    # (i odwrotnie) - a do 3.25.0 kazda trafiala do wydania osobno (fail-fast: false).
+    if: ${{ !cancelled() && needs.wydanie_windows.result == 'success' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Pobierz paczki z joba pozostale
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wydanie-inne-*
+          merge-multiple: true
+
+      - name: Dołącz do wydania
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          shopt -s nullglob
+          PACZKI=(PMT_Planer_*.zip)
+          if [ ${#PACZKI[@]} -eq 0 ]; then
+            echo "::error::Brak paczek macOS/Linux - oba budowania (job pozostale) padly."
+            exit 1
+          fi
+          for P in "${PACZKI[@]}"; do gh release upload "$TAG" "$P" --clobber; done
 
   # ---------- 3) wersja.txt — DOPIERO gdy paczka Windows jest w wydaniu ----------
   # Do 3.21.2 numer podbijał osobny automat (wersja_auto.yml) reagujący na
@@ -359,9 +435,11 @@ jobs:
   # Teraz numer trafia do wersja.txt tu: po zbudowaniu i wysłaniu paczki
   # Windows, na każdy tag — niezależnie od tego, jak powstało wydanie.
   wersja:
-    needs: [windows, pozostale]
-    if: always() && needs.windows.result == 'success' && startsWith(github.ref, 'refs/tags/')
+    needs: [wydanie_windows, wydanie_pozostale]
+    if: always() && needs.wydanie_windows.result == 'success' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Pobierz main
         uses: actions/checkout@v4

@@ -7685,15 +7685,44 @@ try:
     # wersja.txt — inaczej „test" ogłosiłby aktualizację 65 osobom.
     _byml21 = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encoding="utf-8").read()
     _tag21 = "startsWith(github.ref, 'refs/tags/')"
-    _win21 = _byml21.split("\n  pozostale:")[0]
-    _poz21 = _byml21.split("\n  pozostale:")[1].split("\n  wersja:")[0]
+    _joby21 = re.split(r"^  ([a-z_]+):[ \t]*$", _byml21.split("\njobs:\n", 1)[1], flags=re.M)
+    _kod21 = {_n21: "\n".join(l for l in _t21.splitlines() if not l.strip().startswith("#"))
+              for _n21, _t21 in zip(_joby21[1::2], _joby21[2::2])}
+    _jobif21 = lambda n: re.search(r"^    if: " + re.escape(_tag21) + "$", _kod21.get(n, ""), re.M) is not None
     sprawdz("budowanie testowe: paczka Windows idzie do Artifacts, a do wydania tylko z tagu",
-            re.search(r"name: Dołącz do wydania\n\s+if: " + re.escape(_tag21), _win21) is not None
+            re.search(r"name: Przekaż paczkę do wydania\n\s+if: " + re.escape(_tag21)
+                      + r"\n\s+uses: actions/upload-artifact@", _kod21.get("windows", "")) is not None
             and re.search(r"name: Paczka testowa[^\n]*\n\s+if: \$\{\{ !" + re.escape(_tag21)
-                          + r" \}\}\n\s+uses: actions/upload-artifact@", _win21) is not None)
+                          + r" \}\}\n\s+uses: actions/upload-artifact@", _kod21.get("windows", "")) is not None
+            and _jobif21("wydanie_windows"), str(sorted(_kod21)))
     sprawdz("budowanie testowe nie buduje macOS/Linux i nie podbija wersja.txt — tylko tag",
-            re.search(r"\n    if: " + re.escape(_tag21) + r"\n", _poz21) is not None
-            and _tag21 in _byml21.split("\n  wersja:")[1].split("steps:")[0])
+            _jobif21("pozostale")
+            and all(_tag21 in _kod21.get(n, "").split("steps:")[0] for n in ("wydanie_pozostale", "wersja")))
+    # Do 3.25.1 contents: write miał CAŁY workflow, a checkout zostawiał token
+    # w .git/config — kod z PyPI (pip install, fontTools ze źródeł) mógł nim
+    # wypchnąć na main updater.bat, który programy pobierają i uruchamiają.
+    _pisza21 = sorted(n for n, t in _kod21.items() if re.search(r"^\s+contents: write\s*$", t, re.M))
+    _pip21 = sorted(n for n, t in _kod21.items() if "pip install" in t)
+    sprawdz("build.yml: workflow ma domyślnie tylko odczyt, contents: write mają wyłącznie joby wydania i wersja",
+            re.search(r"^permissions:\n  contents: read\n", _byml21, re.M) is not None
+            and "contents: write" not in _byml21.split("\njobs:\n")[0]
+            and _pisza21 == ["wersja", "wydanie_pozostale", "wydanie_windows"], str(_pisza21))
+    sprawdz("build.yml: joby instalujące z PyPI nie zostawiają tokenu w .git/config, a joby z zapisem niczego nie instalują",
+            _pip21 == ["pozostale", "windows"]
+            and all(_kod21[n].count("actions/checkout@") == _kod21[n].count("persist-credentials: false") == 1
+                    for n in _pip21)
+            and not any(re.search(r"pip |requirements\.txt|setup-python|zbuduj\.py", _kod21[n]) for n in _pisza21)
+            and all(u.startswith("actions/") for n in _pisza21
+                    for u in re.findall(r"uses: *(\S+)", _kod21[n])), str(_pip21))
+    sprawdz("build.yml: paczki dołącza „gh release upload” (bez zewnętrznej akcji z tokenem), macOS/Linux dopiero po Windows",
+            "softprops/" not in "".join(_kod21.values())
+            and all("gh release upload" in _kod21.get(n, "") for n in ("wydanie_windows", "wydanie_pozostale"))
+            and re.search(r"^    needs: \[wydanie_windows, pozostale\]$", _kod21.get("wydanie_pozostale", ""), re.M)
+            is not None)
+    _tyml21 = open(os.path.join(KATALOG, ".github", "workflows", "testy.yml"), encoding="utf-8").read()
+    sprawdz("testy.yml: token tylko do odczytu i bez zapisanych poświadczeń (pip uruchamia kod z PyPI)",
+            re.search(r"^permissions:\n  contents: read\n", _tyml21, re.M) is not None
+            and "persist-credentials: false" in _tyml21 and "contents: write" not in _tyml21)
     sprawdz("nie ma już ZABEZPIECZENIA_BACKEND.txt (kazał włączyć podpis dla wszystkich — odcinało telefon)",
             not os.path.exists(os.path.join(KATALOG, "ZABEZPIECZENIA_BACKEND.txt"))
             and "ZABEZPIECZENIA_BACKEND" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"),

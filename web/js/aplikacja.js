@@ -2208,13 +2208,13 @@ function ekranLogowania(wstep, kodStart) {
         <div class="dz-linki"><button type="button" class="dz-link" id="dz-reset">Nie pamiętam hasła</button></div>
         <p class="dz-pod">Pierwsze logowanie? Jako hasło wpisz numer telefonu z kartoteki — potem ustawisz własne. Logowanie rusza samo po wpisaniu hasła.</p>`);
       const kodEl = $('#dz-kod', arkTresc), hasloEl = $('#dz-haslo', arkTresc), ok = $('#dz-ok', arkTresc);
-      let wToku = false, zegarAuto = 0;
+      let wToku = false, zegarAuto = 0, zegarZnanego = 0;
       const sprawdz = () => { ok.disabled = wToku || !(/^\d{5}$/.test(kodEl.value) && hasloEl.value.length >= 4); };
       /* odmowy, które trzeba pokazać zawsze, także po próbie automatycznej (sieć, blokada, wygaśnięcie…); zwykłe „złe hasło” po automacie to tylko łagodna podpowiedź */
       const wazny = t => /sieć|sieci|internet|serwer|wersj|zablok|certyf|połącz|wygas|dni od|aktualiz|czasie|vpn|cors|ustawione haslo/i.test(t || '');
       const zaloguj = async (auto = false) => {
         if (wToku || !doc.contains(hasloEl)) return; const k = kodEl.value.trim(), h = hasloEl.value; if (!/^\d{5}$/.test(k) || h.length < 4) return;
-        proby.add(k + '|' + h); wToku = true; clearTimeout(zegarAuto); dzInfo('');
+        proby.add(k + '|' + h); wToku = true; clearTimeout(zegarAuto); clearTimeout(zegarZnanego); dzInfo('');
         const koniec = oczekiwanie(ok, 'Sprawdzam…'); if (!auto) kodEl.disabled = hasloEl.disabled = true;   // przy automacie pole hasła zostaje aktywne: żaden znak nie ginie
         let w; try { w = await dostep.zaloguj(k, h); } catch (e) { w = { ok: false, komunikat: 'Nie udało się zalogować: ' + e.message }; }
         koniec(); wToku = false; kodEl.disabled = hasloEl.disabled = false; sprawdz();
@@ -2233,7 +2233,8 @@ function ekranLogowania(wstep, kodStart) {
         zaloguj(true);
       };
       kodEl.addEventListener('input', () => { kodEl.value = kodEl.value.replace(/\D/g, '').slice(0, 5); sprawdz(); if (kodEl.value.length === 5 && !hasloEl.value) hasloEl.focus(); else if (kodEl.value.length === 5) probuj('tekst'); });
-      hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); probuj('tekst'); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
+      /* sprawdzenie „znanego” hasła to PBKDF2 (600 tys. iteracji): po krótkiej pauzie, nie przy każdym znaku; bez Web Crypto (strona po http) liczy się w wątku strony, więc tylko po 1,3 s i Enter */
+      hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); clearTimeout(zegarZnanego); if (globalThis.crypto && crypto.subtle) zegarZnanego = setTimeout(() => probuj('tekst'), 450); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
       $('#dz-form', arkTresc).addEventListener('submit', e => { e.preventDefault(); zaloguj(false); });
       $('#dz-reset', arkTresc).addEventListener('click', () => widokResetu(kodEl.value));
       if (haslo) hasloEl.value = haslo; sprawdz();

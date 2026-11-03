@@ -191,10 +191,19 @@ export async function utworzSejf(kod, haslo) {
   const dek = losowe(32); const m = await opakuj(dek, haslo);
   localStorage.setItem(KLUCZ_SEJFU(kod), JSON.stringify(m)); return dek;
 }
+/* ostatnie udane otwarcie (tylko w pamięci strony): to samo hasło do tego samego zapisu sejfu nie liczy PBKDF2 drugi raz (autologowanie, zaraz potem logowanie i przygotowanie sejfu);
+   każda zmiana zapisu (nowe hasło, nowy sejf) unieważnia je, bo porównujemy cały zapisany tekst sejfu */
+let ostatnieOtwarcie = null;
 /** Otwiera sejf hasłem: DEK albo null (złe hasło / uszkodzony sejf / brak sejfu). */
 export async function otworzSejf(kod, haslo) {
+  const zapis = ls(() => localStorage.getItem(KLUCZ_SEJFU(kod)), null), o = ostatnieOtwarcie;
+  if (o && zapis && o.kod === kod && o.haslo === haslo && o.zapis === zapis) return Uint8Array.from(o.dek);
   const m = wczytajSejf(kod); if (!m || !m.sol || !m.dek) return null;
-  try { const kek = await pbkdf2(haslo, unb64(m.sol), Number(m.iter) || ITERACJE); return odszyfruj(klucze(kek), unb64(m.dek)); } catch (e) { return null; }
+  try {
+    const kek = await pbkdf2(haslo, unb64(m.sol), Number(m.iter) || ITERACJE), dek = odszyfruj(klucze(kek), unb64(m.dek));
+    if (dek) ostatnieOtwarcie = { kod, haslo, zapis, dek: Uint8Array.from(dek) };
+    return dek;
+  } catch (e) { return null; }
 }
 /** Zmiana hasła: ten sam DEK, zaszyfrowany nowym hasłem (nowa sól) — dane na dysku zostają nietknięte. */
 export async function przepiszSejf(kod, dek, noweHaslo) { const m = await opakuj(dek, noweHaslo); localStorage.setItem(KLUCZ_SEJFU(kod), JSON.stringify(m)); }
@@ -202,6 +211,6 @@ export const usunSejf = kod => ls(() => localStorage.removeItem(KLUCZ_SEJFU(kod)
 
 /* ---------------------------------- klucz danych na czas sesji: tylko w pamięci strony ---------------------------------- */
 let dekSesji = null;
-export const zapamietajKlucz = dek => { dekSesji = dek ? Uint8Array.from(dek) : null; };
+export const zapamietajKlucz = dek => { dekSesji = dek ? Uint8Array.from(dek) : null; ostatnieOtwarcie = null; };      // po zalogowaniu hasło z ostatniego otwarcia nie jest już potrzebne w pamięci
 export const odczytajKlucz = () => dekSesji;
-export const zapomnijKlucz = () => { dekSesji = null; };
+export const zapomnijKlucz = () => { dekSesji = null; ostatnieOtwarcie = null; };

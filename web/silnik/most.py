@@ -165,6 +165,14 @@ def _dzien_json(d, stawka):
             "dokument": int(getattr(d, "dokument", 0) or 0), "etapy": etapy, "punkty": punkty}
 
 
+def _odnow_siec():
+    """Każde generowanie pyta sieć od nowa. Silnik po pierwszym błędzie (brak zasięgu, timeout, 429) wyłącza OSRM/Google
+    i nie ponawia geokodowania adresu do końca procesu — w programie to minuty, a worker karty żyje dniami."""
+    S._osrm_dostepny = None
+    S._google_dostepny = None
+    S._geo_pytane.clear()
+
+
 def generuj(p, postep=None):
     """Odpowiednik GeneratorThread.run: współrzędne bazy → generuj_trasy → generuj_pdfy (do folderu w pamięci).
     Zwraca {ok, dni, folder, pliki, zrodlo, niepelna, ...}; błędy jako wyjątki (ValueError z tekstem dla człowieka)."""
@@ -175,6 +183,7 @@ def generuj(p, postep=None):
     rok, mies = int(p["rok"]), int(p["miesiac"])
     stawka = pr["stawka"]
     S.zeruj_zrodlo_odleglosci()
+    _odnow_siec()
     cb("Pobieranie współrzędnych GPS...", 0.10)
     baza_lat, baza_lng = S.pobierz_coords(pr["adres_geo"], pr["baza_miasto"], pr["woj"])
     imie = " ".join(str(p["imie"]).split()); pesel = "".join(str(p["pesel"]).split())
@@ -374,6 +383,7 @@ def plan_generuj(p, postep=None):
     """Odpowiednik PlanerWizytThread.run: współrzędne z bazy miast → dogeokodowanie nowych miejscowości (raz na miasto)
     → baza → planuj_wizyty / planuj_cyklicznie. Zwraca plan jako słownik (patrz _plan_json)."""
     cb = postep or (lambda t, v: None)
+    _odnow_siec()
     pozycje = p["pozycje"]; n = len(pozycje)
     punkty = []
     for i, poz in enumerate(pozycje):

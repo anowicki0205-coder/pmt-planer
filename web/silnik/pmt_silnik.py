@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:43f6c5362f469474
+# źródło: PMT_Delegacje.py sha256:8eddd2951d3f3113
 
 import sys
 

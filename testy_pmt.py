@@ -11919,6 +11919,52 @@ except Exception as _e33:
 finally:
     P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = None
 
+# sieć wraca po awarii: każde generowanie pyta OSRM i geokodowanie od nowa (worker karty żyje dniami, nie minuty)
+if _M33 is not None:
+    _stan33 = []
+    _zap33 = lambda *a, **k: _stan33.append((_S33._osrm_dostepny, _S33._google_dostepny, set(_S33._geo_pytane)))
+    _org33 = (_S33.pobierz_coords, _S33.generuj_trasy, _S33._menedzer, _S33.planuj_wizyty)
+    try:
+        _S33._osrm_dostepny = _S33._google_dostepny = False; _S33._geo_pytane.add("dluga 5, 26-600 radom")
+        _S33.pobierz_coords = lambda *a, **k: (_zap33(), (51.40, 21.15))[1]
+        _S33.generuj_trasy = lambda *a, **k: []
+        _S33._menedzer = lambda: "Jan Przełożony"
+        try:
+            _M33.generuj({"imie": "Jan Test", "pesel": "90010112349", "adres": "Długa 5, 26-600 Radom", "kwota": 500,
+                          "rok": 2026, "miesiac": 11, "tryb": "tydzien"})
+        except ValueError:
+            pass            # generuj_trasy-atrapa nie układa dni — chodzi tylko o stan sieci przed geokodowaniem bazy
+        _S33._osrm_dostepny = False; _S33._geo_pytane.add("dluga 5, 26-600 radom")
+        _S33.planuj_wizyty = lambda *a, **k: (_zap33(), {"miesiace": []})[1]
+        _M33.plan_generuj({"pozycje": [{"adres": "Długa 1, 26-600 Radom", "siec": "Żabka", "miasto": ""}], "siec": True,
+                           "adres_bazy": "", "rok": 2026, "miesiac": 12})
+        sprawdz("web: po awarii sieci kolejne generowanie i plan wizyt pytają OSRM i geokodowanie od nowa",
+                _stan33 == [(None, None, set()), (None, None, set())], str(_stan33))
+    except Exception as _e33:
+        sprawdz("web: ponowna próba sieci po awarii", False, repr(_e33))
+    finally:
+        _S33.pobierz_coords, _S33.generuj_trasy, _S33._menedzer, _S33.planuj_wizyty = _org33
+        _S33._osrm_dostepny = _S33._google_dostepny = None; _S33._geo_pytane.clear()
+
+_org33 = (P.pobierz_coords, P.log_error)
+try:
+    _stan33 = []
+    P.log_error = lambda *a: None       # atrapa rzuca celowo — bez logs/error.log obok programu
+    P._osrm_dostepny = P._google_dostepny = False; P._geo_pytane.add("dluga 5, 26-600 radom")
+    def _pc33(*a, **k):
+        _stan33.append((P._osrm_dostepny, P._google_dostepny, set(P._geo_pytane)))
+        raise RuntimeError("atrapa: dalej nie idziemy")
+    P.pobierz_coords = _pc33
+    _g33 = P.GeneratorThread({"adres_caly": "Długa 5, 26-600 Radom", "baza_miasto": "Radom", "woj": "mazowieckie"})
+    _g33.run()
+    sprawdz("program: po awarii sieci kolejne generowanie pyta OSRM i geokodowanie od nowa",
+            _stan33 == [(None, None, set())], str(_stan33))
+except Exception as _e33:
+    sprawdz("program: ponowna próba sieci po awarii", False, repr(_e33))
+finally:
+    P.pobierz_coords, P.log_error = _org33
+    P._osrm_dostepny = P._google_dostepny = None; P._geo_pytane.clear()
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

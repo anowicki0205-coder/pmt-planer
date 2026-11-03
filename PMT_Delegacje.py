@@ -6048,6 +6048,17 @@ def zeruj_zrodlo_odleglosci():
         _zrodlo_licznik[k] = 0
 
 
+def odnow_dostep_do_sieci():
+    """Nowe generowanie = nowa próba sieci. Po pierwszym błędzie (brak zasięgu,
+    timeout, 429) dystans_drogowy wyłącza OSRM/Google, a pobierz_coords nie
+    ponawia adresu — do końca procesu, więc po powrocie zasięgu wszystko szło
+    dalej szacunkiem, a baza zostawała przybliżona."""
+    global _osrm_dostepny, _google_dostepny
+    _osrm_dostepny = None
+    _google_dostepny = None
+    _geo_pytane.clear()
+
+
 def _odnotuj_zrodlo(rodzaj):
     global _ostatnie_zrodlo
     _zrodlo_licznik[rodzaj] = _zrodlo_licznik.get(rodzaj, 0) + 1
@@ -9458,6 +9469,7 @@ class GeneratorThread(QThread):
         try:
             p = self.params
             self._sprawdz_przerwanie()
+            odnow_dostep_do_sieci()
             self.postep.emit("Pobieranie współrzędnych GPS...", 0.10)
             # Do geocodingu używamy 'adres_geo' — dla wsi to sama miejscowość
             # (np. "Dębowa Wola, 26-660 Jedlińsk"), nie fałszywa "ul." — dzięki

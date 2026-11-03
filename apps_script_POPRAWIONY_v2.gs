@@ -544,7 +544,8 @@ var MINIMALNA_WERSJA = "3.16.0";
 /* --- rozdzielacz akcji -------------------------------------------- */
 function doPost(e) {
   var blokada = LockService.getScriptLock();
-  blokada.tryLock(20000);
+  // Bez blokady liczniki prób i statystyki ścigałyby się z równoległym wywołaniem — lepiej odmówić (klient ponowi).
+  if (!blokada.tryLock(20000)) return _json({ status: "blad", opis: "Serwer zajety — sprobuj ponownie za chwile" });
   try {
     var tresc = e && e.postData && e.postData.contents ? String(e.postData.contents) : "{}";
     if (tresc.length > 20000) return _json({ status: "blad", opis: "Zapytanie za duze" });

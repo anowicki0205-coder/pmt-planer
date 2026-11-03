@@ -12,7 +12,7 @@ import { zbudujEml } from './poczta.js';
 import { karuzela } from './karuzela.js';
 import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
-import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf } from './podpis_reczny.js';
+import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf, skanBezJpeg } from './podpis_reczny.js';
 
 const TYPY = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff',
   xades: 'application/xml', xml: 'application/xml', sig: 'application/octet-stream', p7s: 'application/pkcs7-signature', p7m: 'application/pkcs7-mime' };
@@ -40,6 +40,7 @@ export function zainstalujPodpis(k) {
   const pierwotne = () => rec().pierwotneNazwy || {};      // { i: { zapisana nazwa: nazwa, z jaką plik wrócił } }
   const nazwaWgranego = (i, orig) => { const o = pierwotne()[i] || {}; return Object.keys(o).find(n => o[n] === orig) || orig; };
   let wgrane = [];                // pliki z ostatnich wgrań: { plik, bajty, i, jak, powod, rodzaj }
+  let partia = new Set();         // pierwotne nazwy plików z ostatniego wgrania (pliki dokumentu spoza niego to starsze wersje, które nowy podpis może zastąpić)
   let widok = 'glowny', otwarte = new Set(); const sprawdzane = new Set();
 
   /* ---------------------------------- pomocnicze ---------------------------------- */
@@ -236,11 +237,11 @@ export function zainstalujPodpis(k) {
     k.zapiszRekord();
   }
   /** Dodaje i/lub zdejmuje pliki dokumentu i wszystkie zapisane pliki nazywa na nowo (np. przy dodaniu drugiej strony skanu zmieniają się numery stron). */
-  async function zapiszPliki(i, { dodaj, usun, metoda, zachowaj } = {}) {
+  async function zapiszPliki(i, { dodaj, usun, metoda, zachowaj, zastap } = {}) {
     const d = k.nazwyDok().find(x => x.i === i); if (!d) return;
     const org = pierwotne()[i] || {};
     let zrodla = plikiDok(i).filter(n => n !== usun).map(n => ({ n, orig: org[n] || n }));
-    if (dodaj) { zrodla = zrodla.filter(z => z.orig !== dodaj.orig); zrodla.push({ n: null, orig: dodaj.orig, bajty: dodaj.bajty }); }
+    if (dodaj) { zrodla = zrodla.filter(z => z.orig !== dodaj.orig && !(zastap && !partia.has(z.orig))); zrodla.push({ n: null, orig: dodaj.orig, bajty: dodaj.bajty }); }
     for (const z of zrodla) if (!z.bajty) z.bajty = await magPliki.daj(k.kluczPodp(i, z.n));
     zrodla = zrodla.filter(z => z.bajty);
     const nowe = docelowe(d, zrodla);
@@ -248,7 +249,12 @@ export function zainstalujPodpis(k) {
     for (const n of plikiDok(i)) if (!nowe.includes(n)) { try { await magPliki.usun(k.kluczPodp(i, n)); } catch (e) { /* plik mógł już zniknąć */ } }
     zmienPliki(i, nowe, metoda, Object.fromEntries(nowe.map((n, j) => [n, zrodla[j].orig])), zachowaj);
   }
-  async function przypisz(w, i) { await zapiszPliki(i, { dodaj: { orig: w.plik.name, bajty: w.bajty }, metoda: w.rodzaj === 'e' ? 'e' : 'reczny' }); w.i = i; }
+  /** Nowy podpis elektroniczny zastępuje pliki dokumentu z wcześniejszych wgrań (np. poprawiony podpis po „błędzie podpisu”), a skan — wcześniejszy, nieprzyjęty podpis elektroniczny:
+      inaczej sprawdzany byłby nadal stary plik, a do paczki szłyby obie wersje. Skan dokładany do skanów to kolejna strona dokumentu. */
+  async function przypisz(w, i) {
+    const zastap = w.rodzaj === 'e' || (Object.assign({}, rec().metodaPodpisu, M().metodaPodpisu)[i] === 'e' && !M().podpisane[i]);
+    await zapiszPliki(i, { dodaj: { orig: w.plik.name, bajty: w.bajty }, metoda: w.rodzaj === 'e' ? 'e' : 'reczny', zastap }); w.i = i;
+  }
   async function odlacz(w) {
     if (w.i === null || w.i === undefined) return null;
     const i = w.i; await zapiszPliki(i, { usun: nazwaWgranego(i, w.plik.name) }); w.i = null; return i;
@@ -299,14 +305,16 @@ export function zainstalujPodpis(k) {
     }
     return wyn.length ? wyn : [{ id: 'nazwa', stan: 'ok', tekst: `Nazwa pliku zgadza się z dokumentem: ${pliki.map(p => p.nazwa).join(', ')}` }];
   }
+  /** Miesiąc, w którym zaczęła się operacja: sprawdzanie i wgrywanie trwają chwilę, a w tym czasie można zamknąć okno i przejść strzałką do innego miesiąca. */
+  const tenMiesiac = () => { const { rok, mies } = M(); return () => M().rok === rok && M().mies === mies; };
   async function sprawdz(i) {
     const d = k.nazwyDok().find(x => x.i === i); if (!d) return;
-    sprawdzane.add(i); odswiezWidok();
+    const tenSam = tenMiesiac(); sprawdzane.add(i); odswiezWidok();
     try {
       const nazwy = plikiDok(i), pliki = [];
       for (const n of nazwy) { const b = await magPliki.daj(k.kluczPodp(i, n)); if (b) pliki.push({ nazwa: n, bajty: b }); }
       const orig = await oryginal(d), profil = k.PROFIL();
-      const pdfPodpisany = pliki.find(p => /\.pdf$/i.test(p.nazwa) && podpisyWPdf(p.bajty).length), xades = pliki.find(p => XADES.test(p.nazwa));
+      const pdfPodpisany = [...pliki].reverse().find(p => /\.pdf$/i.test(p.nazwa) && podpisyWPdf(p.bajty).length), xades = [...pliki].reverse().find(p => XADES.test(p.nazwa));      // ostatnio wgrany
       let w;
       if (pdfPodpisany) w = await ocenPodpisElektroniczny({ bajty: pdfPodpisany.bajty, oryginal: orig, imie: profil.imie, pesel: profil.pesel });
       else if (xades) w = await ocenPodpisElektroniczny({ xades: new TextDecoder('utf-8').decode(xades.bajty), oryginal: orig, imie: profil.imie, pesel: profil.pesel });
@@ -314,13 +322,15 @@ export function zainstalujPodpis(k) {
       else w = await ocenOdreczny(d, pliki);
       w.kontrole = [...w.kontrole, ...kontroleNazwy(d, pliki)];
       w.kiedy = new Date().toISOString(); w.czas = w.czas ? new Date(w.czas).toISOString() : null;
-      zapiszWeryfikacje(i, w);
+      if (tenSam()) zapiszWeryfikacje(i, w);      // po zmianie miesiąca wynik nie trafia do cudzego rekordu; pliki zostają i sprawdzą się przy otwarciu okna
     } catch (e) {
       console.error('sprawdzanie podpisu', e);
-      zapiszWeryfikacje(i, { rodzaj: 'brak', kontrole: [{ id: 'blad', stan: 'uwaga', tekst: 'Nie udało się sprawdzić pliku: ' + (e.message || e) }], stan: 'uwaga', sygnatariusz: '', czas: null });
+      if (tenSam()) zapiszWeryfikacje(i, { rodzaj: 'brak', kontrole: [{ id: 'blad', stan: 'uwaga', tekst: 'Nie udało się sprawdzić pliku: ' + (e.message || e) }], stan: 'uwaga', sygnatariusz: '', czas: null });
     } finally { sprawdzane.delete(i); }
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
   }
+  /** Dokumenty z plikami, ale bez wyniku (sprawdzanie przerwane odświeżeniem strony, zamknięciem karty albo zmianą miesiąca) — inaczej wisiałyby na „sprawdzam…”. */
+  async function dokonczSprawdzanie() { for (const d of k.nazwyDok()) if (plikiDok(d.i).length && !weryfikacje()[d.i] && !sprawdzane.has(d.i)) await sprawdz(d.i); }
   function potwierdz(i) {
     const w = weryfikacje()[i]; if (!w) return;
     zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
@@ -347,12 +357,21 @@ export function zainstalujPodpis(k) {
     const o = obrazyZPdf(bajty), baza = plik.name.replace(/\.pdf$/i, '');
     return o.map((dane, n) => ({ plik: new File([dane], `${baza}_str${String(n + 1).padStart(2, '0')}.jpg`, { type: 'image/jpeg' }), bajty: new Uint8Array(dane) }));
   }
+  /** Wgrywanie bez obsługi błędu przepadałoby po cichu (np. upuszczony folder, brak miejsca na urządzeniu) — dlatego błąd zawsze kończy się komunikatem. */
   async function przyjmij(lista) {
+    try { await przyjmijPliki(lista); }
+    catch (e) { console.error('wgrywanie', e); pokazToast('Nie udało się przyjąć plików: ' + (e.message || e)); k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok(); }
+  }
+  async function przyjmijPliki(lista) {
     const { pliki, zepsute } = await rozwinZip([...lista]); if (!pliki.length && !zepsute.length) return;
-    const nowe = zepsute.map(z => ({ plik: z.plik, bajty: new Uint8Array(0), i: null, jak: null, powod: z.powod, rodzaj: '' }));
+    const tenSam = tenMiesiac(), nowe = zepsute.map(z => ({ plik: z.plik, bajty: new Uint8Array(0), i: null, jak: null, powod: z.powod, rodzaj: '' }));
+    const odrzuc = (plik, powod) => nowe.push({ plik, bajty: new Uint8Array(0), i: null, jak: null, powod, rodzaj: '' });
     const dok = k.nazwyDok(), orgBajty = new Map(); for (const d of dok) orgBajty.set(d.i, await oryginal(d));
     for (const plik of pliki) {
-      const bajty = new Uint8Array(await plik.arrayBuffer()); let rodzaj = '', powod = '';
+      // rodzaj po nazwie, zanim zacznę czytać: folder (bez rozszerzenia) i nieobsługiwany plik nie przerywają przyjmowania pozostałych
+      if (!/\.pdf$/i.test(plik.name) && !XADES.test(plik.name) && !INNY_PODPIS.test(plik.name) && !OBRAZ.test(plik.name)) { odrzuc(plik, 'ten rodzaj pliku nie jest obsługiwany (PDF z podpisem, .xades, ZIP, skan lub zdjęcie)' + (/\.[a-z0-9]{1,5}$/i.test(plik.name) ? '' : ' — jeśli to folder, otwórz go i wgraj pliki z jego środka')); continue; }
+      let bajty; try { bajty = new Uint8Array(await plik.arrayBuffer()); } catch (e) { odrzuc(plik, 'nie mogę odczytać pliku — jeśli to folder, otwórz go i wgraj pliki z jego środka'); continue; }
+      let rodzaj = '', powod = '';
       if (!bajty.length) powod = 'plik jest pusty';
       else if (XADES.test(plik.name) || INNY_PODPIS.test(plik.name)) rodzaj = 'e';
       else if (OBRAZ.test(plik.name)) rodzaj = 'skan';
@@ -361,35 +380,38 @@ export function zainstalujPodpis(k) {
         else {
           const sk = rozbijSkan(plik, bajty);
           if (sk.length > 1) { for (const s of sk) nowe.push({ plik: s.plik, bajty: s.bajty, i: null, jak: null, powod: '', rodzaj: 'skan' }); continue; }
-          if (sk.length === 1) rodzaj = 'skan';
-          else powod = 'ten PDF nie ma podpisu elektronicznego ani nie jest skanem — podpisz go na gov.pl albo wydrukuj, podpisz i zeskanuj';
+          if (sk.length === 1 || skanBezJpeg(bajty)) rodzaj = 'skan';      // skan czarno-biały (CCITT, JBIG2…): obrazu nie odczytam, ale przyjmuję go do obejrzenia i ręcznego potwierdzenia
+          else powod = 'ten PDF nie ma podpisu elektronicznego ani nie jest skanem, który umiem odczytać — podpisz go na gov.pl albo wydrukuj, podpisz i zeskanuj w kolorze lub odcieniach szarości (albo zapisz skan jako JPG)';
         }
-      } else powod = 'ten rodzaj pliku nie jest obsługiwany (PDF z podpisem, .xades, ZIP, skan lub zdjęcie)';
+      }
       nowe.push({ plik, bajty, i: null, jak: null, powod, rodzaj });
     }
-    const dobre = nowe.filter(w => !w.powod);
+    const dobre = nowe.filter(w => !w.powod); partia = new Set(dobre.map(w => w.plik.name));
     const wynik = await dopasujPliki(dobre.map(w => w.plik), dok.map(d => ({ i: d.i, nazwa: d.nazwa, tytul: d.tytul, wolny: plikiDok(d.i).length === 0, bajty: async () => orgBajty.get(d.i), xades: async t => xadesDotyczy(t, orgBajty.get(d.i)) })), async f => dobre.find(w => w.plik === f).bajty);
     const dotkniete = new Set();
-    for (const r of wynik) { const w = dobre.find(x => x.plik === r.plik); w.jak = r.jak; if (r.i !== null) { await przypisz(w, r.i); dotkniete.add(r.i); } }
-    wgrane = [...nowe, ...wgrane.filter(p => !p.powod && !nowe.some(n => n.plik.name === p.plik.name))];      // dawne odrzucenia znikają przy kolejnym wgraniu
+    for (const r of wynik) { if (!tenSam()) break; const w = dobre.find(x => x.plik === r.plik); w.jak = r.jak; if (r.i !== null) { await przypisz(w, r.i); dotkniete.add(r.i); } }
+    // dawne odrzucenia znikają przy kolejnym wgraniu, a pliki zastąpione nowym podpisem — z listy dopasowań
+    wgrane = [...nowe, ...wgrane.filter(p => !p.powod && !nowe.some(n => n.plik.name === p.plik.name) && (p.i === null || p.i === undefined || Object.values(pierwotne()[p.i] || {}).includes(p.plik.name)))];
     for (const i of dotkniete) otwarte.delete(i);
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
-    for (const i of dotkniete) await sprawdz(i);
+    for (const i of dotkniete) { if (!tenSam()) break; await sprawdz(i); }
+    if (!tenSam()) return;
     const ok = [...dotkniete].filter(i => M().podpisane[i]).length;
     if (k.zorza() && ok) k.zorza().flara(.22);
     if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać dokumenty'); }
     else if (!dotkniete.size) pokazToast('Żaden plik nie został przyjęty — powody są pod krokami');
     else pokazToast(ok === dotkniete.size ? `Sprawdzono ${ok} ${liczba(ok, 'dokument', 'dokumenty', 'dokumentów')} — podpisy w porządku` : `Sprawdzono ${dotkniete.size}: ${ok} w porządku, ${dotkniete.size - ok} do poprawy — szczegóły w kartach dokumentów`);
   }
-  const OPIS_JAK = { tresc: 'rozpoznany po zawartości', nazwa: 'dopasowany po nazwie', kolejnosc: 'przypisany według kolejności — sprawdź', reczne: 'przypisany przez Ciebie' };
+  const OPIS_JAK = { tresc: 'rozpoznany po zawartości', nazwa: 'dopasowany po nazwie', liczba: 'dopasowany po numerze w nazwie — sprawdź', kolejnosc: 'przypisany według kolejności — sprawdź', reczne: 'przypisany przez Ciebie' };
+  const niepewne = jak => jak === 'kolejnosc' || jak === 'liczba';
   let wynikiOtwarte = false;      // czy użytkownik sam rozwinął listę dopasowań (gdy wszystko jest w porządku, lista jest zwinięta)
   function pokazWyniki() {
     const odrz = $('#podp-odrzucone', arkTresc), c = $('#podp-wyniki', arkTresc); if (!c || !odrz) return;
     const dok = k.nazwyDok(), zle = wgrane.filter(w => w.powod), reszta = wgrane.filter(w => !w.powod);
     odrz.innerHTML = zle.length ? `<div class="wyniki">${zle.map(w => `<div class="wynik zle"><span class="wn">${esc(w.plik.name)}</span><small>${esc(w.powod)}</small></div>`).join('')}</div>` : '';
     const zapisana = w => { if (w.i === null || w.i === undefined) return ''; const n = nazwaWgranego(w.i, w.plik.name); return n !== w.plik.name ? n : ''; };
-    const wiersze = reszta.map(w => { const n = wgrane.indexOf(w), nowa = zapisana(w); return `<div class="wynik${w.i === null ? ' brak' : ''}"><span class="wn">${esc(w.plik.name)}${nowa ? `<em class="nowa-nazwa" title="Nazwa pliku zmieniona na taką, jak przy generowaniu">→ ${esc(nowa)}</em>` : ''}</span><select data-przypisz="${n}" aria-label="Dokument dla pliku ${esc(w.plik.name)}"><option value="">— nie przypisuj —</option>${dok.map(d => `<option value="${d.i}"${w.i === d.i ? ' selected' : ''}>${d.tytul}</option>`).join('')}</select>${w.jak ? `<small class="${w.jak === 'kolejnosc' ? 'uwaga' : ''}">${OPIS_JAK[w.jak]}</small>` : (w.i === null ? '<small class="uwaga">brak wolnego dokumentu — wybierz ręcznie</small>' : '')}</div>`; }).join('');
-    const doSprawdzenia = reszta.filter(w => w.i === null || w.jak === 'kolejnosc').length, ile = reszta.length;
+    const wiersze = reszta.map(w => { const n = wgrane.indexOf(w), nowa = zapisana(w); return `<div class="wynik${w.i === null ? ' brak' : ''}"><span class="wn">${esc(w.plik.name)}${nowa ? `<em class="nowa-nazwa" title="Nazwa pliku zmieniona na taką, jak przy generowaniu">→ ${esc(nowa)}</em>` : ''}</span><select data-przypisz="${n}" aria-label="Dokument dla pliku ${esc(w.plik.name)}"><option value="">— nie przypisuj —</option>${dok.map(d => `<option value="${d.i}"${w.i === d.i ? ' selected' : ''}>${d.tytul}</option>`).join('')}</select>${w.jak ? `<small class="${niepewne(w.jak) ? 'uwaga' : ''}">${OPIS_JAK[w.jak]}</small>` : (w.i === null ? '<small class="uwaga">brak wolnego dokumentu — wybierz ręcznie</small>' : '')}</div>`; }).join('');
+    const doSprawdzenia = reszta.filter(w => w.i === null || niepewne(w.jak)).length, ile = reszta.length;
     c.innerHTML = ile ? `<details class="wyniki-det"${doSprawdzenia || wynikiOtwarte ? ' open' : ''}><summary>${doSprawdzenia ? `Dopasowanie plików do sprawdzenia: ${doSprawdzenia} z ${ile}` : `${ik('i-ok')}Pliki dopasowane do dokumentów (${ile})`}<span>${doSprawdzenia || wynikiOtwarte ? '' : 'zmień przypisanie'}</span></summary><div class="wyniki">${wiersze}</div></details>` : '';
   }
 
@@ -416,7 +438,7 @@ export function zainstalujPodpis(k) {
     return o;
   }
   let wysylanie = false;
-  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie).
+  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
       Samo kliknięcie jest akceptacją: gdy wiadomość jest gotowa, dokumenty dostają status „wysłane” (karty pokazują „Wysłano”); „Cofnij wysłanie” na pulpicie go przywraca. */
   async function wyslij() {
     if (wysylanie) return; wysylanie = true;
@@ -429,9 +451,14 @@ export function zainstalujPodpis(k) {
       const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
       const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
-      if (matchMedia('(pointer:coarse)').matches && navigator.canShare && navigator.canShare({ files: [plik] })) {      // telefon: systemowe udostępnianie prosto do aplikacji pocztowej (adresat do wpisania)
-        try { await navigator.share({ files: [plik], title: tem, text: tr }); oznaczWyslane(); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}`); }
-        catch (e) { if (e.name !== 'AbortError') stanW('Nie udało się przekazać paczki do poczty.', true); else stanW(''); }
+      if (matchMedia('(pointer:coarse)').matches) {      // telefon: systemowe udostępnianie prosto do aplikacji pocztowej (adresat do wpisania); poczta na telefonie nie otwiera pliku .eml jako szkicu
+        if (navigator.canShare && navigator.canShare({ files: [plik] })) {
+          try { await navigator.share({ files: [plik], title: tem, text: tr }); oznaczWyslane(); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}`); return; }
+          catch (e) { if (e.name === 'AbortError') { stanW(''); return; } }      // Chrome na Androidzie nie udostępnia plików ZIP (NotAllowedError) — wtedy jak w przeglądarce bez udostępniania plików
+        }
+        k.pobierzBlob(blob, nazwaZip()); await czekaj(450);      // pauza: przejście do poczty tuż po pobraniu potrafi je przerwać
+        location.href = `mailto:${encodeURIComponent(adres)}?subject=${encodeURIComponent(tem)}&body=${encodeURIComponent(tr + `\n\n(Dołącz pobrany plik ${nazwaZip()})`)}`;
+        oznaczWyslane(); stanW(`Pobrałem zahasłowaną paczkę <span class="adr">${esc(nazwaZip())}</span>. W otwartej wiadomości do <span class="adr">${esc(adres)}</span> dołącz ją jako załącznik (folder Pobrane) i wyślij.${duza}`);
         return;
       }
       const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
@@ -491,7 +518,7 @@ export function zainstalujPodpis(k) {
   return {
     /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
     otworz(fokus) { const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
-      if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
+      if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(dokonczSprawdzanie).then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };
 }

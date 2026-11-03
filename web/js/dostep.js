@@ -276,7 +276,10 @@ export function dopiszMinuty() {
 }
 export function uruchomienie() { const d = stan(); d.kolejka.uruchomienia += 1; zapisz(d); startSesji = teraz(); }
 
-export async function puls() {
+/* jeden puls naraz: drugi wołający (logowanie i koniec startu, interwał i powrót karty) dostaje tę samą odpowiedź, inaczej serwer dopisałby tę samą kolejkę przyrostów dwa razy */
+let pulsWToku = null;
+export const puls = () => pulsWToku || (pulsWToku = pulsWlasciwy().finally(() => { pulsWToku = null; }));
+async function pulsWlasciwy() {
   const d0 = stan(), kod = d0.kod; if (!kod) return null;
   dopiszMinuty();
   const q = stan().kolejka;

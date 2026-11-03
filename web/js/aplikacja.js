@@ -1944,14 +1944,16 @@ const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
-/** Pamięć silnika w workerze (trasy, współrzędne, liczniki) czyścimy przy wylogowaniu i przy zmianie konta, a przed przeładowaniem kasujemy też dawną, jawną bazę IDBFS
- *  (wersje sprzed szyfrowania pamięci silnika), żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
+/** Pamięć silnika żyje tylko w workerze (jej trwała kopia jest w zaszyfrowanym magazynie konta). Przy zmianie konta czyścimy ją w workerze (najwyżej 4 s — brak silnika nie blokuje startu),
+ *  a przed przeładowaniem (wylogowanie, „Usuń dane”) worker i tak ginie: zamykamy go i kasujemy jeszcze dawną, jawną bazę IDBFS wersji sprzed szyfrowania pamięci silnika,
+ *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. */
 async function czyscSilnik(przedPrzeladowaniem) {
-  const limit = new Promise(r => setTimeout(() => r(false), 4000));      // prawdziwe 4 s: zegar() w trybie spokojnym to 0 ms, a przeładowanie zaraz potem zabijało workera przed zapisem kasowania
-  let gotowe = false; try { gotowe = await Promise.race([silnik.start().then(() => silnik.czysc()).then(() => true), limit]); } catch (e) { /* silnik nie wstał */ }
-  if (!gotowe && przedPrzeladowaniem) {      // nie zdążył (albo nie wstał): kasujemy całą bazę pamięci silnika; zamknięty worker nie blokuje jej usunięcia
-    try { silnik.w.terminate(); } catch (e) { /* worker już nie żyje */ }
+  if (przedPrzeladowaniem) {
+    try { silnik.w.terminate(); } catch (e) { /* worker już nie żyje */ }      // zamknięty worker nie blokuje usunięcia bazy
     await new Promise(ok => { setTimeout(ok, 2000); try { const q = indexedDB.deleteDatabase('/home/pyodide'); q.onsuccess = q.onerror = () => ok(); } catch (e) { ok(); } });
+  } else {
+    const limit = new Promise(r => setTimeout(r, 4000));      // prawdziwe 4 s: zegar() w trybie spokojnym to 0 ms
+    try { await Promise.race([silnik.start().then(() => silnik.czysc()), limit]); } catch (e) { /* silnik nie wstał: nie ma czego czyścić */ }
   }
   try { localStorage.removeItem('pmt-silnik-wlasciciel'); } catch (e) { /* bez pamięci */ }
 }

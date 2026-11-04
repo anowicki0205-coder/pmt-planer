@@ -266,13 +266,14 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
     return r.fulfill({ status: 400, headers: CORS, body: '' });
   });
   await t.ctx.route('https://outlook.office365.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><title>Szkic testowy</title><h1>SZKIC</h1>' }));
-  const cofnijIOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500); };
+  const cofnijIOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); if (await p.locator('#cofnij').isVisible()) await p.click('#cofnij'); await p.waitForTimeout(600); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500); };
+  const ustawMetode = async m => { for (let i = 0; i < 4; i++) { if ((await p.locator(`#arkusz .krok-k.k5 [data-akcja="wyslij"][data-metoda="${m}"]`).count()) === 1) return true; await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(350); } return false; };      // przełącza „Zmień sposób”, aż „Wyślij” ma wybraną metodę
   const czekajStan = re => p.waitForFunction(r => new RegExp(r).test(document.querySelector('#podp-wyslij-stan').textContent), re.source, { timeout: 90000 });
   const wyslijSel2 = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
   wlaczMs(false); await cofnijIOtworz();
-  ok('bez identyfikatora aplikacji Microsoft nic się nie zmienia: jeden przycisk „Wyślij” (plik .eml), bez „Inna poczta”, opis bez Outlooka', (await p.locator('#podp-wyslij-akcje button').count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0 && !/Outlook/.test(await opisK5()), await opisK5());
+  ok('bez identyfikatora aplikacji Microsoft nie ma szkicu w Outlooku: „Wyślij” (tu: plik .eml, bo tak ustawia zestaw testów) i „Zmień sposób” między „otwórz pocztę” a „plik .eml”; opis bez Outlooka', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && !/Outlook/.test(await opisK5()) && (await ustawMetode('outlook')) === false, await opisK5());
   wlaczMs(true); await cofnijIOtworz();
-  ok('po wpisaniu identyfikatora w pliku poczta_microsoft.txt krok 5 mówi o szkicu w Outlooku, „Wyślij” ma metodę „outlook”, obok jest „Inna poczta”', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && /Inna poczta/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && /szkic wiadomości w Twoim Outlooku/.test(await opisK5()) && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
+  ok('po wpisaniu identyfikatora w pliku poczta_microsoft.txt dochodzi trzeci sposób; po przełączeniu na „outlook” opis mówi o szkicu w Outlooku, a „Zmień sposób” zostaje obok', (await ustawMetode('outlook')) === true && (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && /Zmień sposób/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && /szkic wiadomości w Twoim Outlooku/.test(await opisK5()) && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
   await p.screenshot({ path: tmp + '/7_outlook_krok5.png' });
   // [H1] przeglądarka blokuje okno logowania → jasny komunikat i wyjście plikiem .eml
   await p.evaluate(() => { window.__openOrig = window.open; window.open = () => null; });
@@ -308,23 +309,32 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('okno logowania przeszło na gotowy szkic (adres Outlooka), status „Wysłane” ustawiony sam, w kroku 5 jest odnośnik „Otwórz szkic” na wypadek zablokowanego przekierowania', /outlook\.office365\.com\/owa\//.test(oknoOk.url()) && (await p.locator('#status').innerText()).includes('Wysłane') && (await p.locator('#podp-wyslij-stan a[href^="https://outlook.office365.com/"]').count()) === 1 && /Kliknij tam „Wyślij”/.test(await stanW()), oknoOk.url());
   ok('token ani kod autoryzacji nie zostają w pamięci przeglądarki (localStorage, sessionStorage, strona)', !(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.documentElement.outerHTML)).match(/TOKEN-TEST-Outlook|KOD-TEST-Outlook/));
   await oknoOk.close(); await p.screenshot({ path: tmp + '/7b_outlook_gotowe.png' });
-  // [H5] „Inna poczta” przełącza metodę i jest pamiętana
+  // [H5] „Zmień sposób” przełącza kolejno: outlook → poczta (mailto) → plik .eml → outlook; wybór jest pamiętany
   await cofnijIOtworz();
   await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
-  ok('„Inna poczta” przełącza „Wyślij” na plik .eml (przycisk zmienia się na „Użyj Outlooka”), wybór jest zapamiętany na urządzeniu', (await p.locator('#arkusz .krok-k.k5 [data-akcja="wyslij"][data-metoda="plik"]').count()) === 1 && /Użyj Outlooka/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
-  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
-  ok('przy wyborze „Inna poczta” „Wyślij” nie otwiera żadnego okna logowania — pobiera plik .eml jak dawniej', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml');
+  ok('„Zmień sposób” z Outlooka przechodzi na „otwórz pocztę” (mailto), opis mówi o programie pocztowym i folderze Pobrane, wybór zapamiętany na urządzeniu', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && /program pocztowy z adresem, tematem i treścią/.test(await opisK5()) && /folderze Pobrane/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'poczta', await opisK5());
+  // [H6] OTWARCIE POCZTY (mailto:) — jak w pierwszej wersji: jeden klik, program pocztowy dostaje adres, temat i treść; paczka ZIP zapisuje się w Pobranych
+  await p.evaluate(() => { window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
+  const zipPoczta = await pobierz(wyslijSel2); await p.waitForTimeout(600);
+  const mailto = await p.evaluate(() => window.__mailto), mm = /^mailto:([^?]+)\?subject=([^&]*)&body=(.*)$/s.exec(mailto[0] || ''), temM = mm ? decodeURIComponent(mm[2]) : '', trM = mm ? decodeURIComponent(mm[3]) : '';
+  ok('jedno kliknięcie: poczta otwarta dokładnie raz, adres z arkusza z „@” wprost (bez %40), temat „[PMT] Delegacje — Jan Testowy — …”, treść o zahasłowanej paczce z nowymi wierszami CRLF i podpisem; bez hasła, PESEL-u i bez dopisków w nawiasach', mailto.length === 1 && !!mm && mm[1] === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(temM) && /zahasłowana paczka \(ZIP\)/.test(trM) && /\r\n/.test(trM) && /Jan Testowy\s*$/.test(trM) && !trM.includes(HASLO) && !mailto[0].includes('90010112349') && !/\(Dołącz/.test(trM), mailto[0]);
+  const zipPocztaOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipPoczta.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
+  ok('paczka zapisała się do Pobranych sama (nazwa Dokumenty_….zip), otwiera się hasłem administratora, ≥ 7 plików', /^Dokumenty_.*\.zip$/.test(zipPoczta.nazwa) && Number(zipPocztaOk) >= 7, zipPoczta.nazwa + ' / ' + zipPocztaOk);
+  ok('komunikat: „Otworzyłem pocztę z adresem…”, nazwa paczki, instrukcja „dołącz ją do wiadomości”, przycisk „Otwórz wiadomość” z tym samym mailto; status „Wysłane” ustawiony sam; nie otwarto okna logowania ani pliku .eml', /Otworzyłem pocztę z adresem/.test(await stanW()) && /dołącz ją do wiadomości/.test(await stanW()) && (await p.locator('#podp-otworz-poczte').getAttribute('href')) === mailto[0] && (await p.locator('#status').innerText()).includes('Wysłane') && !/\.eml/.test(zipPoczta.nazwa));
+  await p.screenshot({ path: tmp + '/7c_poczta_mailto.png' });
   await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
-  ok('„Użyj Outlooka” wraca do szkicu w Outlooku', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'outlook');
-  wlaczMs(false); await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
-  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
-  ok('po usunięciu identyfikatora z pliku okno wraca do zwykłego „Wyślij” (plik .eml) bez „Inna poczta”', (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0 && (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1);
-  await p.evaluate(() => localStorage.removeItem('pmt-ui-poczta'));
+  ok('kolejne „Zmień sposób”: z „otwórz pocztę” na plik .eml (opis „przygotuje wiadomość”), wybór zapamiętany', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && /przygotuje wiadomość/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
+  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
+  ok('przy sposobie „plik .eml” „Wyślij” nie otwiera ani poczty, ani okna logowania — pobiera plik .eml jak dawniej', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.evaluate(() => window.__mailto.length)) === 1);
+  await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
+  ok('trzecie „Zmień sposób” zamyka koło i wraca do szkicu w Outlooku', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'outlook');
+  // bez identyfikatora Microsoft nie ma Outlooka: zapamiętany „outlook” nie obowiązuje, domyślną staje się „poczta”, a koło ma dwa sposoby
+  wlaczMs(false); await cofnijIOtworz();
+  ok('po usunięciu identyfikatora z pliku zapamiętany „outlook” przestaje obowiązywać: „Wyślij” otwiera pocztę (mailto), „Zmień sposób” przełącza już tylko między pocztą a plikiem .eml', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && (await ustawMetode('outlook')) === false);
+  ok('wracamy do „plik .eml” dla kolejnych kroków testu', (await ustawMetode('plik')) === true && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
+  const pobPoOutlook = await pobierz(wyslijSel2);      // dokumenty są teraz niewysłane i okno otwarte: plik .eml await p.waitForTimeout(500);      // przywraca stan „Wysłane”, którego oczekują kolejne kroki testu
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
-  await p.click('#cofnij'); await p.waitForTimeout(600); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900);
-  const pobPoOutlook = await pobierz(wyslijSel2); await p.waitForTimeout(500);      // przywraca stan „Wysłane”, którego oczekują kolejne kroki testu
-  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
-  ok('po całym scenariuszu Outlooka stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoOutlook.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+  ok('po całym scenariuszu wysyłki stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoOutlook.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
 
   /* [G] telefon, na którym udostępnienie ZIP-a się nie udaje (Chrome na Androidzie odrzuca pliki ZIP błędem NotAllowedError): pobrana paczka + wiadomość przez mailto:, a nie błąd bez wyjścia */
   await p.click('#cofnij'); await p.waitForTimeout(600);

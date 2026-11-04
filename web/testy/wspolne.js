@@ -25,7 +25,7 @@ function serwer(opcje = {}) {
 /** „Dzisiaj” w testach: stałe (PMT_DZIEN albo 15.10.2026 12:00) — i dla aplikacji (new Date() w stronie), i dla testów liczących dni po stronie Node. */
 const dzisTestow = () => new Date(process.env.PMT_DZIEN || '2026-10-15T12:00:00');
 const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
-async function otworz({ widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
+async function otworz({ pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
   backend = backend || new BackendMock();
   const op = opcjeSerwera || {}; if (op.sekret === undefined) op.sekret = 'SEKRET-TESTOWY'; const host = process.env.HTTP_HOST || '';      // HTTP_HOST=pmt.example: aplikacja otwarta pod zwykłym adresem http (nie localhost) — jak na serwerze bez https: brak Web Crypto, service workera i instalacji
   const sv = await serwer(op); if (host) sv.adres = 'http://' + host + ':' + sv.port; const b = await chromium.launch({ args: host ? [...ARGS, `--host-resolver-rules=MAP ${host} 127.0.0.1`] : ARGS });      // obiekt opcji można zmieniać w trakcie testu (np. dołożyć menedzer.txt)
@@ -49,6 +49,9 @@ async function otworz({ widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 
   // okno „Dokumenty do podpisu” w aplikacji otwiera się domyślnie w widoku 3D; zestaw testów od dawna opisuje listę kart, więc domyślnie ustawiamy „Karty” (tylko gdy wyboru jeszcze nie ma —
   // wybór zrobiony w teście przeżywa przeładowanie); widokDok: null = bez ustawiania (prawdziwy domyślny widok), '3d' = widok 3D
   if (widokDok) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-widok-dok') === null) localStorage.setItem('pmt-ui-widok-dok', v); } catch (e) {} }, widokDok);
+  // sposób wysyłki dokumentów: aplikacja domyślnie otwiera na komputerze program pocztowy (mailto:); zestaw testów od dawna opisuje plik .eml, więc domyślnie ustawiamy „plik”
+  // (tylko gdy wyboru jeszcze nie ma); pocztaDomyslna: null = bez ustawiania (prawdziwy domyślny sposób), 'poczta' / 'outlook' = wybrany sposób
+  if (pocztaDomyslna) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
   if (!wycieczka) await ctx.addInitScript(() => { try { localStorage.setItem('pmt-ui-wycieczka', '1'); } catch (e) {} });      // wycieczka po aplikacji (pierwsze uruchomienie) nie zasłania testów; test wycieczki prosi o nią wprost
   if (!pelnaZorza) await ctx.addInitScript(() => { window.__zorzaRzadko = true; });      // testy na grafice programowej: zorza odświeża się rzadko (aplikacja produkcyjna go nie ustawia)
   if (bezZycia) await ctx.addInitScript(() => { window.__bezZycia = true; });      // „życie” kalendarza i fiolek (koniec css/aplikacja.css) domyślnie wyłączone w testach: Playwright nie klika elementów, które się poruszają („element is not stable”); test zycie_app.js włącza je jawnie (bezZycia: false), a ZYCIE=tak włącza je w każdym teście

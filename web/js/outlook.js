@@ -40,13 +40,13 @@ export function adresLogowania({ klient, powrot, state, challenge }) {
 /** Komunikat po polsku z błędu Microsoft (token lub Graph); szczegół techniczny zostaje w nawiasie na końcu. */
 export function komunikatBledu(e) {
   const t = String((e && e.message) || e || ''), kod = (t.match(/AADSTS\d+/) || [])[0] || '';
-  if (/AADSTS65001|consent_required|interaction_required|AADSTS90094/.test(t)) return 'Poczta wymaga zgody administratora Twojej firmy na tę aplikację (uprawnienie do tworzenia szkiców). Poproś go o zgodę albo użyj „Inna poczta”.';
+  if (/AADSTS65001|consent_required|interaction_required|AADSTS90094/.test(t)) return 'Poczta wymaga zgody administratora Twojej firmy na tę aplikację (uprawnienie do tworzenia szkiców). Poproś go o zgodę albo użyj „Zmień sposób”.';
   if (/AADSTS700016|AADSTS50011|AADSTS900971/.test(t)) return `Aplikacja nie jest poprawnie zarejestrowana w Microsoft (identyfikator albo adres powrotu) — zgłoś to administratorowi (${kod}).`;
-  if (/AADSTS50020|AADSTS500200|AADSTS90072|personal.*accounts/i.test(t)) return `To konto Microsoft nie jest dozwolone dla tej aplikacji (${kod}). Użyj „Inna poczta”.`;
-  if (/access_denied|AADSTS65004/.test(t)) return 'Odmówiono zgody na dostęp do poczty — bez niej nie przygotuję szkicu. Spróbuj jeszcze raz albo użyj „Inna poczta”.';
-  if (/MailboxNotEnabledForRESTAPI|MailboxNotSupportedForRESTAPI|ResourceNotFound.*mailbox|REST API is not yet supported/i.test(t)) return 'To konto nie ma skrzynki Outlook obsługiwanej przez aplikację (np. skrzynka lokalna). Użyj „Inna poczta”.';
-  if (/\b401\b|InvalidAuthenticationToken|\b403\b|ErrorAccessDenied/i.test(t)) return 'Poczta odrzuciła dostęp (brak uprawnień do tworzenia szkiców). Spróbuj jeszcze raz albo użyj „Inna poczta”.';
-  if (/\b413\b|RequestEntityTooLarge|ErrorMessageSizeExceeded|too large/i.test(t)) return 'Paczka jest za duża dla Twojej skrzynki. Zrób mniejsze skany albo użyj „Inna poczta”.';
+  if (/AADSTS50020|AADSTS500200|AADSTS90072|personal.*accounts/i.test(t)) return `To konto Microsoft nie jest dozwolone dla tej aplikacji (${kod}). Użyj „Zmień sposób”.`;
+  if (/access_denied|AADSTS65004/.test(t)) return 'Odmówiono zgody na dostęp do poczty — bez niej nie przygotuję szkicu. Spróbuj jeszcze raz albo użyj „Zmień sposób”.';
+  if (/MailboxNotEnabledForRESTAPI|MailboxNotSupportedForRESTAPI|ResourceNotFound.*mailbox|REST API is not yet supported/i.test(t)) return 'To konto nie ma skrzynki Outlook obsługiwanej przez aplikację (np. skrzynka lokalna). Użyj „Zmień sposób”.';
+  if (/\b401\b|InvalidAuthenticationToken|\b403\b|ErrorAccessDenied/i.test(t)) return 'Poczta odrzuciła dostęp (brak uprawnień do tworzenia szkiców). Spróbuj jeszcze raz albo użyj „Zmień sposób”.';
+  if (/\b413\b|RequestEntityTooLarge|ErrorMessageSizeExceeded|too large/i.test(t)) return 'Paczka jest za duża dla Twojej skrzynki. Zrób mniejsze skany albo użyj „Zmień sposób”.';
   if (/Failed to fetch|NetworkError|Load failed/i.test(t)) return 'Brak połączenia z pocztą Microsoft. Sprawdź internet i spróbuj jeszcze raz.';
   return 'Nie udało się przygotować szkicu w Outlooku (' + t.slice(0, 160) + ').';
 }

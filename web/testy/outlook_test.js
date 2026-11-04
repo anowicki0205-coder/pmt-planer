@@ -65,7 +65,7 @@
     [new Error('token: HTTP 400 AADSTS65001: The user has not consented'), /zgody administratora/], [new Error('x AADSTS700016: Application not found'), /nie jest poprawnie zarejestrowana/], [new Error('access_denied: AADSTS65004: odmowa'), /Odmówiono zgody/],
     [new Error('szkic: HTTP 401 InvalidAuthenticationToken'), /odrzuciła dostęp/], [new Error('wysyłanie paczki: HTTP 413 RequestEntityTooLarge'), /za duża/], [new TypeError('Failed to fetch'), /Brak połączenia/], [new Error('coś dziwnego'), /Nie udało się przygotować szkicu/],
   ].every(([e, re]) => re.test(m.komunikatBledu(e))));
-  ok('każdy komunikat błędu podpowiada wyjście („Inna poczta”) albo poprawkę, a nie zostawia bez drogi', ['AADSTS65001', 'access_denied', 'HTTP 401', 'RequestEntityTooLarge'].every(t => /Inna poczta|Zrób mniejsze|Spróbuj/.test(m.komunikatBledu(new Error(t)))));
+  ok('każdy komunikat błędu podpowiada wyjście („Zmień sposób”) albo poprawkę, a nie zostawia bez drogi', ['AADSTS65001', 'access_denied', 'HTTP 401', 'RequestEntityTooLarge'].every(t => /Zmień sposób|Zrób mniejsze|Spróbuj/.test(m.komunikatBledu(new Error(t)))));
 
   console.log(kod ? 'WYNIK: są błędy' : 'WYNIK: wszystko dobrze'); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.stack); process.exit(2); });

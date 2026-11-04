@@ -150,20 +150,30 @@ export function zainstalujPodpis(k) {
   const wyslane = () => !!M().wyslane;
   const mozeWyslac = () => wszystkoPodpisane() && !wyslane() && !zablokowana();
   const dataPl = iso => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; const p = n => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-  /* Szkic w Outlooku (Microsoft Graph, js/outlook.js): tylko na komputerze, na stronie z https i gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt). Użytkownik z inną pocztą
-     jednym kliknięciem („Inna poczta”) przełącza się na plik .eml; wybór pamiętany na urządzeniu. Bez identyfikatora wszystko działa jak dotąd. */
+  /* Trzy sposoby wysyłki (na telefonie zawsze systemowe udostępnianie z plikiem — to jest gałąź „plik”):
+       • „outlook” — szkic w skrzynce Outlook (Microsoft Graph, js/outlook.js), gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt) i strona ma https;
+       • „poczta”  — DOMYŚLNIE na komputerze: link mailto: otwiera program pocztowy z adresem, tematem i treścią, a zahasłowana paczka zapisuje się w folderze Pobrane (do dołączenia;
+                     mailto: nie umie dołączyć pliku — przeglądarki na to nie pozwalają). Tak działała pierwsza wersja wysyłki;
+       • „plik”    — plik .eml z adresem, tematem, treścią I załącznikiem (otwarcie pliku w Outlooku, Thunderbirdzie, Poczcie Windows daje gotową wiadomość).
+     Przycisk „Zmień sposób” przełącza kolejno; wybór pamiętany na urządzeniu. */
   let klientMs = '', pobieranieKlienta = false;
   const czyOutlook = () => !!klientMs && !matchMedia('(pointer:coarse)').matches && !!(globalThis.crypto && crypto.subtle);
-  let prefPoczty = (() => { try { return localStorage.getItem('pmt-ui-poczta') === 'plik' ? 'plik' : 'outlook'; } catch (e) { return 'outlook'; } })();
-  const metodaWysylki = () => czyOutlook() && prefPoczty === 'outlook' ? 'outlook' : 'plik';
+  const METODY = ['outlook', 'poczta', 'plik'];
+  let prefPoczty = (() => { try { const v = localStorage.getItem('pmt-ui-poczta'); return METODY.includes(v) ? v : ''; } catch (e) { return ''; } })();
+  const dostepneMetody = () => matchMedia('(pointer:coarse)').matches ? ['plik'] : [...(czyOutlook() ? ['outlook'] : []), 'poczta', 'plik'];
+  const metodaWysylki = () => { const d = dostepneMetody(); return d.includes(prefPoczty) ? prefPoczty : d[0]; };
   function wczytajKlientaMs() { if (pobieranieKlienta) return; pobieranieKlienta = true; wczytajKlienta().then(id => { if (id !== klientMs) { klientMs = id; odswiezWidok(); } }).finally(() => { pobieranieKlienta = false; }); }      // przy każdym otwarciu okna (mały plik, bez pamięci podręcznej): zmiana ustawienia działa od razu
-  function zmienPoczte() { prefPoczty = metodaWysylki() === 'outlook' ? 'plik' : 'outlook'; try { localStorage.setItem('pmt-ui-poczta', prefPoczty); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } odswiezWidok(); }
-  const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij" data-metoda="${metodaWysylki()}">${ik('i-wyslij')}Wyślij</button>${czyOutlook() ? `<button type="button" class="przycisk maly" data-akcja="zmien-poczte">${metodaWysylki() === 'outlook' ? 'Inna poczta' : 'Użyj Outlooka'}</button>` : ''}`
+  function zmienPoczte() { const d = dostepneMetody(); prefPoczty = d[(d.indexOf(metodaWysylki()) + 1) % d.length]; try { localStorage.setItem('pmt-ui-poczta', prefPoczty); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } odswiezWidok(); }
+  /** mailto: (RFC 6068): „@” zostaje w adresie, temat i treść zakodowane, nowe wiersze jako CRLF. */
+  const mailtoDo = (adres, tem, tr) => `mailto:${encodeURIComponent(adres).replace(/%40/g, '@')}?subject=${encodeURIComponent(tem)}&body=${encodeURIComponent(String(tr).replace(/\r?\n/g, '\r\n'))}`;
+  /** Otwarcie poczty. Test może przechwycić adres (okno __testy), bo przeglądarka bez zainstalowanego programu pocztowego nic z mailto: nie robi. */
+  const otworzMailto = u => { if (window.__testy && typeof window.__przechwycMailto === 'function') { window.__przechwycMailto(u); return; } try { location.href = u; } catch (e) { /* bez programu pocztowego — jest odnośnik w komunikacie */ } };
+  const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij" data-metoda="${metodaWysylki()}">${ik('i-wyslij')}Wyślij</button>${dostepneMetody().length > 1 ? `<button type="button" class="przycisk maly" data-akcja="zmien-poczte">Zmień sposób</button>` : ''}`
     : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik(wyslane() ? 'i-ok' : 'i-wyslij')}${wyslane() ? 'Wysłano' : 'Wyślij'}</button>`;
   const opisWyslij = () => !wszystkoPodpisane() ? 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.'
     : wyslane() ? `Dokumenty wysłane${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}. Gdyby wiadomość nie wyszła z poczty, „Cofnij wysłanie” na pulpicie przywraca stan sprzed wysyłki.`
     : zablokowana() ? esc(daneWysylki.komunikat)
-    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${metodaWysylki() === 'outlook' ? 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)' : 'przygotuje wiadomość'}${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
+    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${({ outlook: 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)', poczta: 'otworzy Twój program pocztowy z adresem, tematem i treścią (paczkę zapisze w folderze Pobrane, do dołączenia)' })[metodaWysylki()] || 'przygotuje wiadomość'}${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
   function wczytajDane() { if (daneWysylki !== undefined || pobieranieDanych) return; pobieranieDanych = true; hasloDoPaczki().then(o => { daneWysylki = o; }).finally(() => { pobieranieDanych = false; odswiezWidok(); }); }
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
@@ -486,6 +496,16 @@ export function zainstalujPodpis(k) {
       const adres = h.adres;
       stanW('Przygotowuję zahasłowaną paczkę…'); await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
       const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
+      if (metoda === 'poczta') {      // otwieramy pocztę JAK NAJSZYBCIEJ po kliknięciu (przeglądarka pozwala na to tylko tuż po geście użytkownika), zanim szyfrowanie zajmie procesor
+        const mailto = mailtoDo(adres, temat(), trescWiad(zal.length));
+        otworzMailto(mailto); stanW('Otwieram pocztę i przygotowuję zahasłowaną paczkę…'); await czekaj(60);
+        const blobP = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo);
+        k.pobierzBlob(blobP, nazwaZip()); await czekaj(450);
+        oznaczWyslane();
+        stanW(`Otworzyłem pocztę z adresem <span class="adr">${esc(adres)}</span>, tematem i treścią. Zahasłowana paczka <span class="adr">${esc(nazwaZip())}</span> zapisała się w folderze Pobrane — <span class="adr">dołącz ją do wiadomości</span> (spinacz → ostatnio pobrane albo przeciągnij z paska pobierania) i wyślij. Jeśli poczta się nie otworzyła: <a class="przycisk maly" id="podp-otworz-poczte" href="${esc(mailto)}">Otwórz wiadomość</a>${blobP.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blobP.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : ''}`);
+        pokazToast('Poczta otwarta — dołącz paczkę z folderu Pobrane i wyślij');
+        return;
+      }
       const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
       if (metoda === 'outlook') { oknoZostaje = await szkicOutlook(okno, { adres, tem, tr, blob, duza }); return; }
@@ -522,7 +542,7 @@ export function zainstalujPodpis(k) {
     else if (a === 'zip') zip();
     else if (a === 'osobno') pobierzOsobno();
     else if (a === 'glowny') pokaz('glowny');
-    else if (a === 'wyslij') { const m = b.dataset.metoda === 'outlook' && czyOutlook() ? 'outlook' : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
+    else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
     else if (a === 'wyslij-plik') wyslij('plik', null);
     else if (a === 'zmien-poczte') zmienPoczte();
     else if (a === 'widok') ustawWidok(b.dataset.w === '3d' ? '3d' : 'lista');

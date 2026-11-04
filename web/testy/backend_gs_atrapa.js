@@ -72,6 +72,6 @@ function zaladuj(opcje = {}) {
     const klucz = hashKlucza || (haslo ? sha256hex(`PMT|${o.kod}|${haslo}`) : ''); if (klucz) o.podpis_hasla = crypto.createHmac('sha256', klucz).update(baza, 'utf8').digest('hex'); return o; };
   const post = (d, { bezPodpisu = false, haslo = '', hashKlucza = '' } = {}) => { const o = vm.runInContext('doPost', ctx)({ postData: { contents: typeof d === 'string' ? d : JSON.stringify(bezPodpisu ? d : podpisz(d, haslo, hashKlucza)) } }); return JSON.parse(o.tresc); };
   const formuly = () => { const wynik = []; zak.forEach((z, n) => z.w.forEach((r, i) => r.forEach((v, j) => { if (czyFormula(v)) wynik.push(`${n}!R${i + 1}C${j + 1}=${String(v).slice(0, 60)}`); }))); return wynik; };
-  return { ctx, zak, arkusz, post, formuly, dodajUzytkownika, dalej: ms => { zegar += ms; }, blokada: stan, hash: (kod, haslo) => sha256hex(`PMT|${kod}|${haslo}`), uz, wywolaj: kod => vm.runInContext(kod, ctx), get: n => zak.get(n) };
+  return { ctx, zak, arkusz, pamiec, post, formuly, dodajUzytkownika, dalej: ms => { zegar += ms; }, blokada: stan, hash: (kod, haslo) => sha256hex(`PMT|${kod}|${haslo}`), uz, wywolaj: kod => vm.runInContext(kod, ctx), get: n => zak.get(n) };
 }
 module.exports = { zaladuj, SCIEZKA, czyFormula, istnieje: () => fs.existsSync(SCIEZKA) };

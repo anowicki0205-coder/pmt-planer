@@ -108,5 +108,24 @@ globalThis.fetch = async (url, o = {}) => {
   ok('każde zapytanie aplikacji niesie klient: "web" (logowanie, puls)', w.ok && zLogowania.klient === 'web' && ostatnieZapytanie.akcja === 'puls' && ostatnieZapytanie.klient === 'web', JSON.stringify([zLogowania && zLogowania.klient, ostatnieZapytanie && ostatnieZapytanie.klient]));
   D.wyloguj();
 
+  /* hasło zmienione na innym urządzeniu: pierwszy puls bez „pelne” — dalej karta nie podpisuje starym skrótem (nie zużywa limitu złych podpisów konta) */
+  B.paczka = { haslo: 'Tajne-Haslo-1', wazne_do: '2099-12-31', adres: 'kierownik@firma.pl' };
+  w = await D.zaloguj('12345', 'haslo123'); const hashPrzed = B.uzytkownicy['12345'].hash;
+  B.uzytkownicy['12345'].hash = sha('PMT|12345|inneHaslo9');
+  await D.puls(); const pierwszy = ostatnieZapytanie; await D.puls(); const drugi = ostatnieZapytanie;
+  const zapPrzed = ostatnieZapytanie, hp2 = await D.pobierzHasloPaczki();
+  ok('stare hasło: pierwszy puls podpisany, po „pelne: false” kolejne już bez podpisu hasłem', !!pierwszy.podpis_hasla && !drugi.podpis_hasla, JSON.stringify([!!pierwszy.podpis_hasla, !!drugi.podpis_hasla]));
+  ok('…a hasło paczki od razu prosi o ponowne logowanie, bez pytania serwera', hp2.powod === 'logowanie' && ostatnieZapytanie === zapPrzed, JSON.stringify(hp2));
+  D.wyloguj(); B.uzytkownicy['12345'].hash = hashPrzed;
+  w = await D.zaloguj('12345', 'haslo123'); await D.puls();
+  ok('ponowne logowanie przywraca podpis hasłem', w.ok && !!ostatnieZapytanie.podpis_hasla);
+  /* serwer zajęty (kolejka) to nie odmowa konta */
+  const obsluz = B.obsluz.bind(B); B.obsluz = t => (JSON.parse(t).akcja === 'haslo_paczki' ? { status: 'blad', opis: 'Serwer zajety — sprobuj ponownie za chwile' } : obsluz(t));
+  const hp3 = await D.pobierzHasloPaczki(); B.obsluz = obsluz;
+  ok('„Serwer zajety” przy haśle paczki: komunikat „spróbuj ponownie”, nie „wyloguj się”', hp3.powod === 'siec' && /Serwer zajety/.test(hp3.komunikat) && !/Wyloguj/.test(hp3.komunikat), JSON.stringify(hp3));
+  const hp4 = await D.pobierzHasloPaczki();
+  ok('…i nie oznacza skrótu jako nieaktualnego (następna próba idzie normalnie)', hp4.ok, JSON.stringify(hp4));
+  D.wyloguj();
+
   console.log(kod ? 'BŁĘDY' : 'WSZYSTKO OK'); process.exit(kod);
 })().catch(e => { console.error(e); process.exit(1); });

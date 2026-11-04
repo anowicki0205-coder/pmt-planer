@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:7cd256e6d43d238e
+# źródło: PMT_Delegacje.py sha256:0e1cf00eee3a9d7c
 
 import sys
 
@@ -470,12 +470,16 @@ def _sekret_aplikacji_odczyt() -> str:
     _sekret_aplikacji_dziennik()
     return ""
 
+_SKROTY_SESJI = {}
+
 def _skrot_hasla_lokalny(kod) -> str:
-    """Skrót hasła konta zapisany na TYM komputerze po udanym logowaniu (ten sam
-    „PMT|kod|hasło”, który backend trzyma w kolumnie „Haslo hash”); pusty, gdy konto
-    nie logowało się tu jeszcze albo nie ma hasła. Samo hasło nigdy nie jest zapisywane."""
+    """Skrót hasła konta z logowania w TYM procesie (patrz _SKROTY_SESJI); pusty,
+    gdy konto się nie logowało. Samo hasło nigdy nie jest zapisywane."""
     kod = str(kod or "").strip()
+    if _SKROTY_SESJI.get(kod):
+        return _SKROTY_SESJI[kod]
     try:
+        # pliki sprzed 3.25.1, których _usun_skroty_z_dysku jeszcze nie przepisała
         skrot = (_wczytaj(PLIK_LOGOWAN, {}).get(kod, {}) or {}).get("skrot")
         if skrot:
             return str(skrot)

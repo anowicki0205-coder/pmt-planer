@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '620a3159509e';
+const WERSJA = '7c4141229ab9';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -56,7 +56,7 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "2a3347b837046def",
+ "./css/aplikacja.css": "e25c61221eeac06d",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
@@ -64,7 +64,7 @@ const SKROTY = {
  "./ikony/logo-192.png": "6f1af7c8a362f1aa",
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "49ca7c61c2933501",
- "./js/aplikacja.js": "7a2d06e02c24bbb3",
+ "./js/aplikacja.js": "55519dfba403f614",
  "./js/dokument_atrapa.js": "6e6b80f5982956f3",
  "./js/dostep.js": "a2793ff8c2e3a16e",
  "./js/karuzela.js": "d64507d7e8c41a91",
@@ -75,7 +75,7 @@ const SKROTY = {
  "./js/podpis.js": "e0fa7b4771d320ad",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
- "./js/przeniesienie.js": "59e1db590291b895",
+ "./js/przeniesienie.js": "6a373490ec3038b5",
  "./js/sejf.js": "c9969d31c10a7ed6",
  "./js/silnik.js": "f359a47bf81defe4",
  "./js/silnik.worker.js": "8ad1cac7450048f3",
@@ -89,8 +89,8 @@ const SKROTY = {
  "./silnik/boot.py": "3016d346355bb8ed",
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
- "./silnik/most.py": "af27f101e518da3d",
- "./silnik/pmt_silnik.py": "03dd9b7fd3220094",
+ "./silnik/most.py": "36f09af5d8c9f09a",
+ "./silnik/pmt_silnik.py": "03ed5e5a31b3c456",
  "./silnik/sieci_cel.txt": "31135fd9d9200248",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",
  "./vendor/czcionki/geist-latin-wght-normal.woff2": "19f9c92546aa300c",

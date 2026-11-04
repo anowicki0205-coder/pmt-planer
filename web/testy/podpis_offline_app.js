@@ -6,7 +6,7 @@
 const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const PY = process.env.PYTHON_PODPISY || '/tmp/phvenv/bin/python', DANE = path.join(__dirname, 'dane');
-  const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
+  const OPSERW = {}; const t = await otworz({ w: 1440, h: 900, opcjeSerwera: OPSERW }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'podpis-'));
   const HASLO = 'Admin-Haslo-Paczki#2026', ADRES = 'odbiorca@example.com';
@@ -239,8 +239,8 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   /* [H] SZKIC W OUTLOOKU (Microsoft Graph): gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt), „Wyślij” loguje do poczty użytkownika w osobnym oknie, tworzy szkic z adresem, tematem,
      treścią i zahasłowaną paczką i otwiera go w Outlooku. Microsoft jest tu atrapą (trasy Playwrighta): sprawdzamy to, co wysyłamy i jak aplikacja radzi sobie z odmową, złym tokenem i zablokowanym oknem. */
   const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,content-range', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' };
-  const ms = { wlaczony: false, klient: '11111111-2222-3333-4444-555555555555', zadania: [], szkic: null, zalaczniki: [], sesja: null, kawalki: [], putZAutoryzacja: false, odmowa: false, zlyToken: false, token: 'TOKEN-TEST-Outlook' };
-  await t.ctx.route('**/poczta_microsoft.txt', r => r.fulfill({ status: ms.wlaczony ? 200 : 404, contentType: 'text/plain', body: ms.wlaczony ? '# test\n' + ms.klient.toUpperCase() + '\n' : '' }));
+  const ms = { klient: '11111111-2222-3333-4444-555555555555', zadania: [], szkic: null, zalaczniki: [], sesja: null, kawalki: [], putZAutoryzacja: false, odmowa: false, zlyToken: false, token: 'TOKEN-TEST-Outlook' };
+  const wlaczMs = on => { OPSERW.pocztaMs = on ? ms.klient.toUpperCase() : ''; };      // plik poczta_microsoft.txt podaje serwer testowy (service worker pobiera go sam, więc trasa Playwrighta by go nie przechwyciła)
   await t.ctx.route('https://login.microsoftonline.com/**', async r => {
     const rq = r.request(), u = new URL(rq.url());
     if (rq.method() === 'OPTIONS') return r.fulfill({ status: 204, headers: CORS });
@@ -269,8 +269,9 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const cofnijIOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500); };
   const czekajStan = re => p.waitForFunction(r => new RegExp(r).test(document.querySelector('#podp-wyslij-stan').textContent), re.source, { timeout: 90000 });
   const wyslijSel2 = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
-  ok('bez identyfikatora aplikacji Microsoft nic się nie zmienia: jeden przycisk „Wyślij” (plik .eml), bez „Inna poczta”', (await p.locator('#podp-wyslij-akcje button').count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0);
-  ms.wlaczony = true; await cofnijIOtworz();
+  wlaczMs(false); await cofnijIOtworz();
+  ok('bez identyfikatora aplikacji Microsoft nic się nie zmienia: jeden przycisk „Wyślij” (plik .eml), bez „Inna poczta”, opis bez Outlooka', (await p.locator('#podp-wyslij-akcje button').count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0 && !/Outlook/.test(await opisK5()), await opisK5());
+  wlaczMs(true); await cofnijIOtworz();
   ok('po wpisaniu identyfikatora w pliku poczta_microsoft.txt krok 5 mówi o szkicu w Outlooku, „Wyślij” ma metodę „outlook”, obok jest „Inna poczta”', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && /Inna poczta/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && /szkic wiadomości w Twoim Outlooku/.test(await opisK5()) && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
   await p.screenshot({ path: tmp + '/7_outlook_krok5.png' });
   // [H1] przeglądarka blokuje okno logowania → jasny komunikat i wyjście plikiem .eml
@@ -315,7 +316,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('przy wyborze „Inna poczta” „Wyślij” nie otwiera żadnego okna logowania — pobiera plik .eml jak dawniej', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml');
   await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
   ok('„Użyj Outlooka” wraca do szkicu w Outlooku', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'outlook');
-  ms.wlaczony = false; await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  wlaczMs(false); await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
   ok('po usunięciu identyfikatora z pliku okno wraca do zwykłego „Wyślij” (plik .eml) bez „Inna poczta”', (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0 && (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1);
   await p.evaluate(() => localStorage.removeItem('pmt-ui-poczta'));

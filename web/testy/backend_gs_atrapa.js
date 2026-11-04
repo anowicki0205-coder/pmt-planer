@@ -4,21 +4,24 @@
 const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
 const SCIEZKA = path.resolve(__dirname, '../../apps_script_POPRAWIONY_v2.gs');
 const czyFormula = v => typeof v === 'string' && /^[=+\-@]/.test(v);
+// Arkusz trzyma wiodący apostrof jako znacznik „to tekst”, a nie część wartości: getValue(s) oddaje „=…” bez niego (zapisany z powrotem przez setValue(s) byłby formułą).
+const odczyt = v => (typeof v === 'string' && v.charAt(0) === "'" ? v.slice(1) : v);
 
 class Zakladka {
-  constructor(nazwa) { this.nazwa = nazwa; this.w = []; }
+  constructor(nazwa) { this.nazwa = nazwa; this.w = []; this.formaty = {}; }
   getLastRow() { return this.w.length; }
   appendRow(r) { this.w.push(r.slice()); }
   setFrozenRows() {}
-  getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.slice()) }; }
+  getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.map(odczyt)) }; }
   getRange(r, c, nr = 1, nc = 1) {
     const t = this;
     return {
-      getValues: () => { const o = []; for (let i = 0; i < nr; i++) { const x = []; for (let j = 0; j < nc; j++) x.push((t.w[r - 1 + i] || [])[c - 1 + j] ?? ''); o.push(x); } return o; },
-      getValue: () => (t.w[r - 1] || [])[c - 1] ?? '',
+      getValues: () => { const o = []; for (let i = 0; i < nr; i++) { const x = []; for (let j = 0; j < nc; j++) x.push(odczyt((t.w[r - 1 + i] || [])[c - 1 + j] ?? '')); o.push(x); } return o; },
+      getValue: () => odczyt((t.w[r - 1] || [])[c - 1] ?? ''),
       setValues: v => { v.forEach((rz, i) => rz.forEach((x, j) => { t.w[r - 1 + i] = t.w[r - 1 + i] || []; t.w[r - 1 + i][c - 1 + j] = x; })); },
       setValue: x => { t.w[r - 1] = t.w[r - 1] || []; t.w[r - 1][c - 1] = x; },
       setFontWeight() {},
+      setNumberFormat: f => { t.formaty[r + ',' + c] = f; },
     };
   }
 }
@@ -28,6 +31,7 @@ const naBajty = buf => [...buf].map(b => (b > 127 ? b - 256 : b));      // Apps 
 function zaladuj(opcje = {}) {
   const zak = new Map(), pamiec = new Map(), wlasciwosci = new Map();
   let zegar = opcje.start || Date.now();
+  const stan = { zajety: false, zwolnien: 0 };      // zajety: tryLock nie dostaje blokady (kolejka dłuższa niż 20 s)
   const arkusz = {
     getSheetByName: n => zak.get(n) || null,
     insertSheet: n => { const z = new Zakladka(n); zak.set(n, z); return z; },
@@ -36,11 +40,12 @@ function zaladuj(opcje = {}) {
     console, Date: class extends Date { constructor(...a) { if (a.length) super(...a); else super(zegar); } static now() { return zegar; } },
     SpreadsheetApp: { getActiveSpreadsheet: () => arkusz },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ tresc: s, setMimeType() { return this; } }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => !stan.zajety, releaseLock() { stan.zwolnien++; } }) },
     CacheService: { getScriptCache: () => ({
       get: k => { const e = pamiec.get(k); if (!e) return null; if (e.do < zegar) { pamiec.delete(k); return null; } return e.v; },
       put: (k, v, ttl = 600) => { pamiec.set(k, { v: String(v), do: zegar + ttl * 1000 }); },
       remove: k => { pamiec.delete(k); },
+      removeAll: ks => { ks.forEach(k => pamiec.delete(k)); },
     }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => wlasciwosci.has(k) ? wlasciwosci.get(k) : null, setProperty: (k, v) => wlasciwosci.set(k, String(v)) }) },
     Utilities: {
@@ -63,10 +68,10 @@ function zaladuj(opcje = {}) {
     uz.appendRow(w);
   };
   // haslo: klient podpisuje puls/sesję kluczem pochodnym od hasła (HMAC, klucz = skrót „PMT|kod|hasło”) — jak aplikacja web i program na komputerze
-  const podpisz = (d, haslo, hashKlucza) => { const cz = Math.floor(zegar / 1000); const o = { ...d, klucz_czas: cz, wersja: d.wersja || '3.24.0' }; const baza = `${o.kod || ''}|${o.akcja || ''}|${cz}`; o.podpis = crypto.createHmac('sha256', sekret).update(baza, 'utf8').digest('hex');
+  const podpisz = (d, haslo, hashKlucza) => { const cz = Math.floor(zegar / 1000); const o = { ...d, klucz_czas: cz, wersja: d.wersja ?? '3.24.0' }; const baza = `${o.kod || ''}|${o.akcja || ''}|${cz}`; o.podpis = crypto.createHmac('sha256', sekret).update(baza, 'utf8').digest('hex');
     const klucz = hashKlucza || (haslo ? sha256hex(`PMT|${o.kod}|${haslo}`) : ''); if (klucz) o.podpis_hasla = crypto.createHmac('sha256', klucz).update(baza, 'utf8').digest('hex'); return o; };
   const post = (d, { bezPodpisu = false, haslo = '', hashKlucza = '' } = {}) => { const o = vm.runInContext('doPost', ctx)({ postData: { contents: typeof d === 'string' ? d : JSON.stringify(bezPodpisu ? d : podpisz(d, haslo, hashKlucza)) } }); return JSON.parse(o.tresc); };
   const formuly = () => { const wynik = []; zak.forEach((z, n) => z.w.forEach((r, i) => r.forEach((v, j) => { if (czyFormula(v)) wynik.push(`${n}!R${i + 1}C${j + 1}=${String(v).slice(0, 60)}`); }))); return wynik; };
-  return { ctx, zak, arkusz, post, formuly, dodajUzytkownika, dalej: ms => { zegar += ms; }, hash: (kod, haslo) => sha256hex(`PMT|${kod}|${haslo}`), uz, wywolaj: kod => vm.runInContext(kod, ctx), get: n => zak.get(n) };
+  return { ctx, zak, arkusz, pamiec, post, formuly, dodajUzytkownika, dalej: ms => { zegar += ms; }, blokada: stan, hash: (kod, haslo) => sha256hex(`PMT|${kod}|${haslo}`), uz, wywolaj: kod => vm.runInContext(kod, ctx), get: n => zak.get(n) };
 }
 module.exports = { zaladuj, SCIEZKA, czyFormula, istnieje: () => fs.existsSync(SCIEZKA) };

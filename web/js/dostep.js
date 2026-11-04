@@ -86,10 +86,10 @@ const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki'];
 let przesuniecie = 0;
 async function podpisz(dane, skrotZ = null) {
   const czas = String(Math.floor(teraz() / 1000 + przesuniecie)), s = await sekret();
-  const d = { ...dane, klucz_czas: czas, wersja: WERSJA };
+  const d = { ...dane, klucz_czas: czas, wersja: WERSJA, klient: 'web' };      // klient: backend nie stosuje do aplikacji web bramki wersji programu (WYMAGANA_WERSJA)
   const baza = `${d.kod || ''}|${d.akcja || ''}|${czas}`;
   if (s) d.podpis = await hmacHex(s, baza); else delete d.podpis;
-  const klucz = AKCJE_Z_HASLEM.includes(d.akcja) ? (skrotZ || skrotSesji(d.kod)) : '';
+  const klucz = AKCJE_Z_HASLEM.includes(d.akcja) && skrotNieaktualny !== d.kod ? (skrotZ || skrotSesji(d.kod)) : '';      // skrót odrzucony przez serwer: bez podpisu (każdy zły podpis zużywa limit prób hasła)
   if (klucz) d.podpis_hasla = await hmacHex(klucz, baza); else delete d.podpis_hasla;
   return d;
 }
@@ -98,7 +98,7 @@ async function podpisz(dane, skrotZ = null) {
     użytkownik go nie widzi i nie wymyśla własnego; po terminie serwer go nie wydaje. → { ok:true, haslo, wazneDo, adres } albo { ok:false, powod, komunikat }. */
 export async function pobierzHasloPaczki() {
   const kod = stan().kod;
-  if (!kod || !skrotSesji(kod)) return { ok: false, powod: 'logowanie', komunikat: 'Wyloguj się i zaloguj ponownie hasłem — wtedy będę mógł pobrać hasło do paczki i wysłać dokumenty.' };
+  if (!kod || !skrotSesji(kod) || skrotNieaktualny === kod) return { ok: false, powod: 'logowanie', komunikat: 'Wyloguj się i zaloguj ponownie hasłem — wtedy będę mógł pobrać hasło do paczki i wysłać dokumenty.' };
   let odp; try { odp = await wyslij({ akcja: 'haslo_paczki', kod }, 20000); } catch (e) { return { ok: false, powod: 'siec', komunikat: 'Brak połączenia z serwerem — nie mogę pobrać hasła do paczki. Spróbuj, gdy będzie internet.' }; }
   const s = odp && odp.status, data = String(odp && odp.wazne_do || '');
   if (s === 'ok') {
@@ -110,6 +110,8 @@ export async function pobierzHasloPaczki() {
   if (s === 'brak') return { ok: false, powod: 'brak', komunikat: 'Wysyłka dokumentów nie jest jeszcze włączona — administrator nie ustawił hasła do paczek, jego terminu ważności albo adresu odbiorcy. Napisz do administratora.' };
   if (s === 'wygaslo') return { ok: false, powod: 'wygaslo', komunikat: `Hasło do paczek wygasło ${data.split('-').reverse().join('.')}. Poczekaj, aż administrator ustawi nowe, i spróbuj ponownie.` };
   if (s === 'wygasla') return { ok: false, powod: 'dostep', komunikat: 'Twój dostęp do aplikacji wygasł — skontaktuj się z administratorem.' };
+  if (s === 'blad') return { ok: false, powod: 'siec', komunikat: `${String(odp.opis || 'Serwer chwilowo nie odpowiada')} — spróbuj ponownie za chwilę.` };      // np. „Serwer zajety” (kolejka) — to nie odmowa konta
+  if (s === 'odmowa') skrotNieaktualny = kod;
   return { ok: false, powod: 'odmowa', komunikat: 'Serwer nie potwierdził Twojego konta. Wyloguj się, zaloguj ponownie hasłem i spróbuj jeszcze raz.' };
 }
 
@@ -175,7 +177,10 @@ if (typeof addEventListener === 'function') addEventListener('pagehide', e => {
   if (!doPrzeladowania || Date.now() - doPrzeladowania > 10000) return;      // zamknięcie karty / okna, inna strona: klucz nie trafia na dysk
   bezpiecznie(() => sessionStorage.setItem(PRZEKAZ, JSON.stringify({ t: Date.now(), karta: kartaPamiec, skrot: skrotPamiec, imie: imieSesji, dek: dek ? sejf.b64(dek) : '' })));
 });
-const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; };
+/* Skrót hasła, którego serwer nie przyjął (pelne:false w pulsie, odmowa hasła paczki — np. hasło zmienione na innym urządzeniu): do następnego logowania
+   karta nie podpisuje nim zapytań. Bez tego otwarta karta ze starym hasłem zużywałaby przy każdym pulsie limit złych podpisów konta. */
+let skrotNieaktualny = '';
+const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; skrotNieaktualny = ''; };
 const skrotSesji = kod => skrotPamiec && skrotPamiec.kod === kod ? skrotPamiec.skrot : '';
 const zapomnijSkrot = () => { skrotPamiec = null; imieSesji = ''; };
 /* imię z odpowiedzi logowania: tylko na czas sesji (podpowiedź w „Moje dane” przy pierwszym logowaniu); na dysku jawnie go nie trzymamy */
@@ -340,6 +345,7 @@ async function pulsWlasciwy() {
   if (d.kod !== kod) return null;                                    // w międzyczasie ktoś się wylogował
   d.kolejka = { uruchomienia: Math.max(0, d.kolejka.uruchomienia - q.uruchomienia), dokumenty: Math.max(0, d.kolejka.dokumenty - q.dokumenty), minuty: Math.max(0, d.kolejka.minuty - q.minuty) };
   const pelne = odp.pelne !== false;      // false: serwer nie rozpoznał podpisu hasłem i oddał tylko status i datę — zapamiętanych danych nie nadpisujemy pustymi
+  if (!pelne && skrotSesji(kod)) skrotNieaktualny = kod;      // podpisany, a nieprzyjęty (powtórka z czasem serwera już była w wyslij): dalej bez podpisu hasłem
   Object.assign(d.status, { kod, status: odp.status, wazne_do: odp.wazne_do || '', ostatnia_synchronizacja: dzis() });      // imię, rejon i nieobecności (L4) odpowiedzi nie są zapisywane: aplikacja ich nie używa, a nie ma po co trzymać ich jawnie na dysku
   /* odebrany dostęp zapisujemy przy koncie (poza OSOBISTE), żeby przeżył wylogowanie — bez tego logowanie bez sieci działałoby jeszcze OFFLINE_DNI; blokada nie odnawia też okna pracy bez sieci */
   const k = d.konta[kod] || {}; if (odp.status === 'ok') { k.kontakt = teraz(); delete k.zablokowane; } else k.zablokowane = true;

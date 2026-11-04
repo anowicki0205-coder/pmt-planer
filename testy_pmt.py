@@ -7635,8 +7635,9 @@ try:
             and "mozesz podac numer telefonu" not in _zh21)
     _rh21 = _gs21.split("function resetHasla(")[1].split("\nfunction ")[0]
     _zd21 = _gs21.split("function _zaDuzoProb(")[1].split("\nfunction ")[0]
-    sprawdz("backend: reset hasła liczy próby w CacheService (na kod i łącznie) i loguje KAŻDĄ próbę",
-            "_zaDuzoProb(" in _rh21 and "CacheService" in _zd21
+    _li21 = _gs21.split("function _licznik(")[1].split("\nfunction ")[0]
+    sprawdz("backend: reset hasła liczy próby w CacheService (na kod i łącznie, okno stałe) i loguje KAŻDĄ próbę",
+            "_zaDuzoProb(" in _rh21 and "_licznik(" in _zd21 and "CacheService" in _li21
             and _rh21.count('_log(ss, kod, "reset_hasla"') >= 5
             and "RESET_PROB_NA_KOD_NA_GODZINE" in _rh21 and "RESET_PROB_LACZNIE_NA_GODZINE" in _rh21)
     sprawdz("backend: puls oddaje tylko nieobecności pytającego i osób, które zastępuje",

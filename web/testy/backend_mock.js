@@ -66,8 +66,7 @@ class BackendMock {
     const telBaza = (u.telefon || '').replace(/\D/g, '');
     const haslem = u.hash && hash(kod, haslo) === u.hash, telefonem = !u.hash && telBaza && tel.length >= 9 && telBaza.slice(-9) === tel.slice(-9);
     if (!haslem && !telefonem) {
-      if (u.hash && telBaza && tel.length >= 9 && telBaza.slice(-9) === tel.slice(-9)) return { status: 'blad', opis: 'To konto ma ustawione haslo — zaloguj sie haslem. Numer telefonu sluzy tylko do zmiany lub resetu hasla.' };
-      return { status: 'blad', opis: u.hash ? 'Nieprawidlowe haslo' : 'Nieprawidlowy numer telefonu' };
+      return { status: 'blad', opis: u.hash ? 'Nieprawidlowe haslo. Jesli go nie pamietasz, uzyj „Nie pamietam hasla” (numer telefonu z kartoteki sluzy do resetu hasla).' : 'Nieprawidlowy numer telefonu' };      // jak .gs: telefon na koncie z hasłem = ten sam komunikat co złe hasło
     }
     this.zapisz(kod, 'logowanie_' + (d.zrodlo || 'www'), haslem ? 'OK (haslo)' : 'OK (telefon)');
     return { status: 'ok', imie: u.imie, przez: haslem ? 'haslo' : 'telefon' };
@@ -88,7 +87,7 @@ class BackendMock {
     const telBaza = (u.telefon || '').replace(/\D/g, ''), st = stare.replace(/\D/g, '');
     const telPasuje = telBaza && st.length >= 9 && telBaza.slice(-9) === st.slice(-9);
     const haslem = u.hash && hash(kod, stare) === u.hash, telefonem = !u.hash && telPasuje;
-    if (!haslem && !telefonem) { this.zapisz(kod, 'zmiana_hasla', 'ODRZUCONA'); return { status: 'blad', opis: u.hash ? 'Dotychczasowe haslo nie pasuje' : 'Numer telefonu nie zgadza sie z kartoteka' }; }
+    if (!haslem && !telefonem) { this.zapisz(kod, 'zmiana_hasla', 'ODRZUCONA'); return { status: 'blad', opis: u.hash ? 'Dotychczasowe haslo nie pasuje (jesli go nie pamietasz, uzyj „Nie pamietam hasla” w oknie logowania)' : 'Numer telefonu nie zgadza sie z kartoteka' }; }
     u.hash = hash(kod, nowe); this.zapisz(kod, 'zmiana_hasla', 'OK'); return { status: 'ok' };
   }
   reset(d) {

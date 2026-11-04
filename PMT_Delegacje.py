@@ -5449,6 +5449,30 @@ def _wiersz_na_adres(wiersz, mapa: dict) -> tuple:
     return adres.strip(), siec
 
 
+def _wiersze_csv(sciezka) -> list:
+    """Wiersze listy sklepów z CSV. Polski Excel zapisuje „CSV (rozdzielany
+    przecinkami)" w cp1250 ze średnikiem, a „Tekst Unicode" w UTF-16 —
+    czytanie wyłącznie jako UTF-8 kończyło się błędem na pierwszej polskiej
+    literze. Separator jak dotąd: z próbki początku pliku."""
+    import csv, io
+    with open(sciezka, "rb") as f:
+        b = f.read()
+    if b[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        tekst = b.decode("utf-16")
+    else:
+        for kodowanie in ("utf-8-sig", "cp1250", "latin-2"):
+            try:
+                tekst = b.decode(kodowanie)
+                break
+            except UnicodeDecodeError:
+                continue
+    probka = tekst[:2048]
+    sep = ";" if probka.count(";") > probka.count(",") else ","
+    if probka.count("\t") > max(probka.count(";"), probka.count(",")):
+        sep = "\t"                 # „Tekst Unicode" z Excela rozdziela tabulatorem
+    return [w for w in csv.reader(io.StringIO(tekst, newline=""), delimiter=sep)]
+
+
 def statystyki_administratora() -> dict:
     """Zbiera zbiorcze statystyki WSZYSTKICH użytkowników programu na tym
     komputerze (do panelu administratora). Zwraca podsumowanie + listę
@@ -6048,6 +6072,17 @@ def zeruj_zrodlo_odleglosci():
         _zrodlo_licznik[k] = 0
 
 
+def odnow_dostep_do_sieci():
+    """Nowe generowanie = nowa próba sieci. Po pierwszym błędzie (brak zasięgu,
+    timeout, 429) dystans_drogowy wyłącza OSRM/Google, a pobierz_coords nie
+    ponawia adresu — do końca procesu, więc po powrocie zasięgu wszystko szło
+    dalej szacunkiem, a baza zostawała przybliżona."""
+    global _osrm_dostepny, _google_dostepny
+    _osrm_dostepny = None
+    _google_dostepny = None
+    _geo_pytane.clear()
+
+
 def _odnotuj_zrodlo(rodzaj):
     global _ostatnie_zrodlo
     _zrodlo_licznik[rodzaj] = _zrodlo_licznik.get(rodzaj, 0) + 1
@@ -6430,8 +6465,9 @@ def pobierz_dni_robocze(rok: int, miesiac: int) -> List[datetime.date]:
 
 def czy_niedziela_handlowa(data: datetime.date) -> bool:
     """Niedziele handlowe: ostatnia niedziela stycznia, kwietnia, czerwca
-    i sierpnia, dwie niedziele przed Bożym Narodzeniem oraz niedziela przed
-    Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
+    i sierpnia, niedziele przed Bożym Narodzeniem (dwie, a od 2025 r. trzy
+    przed wolną Wigilią — ta sama nowelizacja z grudnia 2024 r.) oraz niedziela
+    przed Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
     gdyby przepisy się zmieniły, wystarczy poprawić tę jedną funkcję."""
     if data.weekday() != 6:
         return False
@@ -6440,10 +6476,11 @@ def czy_niedziela_handlowa(data: datetime.date) -> bool:
                              if datetime.date(data.year, data.month, d).weekday() == 6)
     if data.month in (1, 4, 6, 8) and data.day == ostatnia_niedziela:
         return True
-    if data.month == 12:                          # dwie niedziele przed 24.12
-        przed = [d for d in range(1, 25)
+    if data.month == 12:
+        wolna_wigilia = data.year >= ROK_WIGILII_WOLNEJ
+        przed = [d for d in range(1, 24 if wolna_wigilia else 25)
                  if datetime.date(data.year, 12, d).weekday() == 6]
-        if data.day in przed[-2:]:
+        if data.day in przed[-(3 if wolna_wigilia else 2):]:
             return True
     try:
         wielkanoc = _wielkanoc(data.year)          # niedziela przed Wielkanocą
@@ -6838,13 +6875,15 @@ def planuj_wizyty(punkty: List[PunktWizyty], rok: int, miesiac: int,
         if od_daty:
             dni_robocze = [d for d in dni_robocze if d >= od_daty]
         dni_plan = []
-        aktualna_pozycja = baza
         for data in dni_robocze:
             if not pozostale:
                 break
             dzien = DzienPlanu(data)
             czas = 0.0; km_dnia = 0.0
-            pozycja = aktualna_pozycja
+            # każdy dzień z bazy (jak planuj_cyklicznie): dawniej od ostatniej wizyty
+            # dnia poprzedniego — limit dnia nie obejmował dojazdu z domu, a godziny
+            # w aplikacji (liczone od bazy) wychodziły poza okno, w wieczory po 22:00
+            pozycja = baza
             if postep_cb:
                 zrobione = len(z_pozycja) - len(pozostale)
                 postep_cb(f"Planowanie {cur_mies:02d}.{cur_rok} — {data.strftime('%d.%m')}...",
@@ -6873,7 +6912,6 @@ def planuj_wizyty(punkty: List[PunktWizyty], rok: int, miesiac: int,
             dzien.minuty = round(czas, 0)
             if dzien.wizyty:
                 dni_plan.append(dzien)
-                aktualna_pozycja = dzien.wizyty[-1]
 
         if dni_plan:
             miesiace_plan.append({
@@ -7291,7 +7329,16 @@ h1 {{ color:{tytul_c}; text-align:center; margin-bottom:4px; }}
 
 def waliduj_pesel(pesel: str) -> bool:
     if not re.match(r"^\d{11}$", pesel): return False
-    return (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 == int(pesel[10])
+    if (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 != int(pesel[10]):
+        return False
+    # Sama suma kontrolna przepuszczała „00000000000" i miesiąc 34. Data urodzenia:
+    # miesiąc +80 dla lat 1800–1899, +0, +20, +40, +60 dla 1900, 2000, 2100, 2200.
+    mm = int(pesel[2:4])
+    try:
+        datetime.date((1900, 2000, 2100, 2200, 1800)[mm // 20] + int(pesel[0:2]), mm % 20, int(pesel[4:6]))
+    except ValueError:
+        return False
+    return True
 
 def _czy_znana_miejscowosc(nazwa: str) -> bool:
     """Czy nazwa występuje w naszej bazie miejscowości? Jeśli tak, adres bez
@@ -7369,6 +7416,30 @@ def _wyglada_jak_miejscowosc(nazwa: str) -> bool:
     return _klasyfikuj_adres(nazwa) == 'wies'
 
 
+def _nazwa_wielka(tekst: str, miejscowosc: bool = False) -> str:
+    """Wielkie litery w nazwie ulicy/miejscowości jak dawne capitalize() każdego
+    słowa, ale bez psucia nazw własnych: liczba rzymska zostaje wielka („Jana
+    Pawła II", nie „Ii"), człon po łączniku wpisany wielką literą zostaje wielki
+    („Bielsko-Biała", „Grota-Roweckiego"), a w nazwie miejscowości przyimek
+    wpisany małą literą zostaje mały („Nakło nad Notecią"). Wpis małymi
+    literami wychodzi tak jak dotąd („3-go Maja", „XXX-lecia")."""
+    wynik = []
+    for i, slowo in enumerate(tekst.split()):
+        if i and miejscowosc and slowo in ("nad", "pod", "przy", "na", "w", "k.", "koło"):
+            wynik.append(slowo)
+            continue
+        czlony = slowo.split("-")
+        for j, c in enumerate(czlony):
+            if len(c) > 1 and re.fullmatch(r"(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})", c, re.IGNORECASE):
+                czlony[j] = c.upper()
+            elif j == 0 or (c[:1].isupper() and czlony[j - 1].isalpha()):
+                czlony[j] = c.capitalize()
+            else:
+                czlony[j] = c.lower()
+        wynik.append("-".join(czlony))
+    return " ".join(wynik)
+
+
 def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     """wymus_typ: None (auto), 'ulica' lub 'wies' — decyzja użytkownika dla
     adresów niejednoznacznych. Gdy typ jest niejednoznaczny i nie podano
@@ -7394,10 +7465,10 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     prefiks = {"ulica": "ul.", "aleja": "al.", "plac": "pl.",
                "osiedle": "os.", "os.": "os.", "ul.": "ul.",
                "al.": "al.", "pl.": "pl."}.get(prefiks_raw, prefiks_raw)
-    nazwa = ' '.join(w.capitalize() for w in m.group(2).split())   # "Sarnowa Góra" lub "Kowalskiego"
+    nazwa = _nazwa_wielka(m.group(2))                              # "Sarnowa Góra" lub "Kowalskiego"
     numer = m.group(3).strip()
     kod = m.group(4).strip()
-    poczta = ' '.join(w.capitalize() for w in m.group(5).split())  # "Sońsk" / "Warszawa"
+    poczta = _nazwa_wielka(m.group(5), miejscowosc=True)           # "Sońsk" / "Warszawa"
     # Jawny przedrostek to rozstrzygnięcie użytkownika — nie pytamy o typ.
     if prefiks and not wymus_typ:
         wymus_typ = 'ulica'
@@ -7415,6 +7486,9 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     if to_wies:
         # Miejscowością (bazą, startem/metą, celem geocodingu) jest nazwa wsi,
         # a NIE poczta. Poczta to tylko urząd, do którego wieś przynależy.
+        # Nazwa wsi to nazwa miejscowości — zapis jak poczty („Józefów nad Wisłą"),
+        # inaczej jeden dokument miałby ją raz z „Nad", raz z „nad".
+        nazwa = _nazwa_wielka(m.group(2), miejscowosc=True)
         baza_miasto = nazwa
         adres_pdf = f"{nazwa} {numer}, {kod} {poczta}"
         adres_geo = f"{nazwa}, {kod} {poczta}"
@@ -7479,7 +7553,7 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
         _geo_cache[klucz] = _geo_cache[stary]
         return tuple(_geo_cache[klucz])
     if _geo_brak_znany(klucz):
-        return _wspolrzedne_zastepcze(miasto, woj)
+        return _wspolrzedne_zastepcze(miasto, woj, adres_caly)
     odpowiedz_serwera = False
     for zapytanie in _warianty_geo(adres_caly, miasto):
         try:
@@ -7503,23 +7577,48 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
     _geo_pytane.add(klucz)
     if odpowiedz_serwera:
         _zapamietaj_geo_brak(klucz)
-    return _wspolrzedne_zastepcze(miasto, woj)
+    return _wspolrzedne_zastepcze(miasto, woj, adres_caly)
 
 
-def _wspolrzedne_zastepcze(miasto: str, woj: str) -> Tuple[float, float]:
+def _poczta_z_adresu(adres) -> str:
+    """„Dębowa Wola, 26-660 Jedlińsk" → „Jedlińsk" (człon po kodzie pocztowym)."""
+    m = re.search(r"\d{2}-\d{3}\s+(.+)$", str(adres or "").strip())
+    return m.group(1).strip() if m else ""
+
+
+def _wspolrzedne_zastepcze(miasto: str, woj: str, adres: str = "") -> Tuple[float, float]:
     """Gdy geokodowanie zawiodło: najpierw miasto z bazy offline programu,
-    dopiero potem stolica województwa. Wcześniej brak internetu (albo
-    adres, którego serwer nie zna) cofał bazę prosto do stolicy — pracownik
-    z Radomia dostawał dokumenty z trasami liczonymi z Warszawy, choć Radom
-    leży w bazie miast programu. Ta sama kolejność, co w podglądzie
+    potem poczta z adresu, dopiero potem stolica województwa. Wcześniej brak
+    internetu (albo adres, którego serwer nie zna) cofał bazę prosto do
+    stolicy — pracownik z Radomia dostawał dokumenty z trasami liczonymi
+    z Warszawy, choć Radom leży w bazie miast programu. Małych wsi w bazie
+    nie ma, ale ich poczta (gmina) zwykle jest: „Dębowa Wola, 26-660
+    Jedlińsk" to Jedlińsk, nie Warszawa. Ta sama kolejność, co w podglądzie
     (nowy_wyglad.wspolrzedne_bazy)."""
-    try:
-        z_bazy = coords_z_miasta(miasto)
-    except Exception:
-        z_bazy = None
-    if z_bazy:
-        return float(z_bazy[0]), float(z_bazy[1])
+    for nazwa in (miasto, _poczta_z_adresu(adres)):
+        try:
+            z_bazy = _miasto_w_woj(nazwa, woj) if nazwa else None
+        except Exception:
+            z_bazy = None
+        if z_bazy:
+            return float(z_bazy[0]), float(z_bazy[1])
     return STOLICE.get(woj, (52.23, 21.01))
+
+
+def _miasto_w_woj(nazwa: str, woj: str = ""):
+    """Współrzędne miejscowości z bazy offline zgodne z województwem adresu albo None.
+    Indeks miast trzyma jedną parę na nazwę, a kilka nazw gmin powtarza się w dwóch
+    województwach (Stężyca, Pniewy, Olesno): „Paszki Duże, 08-540 Stężyca" (lubelskie)
+    trafiało na Kaszuby, 480 km od domu. Wynik indeksu dalej niż 250 km od stolicy
+    województwa odrzucamy i szukamy tej nazwy wśród gmin tego województwa."""
+    z = coords_z_miasta(nazwa)
+    if z and (woj not in STOLICE or oblicz_dystans(z[0], z[1], *STOLICE[woj]) <= 250):
+        return z
+    klucz = _norm_miasto(nazwa)
+    for m in MIASTA_RAW.get(woj, []):
+        if _norm_miasto(m["n"]) == klucz:
+            return (m["lat"], m["lng"])
+    return None
 
 
 def zapisz_geo_cache(sciezka=None):
@@ -7545,6 +7644,7 @@ def zapisz_geo_cache(sciezka=None):
 # i Opoczno (łódzkie), 19-3xx to Ełk, nie Białystok. Wyjątki po trzech
 # cyfrach mają pierwszeństwo przed zgrubnym podziałem po dwóch.
 WYJATKI_WOJEWODZTW = {
+    "08-5": "lubelskie",                                            # Ryki, Dęblin
     "19-3": "warmińsko-mazurskie", "19-4": "warmińsko-mazurskie",   # Ełk, Olecko
     "19-5": "warmińsko-mazurskie",                                  # Gołdap
     "26-3": "łódzkie",                                              # Opoczno, Drzewica
@@ -7553,11 +7653,16 @@ WYJATKI_WOJEWODZTW = {
     "26-8": "mazowieckie", "26-9": "mazowieckie",                   # Białobrzegi, Kozienice
     "27-1": "mazowieckie", "27-3": "mazowieckie",                   # Iłża, Lipsko
     "34-3": "śląskie",                                              # Żywiec
+    "38-3": "małopolskie",                                          # Gorlice, Biecz
+    "47-4": "śląskie",                                              # Racibórz
+    "67-2": "dolnośląskie",                                         # Głogów
     "76-2": "pomorskie",                                            # Słupsk, Ustka
     "77-1": "pomorskie", "77-2": "pomorskie", "77-3": "pomorskie",  # Bytów, Miastko, Człuchów
     "77-4": "wielkopolskie",                                        # Złotów
     "82-3": "warmińsko-mazurskie",                                  # Elbląg, Pasłęk
-    "89-4": "pomorskie", "89-6": "pomorskie",                       # Chojnice, Czersk
+    "89-3": "wielkopolskie",                                        # Wyrzysk, Łobżenica (pow. pilski)
+    "89-6": "pomorskie",                                            # Chojnice, Czersk (89-4 Sępólno to kujawsko-pomorskie)
+    "96-3": "mazowieckie", "96-5": "mazowieckie",                   # Żyrardów, Sochaczew
 }
 
 def rozpoznaj_wojewodztwo(kod: str) -> str:
@@ -8670,7 +8775,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         #  wieczorny  — po pracy, między 16:15 a 16:45, tak aby ostatnia
         #               placówka zamknęła się przed 22:00 (patrz limit dnia).
         if TRYB_PRACY == "wieczory":
-            czas_akt = rng.randint(16 * 60 + 15, 16 * 60 + 45)
+            # Pełny dzień (5,5 h) wylosowany po 16:30 wracał po 22:00 — taki dzień
+            # wyjeżdża wcześniej. Losowanie jedno, jak dotąd: reszta dni bez zmian.
+            dl = sum(e.czas_jazdy_minuty + e.czas_w_sklepie for e in dzien.etapy_surowe) + PRZERWA_JEDZENIE_MIN
+            czas_akt = max(16 * 60, min(rng.randint(16 * 60 + 15, 16 * 60 + 45), 22 * 60 - math.ceil(dl)))
         else:
             czas_akt = rng.randint(7 * 60, 8 * 60)
         ile_etapow = len(dzien.etapy_surowe)
@@ -9262,9 +9370,13 @@ class PlanerWizytThread(QThread):
                                      0.5 + (j+1)/max(len(lista),1) * 0.3)
                     nazwa = punkty_miasta[0].miasto
                     try:
-                        lat, lng = pobierz_coords(nazwa, nazwa, "mazowieckie", zapisz_cache=False)
+                        pobierz_coords(nazwa, nazwa, "mazowieckie", zapisz_cache=False)
                     except Exception:
-                        lat = lng = None
+                        pass
+                    # tylko odpowiedź serwera: po nieudanym zapytaniu pobierz_coords
+                    # oddaje stolicę województwa i sklepy lądowały w Warszawie
+                    c = _geo_cache.get(_klucz_geo(nazwa))
+                    lat, lng = (float(c[0]), float(c[1])) if c else (None, None)
                     if lat is not None:
                         # zapamiętaj w indeksie miast — kolejne razy natychmiast
                         idx = _zbuduj_indeks_miast()
@@ -9293,11 +9405,15 @@ class PlanerWizytThread(QThread):
                     else:
                         # 3) dopiero teraz sieć (miasto nieznane bazie).
                         # UWAGA: pobierz_coords przy braku sieci zwraca domyślną
-                        # stolicę województwa — dlatego używamy go na końcu.
+                        # stolicę województwa — dlatego używamy go na końcu
+                        # i bierzemy tylko odpowiedź serwera (wpis w pamięci).
                         try:
-                            lat_b, lng_b = pobierz_coords(self.adres_bazy, miasto_b or self.adres_bazy, "mazowieckie")
+                            pobierz_coords(self.adres_bazy, miasto_b or self.adres_bazy, "mazowieckie")
                         except Exception:
-                            lat_b = lng_b = None
+                            pass
+                        c = _geo_cache.get(klucz_b)
+                        if c:
+                            lat_b, lng_b = float(c[0]), float(c[1])
                 if lat_b is not None:
                     baza = PunktWizyty("Baza (start)", self.adres_bazy, lat=lat_b, lng=lng_b, miasto=miasto_b)
 
@@ -9450,6 +9566,7 @@ class GeneratorThread(QThread):
         try:
             p = self.params
             self._sprawdz_przerwanie()
+            odnow_dostep_do_sieci()
             self.postep.emit("Pobieranie współrzędnych GPS...", 0.10)
             # Do geocodingu używamy 'adres_geo' — dla wsi to sama miejscowość
             # (np. "Dębowa Wola, 26-660 Jedlińsk"), nie fałszywa "ul." — dzięki
@@ -17556,12 +17673,7 @@ class App(QMainWindow):
         wiersze = []
         try:
             if sciezka.lower().endswith(".csv"):
-                import csv
-                with open(sciezka, newline="", encoding="utf-8-sig") as f:
-                    probka = f.read(2048); f.seek(0)
-                    sep = ";" if probka.count(";") > probka.count(",") else ","
-                    for w in csv.reader(f, delimiter=sep):
-                        wiersze.append(w)
+                wiersze = _wiersze_csv(sciezka)
             else:
                 try:
                     from openpyxl import load_workbook

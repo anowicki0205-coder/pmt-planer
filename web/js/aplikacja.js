@@ -1533,7 +1533,12 @@ async function wgrajPlanZProgramu(plan, odhaczenia, sklepy) {
   return dni;
 }
 /* ====================== Moje dane ====================== */
-const peselPoprawny = p => { p = String(p).replace(/\s/g, ''); if (!/^\d{11}$/.test(p)) return false; const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]; let s = 0; for (let i = 0; i < 10; i++) s += w[i] * +p[i]; return (10 - s % 10) % 10 === +p[10]; };
+const peselPoprawny = p => {
+  p = String(p).replace(/\s/g, ''); if (!/^\d{11}$/.test(p)) return false; const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]; let s = 0; for (let i = 0; i < 10; i++) s += w[i] * +p[i];
+  if ((10 - s % 10) % 10 !== +p[10]) return false;
+  const mm = +p.slice(2, 4), r = [1900, 2000, 2100, 2200, 1800][Math.floor(mm / 20)] + +p.slice(0, 2), m = mm % 20, d = +p.slice(4, 6), dt = new Date(Date.UTC(r, m - 1, d));      // data urodzenia jak waliduj_pesel w silniku (miesiąc +80/+0/+20/+40/+60)
+  return m >= 1 && d >= 1 && dt.getUTCFullYear() === r && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+};
 function otworzMojeDane(pierwsze) {
   const p = PROFIL || { imie: dostep.imieZSerwera(), pesel: '', adres: '', stanowisko: 'merchandiser', silnik_powyzej_900: true, tryb: 'tydzien' };
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Zacznijmy od Twoich danych' : 'Moje dane')}
@@ -1959,7 +1964,7 @@ async function arkuszPlan() {
       w.pozycje = POZYCJE_PLANU; w.zapisano = new Date().toISOString();
       if (!w.suma_wizyt) { tekst.innerHTML = '<span style="color:var(--a-burs)">Nie udało się ułożyć ani jednej wizyty. Sprawdź, czy lista zawiera miejscowości.</span>'; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); return; }
       magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zapiszPamiecSilnika(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
-      pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach`);
+      pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach${w.ile_bez_pozycji ? ` · bez lokalizacji: ${w.ile_bez_pozycji}` : ''}`);
     } catch (err) { tekst.innerHTML = `<span style="color:var(--a-blad)">${bezZnacznikow(err.message)}</span>`; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); }
   });
 }

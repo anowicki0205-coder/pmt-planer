@@ -626,7 +626,8 @@ def wspolrzedne_bazy(baza_miasto, adres_geo, woj):
     """Współrzędne bazy BEZ sięgania do internetu.
 
     Kolejność: pamięć podręczna geokodowania → offline'owy indeks miast
-    programu → stolica województwa. Dokładne współrzędne (z Nominatim)
+    programu (miejscowość, potem poczta) → stolica województwa — ta sama co
+    w programie (_wspolrzedne_zastepcze). Dokładne współrzędne (z Nominatim)
     wyznacza dopiero wątek generowania — tam wolno czekać na sieć."""
     try:
         zapamietane = PMT._geo_cache.get(PMT._klucz_geo(adres_geo))
@@ -634,13 +635,7 @@ def wspolrzedne_bazy(baza_miasto, adres_geo, woj):
             return float(zapamietane[0]), float(zapamietane[1])
     except Exception:
         pass
-    try:
-        z_bazy = PMT.coords_z_miasta(baza_miasto)
-        if z_bazy:
-            return float(z_bazy[0]), float(z_bazy[1])
-    except Exception:
-        pass
-    return PMT.STOLICE.get(woj, (52.23, 21.01))
+    return PMT._wspolrzedne_zastepcze(baza_miasto, woj, adres_geo)
 
 
 # ═══════════════════════════════════════════════════════════════════════

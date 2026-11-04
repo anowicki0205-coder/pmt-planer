@@ -11838,6 +11838,350 @@ except Exception as _e32:
     _tb32.print_exc()
 
 # ══════════════════════════════════════════════════════════════════
+sekcja("33. Silnik po przeglądzie: plan wizyt, kalendarz, adres, PESEL (program i warstwa web)")
+# Warstwa web (web/silnik/most.py + wyciągnięty silnik) chodzi tu w tym samym procesie: sieć jest odcięta
+# tak samo jak dla programu (ten sam moduł urllib.request), a atrapy serwera podstawiamy i przywracamy.
+_M33 = _S33 = None
+try:
+    sys.path.insert(0, os.path.join(KATALOG, "web", "silnik"))
+    import most as _M33
+    _S33 = _M33.S
+except Exception as _e33:
+    sprawdz("warstwa web (most.py + pmt_silnik.py) daje się zaimportować", False, repr(_e33))
+finally:
+    sys.path.remove(os.path.join(KATALOG, "web", "silnik"))
+
+
+class _Odp33:
+    def __init__(self, tresc):
+        self._tresc = tresc
+    def read(self, *a):
+        return self._tresc
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+if _M33 is not None:
+    # plan wizyt: miejscowość spoza bazy offline NIE dostaje współrzędnych Warszawy (zastępczej stolicy województwa)
+    _poz33 = [{"adres": "Słowackiego 200, 80-298 Rębiechowo", "siec": "Żabka", "miasto": ""},
+              {"adres": "Długa 1, 80-001 Gdańsk", "siec": "Biedronka", "miasto": ""}]
+    _wiz33 = lambda w: [(x["nazwa"], x["lat"], x["lng"]) for m in w["miesiace"] for d in m["dni"] for x in d["wizyty"]]
+    try:
+        _S33._geo_cache.clear(); _S33._geo_pytane.clear(); _S33._geo_braki = {}
+        sprawdz("plan wizyt: Rębiechowa nie ma w bazie offline (warunek testu)", _S33.coords_z_miasta("Rębiechowo") is None)
+        for _siec33 in (False, True):
+            _w33 = _M33.plan_generuj({"pozycje": _poz33, "siec": _siec33, "adres_bazy": "Długa 5, 80-001 Gdańsk",
+                                      "rok": 2026, "miesiac": 12, "od_daty": "2026-12-01"})
+            sprawdz("plan wizyt (%s): sklep z miejscowości spoza bazy trafia do „bez lokalizacji”, a nie do Warszawy"
+                    % ("offline" if not _siec33 else "sieć pada"),
+                    _w33["bez_pozycji"] == ["Żabka — Rębiechowo"] and _w33["ile_bez_pozycji"] == 1
+                    and _wiz33(_w33) == [("Biedronka — Gdańsk", 54.35, 18.65)], str((_w33["bez_pozycji"], _wiz33(_w33))))
+        sprawdz("plan wizyt: nieudane geokodowanie nie zostawia Warszawy w indeksie miast na resztę sesji",
+                _S33._zbuduj_indeks_miast().get(_S33._norm_miasto("Rębiechowo")) is None)
+        sprawdz("plan wizyt: punkt startowy spoza bazy bez odpowiedzi serwera = brak bazy (środek trasy), nie Warszawa",
+                _M33._baza_planu("Słowackiego 200, 80-298 Rębiechowo") is None)
+        _url33 = _S33.urllib.request.urlopen
+        _S33.urllib.request.urlopen = lambda *a, **k: _Odp33(b'[{"lat": "54.3800", "lon": "18.5000"}]')
+        try:
+            _S33._geo_pytane.clear()
+            _w33 = _M33.plan_generuj({"pozycje": _poz33, "siec": True, "adres_bazy": "Długa 5, 80-001 Gdańsk",
+                                      "rok": 2026, "miesiac": 12, "od_daty": "2026-12-01"})
+            sprawdz("plan wizyt: gdy serwer zna miejscowość, sklep dostaje JEGO współrzędne",
+                    ("Żabka — Rębiechowo", 54.38, 18.5) in _wiz33(_w33) and not _w33["bez_pozycji"], str(_wiz33(_w33)))
+        finally:
+            _S33.urllib.request.urlopen = _url33
+            _S33._zbuduj_indeks_miast().pop(_S33._norm_miasto("Rębiechowo"), None)
+            _S33._geo_cache.clear(); _S33._geo_pytane.clear()
+    except Exception as _e33:
+        sprawdz("plan wizyt bez fikcyjnej Warszawy", False, repr(_e33))
+        import traceback as _tb33
+        _tb33.print_exc()
+
+# to samo w programie na komputerze (PlanerWizytThread.run wołany wprost, bez wątku)
+try:
+    P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = {}
+    _plan33 = []
+    _t33 = P.PlanerWizytThread([{"adres": "Słowackiego 200, 80-298 Rębiechowo", "siec": "Żabka", "miasto": ""},
+                                {"adres": "Długa 1, 80-001 Gdańsk", "siec": "Biedronka", "miasto": ""}],
+                               2026, 12, False, adres_bazy="Słowackiego 7, 80-298 Rębiechowo")
+    _t33.sukces.connect(_plan33.append)
+    _t33.blad.connect(_plan33.append)
+    _t33.run()
+    _p33 = _plan33[0] if _plan33 else {}
+    _wp33 = [(w.nazwa, w.lat, w.lng) for d in (_p33.get("dni") or []) for w in d.wizyty] if isinstance(_p33, dict) else _p33
+    sprawdz("program: plan wizyt nie przenosi sklepu ani bazy spoza bazy offline do Warszawy",
+            isinstance(_p33, dict) and [w.nazwa for w in _p33.get("bez_pozycji", [])] == ["Żabka — Rębiechowo"]
+            and _wp33 == [("Biedronka — Gdańsk", 54.35, 18.65)]
+            and P._zbuduj_indeks_miast().get(P._norm_miasto("Rębiechowo")) is None, str(_wp33))
+except Exception as _e33:
+    sprawdz("program: plan wizyt bez fikcyjnej Warszawy", False, repr(_e33))
+finally:
+    P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = None
+
+# sieć wraca po awarii: każde generowanie pyta OSRM i geokodowanie od nowa (worker karty żyje dniami, nie minuty)
+if _M33 is not None:
+    _stan33 = []
+    _zap33 = lambda *a, **k: _stan33.append((_S33._osrm_dostepny, _S33._google_dostepny, set(_S33._geo_pytane)))
+    _org33 = (_S33.pobierz_coords, _S33.generuj_trasy, _S33._menedzer, _S33.planuj_wizyty)
+    try:
+        _S33._osrm_dostepny = _S33._google_dostepny = False; _S33._geo_pytane.add("dluga 5, 26-600 radom")
+        _S33.pobierz_coords = lambda *a, **k: (_zap33(), (51.40, 21.15))[1]
+        _S33.generuj_trasy = lambda *a, **k: []
+        _S33._menedzer = lambda: "Jan Przełożony"
+        try:
+            _M33.generuj({"imie": "Jan Test", "pesel": "90010112349", "adres": "Długa 5, 26-600 Radom", "kwota": 500,
+                          "rok": 2026, "miesiac": 11, "tryb": "tydzien"})
+        except ValueError:
+            pass            # generuj_trasy-atrapa nie układa dni — chodzi tylko o stan sieci przed geokodowaniem bazy
+        _S33._osrm_dostepny = False; _S33._geo_pytane.add("dluga 5, 26-600 radom")
+        _S33.planuj_wizyty = lambda *a, **k: (_zap33(), {"miesiace": []})[1]
+        _M33.plan_generuj({"pozycje": [{"adres": "Długa 1, 26-600 Radom", "siec": "Żabka", "miasto": ""}], "siec": True,
+                           "adres_bazy": "", "rok": 2026, "miesiac": 12})
+        sprawdz("web: po awarii sieci kolejne generowanie i plan wizyt pytają OSRM i geokodowanie od nowa",
+                _stan33 == [(None, None, set()), (None, None, set())], str(_stan33))
+    except Exception as _e33:
+        sprawdz("web: ponowna próba sieci po awarii", False, repr(_e33))
+    finally:
+        _S33.pobierz_coords, _S33.generuj_trasy, _S33._menedzer, _S33.planuj_wizyty = _org33
+        _S33._osrm_dostepny = _S33._google_dostepny = None; _S33._geo_pytane.clear()
+
+_org33 = (P.pobierz_coords, P.log_error)
+try:
+    _stan33 = []
+    P.log_error = lambda *a: None       # atrapa rzuca celowo — bez logs/error.log obok programu
+    P._osrm_dostepny = P._google_dostepny = False; P._geo_pytane.add("dluga 5, 26-600 radom")
+    def _pc33(*a, **k):
+        _stan33.append((P._osrm_dostepny, P._google_dostepny, set(P._geo_pytane)))
+        raise RuntimeError("atrapa: dalej nie idziemy")
+    P.pobierz_coords = _pc33
+    _g33 = P.GeneratorThread({"adres_caly": "Długa 5, 26-600 Radom", "baza_miasto": "Radom", "woj": "mazowieckie"})
+    _g33.run()
+    sprawdz("program: po awarii sieci kolejne generowanie pyta OSRM i geokodowanie od nowa",
+            _stan33 == [(None, None, set())], str(_stan33))
+except Exception as _e33:
+    sprawdz("program: ponowna próba sieci po awarii", False, repr(_e33))
+finally:
+    P.pobierz_coords, P.log_error = _org33
+    P._osrm_dostepny = P._google_dostepny = None; P._geo_pytane.clear()
+
+# baza na wsi spoza bazy offline, bez sieci: poczta (gmina) z adresu zamiast stolicy województwa;
+# gdy i poczty nie ma w bazie — web odmawia generowania zamiast liczyć kilometry np. z Krakowa
+try:
+    P._geo_cache.pop(P._klucz_geo("Dębowa Wola, 26-660 Jedlińsk"), None)
+    sprawdz("bez sieci baza we wsi spoza bazy miast = jej poczta (Dębowa Wola → Jedlińsk), nie Warszawa",
+            P.coords_z_miasta("Dębowa Wola") is None and tuple(P.pobierz_coords("Dębowa Wola, 26-660 Jedlińsk", "Dębowa Wola",
+                                                                            "mazowieckie", zapisz_cache=False)) == (51.52, 21.11))
+    sprawdz("bez sieci poczta spoza bazy miast — jak dotąd stolica województwa (Frydrychowice → Kraków)",
+            tuple(P.pobierz_coords("Zielona 3, 34-108 Frydrychowice", "Frydrychowice", "małopolskie",
+                                   zapisz_cache=False)) == tuple(P.STOLICE["małopolskie"]))
+    P._geo_cache.pop(P._klucz_geo("Paszki Duże, 08-540 Stężyca"), None)
+    _st33 = tuple(P.pobierz_coords("Paszki Duże, 08-540 Stężyca", "Paszki Duże", "lubelskie", zapisz_cache=False))
+    sprawdz("bez sieci poczta o nazwie z dwóch województw — gmina z właściwego (Stężyca lubelska, nie kaszubska)",
+            P.oblicz_dystans(_st33[0], _st33[1], *P.STOLICE["lubelskie"]) < 150, str(_st33))
+    _jw33 = P.waliduj_adres("Józefów nad Wisłą 5, 24-340 Józefów nad Wisłą", "wies")
+    sprawdz("adres wiejski: nazwa wsi zapisana jak poczta (jeden zapis na dokumencie: „nad”, nie „Nad”)",
+            _jw33["adres_caly"] == "Józefów nad Wisłą 5, 24-340 Józefów nad Wisłą" and _jw33["baza_miasto"] == "Józefów nad Wisłą",
+            str((_jw33["adres_caly"], _jw33["baza_miasto"])))
+    import nowy_wyglad as _NW33
+    sprawdz("podgląd programu bierze bazę w tej samej kolejności (wieś → poczta → stolica)",
+            tuple(_NW33.wspolrzedne_bazy("Dębowa Wola", "Dębowa Wola, 26-660 Jedlińsk", "mazowieckie")) == (51.52, 21.11))
+except Exception as _e33:
+    sprawdz("baza we wsi bez sieci", False, repr(_e33))
+finally:
+    P._geo_pytane.clear()
+
+if _M33 is not None:
+    _baza33, _bl33 = [], []
+    _org33 = (_S33.generuj_trasy, _S33._menedzer)
+    try:
+        _S33._geo_cache.clear(); _S33._geo_braki = {}
+        _S33.generuj_trasy = lambda kw, bm, lat, lng, *a, **k: (_baza33.append((bm, lat, lng)), [])[1]
+        _S33._menedzer = lambda: "Jan Przełożony"
+        for _adr33 in ("Dębowa Wola 12, 26-660 Jedlińsk", "Zielona 3, 34-108 Frydrychowice"):
+            try:
+                _M33.generuj({"imie": "Jan Test", "pesel": "90010112349", "adres": _adr33, "wymus_typ": "wies" if "Dębowa" in _adr33 else "ulica",
+                              "kwota": 500, "rok": 2026, "miesiac": 11, "tryb": "tydzien"})
+            except ValueError as _e33:
+                _bl33.append(str(_e33))
+        sprawdz("web bez sieci: baza we wsi spoza bazy miast liczona z jej poczty (Jedlińsk), nie z Warszawy",
+                _baza33 == [("Dębowa Wola", 51.52, 21.11)], str(_baza33))
+        sprawdz("web bez sieci: adres, którego położenia nie da się ustalić, zatrzymuje generowanie czytelnym komunikatem (bez fikcyjnej bazy w stolicy)",
+                len(_bl33) == 2 and "ANI JEDNEGO" in _bl33[0] and "Nie udało się ustalić, gdzie leży adres" in _bl33[1]
+                and "Frydrychowice" in _bl33[1], str(_bl33))
+    except Exception as _e33:
+        sprawdz("web: baza we wsi bez sieci", False, repr(_e33))
+    finally:
+        _S33.generuj_trasy, _S33._menedzer = _org33
+        _S33._geo_pytane.clear(); _S33._geo_braki = None
+
+# plan wizyt: każdy dzień zaczyna się w bazie — limit dnia obejmuje dojazd z domu, a godziny w aplikacji mieszczą się w oknie
+if _M33 is not None:
+    try:
+        import random as _rnd33
+        _r33 = _rnd33.Random(7)
+        _pkt33 = [_S33.PunktWizyty("Sklep %d" % _i, "Sklep %d" % _i, lat=50.87 + _r33.uniform(-0.12, 0.12),
+                                   lng=20.63 + _r33.uniform(-0.18, 0.18), miasto="Kielce") for _i in range(60)]
+        _baza33 = _S33.PunktWizyty("Baza (start)", "Radom", lat=51.40, lng=21.15, miasto="Radom")
+        _S33.ustaw_tryb_pracy("wieczory")
+        _M33.USTAWIENIA_WEB["plan_godziny"] = 5.5
+        _pl33 = _S33.planuj_wizyty(_pkt33, 2026, 12, baza=_baza33, offline=True)
+        _cw33 = _S33.ustawienia_planowania()["czas_wizyty"]
+        _konce33 = []
+        for _d33 in _pl33["dni"]:
+            _g33 = _M33._godziny_dnia(_d33, _baza33, "wieczory")[-1]
+            _konce33.append(int(_g33[:2]) * 60 + int(_g33[3:]) + _cw33)
+        _dojazd33 = [round(_S33._dyst_prosty(_baza33, _d33.wizyty[0]), 1) for _d33 in _pl33["dni"]]
+        sprawdz("plan wizyt (wieczory 16:30–22:00, sklepy ok. 70 km od bazy): żaden dzień nie kończy się po 22:00",
+                len(_pl33["dni"]) > 3 and max(_konce33) <= 22 * 60, str([("%02d:%02d" % divmod(int(_k), 60)) for _k in _konce33]))
+        sprawdz("plan wizyt: km każdego dnia obejmują dojazd z bazy do pierwszej wizyty",
+                all(_d33.km >= _dj - 0.1 for _d33, _dj in zip(_pl33["dni"], _dojazd33)), str([(_d33.km, _dj) for _d33, _dj in zip(_pl33["dni"], _dojazd33)][:5]))
+        _plp33 = P.planuj_wizyty([P.PunktWizyty(_p.nazwa, _p.adres, lat=_p.lat, lng=_p.lng, miasto=_p.miasto) for _p in _pkt33], 2026, 12,
+                                 baza=P.PunktWizyty("Baza (start)", "Radom", lat=51.40, lng=21.15, miasto="Radom"), offline=True)
+        sprawdz("program: plan wizyt zaczyna każdy dzień w bazie (ten sam rachunek co web)",
+                [[_w.nazwa for _w in _d.wizyty] for _d in _plp33["dni"]][:3] != [] and
+                all(_d.km >= P._dyst_prosty(P.PunktWizyty("b", "", lat=51.40, lng=21.15), _d.wizyty[0]) - 0.1 for _d in _plp33["dni"]))
+    except Exception as _e33:
+        sprawdz("plan wizyt: dzień z bazy", False, repr(_e33))
+        import traceback as _tb33
+        _tb33.print_exc()
+    finally:
+        _M33.USTAWIENIA_WEB.pop("plan_godziny", None)
+        _S33.ustaw_tryb_pracy("tydzien")
+
+# import listy sklepów z CSV zapisanego przez polski Excel: cp1250 (domyślny „CSV”), UTF-8 z BOM, UTF-16 („Tekst Unicode”)
+_kat33 = tempfile.mkdtemp(prefix="pmt_csv33_")
+try:
+    _tresc33 = "Miasto;Ulica;Sieć\r\nŁódź;Piotrkowska 1;Żabka\r\nGdańsk;Długa 2;Biedronka\r\n"
+    _pliki33 = {}
+    for _nazwa33, _bajty33 in (("cp1250.csv", _tresc33.encode("cp1250")), ("utf8.csv", _tresc33.encode("utf-8-sig")),
+                               ("utf16.csv", _tresc33.replace(";", "\t").encode("utf-16"))):
+        _pliki33[_nazwa33] = os.path.join(_kat33, _nazwa33)
+        with open(_pliki33[_nazwa33], "wb") as _f33:
+            _f33.write(_bajty33)
+    _ocz33 = [["Miasto", "Ulica", "Sieć"], ["Łódź", "Piotrkowska 1", "Żabka"], ["Gdańsk", "Długa 2", "Biedronka"]]
+    sprawdz("program: CSV z polskiego Excela (cp1250, UTF-8 z BOM, UTF-16) wczytuje się z polskimi literami",
+            all(P._wiersze_csv(_s) == _ocz33 for _s in _pliki33.values()), str([P._wiersze_csv(_s)[:2] for _s in _pliki33.values()]))
+    if _M33 is not None:
+        _wyn33 = [_M33.plan_wczytaj({"sciezka": _s}) for _s in _pliki33.values()]
+        sprawdz("web: plan_wczytaj przyjmuje CSV w cp1250 / UTF-8 / UTF-16 (dawniej: błąd 'utf-8' codec can't decode)",
+                all(_w.get("ok") and _w["pozycje"] == [{"adres": "ul. Piotrkowska 1, Łódź", "siec": "Żabka", "miasto": "Łódź"},
+                                                       {"adres": "ul. Długa 2, Gdańsk", "siec": "Biedronka", "miasto": "Gdańsk"}]
+                    for _w in _wyn33), str(_wyn33[0]))
+except Exception as _e33:
+    sprawdz("import CSV w kodowaniach Excela", False, repr(_e33))
+finally:
+    shutil.rmtree(_kat33, ignore_errors=True)
+
+# grudzień: od 2025 r. (wolna Wigilia) trzy niedziele handlowe przed 24.12; wcześniej dwie
+try:
+    _gr33 = lambda M, r: [d for d in range(1, 32) if M.czy_niedziela_handlowa(datetime.date(r, 12, d))]
+    _ocz_gr33 = {2024: [15, 22], 2025: [7, 14, 21], 2026: [6, 13, 20], 2028: [3, 10, 17]}
+    sprawdz("grudniowe niedziele handlowe: 2024 — dwie, od 2025 — trzy przed wolną Wigilią (2028: Wigilia w niedzielę nie jest handlowa)",
+            all(_gr33(P, _r) == _o for _r, _o in _ocz_gr33.items()), str({_r: _gr33(P, _r) for _r in _ocz_gr33}))
+    if _S33 is not None:
+        _S33.ustaw_tryb_pracy("wieczory")
+        _ndz33 = [d.day for d in _S33.pobierz_dni_robocze(2026, 12) if d.weekday() == 6]
+        _S33.ustaw_tryb_pracy("tydzien")
+        sprawdz("web, tryb wieczorny: grudzień 2026 ma robocze niedziele 6, 13 i 20.12",
+                all(_gr33(_S33, _r) == _o for _r, _o in _ocz_gr33.items()) and _ndz33 == [6, 13, 20], str(_ndz33))
+except Exception as _e33:
+    sprawdz("grudniowe niedziele handlowe", False, repr(_e33))
+
+# województwo po kodzie: pogranicza, które dwie pierwsze cyfry przypisywały sąsiadowi
+_kody33 = {"08-500": "lubelskie", "08-530": "lubelskie", "08-400": "mazowieckie",         # Ryki, Dęblin / Garwolin
+           "38-300": "małopolskie", "38-340": "małopolskie", "38-400": "podkarpackie",    # Gorlice, Biecz / Krosno
+           "47-400": "śląskie", "47-200": "opolskie", "67-200": "dolnośląskie", "67-100": "lubuskie",
+           "89-400": "kujawsko-pomorskie", "89-300": "wielkopolskie", "89-500": "kujawsko-pomorskie",
+           "89-600": "pomorskie", "96-300": "mazowieckie", "96-500": "mazowieckie", "96-100": "łódzkie"}
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _zle33 = [(k, _M.rozpoznaj_wojewodztwo(k)) for k, w in _kody33.items() if _M.rozpoznaj_wojewodztwo(k) != w]
+    sprawdz("%s: kody z pogranicza (Ryki, Gorlice, Racibórz, Głogów, Sępólno, Wyrzysk, Żyrardów, Sochaczew) w swoich województwach"
+            % ("program" if _M is P else "web"), not _zle33, str(_zle33))
+
+# adres na dokumencie: capitalize() nie psuje członów po łączniku ani liczb rzymskich; wpis małymi literami jak dotąd
+_adr33 = {"ul. Jana Pawła II 12, 43-300 Bielsko-Biała": ("ul. Jana Pawła II 12, 43-300 Bielsko-Biała", "Bielsko-Biała"),
+          "Grota-Roweckiego 5/3, 26-110 Skarżysko-Kamienna": ("Grota-Roweckiego 5/3, 26-110 Skarżysko-Kamienna", "Skarżysko-Kamienna"),
+          "al. Jana III Sobieskiego 3, 47-200 Kędzierzyn-Koźle": ("al. Jana III Sobieskiego 3, 47-200 Kędzierzyn-Koźle", "Kędzierzyn-Koźle"),
+          "ul. Kwiatowa 5, 89-100 Nakło nad Notecią": ("ul. Kwiatowa 5, 89-100 Nakło nad Notecią", "Nakło nad Notecią"),
+          "UL. LIPOWA 3, 26-600 RADOM": ("ul. Lipowa 3, 26-600 Radom", "Radom"),
+          # dotychczasowe wyniki bez zmian
+          "ul. 3-go Maja 5, 26-600 Radom": ("ul. 3-go Maja 5, 26-600 Radom", "Radom"),
+          "ul. 1000-lecia 3, 26-600 radom": ("ul. 1000-lecia 3, 26-600 Radom", "Radom"),
+          "ul. cyryla i metodego 4, 00-001 warszawa": ("ul. Cyryla I Metodego 4, 00-001 Warszawa", "Warszawa"),
+          "ul. Lilii 2, 26-600 Radom": ("ul. Lilii 2, 26-600 Radom", "Radom"),
+          "ul. Pod Lipami 3, 26-600 Radom": ("ul. Pod Lipami 3, 26-600 Radom", "Radom"),
+          "bielsko-biała 5, 43-300 bielsko-biała": ("Bielsko-biała 5, 43-300 Bielsko-biała", "Bielsko-biała")}
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _zle33 = [(k, (_a["adres_caly"], _a["baza_miasto"])) for k, w in _adr33.items()
+              for _a in [_M.waliduj_adres(k)] if (_a["adres_caly"], _a["baza_miasto"]) != w]
+    sprawdz("%s: adres na dokumencie — „Bielsko-Biała”, „Jana Pawła II”, „Nakło nad Notecią”; wpis małymi literami jak dotąd"
+            % ("program" if _M is P else "web"), not _zle33, str(_zle33))
+
+# PESEL: poza sumą kontrolną także data urodzenia — ale ŻADEN prawdziwy numer (1800–2299, 29.02 w latach przestępnych) nie odpada
+def _z_kontrolna33(p10):
+    return p10 + str((10 - sum(int(p10[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10)
+def _pesel33(rok, mies, dzien, seria="0001"):
+    return _z_kontrolna33("%02d%02d%02d%s" % (rok % 100, mies + {18: 80, 19: 0, 20: 20, 21: 40, 22: 60}[rok // 100], dzien, seria))
+_dobre33, _d33 = [], datetime.date(1800, 1, 1)
+while _d33 <= datetime.date(2299, 12, 31):
+    _dobre33.append(_pesel33(_d33.year, _d33.month, _d33.day, "%04d" % (_d33.toordinal() % 10000)))
+    _d33 += datetime.timedelta(days=1)
+_zle33 = [_pesel33(1999, 2, 29), _pesel33(1900, 2, 29), _pesel33(2100, 2, 29), _pesel33(1990, 4, 31), _pesel33(1990, 1, 32),
+          _pesel33(1990, 1, 0), "00000000000", "12345678903"]
+_zle33 += [_z_kontrolna33("90%02d010000" % _mm) for _mm in (0, 13, 20, 33, 40, 53, 60, 73, 80, 93, 99)]   # miesiące poza 01–12 (+20/+40/+60/+80)
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _odrzucone33 = [p for p in _dobre33 if not _M.waliduj_pesel(p)]
+    _przepuszczone33 = [p for p in _zle33 if _M.waliduj_pesel(p)]
+    sprawdz("%s: PESEL z niemożliwą datą odpada (00000000000, miesiąc 34, 29.02.1999), a każdy z lat 1800–2299 przechodzi (90010112349 też)"
+            % ("program" if _M is P else "web"),
+            not _odrzucone33 and not _przepuszczone33 and _M.waliduj_pesel("90010112349") and len(_dobre33) > 182000,
+            str((_odrzucone33[:3], _przepuszczone33[:3])))
+_node33 = shutil.which("node")
+if _node33:
+    try:
+        _js33 = open(os.path.join(KATALOG, "web", "js", "aplikacja.js"), encoding="utf-8").read()
+        _i33 = _js33.index("const peselPoprawny = p => {")
+        _skr33 = os.path.join(_TMP_HOME, "pesel33.js")
+        with open(_skr33, "w", encoding="utf-8") as _f:
+            _f.write(_js33[_i33:_js33.index("\n};", _i33) + 3] + "\nconst d = JSON.parse(require('fs').readFileSync(0, 'utf8'));\n"
+                     "process.stdout.write(JSON.stringify({dobre: d.dobre.filter(p => !peselPoprawny(p)), zle: d.zle.filter(p => peselPoprawny(p))}));\n")
+        import subprocess as _sp33
+        _w33 = json.loads(_sp33.run([_node33, _skr33], input=json.dumps({"dobre": _dobre33 + ["9001011234 9"], "zle": _zle33}),
+                                    capture_output=True, text=True, timeout=120).stdout)
+        sprawdz("aplikacja (peselPoprawny w formularzu) ocenia PESEL tak samo jak silnik — wszystkie daty 1800–2299 i daty niemożliwe",
+                _w33 == {"dobre": [], "zle": []}, str(_w33)[:300])
+    except Exception as _e33:
+        sprawdz("peselPoprawny w aplikacji zgodny z silnikiem", False, repr(_e33))
+else:
+    print("  (pominięte: brak node — zgodność peselPoprawny z silnikiem sprawdza się tylko z node)")
+
+# tryb wieczorny: wyjazd 16:15–16:45, ale powrót na dokumencie nie po 22:00 (pełny dzień wyjeżdża wcześniej)
+try:
+    P.ustaw_tryb_pracy("wieczory")
+    _dni33 = P.pobierz_dni_robocze(2026, 10)
+    _godz33 = []
+    for _kw33 in (2500.0, 3500.0):
+        _w33 = P.generuj_trasy(_kw33, "Poznań", 52.41, 16.93, "wielkopolskie", _dni33, "90010112349", 1.15)
+        _godz33 += [(d.data.isoformat(), d.etapy[0].godz_wyj, d.etapy[-1].godz_przyj) for d in _w33]
+    sprawdz("wieczory (Poznań, X 2026, 2500 i 3500 zł): żaden powrót po 22:00, wyjazdy między 16:00 a 16:45",
+            _godz33 and all("16:00" <= w <= "16:45" and "16:00" < p <= "22:00" for _, w, p in _godz33),
+            str([g for g in _godz33 if not ("16:00" <= g[1] <= "16:45" and "16:00" < g[2] <= "22:00")]))
+except Exception as _e33:
+    sprawdz("wieczory: powrót przed 22:00", False, repr(_e33))
+finally:
+    P.ustaw_tryb_pracy("tydzien")
+
+# ── koniec sekcji 33 ──
+
+# ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]
 print("\n" + "=" * 62)
 print("  WYNIK: %d / %d testów przeszło" % (len(WYNIKI) - len(_bledy), len(WYNIKI)))

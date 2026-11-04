@@ -165,6 +165,14 @@ def _dzien_json(d, stawka):
             "dokument": int(getattr(d, "dokument", 0) or 0), "etapy": etapy, "punkty": punkty}
 
 
+def _odnow_siec():
+    """Każde generowanie pyta sieć od nowa. Silnik po pierwszym błędzie (brak zasięgu, timeout, 429) wyłącza OSRM/Google
+    i nie ponawia geokodowania adresu do końca procesu — w programie to minuty, a worker karty żyje dniami."""
+    S._osrm_dostepny = None
+    S._google_dostepny = None
+    S._geo_pytane.clear()
+
+
 def generuj(p, postep=None):
     """Odpowiednik GeneratorThread.run: współrzędne bazy → generuj_trasy → generuj_pdfy (do folderu w pamięci).
     Zwraca {ok, dni, folder, pliki, zrodlo, niepelna, ...}; błędy jako wyjątki (ValueError z tekstem dla człowieka)."""
@@ -175,8 +183,15 @@ def generuj(p, postep=None):
     rok, mies = int(p["rok"]), int(p["miesiac"])
     stawka = pr["stawka"]
     S.zeruj_zrodlo_odleglosci()
+    _odnow_siec()
     cb("Pobieranie współrzędnych GPS...", 0.10)
     baza_lat, baza_lng = S.pobierz_coords(pr["adres_geo"], pr["baza_miasto"], pr["woj"])
+    if S._klucz_geo(pr["adres_geo"]) not in S._geo_cache and not any(
+            S._miasto_w_woj(n, pr["woj"]) for n in (pr["baza_miasto"], S._poczta_z_adresu(pr["adres_geo"])) if n):
+        # silnik oddałby stolicę województwa: dokumenty z kilometrami liczonymi np. z Warszawy, bez słowa ostrzeżenia
+        raise ValueError("Nie udało się ustalić, gdzie leży adres zamieszkania: serwer map nie odpowiada albo nie zna adresu, "
+                         "a miejscowości %s nie ma w bazie offline. Połącz się z internetem i spróbuj ponownie "
+                         "(sprawdź też pisownię adresu). Żaden dokument nie został utworzony." % pr["baza_miasto"])
     imie = " ".join(str(p["imie"]).split()); pesel = "".join(str(p["pesel"]).split())
     prac = S.DanePracownika(imie=imie, pesel=pesel, adres=pr["adres_caly"], stanowisko=p.get("stanowisko") or "KR",
                             kod_pocztowy=pr["kod_pocztowy"], baza_miasto=pr["baza_miasto"], baza_lat=baza_lat,
@@ -264,12 +279,7 @@ def _wiersze_z_pliku(sciezka):
     """Jak `_wczytaj_pozycje_z_pliku`: CSV (separator z próbki) albo XLSX (openpyxl, pierwszy arkusz)."""
     wiersze = []
     if sciezka.lower().endswith(".csv"):
-        import csv
-        with open(sciezka, newline="", encoding="utf-8-sig") as f:
-            probka = f.read(2048); f.seek(0)
-            sep = ";" if probka.count(";") > probka.count(",") else ","
-            for w in csv.reader(f, delimiter=sep):
-                wiersze.append(w)
+        wiersze = S._wiersze_csv(sciezka)
     else:
         from openpyxl import load_workbook
         wb = load_workbook(sciezka, read_only=True, data_only=True)
@@ -307,6 +317,17 @@ def plan_wczytaj(p):
     return {"ok": True, "pozycje": pozycje, "kolumny": sorted(mapa.keys())}
 
 
+def _z_serwera(adres, miasto, zapisz_cache=True):
+    """pobierz_coords bez zastępstwa: para tylko wtedy, gdy serwer naprawdę zna adres (wpis w pamięci geokodowania).
+    Po nieudanym zapytaniu silnik oddaje stolicę województwa — dla planu wizyt to fikcyjny punkt (Warszawa), lepiej „bez lokalizacji”."""
+    try:
+        S.pobierz_coords(adres, miasto, "mazowieckie", zapisz_cache=zapisz_cache)
+    except Exception:
+        pass
+    c = S._geo_cache.get(S._klucz_geo(adres))
+    return (float(c[0]), float(c[1])) if c else None
+
+
 def _baza_planu(adres_bazy):
     """Punkt startowy dnia (jak w PlanerWizytThread.run): cache dokładnego adresu → miasto z bazy offline → sieć."""
     if not adres_bazy:
@@ -318,14 +339,9 @@ def _baza_planu(adres_bazy):
     if klucz_b in S._geo_cache:
         lat_b, lng_b = tuple(S._geo_cache[klucz_b])
     else:
-        c = S.coords_z_miasta(miasto_b)
+        c = S.coords_z_miasta(miasto_b) or _z_serwera(adres_bazy, miasto_b or adres_bazy)
         if c:
             lat_b, lng_b = c
-        else:
-            try:
-                lat_b, lng_b = S.pobierz_coords(adres_bazy, miasto_b or adres_bazy, "mazowieckie")
-            except Exception:
-                lat_b = lng_b = None
     if lat_b is None:
         return None
     return S.PunktWizyty("Baza (start)", adres_bazy, lat=lat_b, lng=lng_b, miasto=miasto_b)
@@ -358,7 +374,7 @@ def _plan_json(plan, baza, tryb):
         miesiace.append({"rok": m["rok"], "miesiac": m["miesiac"], "suma_km": round(float(m.get("suma_km", 0)), 1),
                          "suma_wizyt": m.get("suma_wizyt", 0), "dni": dni})
     return {"miesiace": miesiace, "suma_km": round(float(plan.get("suma_km", 0)), 1), "suma_wizyt": plan.get("suma_wizyt", 0),
-            "bez_pozycji": [w.nazwa for w in plan.get("bez_pozycji", [])][:50],
+            "bez_pozycji": [w.nazwa for w in plan.get("bez_pozycji", [])][:50], "ile_bez_pozycji": len(plan.get("bez_pozycji", [])),
             "nierozplanowane": [w.nazwa for w in plan.get("nierozplanowane", [])][:50],
             "baza": ({"adres": baza.adres, "lat": baza.lat, "lng": baza.lng, "miasto": baza.miasto} if baza else None),
             "cykliczny": bool(plan.get("cykliczny")), "tryb": tryb}
@@ -368,6 +384,7 @@ def plan_generuj(p, postep=None):
     """Odpowiednik PlanerWizytThread.run: współrzędne z bazy miast → dogeokodowanie nowych miejscowości (raz na miasto)
     → baza → planuj_wizyty / planuj_cyklicznie. Zwraca plan jako słownik (patrz _plan_json)."""
     cb = postep or (lambda t, v: None)
+    _odnow_siec()
     pozycje = p["pozycje"]; n = len(pozycje)
     punkty = []
     for i, poz in enumerate(pozycje):
@@ -387,6 +404,7 @@ def plan_generuj(p, postep=None):
         punkty.append(S.PunktWizyty(etykieta, adres, siec=siec, lat=lat, lng=lng, miasto=miasto))
         if i % 200 == 0:
             cb("Lokalizowanie z bazy miast (%d/%d)..." % (i + 1, n), (i + 1) / max(n, 1) * 0.5)
+    offline = not bool(p.get("siec", True))
     braki = {}
     for pt in punkty:
         if pt.lat is None and pt.miasto:
@@ -396,14 +414,15 @@ def plan_generuj(p, postep=None):
         for j, (mnorm, pm) in enumerate(lista):
             cb("Nowe miejscowości (%d/%d)..." % (j + 1, len(lista)), 0.5 + (j + 1) / max(len(lista), 1) * 0.3)
             nazwa = pm[0].miasto
-            try:
-                lat, lng = S.pobierz_coords(nazwa, nazwa, "mazowieckie", zapisz_cache=False)
-            except Exception:
-                lat = lng = None
-            if lat is not None:
-                S._zbuduj_indeks_miast()[mnorm] = (lat, lng)
+            if offline:         # bez sieci tylko to, co serwer podał wcześniej
+                c = S._geo_cache.get(S._klucz_geo(nazwa))
+                c = (float(c[0]), float(c[1])) if c else None
+            else:
+                c = _z_serwera(nazwa, nazwa, zapisz_cache=False)
+            if c:
+                S._zbuduj_indeks_miast()[mnorm] = c
                 for pt in pm:
-                    pt.lat, pt.lng = lat, lng
+                    pt.lat, pt.lng = c
         S.zapisz_geo_cache()
     adres_bazy = str(p.get("adres_bazy") or "").strip()
     cb("Lokalizowanie punktu startowego...", 0.82)
@@ -411,7 +430,6 @@ def plan_generuj(p, postep=None):
     cb("Układanie tras...", 0.85)
     rok, mies = int(p["rok"]), int(p["miesiac"])
     S.ustaw_tryb_pracy("wieczory" if str(p.get("tryb", "")).startswith("wiecz") else "tydzien")
-    offline = not bool(p.get("siec", True))
     # ustawienia planowania dostarcza interfejs (w programie: okno „Ustawienia planowania"): dzień wieczorny to okno 16:30–22:00 = 5,5 h
     USTAWIENIA_WEB["plan_godziny"] = 5.5 if str(p.get("tryb", "")).startswith("wiecz") else 8.0
     od_daty = datetime.date.fromisoformat(p["od_daty"]) if p.get("od_daty") else None

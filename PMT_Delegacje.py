@@ -7486,6 +7486,9 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     if to_wies:
         # Miejscowością (bazą, startem/metą, celem geocodingu) jest nazwa wsi,
         # a NIE poczta. Poczta to tylko urząd, do którego wieś przynależy.
+        # Nazwa wsi to nazwa miejscowości — zapis jak poczty („Józefów nad Wisłą"),
+        # inaczej jeden dokument miałby ją raz z „Nad", raz z „nad".
+        nazwa = _nazwa_wielka(m.group(2), miejscowosc=True)
         baza_miasto = nazwa
         adres_pdf = f"{nazwa} {numer}, {kod} {poczta}"
         adres_geo = f"{nazwa}, {kod} {poczta}"
@@ -7594,12 +7597,28 @@ def _wspolrzedne_zastepcze(miasto: str, woj: str, adres: str = "") -> Tuple[floa
     (nowy_wyglad.wspolrzedne_bazy)."""
     for nazwa in (miasto, _poczta_z_adresu(adres)):
         try:
-            z_bazy = coords_z_miasta(nazwa) if nazwa else None
+            z_bazy = _miasto_w_woj(nazwa, woj) if nazwa else None
         except Exception:
             z_bazy = None
         if z_bazy:
             return float(z_bazy[0]), float(z_bazy[1])
     return STOLICE.get(woj, (52.23, 21.01))
+
+
+def _miasto_w_woj(nazwa: str, woj: str = ""):
+    """Współrzędne miejscowości z bazy offline zgodne z województwem adresu albo None.
+    Indeks miast trzyma jedną parę na nazwę, a kilka nazw gmin powtarza się w dwóch
+    województwach (Stężyca, Pniewy, Olesno): „Paszki Duże, 08-540 Stężyca" (lubelskie)
+    trafiało na Kaszuby, 480 km od domu. Wynik indeksu dalej niż 250 km od stolicy
+    województwa odrzucamy i szukamy tej nazwy wśród gmin tego województwa."""
+    z = coords_z_miasta(nazwa)
+    if z and (woj not in STOLICE or oblicz_dystans(z[0], z[1], *STOLICE[woj]) <= 250):
+        return z
+    klucz = _norm_miasto(nazwa)
+    for m in MIASTA_RAW.get(woj, []):
+        if _norm_miasto(m["n"]) == klucz:
+            return (m["lat"], m["lng"])
+    return None
 
 
 def zapisz_geo_cache(sciezka=None):

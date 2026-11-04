@@ -11975,6 +11975,14 @@ try:
     sprawdz("bez sieci poczta spoza bazy miast — jak dotąd stolica województwa (Frydrychowice → Kraków)",
             tuple(P.pobierz_coords("Zielona 3, 34-108 Frydrychowice", "Frydrychowice", "małopolskie",
                                    zapisz_cache=False)) == tuple(P.STOLICE["małopolskie"]))
+    P._geo_cache.pop(P._klucz_geo("Paszki Duże, 08-540 Stężyca"), None)
+    _st33 = tuple(P.pobierz_coords("Paszki Duże, 08-540 Stężyca", "Paszki Duże", "lubelskie", zapisz_cache=False))
+    sprawdz("bez sieci poczta o nazwie z dwóch województw — gmina z właściwego (Stężyca lubelska, nie kaszubska)",
+            P.oblicz_dystans(_st33[0], _st33[1], *P.STOLICE["lubelskie"]) < 150, str(_st33))
+    _jw33 = P.waliduj_adres("Józefów nad Wisłą 5, 24-340 Józefów nad Wisłą", "wies")
+    sprawdz("adres wiejski: nazwa wsi zapisana jak poczta (jeden zapis na dokumencie: „nad”, nie „Nad”)",
+            _jw33["adres_caly"] == "Józefów nad Wisłą 5, 24-340 Józefów nad Wisłą" and _jw33["baza_miasto"] == "Józefów nad Wisłą",
+            str((_jw33["adres_caly"], _jw33["baza_miasto"])))
     import nowy_wyglad as _NW33
     sprawdz("podgląd programu bierze bazę w tej samej kolejności (wieś → poczta → stolica)",
             tuple(_NW33.wspolrzedne_bazy("Dębowa Wola", "Dębowa Wola, 26-660 Jedlińsk", "mazowieckie")) == (51.52, 21.11))

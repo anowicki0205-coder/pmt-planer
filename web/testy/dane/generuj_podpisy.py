@@ -77,6 +77,19 @@ p1 = podpisz_pdf(ORYG, jan, 'Podpis1'); annots = re.findall(rb'/Annots\s*\[[^\]]
 zapisz('zmiana_miedzy_podpisami.pdf', podpisz_pdf(aktualizacja(p1, {30: (b'<< >>', ZAMALOWANA), 3: STRONA % (b'[4 0 R 30 0 R]', b' ' + annots)}), anna, 'Podpis2'))
 # certyfikat samopodpisany (wystawca = podpisujący, jak „cyfrowy identyfikator” z Acrobata) — imię i PESEL się zgadzają, ale to nie jest podpis zaufany ani kwalifikowany
 zapisz('samopodpisany.pdf', podpisz_pdf(ORYG, jan_sam))
+# RSA z DigestInfo bez pola NULL (tak zapisuje podpis pieczęć podpisu zaufanego z gov.pl): poprawny podpis, który ścisłe biblioteki (OpenSSL, Poppler, Web Crypto) odrzucają, a walidator urzędowy przyjmuje
+zapisz('rsa_bez_null.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null('Jan', 'Testowy', '90010112349')))
+zapisz('rsa_bez_null_zepsuty.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null('Jan', 'Testowy', '90010112349', psuj=True)))
+# podpis zaufany z gov.pl: certyfikat to pieczęć Ministra, a osoba jest tylko w słowniku podpisu (/Name i /Reason „…w imieniu: IMIĘ NAZWISKO, PESEL: …”); w podpisie nie ma atrybutu czasu (jest /M)
+PIECZEC = dict(pieczec=True, bez_czasu=True)
+zapisz('pieczec_ministra.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null(**PIECZEC), name='JAN TESTOWY', reason=powod_pieczeci('Jan Testowy', '90010112349')))
+zapisz('pieczec_ministra_inna_osoba.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null(**PIECZEC), name='ANNA KOWALSKA', reason=powod_pieczeci('Anna Kowalska', '85010100000')))
+zapisz('pieczec_ministra_inny_pesel.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null(**PIECZEC), name='JAN TESTOWY', reason=powod_pieczeci('Jan Testowy', '85010100000')))
+zapisz('pieczec_ministra_bez_osoby.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null(**PIECZEC), name='JAN TESTOWY', reason='Opatrzono pieczęcią ministra właściwego do spraw informatyzacji'))
+zapisz('pieczec_ministra_niezgodne_imie.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null(**PIECZEC), name='ANNA KOWALSKA', reason=powod_pieczeci('Jan Testowy', '90010112349')))
+# nie dajemy się nabrać: certyfikat wystawiony sam sobie pod nazwą pieczęci, albo zwykły certyfikat innej osoby z cudzym „w imieniu” w /Reason, nie jest podpisem Jana
+zapisz('pieczec_samopodpisana.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null(pieczec=True, samopodpisany=True, bez_czasu=True), name='JAN TESTOWY', reason=powod_pieczeci('Jan Testowy', '90010112349')))
+zapisz('pieczec_zwykly_certyfikat.pdf', podpisz_pdf(ORYG, podpisujacy_bez_null('Anna', 'Kowalska', '85010100000'), name='JAN TESTOWY', reason=powod_pieczeci('Jan Testowy', '90010112349')))
 # podpis z pustym znacznikiem (pole bez podpisu)
 w = IncrementalPdfFileWriter(io.BytesIO(ORYG)); fields.append_signature_field(w, fields.SigFieldSpec('Puste')); o = io.BytesIO(); w.write(o); zapisz('pole_bez_podpisu.pdf', o.getvalue())
 

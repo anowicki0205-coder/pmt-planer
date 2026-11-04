@@ -239,3 +239,14 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       zamiast tego ciecz napełnia się od dołu do swojego poziomu (animacja „zycie-napelnij”, każda fiolka po kolei, przy każdym narysowaniu fiolek) i idzie więcej, wyraźniejszych bąbelków (8 na fiolkę).
       Przy okazji naprawiony błąd: rejestracja `@property --sw` (liczba, dla chlupotu) zerowała szerokość łączników na osi podróży (.pr-odc, .pr-km) i wyłączała poświatę fali przy zmianie motywu —
       `--sw` ma w pliku trzy znaczenia, więc nie wolno go rejestrować (komentarz w CSS). Testy: zycie_app.js (napełnianie sprawdzane na wybranych klatkach animacji), zywe_app.js, atrapa_test.js, testy_pmt.py.
+- [x] PODPIS ZAUFANY Z GOV.PL — fałszywy „błąd podpisu” (zgłoszone po teście właściciela, 4.11; sprawdzone na prawdziwym pliku z gov.pl): (1) KRYPTOGRAFIA: pieczęć podpisu zaufanego
+      zapisuje RSA PKCS#1 v1.5 z DigestInfo BEZ pola NULL po identyfikatorze skrótu. Podpis jest poprawny (po odszyfrowaniu kluczem z certyfikatu wychodzi SHA-256 podpisanych atrybutów,
+      a messageDigest = SHA-256 zakresów pliku), ale OpenSSL, NSS/Poppler i Web Crypto są ścisłe i go odrzucają — urzędowy walidator (Java) przyjmuje. weryfikacja.js: gdy ścisłe
+      sprawdzenie mówi „nie”, sprawdza jeszcze własna kryptografia (krypto_js.js), która porównuje CAŁY blok 00 01 FF…FF 00 DigestInfo skrót w obu zapisach (z NULL i bez);
+      blok z dopisanymi bajtami albo zmieniony podpis nadal odpada. (2) OSOBA: certyfikatem jest PIECZĘĆ Ministra („Minister do spraw informatyzacji — pieczęć podpisu zaufanego”,
+      Ministerstwo Cyfryzacji, VATPL-5252955037), a osoba jest tylko w słowniku podpisu: /Name i /Reason „…w imieniu: IMIĘ NAZWISKO, PESEL: …” (leży w podpisanym zakresie).
+      Dla takiej pieczęci (nie samopodpisanej) imię i PESEL do kontroli „czy to ta osoba” bierzemy ze słownika; /Name musi zgadzać się z imieniem w powodzie; bez wskazania osoby
+      stan „uwaga”, nie „podpisała inna osoba: Minister”. Komunikat: „Podpis zaufany w imieniu: …”. UWAGA: łańcucha zaufania nadal nie sprawdzamy (robi to urzędowy walidator) —
+      aplikacja ufa nazwie certyfikatu pieczęci, więc to wygodna kontrola, nie podpis prawny. (3) CZAS: pieczęć nie niesie atrybutu czasu — czas z pola /M słownika podpisu.
+      Testy: weryfikacja_test.js (+9 plików testowych z podpisem „jak z gov.pl”: pieczec_ministra*.pdf, rsa_bez_null*.pdf; generuj_podpisy.py / podpisy_lib.py), krypto_js_test.js
+      (DigestInfo bez NULL dla SHA-1/256/384/512 + blok z dopisanymi bajtami), oba także w trybie BEZ_WEBCRYPTO. Prawdziwego pliku z gov.pl NIE ma w repozytorium (zawiera PESEL).

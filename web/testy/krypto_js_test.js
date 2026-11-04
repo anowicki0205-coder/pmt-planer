@@ -33,6 +33,22 @@
     const zly = podpis.slice(); zly[100] ^= 1;
     ok(`RSA PKCS#1 v1.5 ${hash}: poprawny podpis ✓, zmieniona treść ✗, zmieniony podpis ✗`, await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, podpis, dane) === true && await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, podpis, inne) === false && await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, zly, dane) === false);
   }
+  // DigestInfo BEZ pola NULL (tak podpisuje pieczęć podpisu zaufanego z gov.pl): Web Crypto go odrzuca, własna kryptografia przyjmuje — ale tylko dokładny blok, bez żadnych dopisków
+  {
+    const jwk = await subtle.exportKey('jwk', rsa.privateKey), liczba = s => BigInt('0x' + Buffer.from(s, 'base64url').toString('hex')), nn = liczba(jwk.n), dd = liczba(jwk.d), kk = 256;
+    const modexp = (b, e, m) => { let r = 1n; b %= m; while (e > 0n) { if (e & 1n) r = r * b % m; b = b * b % m; e >>= 1n; } return r; };
+    const bezNull = { 'SHA-1': '301f300706052b0e03021a0414', 'SHA-256': '302f300b06096086480165030402010420', 'SHA-384': '303f300b06096086480165030402020430', 'SHA-512': '304f300b06096086480165030402030440' };
+    const podpiszBlok = em => Uint8Array.from(Buffer.from(modexp(BigInt('0x' + Buffer.from(em).toString('hex')), dd, nn).toString(16).padStart(kk * 2, '0'), 'hex'));
+    for (const hash of ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512']) {
+      const t = Buffer.concat([Buffer.from(bezNull[hash], 'hex'), Buffer.from(await subtle.digest(hash, dane))]);
+      const blok = (dopisek = 0) => Buffer.concat([Buffer.from([0, 1]), Buffer.alloc(kk - t.length - 3 - dopisek, 0xff), Buffer.from([0]), t, Buffer.alloc(dopisek, 0)]);
+      const podpis = podpiszBlok(blok()), zly = podpis.slice(); zly[100] ^= 1;
+      const pubW = await subtle.importKey('spki', spkiRsa, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']), pub = await kryptoJs.importKey('spki', spkiRsa, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
+      ok(`RSA PKCS#1 v1.5 ${hash}, DigestInfo bez NULL: własna kryptografia przyjmuje (Web Crypto: ${await subtle.verify('RSASSA-PKCS1-v1_5', pubW, podpis, dane) ? 'też' : 'odrzuca — stąd nasz zapas'}), zmieniona treść ✗, zmieniony podpis ✗, blok z dopisanymi bajtami ✗`,
+        await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, podpis, dane) === true && await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, podpis, inne) === false
+        && await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, zly, dane) === false && await kryptoJs.verify('RSASSA-PKCS1-v1_5', pub, podpiszBlok(blok(4)), dane) === false);
+    }
+  }
   for (const [hash, sol] of [['SHA-1', 20], ['SHA-256', 32], ['SHA-256', 0], ['SHA-384', 48], ['SHA-512', 64]]) {
     const k = await subtle.importKey('pkcs8', await subtle.exportKey('pkcs8', rsaPss.privateKey), { name: 'RSA-PSS', hash }, false, ['sign']);
     const podpis = new Uint8Array(await subtle.sign({ name: 'RSA-PSS', saltLength: sol }, k, dane)), pub = await kryptoJs.importKey('spki', spkiPss, { name: 'RSA-PSS', hash }, false, ['verify']);

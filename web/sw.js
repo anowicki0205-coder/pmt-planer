@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '5a92a42918c8';
+const WERSJA = 'cdf97f37a1a6';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -68,7 +68,7 @@ const SKROTY = {
  "./js/dokument_atrapa.js": "f1f185a9adda8ce6",
  "./js/dostep.js": "a2793ff8c2e3a16e",
  "./js/karuzela.js": "d64507d7e8c41a91",
- "./js/krypto_js.js": "6bc597542ce41d13",
+ "./js/krypto_js.js": "d5adbfd578434c89",
  "./js/magazyn.js": "4b50220968cf07cf",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "7c02dc2f74cf8d77",
@@ -79,7 +79,7 @@ const SKROTY = {
  "./js/sejf.js": "c9969d31c10a7ed6",
  "./js/silnik.js": "f359a47bf81defe4",
  "./js/silnik.worker.js": "8ad1cac7450048f3",
- "./js/weryfikacja.js": "fb510bf785970556",
+ "./js/weryfikacja.js": "3f3d2ed71b5ded1e",
  "./js/widowisko.js": "26feba6053e71f65",
  "./js/zipaes.js": "7214b972dfd20d7b",
  "./js/zywe.js": "3dfa03378a1e5d82",

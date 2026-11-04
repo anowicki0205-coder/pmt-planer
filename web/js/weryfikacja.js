@@ -132,6 +132,14 @@ function derNaRaw(b, dl) {            // podpis ECDSA w CMS (SEQ r, s) → posta
   const [r, s] = dzieci(b, tlv(b, 0)), cz = n => { let t = tresc(b, n); while (t.length > dl && t[0] === 0) t = t.subarray(1); const o = new Uint8Array(dl); o.set(t, dl - t.length); return o; };
   const w = new Uint8Array(2 * dl); w.set(cz(r), 0); w.set(cz(s), dl); return w;
 }
+/** Podpis RSA PKCS#1 v1.5. Web Crypto (jak OpenSSL) przyjmuje tylko DigestInfo z polem NULL po identyfikatorze skrótu, a pieczęć podpisu zaufanego z gov.pl zapisuje je bez niego
+ *  — to ten sam, poprawny podpis, który urzędowy walidator przyjmuje. Gdy ścisłe sprawdzenie mówi „nie”, sprawdzam jeszcze własną kryptografią, która porównuje cały blok w obu zapisach. */
+async function rsaV15(spki, hash, podpis, dane) {
+  const s = sub(), klucz = await s.importKey('spki', spki, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
+  if (await s.verify('RSASSA-PKCS1-v1_5', klucz, podpis, dane)) return true;
+  if (s === kryptoJs) return false;      // własna kryptografia już sprawdza oba zapisy
+  return kryptoJs.verify('RSASSA-PKCS1-v1_5', await kryptoJs.importKey('spki', spki, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']), podpis, dane);
+}
 /** Czy podpis (CMS) jest poprawny matematycznie dla klucza z certyfikatu: true / false / null (nie umiem tego sprawdzić) + powód. */
 async function sprawdzPodpisCms(c) {
   const s = sub();
@@ -151,8 +159,7 @@ async function sprawdzPodpisCms(c) {
         const klucz = await s.importKey('spki', spki, { name: 'RSA-PSS', hash }, false, ['verify']);
         return { ok: await s.verify({ name: 'RSA-PSS', saltLength: sol }, klucz, c.podpis, dane) };
       }
-      const hash = SIG_HASH[c.podpisOid] || skr, klucz = await s.importKey('spki', spki, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']);
-      return { ok: await s.verify('RSASSA-PKCS1-v1_5', klucz, c.podpis, dane) };
+      return { ok: await rsaV15(spki, SIG_HASH[c.podpisOid] || skr, c.podpis, dane) };
     }
     if (kluczOid === '1.2.840.10045.2.1') {             // ECDSA
       const [krzywa, dl] = KRZYWE[krzywaOid] || []; if (!krzywa) return { ok: null, powod: 'nieobsługiwana krzywa eliptyczna' };
@@ -169,7 +176,41 @@ function hexNaBajty(s) {
   s = s.replace(/[^0-9a-fA-F]/g, ''); if (s.length % 2) s += '0';
   const o = new Uint8Array(s.length / 2); for (let i = 0; i < o.length; i++) o[i] = parseInt(s.substr(i * 2, 2), 16); return o;
 }
-/** Wszystkie podpisy wbudowane w PDF: [{ zakres: [a,b,c,d], cms: Uint8Array, calosc: bool }]. */
+/** Napis z PDF-u: literalny „(…)” (z ucieczkami i zagnieżdżonymi nawiasami) albo szesnastkowy „<…>”; UTF-16BE z BOM-em, UTF-8 z BOM-em albo PDFDocEncoding (przybliżone jako Latin-1). */
+function napisPdf(s, i) {
+  const bajty = [];
+  if (s[i] === '<') {
+    const k = s.indexOf('>', i); if (k < 0 || k - i > 8000) return '';
+    const h = s.slice(i + 1, k).replace(/[^0-9a-fA-F]/g, ''); for (let j = 0; j < h.length; j += 2) bajty.push(parseInt(h.substr(j, 2).padEnd(2, '0'), 16));
+  } else {
+    let glebokosc = 1, j = i + 1;
+    for (; j < s.length && j - i < 4000 && glebokosc > 0; j++) {
+      const z = s[j];
+      if (z === '\\') {
+        const n = s[++j]; if (n === undefined) break;
+        if (/[0-7]/.test(n)) { let o = n; while (o.length < 3 && /[0-7]/.test(s[j + 1] || '')) o += s[++j]; bajty.push(parseInt(o, 8) & 255); }
+        else if (n === '\r') { if (s[j + 1] === '\n') j++; } else if (n !== '\n') bajty.push(({ n: 10, r: 13, t: 9, b: 8, f: 12 })[n] ?? n.charCodeAt(0));
+      } else if (z === '(') { glebokosc++; bajty.push(40); } else if (z === ')') { if (--glebokosc > 0) bajty.push(41); } else bajty.push(z.charCodeAt(0) & 255);
+    }
+  }
+  const b = Uint8Array.from(bajty);
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) return new TextDecoder('utf-8').decode(b.subarray(3));
+  return new TextDecoder('latin1').decode(b);
+}
+/** Pola słownika podpisu PDF (to, co podpisujący wpisał: /Name, /Reason, /M) — leżą w podpisanym zakresie, więc ważny podpis obejmuje też je. */
+function slownikPodpisu(t, poz) {
+  const o = t.lastIndexOf(' obj', poz), k = t.indexOf('endobj', poz), sl = t.slice(o < 0 ? Math.max(0, poz - 3000) : o, k < 0 ? poz + 3000 : Math.min(k, poz + 3000)).replace(/\/Contents\s*<[0-9a-fA-F\s]*>/g, '/Contents <>');
+  const pole = klucz => { const m = new RegExp('/' + klucz + '(?![\\w.])\\s*(\\(|<(?!<))').exec(sl); return m ? napisPdf(sl, m.index + m[0].length - 1).slice(0, 1000) : ''; };
+  return { name: pole('Name'), reason: pole('Reason'), m: pole('M') };
+}
+/** Data PDF „D:RRRRMMDDGGmmss+GG'mm'” → Date albo null. */
+function czasPdf(s) {
+  const m = /^D:(\d{4})(\d\d)?(\d\d)?(\d\d)?(\d\d)?(\d\d)?\s*([Zz+-])?(?:(\d\d)'?(\d\d)?'?)?/.exec(String(s || '').trim()); if (!m) return null;
+  const [r, mc, dz, g, mi, se] = [m[1], m[2] || 1, m[3] || 1, m[4] || 0, m[5] || 0, m[6] || 0].map(Number), przes = m[7] && m[7] !== 'Z' && m[7] !== 'z' ? (m[7] === '-' ? -1 : 1) * (Number(m[8] || 0) * 60 + Number(m[9] || 0)) : 0;
+  const d = new Date(Date.UTC(r, mc - 1, dz, g, mi, se) - przes * 60000); return isNaN(d.getTime()) ? null : d;
+}
+/** Wszystkie podpisy wbudowane w PDF: [{ zakres: [a,b,c,d], cms: Uint8Array, calosc: bool, slownik: { name, reason, m } }]. */
 export function podpisyWPdf(bajty) {
   const t = latin1(bajty), re = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/g, w = []; let m;
   while ((m = re.exec(t))) {
@@ -177,7 +218,8 @@ export function podpisyWPdf(bajty) {
     if (a !== 0 || b <= 0 || c <= a + b || c + d > bajty.length + 2 || d < 0) continue;
     let hex = t.slice(a + b, c).trim(); if (hex[0] !== '<' || hex[hex.length - 1] !== '>') continue;
     const cmsBajty = hexNaBajty(hex.slice(1, -1)); if (cmsBajty.length < 20 || cmsBajty[0] !== 0x30) continue;      // pusty znacznik miejsca na podpis
-    w.push({ zakres: [a, b, c, d], cms: cmsBajty, calosc: c + d >= bajty.length - 2 });
+    let slownik = { name: '', reason: '', m: '' }; try { slownik = slownikPodpisu(t, m.index); } catch (e) { /* bez pól opisowych */ }
+    w.push({ zakres: [a, b, c, d], cms: cmsBajty, calosc: c + d >= bajty.length - 2, slownik });
   }
   return w;
 }
@@ -189,7 +231,8 @@ export async function sprawdzPades(bajty, p) {
   let c;
   try { c = cms(p.cms); } catch (e) { w.powody.push('nie umiem odczytać podpisu: ' + e.message); w.blad = true; return w; }
   if (c.cert) { w.podmiot = c.cert.podmiot; w.wystawca = c.cert.wystawca; w.od = c.cert.od; w.do = c.cert.do; w.samopodpisany = samopodpisany(c.cert); }
-  w.czas = c.czas;
+  w.czas = c.czas || czasPdf((p.slownik || {}).m);      // pieczęć z gov.pl nie niesie czasu w samym podpisie — jest on w polu /M słownika podpisu
+  w.pieczec = jestPieczeciaPZ(c.cert); w.wImieniu = wImieniu(p.slownik, c.cert);
   const [a, b, cc, d] = p.zakres, dane = polacz(bajty.subarray(a, a + b), bajty.subarray(cc, cc + d));
   if (!c.skrot) { w.powody.push('nieobsługiwany algorytm skrótu'); return w; }
   if (c.wiadomosc) { try { const s = await skrot(c.skrot, dane); w.skrot = rowne(s, c.wiadomosc); } catch (e) { w.skrot = null; w.powody.push(e.message); } }
@@ -274,7 +317,7 @@ export async function sprawdzXades(tekstXml, oryginal) {
       const alg = sm.getAttribute('Algorithm'), hash = SIG_XML[alg], dane = new TextEncoder().encode(kanonizuj(si, cm.getAttribute('Algorithm'))), podpis = base64(sv.textContent);
       const { oid: kluczOid, krzywa: krzywaOid } = rodzajKlucza(cert);
       if (!hash) w.powody.push('nieobsługiwany algorytm podpisu XML');
-      else if (kluczOid === '1.2.840.113549.1.1.1') w.podpis = await s.verify('RSASSA-PKCS1-v1_5', await s.importKey('spki', cert.spki, { name: 'RSASSA-PKCS1-v1_5', hash }, false, ['verify']), podpis, dane);
+      else if (kluczOid === '1.2.840.113549.1.1.1') w.podpis = await rsaV15(cert.spki, hash, podpis, dane);
       else if (kluczOid === '1.2.840.10045.2.1') {
         const [krzywa] = KRZYWE[krzywaOid] || []; if (!krzywa) w.powody.push('nieobsługiwana krzywa eliptyczna');
         else w.podpis = await s.verify({ name: 'ECDSA', hash }, await s.importKey('spki', cert.spki, { name: 'ECDSA', namedCurve: krzywa }, false, ['verify']), podpis, dane);      // w XML-u podpis ECDSA jest już w postaci r||s
@@ -297,6 +340,22 @@ export function czyTaOsoba(imieNazwisko, pesel, podmiot) {
   const wszystko = Object.values(podmiot).flat().join(' '), m = wszystko.match(/(?:^|\D)(\d{11})(?!\d)/);
   return { osoba, pesel: m ? m[1] === String(pesel || '').replace(/\s/g, '') : null, nazwa: nazwa.replace(/\s*\(?\bPNO[A-Z]{2}-\d{11}\)?/i, '').trim() || nazwa };
 }
+/** Podpis zaufany z gov.pl składa PIECZĘĆ Ministra (certyfikat Ministerstwa Cyfryzacji, nie osoby): „Minister do spraw informatyzacji — pieczęć podpisu zaufanego”.
+ *  Rozpoznaję ją po nazwie i identyfikatorze Ministerstwa; certyfikat wystawiony sam sobie nigdy nie jest pieczęcią (łańcucha zaufania i tak nie sprawdzamy — robi to urzędowy walidator). */
+const jestPieczeciaPZ = c => !!c && !samopodpisany(c) && /pieczec\s+podpisu\s+zaufanego/.test(prosty(pierwszy(c.podmiot, 'CN')))
+  && (pierwszy(c.podmiot, 'organizationIdentifier') === 'VATPL-5252955037' || /ministerstwo\s+cyfryzacji/.test(prosty(pierwszy(c.podmiot, 'O'))));
+const ladnieImie = s => /[a-ząćęłńóśźż]/.test(s) ? s : s.toLocaleLowerCase('pl').replace(/(^|[\s-])(\p{L})/gu, (_, p, z) => p + z.toLocaleUpperCase('pl'));
+/** Osoba, w której imieniu pieczęć złożono: gov.pl wpisuje ją w słowniku podpisu („…w imieniu: IMIĘ NAZWISKO, PESEL: …”, a imię i nazwisko także w /Name). Słownik leży w podpisanym
+ *  zakresie, więc ważna pieczęć obejmuje te dane. Zwraca „podmiot” w postaci jak z certyfikatu (do czyTaOsoba) albo null — wtedy liczy się zwykły certyfikat. */
+function wImieniu(sl, cert) {
+  if (!sl || !jestPieczeciaPZ(cert)) return null;
+  const m = /w imieniu:\s*([^,\n]+?)\s*(?:,\s*PESEL:\s*(\d{11})(?!\d))?\s*(?:,|$)/i.exec(sl.reason || ''); if (!m) return null;
+  const imie = m[1].trim(), a = new Set(tokeny(imie)), b = tokeny(sl.name);
+  if (!a.size || (b.length && !(b.length === a.size && b.every(t => a.has(t))))) return null;      // /Name ma się zgadzać z imieniem w powodzie — inaczej nie ufam
+  return { CN: [ladnieImie(imie)], ...(m[2] ? { serialNumber: [m[2]] } : {}) };
+}
+/** Czyje to podpis: przy pieczęci podpisu zaufanego — osoba wpisana w podpisie, w pozostałych przypadkach — podmiot certyfikatu. */
+const podmiotOsoby = p => p.wImieniu || p.podmiot;
 
 /* ---------------------------------- skróty oryginału (czy to ten sam dokument) ---------------------------------- */
 /** PDF zapisany na nowo przy podpisywaniu nie zaczyna się już od bajtów oryginału, ale zwykle zachowuje jego skompresowane strumienie — po nich poznajemy dokument. */
@@ -405,7 +464,7 @@ export async function ocenPodpisElektroniczny({ bajty, xades, oryginal, imie, pe
     dodaj('podpis', 'ok', podpisy.length === 1 ? 'Jest podpis elektroniczny' : `Są ${podpisy.length} podpisy elektroniczne`);
     if (podpisy.some(p => p.blad)) dodaj('podpis', 'zle', podpisy.find(p => p.blad).powody[0]);
     // przy kilku podpisach liczy się zakres podpisu tej osoby: co zmieniono przed nim (kontrola „dokument”) i co dopisano za nim, zanim ktoś podpisał całość (kontrola „całość”)
-    const koniec = p => p.zakres[2] + p.zakres[3], wlasny = sy[podpisy.findIndex(p => czyTaOsoba(imie, pesel, p.podmiot).osoba === true)], opis = z => z.zmiany.join(', ');
+    const koniec = p => p.zakres[2] + p.zakres[3], wlasny = sy[podpisy.findIndex(p => czyTaOsoba(imie, pesel, podmiotOsoby(p)).osoba === true)], opis = z => z.zmiany.join(', ');
     if (wlasny && !wlasny.calosc && sy.some(p => p.calosc)) {
       const z = await zmianyTresci(bajty, koniec(wlasny), bajty.length);
       if (z.zmiany.length) dodaj('calosc', 'zle', `Po podpisaniu zmieniono treść dokumentu (${opis(z)}), a potem podpisał go ktoś jeszcze — podpis nie obejmuje tych zmian`);
@@ -432,18 +491,21 @@ export async function ocenPodpisElektroniczny({ bajty, xades, oryginal, imie, pe
   else if (podpisy.every(p => p.podpis === true)) dodaj('kryptografia', 'ok', 'Podpis jest matematycznie poprawny (zgadza się z kluczem z certyfikatu)');
   else dodaj('kryptografia', 'uwaga', (podpisy.find(p => p.powody.length) || { powody: ['Nie umiem sprawdzić matematycznej poprawności podpisu'] }).powody[0]);
   // kto podpisał
-  const oceny = podpisy.map(p => ({ p, o: czyTaOsoba(imie, pesel, p.podmiot) }));
+  // pieczęć podpisu zaufanego bez wskazania osoby w podpisie nie mówi, kto podpisał (jej certyfikat należy do Ministerstwa, nie do osoby)
+  const oceny = podpisy.map(p => ({ p, o: p.pieczec && !p.wImieniu ? { osoba: null, pesel: null, nazwa: '' } : czyTaOsoba(imie, pesel, podmiotOsoby(p)) }));
   const moj = oceny.find(x => x.o.osoba === true), inny = oceny.find(x => x.o.osoba === false), nieznany = oceny.every(x => x.o.osoba === null);
   let sygnatariusz = '', czas = null, wystawca = '';
+  const zPieczeci = x => !!x.p.wImieniu, zrodloPesel = x => zPieczeci(x) ? 'w podpisie (gov.pl)' : 'w certyfikacie';
   if (moj) {
-    sygnatariusz = kto(moj.p.podmiot); czas = moj.p.czas; wystawca = pierwszy(moj.p.wystawca, 'CN') || pierwszy(moj.p.wystawca, 'O');
-    dodaj('osoba', 'ok', `Podpisał(a): ${sygnatariusz} — zgadza się z osobą na dokumencie`);
-    if (moj.o.pesel === true) dodaj('pesel', 'ok', 'PESEL w certyfikacie zgadza się z PESEL-em na dokumencie');
-    else if (moj.o.pesel === false) dodaj('pesel', 'zle', 'PESEL w certyfikacie jest INNY niż na dokumencie');
+    sygnatariusz = kto(podmiotOsoby(moj.p)); czas = moj.p.czas; wystawca = pierwszy(moj.p.wystawca, 'CN') || pierwszy(moj.p.wystawca, 'O');
+    dodaj('osoba', 'ok', zPieczeci(moj) ? `Podpis zaufany w imieniu: ${sygnatariusz} — zgadza się z osobą na dokumencie` : `Podpisał(a): ${sygnatariusz} — zgadza się z osobą na dokumencie`);
+    if (moj.o.pesel === true) dodaj('pesel', 'ok', `PESEL ${zrodloPesel(moj)} zgadza się z PESEL-em na dokumencie`);
+    else if (moj.o.pesel === false) dodaj('pesel', 'zle', `PESEL ${zrodloPesel(moj)} jest INNY niż na dokumencie`);
   } else if (inny) {
-    sygnatariusz = kto(inny.p.podmiot); czas = inny.p.czas; wystawca = pierwszy(inny.p.wystawca, 'CN') || pierwszy(inny.p.wystawca, 'O');
-    dodaj('osoba', 'zle', `Podpisała inna osoba: ${sygnatariusz} (na dokumencie: ${imie})`);
-  } else if (nieznany) dodaj('osoba', 'uwaga', 'Certyfikat nie zawiera imienia i nazwiska — nie sprawdzę, kto podpisał');
+    sygnatariusz = kto(podmiotOsoby(inny.p)); czas = inny.p.czas; wystawca = pierwszy(inny.p.wystawca, 'CN') || pierwszy(inny.p.wystawca, 'O');
+    dodaj('osoba', 'zle', zPieczeci(inny) ? `Podpis zaufany złożono w imieniu innej osoby: ${sygnatariusz} (na dokumencie: ${imie})` : `Podpisała inna osoba: ${sygnatariusz} (na dokumencie: ${imie})`);
+  } else if (nieznany) dodaj('osoba', 'uwaga', podpisy.some(p => p.pieczec) ? 'To pieczęć podpisu zaufanego, ale w podpisie nie widzę, w czyim imieniu ją złożono — nie sprawdzę, kto podpisał' : 'Certyfikat nie zawiera imienia i nazwiska — nie sprawdzę, kto podpisał');
+  if (podpisy.some(p => p.wImieniu)) dodaj('pieczec', 'info', 'Podpis zaufany z gov.pl: dokument opatrzył pieczęcią Minister do spraw informatyzacji w imieniu osoby wpisanej w podpisie. Tożsamość podaje gov.pl, a zaufanie do certyfikatu sprawdza urzędowy walidator');
   const wazny = (moj || inny || oceny[0] || {}).p;
   if (wazny && wazny.czas && wazny.od && wazny.do) {
     if (wazny.czas < wazny.od || wazny.czas > wazny.do) dodaj('termin', 'uwaga', `Podpis złożono poza okresem ważności certyfikatu (${czasPl(wazny.czas)})`);

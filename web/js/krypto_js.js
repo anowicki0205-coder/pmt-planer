@@ -112,14 +112,23 @@ const oidTekst = (b, n) => { const t = b.subarray(n.start, n.end), w = [Math.flo
 const PREFIKS = {       // DigestInfo przed skrótem w podpisie PKCS#1 v1.5 (RFC 8017, uwaga 1)
   'SHA-1': '3021300906052b0e03021a05000414', 'SHA-256': '3031300d060960864801650304020105000420',
   'SHA-384': '3041300d060960864801650304020205000430', 'SHA-512': '3051300d060960864801650304020305000440' };
+// To samo bez pola „parametry NULL” po identyfikatorze skrótu. RFC 8017 każe je zapisywać, ale część urzędowych podpisujących (m.in. pieczęć podpisu zaufanego z gov.pl,
+// Ministerstwo Cyfryzacji) pomija je i walidatory (Java, Acrobat) takie podpisy przyjmują, a ścisłe biblioteki (OpenSSL, NSS/Poppler, Web Crypto) odrzucają.
+const PREFIKS_BEZ_NULL = {
+  'SHA-1': '301f300706052b0e03021a0414', 'SHA-256': '302f300b06096086480165030402010420',
+  'SHA-384': '303f300b06096086480165030402020430', 'SHA-512': '304f300b06096086480165030402030440' };
 const hexNaBajty = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
+/** Podpis PKCS#1 v1.5: porównujemy CAŁY odszyfrowany blok z oczekiwanym (00 01 FF…FF 00 DigestInfo skrót) — w jednym z dwóch dozwolonych zapisów DigestInfo (z NULL albo bez). */
 function weryfikujRsaV15(klucz, podpis, dane, hash) {
   const k = Math.ceil(dlugoscBitow(klucz.n) / 8); if (podpis.length !== k) return false;
   const s = naLiczbe(podpis); if (s >= klucz.n) return false;
-  const em = naBajty(potega(s, klucz.e, klucz.n), k), t = new Uint8Array([...hexNaBajty(PREFIKS[hash]), ...skrotJs(hash, dane)]);
-  if (k < t.length + 11) return false;
-  const oczek = new Uint8Array(k); oczek[1] = 1; oczek.fill(0xff, 2, k - t.length - 1); oczek.set(t, k - t.length);
-  let roznica = 0; for (let i = 0; i < k; i++) roznica |= em[i] ^ oczek[i]; return roznica === 0;
+  const em = naBajty(potega(s, klucz.e, klucz.n), k), sk = skrotJs(hash, dane); let zgodny = false;
+  for (const prefiks of [PREFIKS[hash], PREFIKS_BEZ_NULL[hash]]) {
+    const t = new Uint8Array([...hexNaBajty(prefiks), ...sk]); if (k < t.length + 11) continue;
+    const oczek = new Uint8Array(k); oczek[1] = 1; oczek.fill(0xff, 2, k - t.length - 1); oczek.set(t, k - t.length);
+    let roznica = 0; for (let i = 0; i < k; i++) roznica |= em[i] ^ oczek[i]; if (roznica === 0) zgodny = true;
+  }
+  return zgodny;
 }
 function mgf1(zarodek, dl, hash) {
   const hl = DLUGOSC_SKROTU[hash], wyn = new Uint8Array(Math.ceil(dl / hl) * hl);

@@ -62,6 +62,29 @@ const { chromium } = require('playwright'); const { serwer } = require('./wspoln
   r = await oceń('dwa_podpisy.pdf');
   ok('  …a zwykły drugi podpis po podpisie Jana (bez zmian treści) nadal przechodzi', r.stan === 'ok' && k(r, 'calosc') === 'ok', opis(r));
 
+  // RSA z DigestInfo bez pola NULL (tak zapisuje pieczęć podpisu zaufanego z gov.pl). Poppler i OpenSSL uznają taki podpis za nieprawidłowy, bo są ścisłe, a to ten sam, poprawny podpis,
+  // który przyjmuje walidator urzędowy; Web Crypto też go odrzuca, więc sprawdzamy jeszcze własną kryptografią, która porównuje CAŁY blok w obu zapisach
+  r = await oceń('rsa_bez_null.pdf');
+  ok('RSA z DigestInfo bez pola NULL (jak podpis zaufany z gov.pl): podpis jest poprawny, wszystko na zielono', r.stan === 'ok' && k(r, 'kryptografia') === 'ok' && k(r, 'osoba') === 'ok', opis(r));
+  r = await oceń('rsa_bez_null_zepsuty.pdf');
+  ok('  …a ten sam zapis ze zmienionym jednym bajtem podpisu nadal jest odrzucony (tolerancja dotyczy tylko zapisu skrótu, nie samego podpisu)', r.stan === 'zle' && k(r, 'kryptografia') === 'zle', opis(r));
+  // podpis zaufany z gov.pl: certyfikatem jest PIECZĘĆ Ministra (nie osoby), osoba jest tylko w słowniku podpisu (/Name, /Reason „…w imieniu: IMIĘ NAZWISKO, PESEL: …”), w podpisie nie ma czasu (jest /M)
+  r = await oceń('pieczec_ministra.pdf');
+  ok('pieczęć podpisu zaufanego: osoba i PESEL z podpisu zgadzają się z dokumentem, kryptografia ok, czas z pola /M — wszystko na zielono', r.stan === 'ok' && k(r, 'kryptografia') === 'ok' && k(r, 'osoba') === 'ok' && k(r, 'pesel') === 'ok' && k(r, 'czas') === 'ok' && !!r.czas && r.sygnatariusz === 'Jan Testowy', opis(r) + ' — ' + JSON.stringify([r.sygnatariusz, r.czas]));
+  ok('  …komunikat mówi, że to podpis zaufany w imieniu osoby (a nie, że podpisał Minister), i pokazuje wystawcę certyfikatu', /Podpis zaufany w imieniu: Jan Testowy/.test(tekst(r, 'osoba')) && k(r, 'pieczec') === 'info' && /Testowe Centrum Kwalifikowane/.test(tekst(r, 'wystawca')), tekst(r, 'osoba'));
+  r = await oceń('pieczec_ministra_inna_osoba.pdf');
+  ok('pieczęć w imieniu INNEJ osoby (Anna Kowalska) — odrzucone, z nazwiskiem', r.stan === 'zle' && k(r, 'osoba') === 'zle' && /w imieniu innej osoby: Anna Kowalska/.test(tekst(r, 'osoba')), opis(r) + ' — ' + tekst(r, 'osoba'));
+  r = await oceń('pieczec_ministra_inny_pesel.pdf');
+  ok('pieczęć: to samo imię i nazwisko, ale INNY PESEL w podpisie — odrzucone', r.stan === 'zle' && k(r, 'pesel') === 'zle' && /w podpisie/.test(tekst(r, 'pesel')), opis(r));
+  r = await oceń('pieczec_ministra_bez_osoby.pdf');
+  ok('pieczęć, w której podpis nie wskazuje osoby: „uwaga” (nie „podpisała inna osoba: Minister”), do potwierdzenia', r.stan === 'uwaga' && k(r, 'osoba') === 'uwaga' && /nie widzę, w czyim imieniu/.test(tekst(r, 'osoba')), opis(r) + ' — ' + tekst(r, 'osoba'));
+  r = await oceń('pieczec_ministra_niezgodne_imie.pdf');
+  ok('pieczęć, w której /Name nie zgadza się z imieniem w powodzie — nie ufam żadnemu z nich („uwaga”, nie „zgadza się”)', r.stan === 'uwaga' && k(r, 'osoba') === 'uwaga', opis(r));
+  r = await oceń('pieczec_samopodpisana.pdf');
+  ok('certyfikat wystawiony sam sobie pod nazwą pieczęci NIE jest pieczęcią: słowa „w imieniu: Jan” w /Reason nie robią z niego podpisu Jana', r.stan === 'zle' && k(r, 'osoba') === 'zle' && k(r, 'pieczec') === undefined && k(r, 'wystawca') === 'uwaga', opis(r));
+  r = await oceń('pieczec_zwykly_certyfikat.pdf');
+  ok('zwykły certyfikat Anny z cudzym „w imieniu: Jan Testowy” w /Reason to dalej podpis Anny, nie Jana', r.stan === 'zle' && k(r, 'osoba') === 'zle' && /Podpisała inna osoba: Anna Kowalska/.test(tekst(r, 'osoba')) && k(r, 'pieczec') === undefined, opis(r) + ' — ' + tekst(r, 'osoba'));
+
   // certyfikat samopodpisany (np. „cyfrowy identyfikator” z Acrobata) z imieniem i PESEL-em użytkownika
   r = await oceń('samopodpisany.pdf');
   ok('certyfikat samopodpisany: imię i PESEL się zgadzają, ale stan „uwaga” z wyjaśnieniem (to nie jest podpis zaufany ani kwalifikowany)', r.stan === 'uwaga' && k(r, 'osoba') === 'ok' && k(r, 'wystawca') === 'uwaga' && /samopodpisany/.test(tekst(r, 'wystawca')), opis(r));

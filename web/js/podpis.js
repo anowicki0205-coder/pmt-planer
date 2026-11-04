@@ -81,14 +81,15 @@ export function zainstalujPodpis(k) {
   const listaKart = () => `<div class="dok-siatka" id="dok-siatka">${k.nazwyDok().map(kartaDok).join('')}</div>`;
 
   /* ---------------------------------- widok 3D: karuzela z atrapami dokumentów ---------------------------------- */
-  let widokKart = (() => { try { return localStorage.getItem('pmt-ui-karty') === '3d' ? '3d' : 'lista'; } catch (e) { return 'lista'; } })();      // „lista” jest domyślna; 3D to opcja, wybór pamiętany na urządzeniu
+  // Domyślnie WIDOK 3D, „Karty” (lista) to opcja (decyzja właściciela po teście, 4.11 — wcześniej było odwrotnie); wybór pamiętany na urządzeniu. Nowy klucz (nie dawny „pmt-ui-karty”), żeby wybór sprzed zmiany domyślnej nie przesłonił nowego widoku.
+  let widokKart = (() => { try { return localStorage.getItem('pmt-ui-widok-dok') === 'lista' ? 'lista' : '3d'; } catch (e) { return '3d'; } })();
   let kar = null;                 // aktywna karuzela
   let podgladI = null;            // numer dokumentu w powiększonym podglądzie (tylko w widoku 3D)
   let przodI = 0;                 // która karta była z przodu (wraca po powiększeniu)
   const ruchDozwolony = () => !!k.zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches;
   const ctxDok = () => { const p = k.PROFIL() || {}, w = M().wynik || {}; return { imie: p.imie || '', pesel: p.pesel || '', adres: p.adres || '', stanowisko: p.stanowisko || 'merchandiser', przelozony: w.przelozony || '', miesiac: String(k.MIES[M().mies - 1] || ''), rok: M().rok }; };
   const daneDok = d => { const w = M().wynik; if (!w) return null; const pol = M().polecenia || []; return d.i < pol.length ? daneDelegacji(w, pol[d.i].nr, ctxDok()) : daneRozliczenia(w, ctxDok()); };
-  const przelacznikWidoku = () => `<div class="k3-przel" role="group" aria-label="Sposób wyświetlania dokumentów"><button type="button" data-akcja="widok" data-w="lista" aria-pressed="${widokKart === 'lista'}">Karty</button><button type="button" data-akcja="widok" data-w="3d" aria-pressed="${widokKart === '3d'}">${ik('i-pioro')}Widok 3D</button></div>`;
+  const przelacznikWidoku = () => `<div class="k3-przel" role="group" aria-label="Sposób wyświetlania dokumentów"><button type="button" data-akcja="widok" data-w="3d" aria-pressed="${widokKart === '3d'}">${ik('i-pioro')}Widok 3D</button><button type="button" data-akcja="widok" data-w="lista" aria-pressed="${widokKart === 'lista'}">Karty</button></div>`;      // „Widok 3D” pierwszy (domyślny), „Karty” jako opcja
   function karta3d(d) {
     const st = stanKarty(d.i), wys = wyslane() && st === 'ok', dane = daneDok(d);
     return `<div class="karta3d k3-${st}${nowyStan(d.i) ? ' k3-nowy' : ''}${wys ? ' wyslano' : ''}" data-i="${d.i}" role="group" aria-label="${esc(d.tytul)}: ${wys ? 'wysłano' : CHIP[st]}">
@@ -131,7 +132,7 @@ export function zainstalujPodpis(k) {
   function otworzPodglad(i) { if (widokKart !== '3d') return; zatrzymajKaruzele(); podgladI = i; przodI = i; const o = $('#dok-obszar', arkTresc); if (o) o.innerHTML = przelacznikWidoku() + podglad3d(i); const f = $('.k3-pg-gora button', arkTresc); f && f.focus({ preventScroll: true }); }
   function zamknijPodglad() { if (podgladI === null) return; podgladI = null; const o = $('#dok-obszar', arkTresc); if (o) { o.innerHTML = przelacznikWidoku() + widok3d(); uruchomKaruzele(); const s = $('#k3-scena', arkTresc); s && s.focus({ preventScroll: true }); } }
   function przejdzPodglad(s) { const n = k.razemDok(); if (podgladI === null || !n) return; podgladI = (podgladI + s + n) % n; przodI = podgladI; const o = $('#dok-obszar', arkTresc); if (o) o.innerHTML = przelacznikWidoku() + podglad3d(podgladI); }
-  function ustawWidok(w) { if (w === widokKart) return; widokKart = w; podgladI = null; try { localStorage.setItem('pmt-ui-karty', w); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } const o = $('#dok-obszar', arkTresc); if (o) { zatrzymajKaruzele(); o.innerHTML = przelacznikWidoku() + obszarKart(); uruchomKaruzele(); const sc = $('#k3-scena', arkTresc); if (sc) sc.scrollIntoView({ block: 'center', behavior: ruchDozwolony() ? 'smooth' : 'auto' }); } }
+  function ustawWidok(w) { if (w === widokKart) return; widokKart = w; podgladI = null; try { localStorage.setItem('pmt-ui-widok-dok', w); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } const o = $('#dok-obszar', arkTresc); if (o) { zatrzymajKaruzele(); o.innerHTML = przelacznikWidoku() + obszarKart(); uruchomKaruzele(); const sc = $('#k3-scena', arkTresc); if (sc) sc.scrollIntoView({ block: 'center', behavior: ruchDozwolony() ? 'smooth' : 'auto' }); } }
   addEventListener('keydown', e => { if (e.key === 'Escape' && podgladI !== null && arkTresc.isConnected && arkTresc.querySelector('.k3-podglad')) { e.stopImmediatePropagation(); e.preventDefault(); zamknijPodglad(); } else if (podgladI !== null && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && arkTresc.querySelector('.k3-podglad') && !/^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); przejdzPodglad(e.key === 'ArrowRight' ? 1 : -1); } }, true);
   function podsumowanie() {
     const razem = k.razemDok(), ok = k.ilePodpisanych(), wgr = k.nazwyDok().filter(d => plikiDok(d.i).length).length;

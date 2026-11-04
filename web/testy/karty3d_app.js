@@ -1,10 +1,10 @@
-// Okno „Dokumenty do podpisu”: opcjonalny widok 3D — pierścień kart z atrapą dokumentu zbudowaną z wygenerowanych danych (dostępny od razu po generowaniu, stan „czeka”), powiększenie po kliknięciu.
-// Domyślnie zostaje lista kart; wybór widoku jest pamiętany. Sprawdza: dane na kartach (prawdziwe, PESEL zasłonięty), kolory stanów, obrót (strzałki, kropki, klik w kartę z boku), powiększony podgląd (pełne dane, Esc, ‹ ›),
+// Okno „Dokumenty do podpisu”: widok 3D (domyślny) — pierścień kart z atrapą dokumentu zbudowaną z wygenerowanych danych (dostępny od razu po generowaniu, stan „czeka”), powiększenie po kliknięciu.
+// Domyślnie jest widok 3D (decyzja właściciela po teście, 4.11), „Karty” to opcja; wybór widoku jest pamiętany. Sprawdza: dane na kartach (prawdziwe, PESEL zasłonięty), kolory stanów, obrót (strzałki, kropki, klik w kartę z boku), powiększony podgląd (pełne dane, Esc, ‹ ›),
 // ruch „na żywo” (pętla animacji), układ w kilku rozmiarach okna i brak błędów w konsoli.
 // NODE_PATH=/opt/node22/lib/node_modules node karty3d_app.js
 const { otworz, generuj } = require('./wspolne');
 (async () => {
-  const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
+  /* widokDok: null — bez ustawiania widoku, czyli PRAWDZIWY domyślny widok aplikacji */ const t = await otworz({ w: 1440, h: 900, widokDok: null }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const liczba = s => Number(String(s).replace(/[^\d,.-]/g, '').replace(',', '.'));
   const przod = () => p.evaluate(() => { const k = document.querySelector('.karta3d.przod'); return k ? Number(k.dataset.i) : -1; });
@@ -23,21 +23,21 @@ const { otworz, generuj } = require('./wspolne');
   ok('wygenerowano 6 poleceń wyjazdu (+ rozliczenie); silnik oddaje też przełożonego do podglądu', nDok === 6 && W.przelozony === 'Kierownik Testowy', `poleceń w wyniku: ${nDok}, przełożony: ${W.przelozony}`);
 
   /* ---- probówka na pulpicie prowadzi do swojego dokumentu ---- */
-  await p.click('#fiolki .fiolka[data-dok="2"]'); await p.waitForSelector('.dok-k[data-i="2"]'); await p.waitForTimeout(300);
-  const probowka = await p.evaluate(() => { const c = document.querySelector('.dok-k[data-i="2"]'), r = c.getBoundingClientRect(); return { blysk: c.classList.contains('blysk'), wOknie: r.top >= 0 && r.bottom <= innerHeight, listy: document.querySelectorAll('.dok-k').length }; });
-  ok('klik w probówkę 3 (widok listy): okno dokumentów otwiera się od razu na tym dokumencie — karta mignęła i jest w widoku', probowka.blysk && probowka.wOknie && probowka.listy === 7, JSON.stringify(probowka));
+  await p.click('#fiolki .fiolka[data-dok="2"]'); await p.waitForSelector('#k3-scena'); await p.waitForTimeout(300);
+  ok('klik w probówkę 3 (domyślny widok 3D): okno dokumentów otwiera się od razu w widoku 3D, z tym dokumentem z przodu (bez listy kart)', (await czekajPrzod(2)) === 2 && (await p.locator('.dok-k').count()) === 0, `przód: ${await przod()}`);
   await zamknijOkno();
 
-  /* ---- domyślnie lista kart, przełącznik widoku ---- */
+  /* ---- domyślnie widok 3D, przełącznik widoku ---- */
   await otworzOkno();
-  ok('domyślnie: lista kart (7), bez pierścienia 3D; przełącznik „Karty | Widok 3D” jest, „Karty” wciśnięte', (await p.locator('.dok-k').count()) === 7 && (await p.locator('#k3-scena').count()) === 0 && (await p.locator('.k3-przel [data-w="lista"][aria-pressed="true"]').count()) === 1 && (await p.locator('.k3-przel [data-w="3d"][aria-pressed="false"]').count()) === 1);
+  ok('domyślnie: widok 3D (pierścień 7 kart), bez listy kart; przełącznik „Karty | Widok 3D” jest, „Widok 3D” wciśnięty, a w pamięci urządzenia nic nie zapisano (to wartość domyślna)', (await p.locator('.karta3d').count()) === 7 && (await p.locator('.dok-k').count()) === 0 && (await p.locator('#k3-scena').count()) === 1 && (await p.locator('.k3-przel [data-w="3d"][aria-pressed="true"]').count()) === 1 && (await p.locator('.k3-przel [data-w="lista"][aria-pressed="false"]').count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-widok-dok'))) === null);
 
   /* ---- widok 3D tuż po generowaniu (wszystkie dokumenty „czekają na podpis”) ---- */
-  await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena'); await p.waitForTimeout(400);
+  await p.waitForSelector('#k3-scena'); await p.waitForTimeout(400);
   ok('widok 3D: 7 kart na pierścieniu, jedna z przodu, 7 kropek stanu, lista kart zniknęła', (await p.locator('.karta3d').count()) === 7 && (await p.locator('.karta3d.przod').count()) === 1 && (await p.locator('.k3-kropka').count()) === 7 && (await p.locator('.dok-k').count()) === 0);
-  ok('wszystkie karty mają stan „czeka” (indygo) już po generowaniu, kropki tak samo; „Widok 3D” wciśnięty; wybór zapamiętany na urządzeniu', (await p.locator('.karta3d.k3-czeka').count()) === 7 && (await p.locator('.k3-kropka.k3-czeka').count()) === 7 && (await p.locator('.k3-przel [data-w="3d"][aria-pressed="true"]').count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-karty'))) === '3d');
+  ok('wszystkie karty mają stan „czeka” (indygo) już po generowaniu, kropki tak samo; „Widok 3D” wciśnięty', (await p.locator('.karta3d.k3-czeka').count()) === 7 && (await p.locator('.k3-kropka.k3-czeka').count()) === 7 && (await p.locator('.k3-przel [data-w="3d"][aria-pressed="true"]').count()) === 1 );
   const kol = await p.evaluate(() => { const k = document.querySelector('.karta3d'); const s = getComputedStyle(k); return { c1: s.getPropertyValue('--c1').trim(), tlo: s.backgroundImage }; });
   ok('kolory stanów zachowane: „czeka” = indygo/fiolet (nie zielony), tło jest gradientem', kol.c1.toLowerCase() === '#5b6dff' && /gradient/.test(kol.tlo), JSON.stringify(kol));
+  await p.evaluate(() => document.querySelector('#k3-scena').scrollIntoView({ block: 'center' }));      // okno otwiera się od razu w widoku 3D: karuzela leży pod krokami 1–5, użytkownik przewija do niej (kiedyś robiło to przełączenie widoku)
   await p.waitForFunction(() => { const r = document.querySelector('.karta3d.przod').getBoundingClientRect(); return r.bottom <= innerHeight && r.top >= 0; }, null, { timeout: 8000, polling: 100 }).catch(() => {});      // okno przewija się do karuzeli płynnie (przy „życiu”)
   ok('karta jest wyśrodkowana na pierścieniu i widoczna w oknie (przednia w całości, w granicach okna przeglądarki)', await p.evaluate(() => { const r = document.querySelector('.karta3d.przod').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && r.width > 150; }));
 
@@ -97,12 +97,16 @@ const { otworz, generuj } = require('./wspolne');
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   ok('drugi Esc (na karuzeli) zamyka okno dokumentów', (await p.locator('#arkusz-tlo.otwarty').count()) === 0);
 
-  /* ---- wybór widoku pamiętany; powrót do listy ---- */
+  /* ---- „Karty” (lista) jako opcja: wybór pamiętany, także po zamknięciu okna; probówka prowadzi w liście do swojej karty ---- */
   await otworzOkno();
-  ok('po ponownym otwarciu okna nadal widok 3D (wybór zapamiętany)', (await p.locator('#k3-scena').count()) === 1 && (await p.locator('.dok-k').count()) === 0);
+  ok('po ponownym otwarciu okna nadal widok 3D (domyślny)', (await p.locator('#k3-scena').count()) === 1 && (await p.locator('.dok-k').count()) === 0);
   await p.click('[data-akcja="widok"][data-w="lista"]'); await p.waitForTimeout(300);
-  ok('„Karty” przywraca listę 7 kart (stan „czeka”) i zapamiętuje wybór', (await p.locator('.dok-k').count()) === 7 && (await p.locator('.dok-k.st-czeka').count()) === 7 && (await p.locator('#k3-scena').count()) === 0 && (await p.evaluate(() => localStorage.getItem('pmt-ui-karty'))) === 'lista');
+  ok('„Karty” przywraca listę 7 kart (stan „czeka”) i zapamiętuje wybór', (await p.locator('.dok-k').count()) === 7 && (await p.locator('.dok-k.st-czeka').count()) === 7 && (await p.locator('#k3-scena').count()) === 0 && (await p.evaluate(() => localStorage.getItem('pmt-ui-widok-dok'))) === 'lista');
+  await zamknijOkno(); await p.click('#fiolki .fiolka[data-dok="2"]'); await p.waitForSelector('.dok-k[data-i="2"]'); await p.waitForTimeout(300);
+  const probowka = await p.evaluate(() => { const c = document.querySelector('.dok-k[data-i="2"]'), r = c.getBoundingClientRect(); return { blysk: c.classList.contains('blysk'), wOknie: r.top >= 0 && r.bottom <= innerHeight, listy: document.querySelectorAll('.dok-k').length }; });
+  ok('wybrane „Karty” są pamiętane po zamknięciu okna; klik w probówkę 3 (widok listy) otwiera okno na tym dokumencie — karta mignęła i jest w widoku', probowka.blysk && probowka.wOknie && probowka.listy === 7, JSON.stringify(probowka));
   await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
+  ok('powrót do „Widok 3D” zapamiętuje wybór', (await p.evaluate(() => localStorage.getItem('pmt-ui-widok-dok'))) === '3d' && (await p.locator('.dok-k').count()) === 0);
 
   /* ---- układ w różnych rozmiarach okna ---- */
   for (const [w, h] of [[1440, 900], [1280, 650], [1024, 768], [820, 1000], [390, 844]]) {

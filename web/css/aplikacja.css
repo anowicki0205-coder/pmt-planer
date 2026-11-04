@@ -1967,7 +1967,8 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .krok-k.k2{--kc:#8A3CFF;--kc2:#E43CC8;--kt:#7A1FCF}
 .krok-k.k3{--kc:#F4660C;--kc2:#E8402F;--kt:#C94408}
 .krok-k.k4{--kc:#008C66;--kc2:#00A074;--kt:#00694F}
-.krok-k.k5{--kc:#D6338A;--kc2:#F0508F;--kt:#B01F6E}
+/* krok 5 „Wyślij” zapala się ZIELONO: gotowe, wszystko sprawdzone. Dawny róż-malina (#D6338A) obok czerwonych kart „błąd podpisu” wyglądał jak ostrzeżenie (uwaga właściciela po teście). Zieleń jest świeższa (żółtawa) niż teal kroku 4 */
+.krok-k.k5{--kc:#0E8F3F;--kc2:#26B35A;--kt:#087432}
 /* krok 5 „Wyślij”: szary i nieaktywny, dopóki wszystkie dokumenty nie są wgrane i sprawdzone; potem zapala się kolorem */
 .krok-k.k5{transition:filter .4s,opacity .4s}
 .krok-k.k5.nieaktywny{--kc:#6B7391;--kc2:#858CA8;--kt:#4C5370;filter:saturate(.4);opacity:.8}

@@ -77,8 +77,16 @@ from PyQt6.QtGui import (
 # weszły (patrz komentarz na górze pliku).
 try:
     import tempfile as _tmp_rozruch
-    with open(os.path.join(_tmp_rozruch.gettempdir(), "pmt_zyje.flag"), "w") as _f_rozruch:
-        _f_rozruch.write(str(os.getpid()))
+    # updater_folder.bat szuka flagi w %TEMP%, a gettempdir() bierze najpierw TMPDIR (np. narzędzia MSYS):
+    # bez drugiej kopii poprawna nowa wersja byłaby po minucie zabijana i cofana do starej
+    for _kat_rozruch in {_tmp_rozruch.gettempdir(), os.environ.get("TEMP") or "", os.environ.get("TMP") or ""}:
+        if not _kat_rozruch:
+            continue
+        try:
+            with open(os.path.join(_kat_rozruch, "pmt_zyje.flag"), "w") as _f_rozruch:
+                _f_rozruch.write(str(os.getpid()))
+        except Exception:
+            pass
 except Exception:
     pass
 
@@ -456,7 +464,77 @@ def _skrot_zweryfikowany(kod: str, haslo: str) -> str:
     policzony = _hash_hasla(kod, haslo)
     if zapamietany and hmac.compare_digest(str(zapamietany), policzony):
         return policzony
+    if _skrot_pasuje((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod), policzony):
+        return policzony
     return ""
+
+
+_OPIS_POTWIERDZENIA = {"opis": ""}      # odpowiedź serwera z ostatniego potwierdzenia (np. blokada po zbyt wielu próbach)
+
+
+def _skrot_potwierdzony_online(kod: str, haslo: str, rodzic=None) -> str:
+    """Skrót AKTUALNEGO hasła, gdy potwierdzi je serwer (akcja „logowanie”); pusty tekst bez sieci
+    albo przy złym haśle. Po zmianie albo resecie hasła w aplikacji web ten komputer zna tylko stare
+    hasło, a aplikacja odczytuje plik skrótem bieżącego — od wygaszenia programu nie da się już
+    odświeżyć lokalnego skrótu logowaniem. Na czas zapytania: kursor oczekiwania i wyłączone okno
+    (drugie kliknięcie „Przenieś dane” nie uruchamia przeniesienia drugi raz). Opis odmowy serwera
+    zostaje w _OPIS_POTWIERDZENIA."""
+    _OPIS_POTWIERDZENIA["opis"] = ""
+    kod = "".join(ch for ch in str(kod or "") if ch.isdigit())
+    haslo = str(haslo or "").strip()           # backend i aplikacja obcinają spacje
+    if len(kod) != 5 or not haslo:
+        return ""
+
+    def _zapytaj():
+        cialo = json.dumps(_podpisz_zadanie({"akcja": "logowanie", "kod": kod, "haslo": haslo,
+                                             "zrodlo": "przeniesienie",
+                                             "wersja": WERSJA_PROGRAMU})).encode("utf-8")
+        req = urllib.request.Request(URL_BACKENDU, data=cialo, headers={
+            "Content-Type": "application/json", "User-Agent": "PMT-Planer"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            wynik["odp"] = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+    wynik = {}
+    kursor = False
+    try:
+        if QApplication.instance() is None:
+            _zapytaj()
+        else:                                  # okno nie zastyga na czas zimnego startu Apps Script
+            try:
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor); kursor = True
+                if rodzic is not None:
+                    rodzic.setEnabled(False)
+            except Exception:
+                pass
+            w = threading.Thread(target=lambda: _bez_wyjatku(_zapytaj), daemon=True)
+            w.start()
+            t0 = time.time()
+            while w.is_alive() and time.time() - t0 < 20:
+                QApplication.processEvents()
+                time.sleep(0.03)
+    except Exception:
+        return ""
+    finally:
+        try:
+            if kursor:
+                QApplication.restoreOverrideCursor()
+            if rodzic is not None:
+                rodzic.setEnabled(True)
+        except Exception:
+            pass
+    odp = wynik.get("odp")
+    if isinstance(odp, dict) and odp.get("status") == "ok":
+        return _hash_hasla(kod, haslo)
+    if isinstance(odp, dict):
+        _OPIS_POTWIERDZENIA["opis"] = str(odp.get("opis") or "")
+    return ""
+
+
+def _bez_wyjatku(funkcja):
+    try:
+        funkcja()
+    except Exception:
+        pass
 
 
 def przenies_dane_do_web(rodzic=None) -> bool:
@@ -478,18 +556,25 @@ def przenies_dane_do_web(rodzic=None) -> bool:
         if wpisany is None:
             return False
         haslo = _okno_pmt(rodzic, "Przenieś dane",
-                          "Podaj swoje hasło do PMT Planer — to samo, którym logujesz się do programu "
-                          "i aplikacji. Plik jest nim zaszyfrowany.", pole=True, haslo=True)
+                          "Podaj swoje hasło do PMT Planer — to, którym logujesz się teraz do aplikacji "
+                          "(także po zmianie hasła w aplikacji). Plik jest nim zaszyfrowany.",
+                          pole=True, haslo=True)
         if not haslo:
             return False
         kod = "".join(ch for ch in str(wpisany) if ch.isdigit())
-        skrot = _skrot_zweryfikowany(kod, haslo)
+        skrot = _skrot_zweryfikowany(kod, haslo) or _skrot_potwierdzony_online(kod, haslo, rodzic)
         if skrot:
             break
+        opis_serwera = _OPIS_POTWIERDZENIA.get("opis") or ""
+        blokada = "za duzo" in opis_serwera.lower()
         _okno_pmt(rodzic, "Przenieś dane",
-                  "Nieprawidłowy kod lub hasło (albo to konto nie logowało się na tym komputerze)."
-                  + (" Spróbuj jeszcze raz." if proba < 2 else " Zbyt wiele prób — zamykam to okno."),
+                  ("Serwer odpowiedział: " + opis_serwera if blokada else
+                   "Nieprawidłowy kod lub hasło. Hasło zmienione w aplikacji sprawdzam na serwerze — "
+                   "potrzebny jest do tego internet.")
+                  + (" Zamykam to okno." if blokada else " Zbyt wiele prób — zamykam to okno." if proba >= 2 else " Spróbuj jeszcze raz."),
                   tylko_ok=True)
+        if blokada:
+            return False
     if not skrot:
         return False
     imie = str(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "") or "")
@@ -829,7 +914,7 @@ def online_zapisz_kod(kod: str):
         # nie potwierdził dostępu" po chwili.
         znane = (_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}
         if isinstance(znane, dict):
-            for _pole in ("imie", "skrot", "wazne_do"):
+            for _pole in ("imie", "wazne_do"):
                 if znane.get(_pole):
                     st[_pole] = str(znane[_pole])
     st["kod"] = kod
@@ -1177,12 +1262,71 @@ def mailto_zgloszenia(kod: str = "") -> str:
                                      quote(temat_zgloszenia(kod), safe=""))
 
 
-def _skrot_hasla_lokalny(kod) -> str:
-    """Skrót hasła konta zapisany na TYM komputerze po udanym logowaniu (ten sam
-    „PMT|kod|hasło”, który backend trzyma w kolumnie „Haslo hash”); pusty, gdy konto
-    nie logowało się tu jeszcze albo nie ma hasła. Samo hasło nigdy nie jest zapisywane."""
-    kod = str(kod or "").strip()
+# Skrót hasła („PMT|kod|hasło”, ten sam co w kolumnie „Haslo hash”) jest kluczem
+# podpisu hasłem (puls, sesja) i pliku .pmtdane, a jedno SHA-256 łamie się offline
+# w minuty — dlatego na dysk nie trafia. Żyje w pamięci od logowania do końca
+# procesu; do logowania bez sieci na dysku leży tylko weryfikator PBKDF2.
+_SKROTY_SESJI = {}
+ITERACJE_WERYFIKATORA = 100000
+
+
+def _weryfikator_skrotu(skrot: str, sol: str = "") -> str:
+    sol = sol or os.urandom(16).hex()
+    wynik = hashlib.pbkdf2_hmac("sha256", str(skrot).encode("utf-8"), bytes.fromhex(sol),
+                                ITERACJE_WERYFIKATORA)
+    return "pbkdf2_sha256$%d$%s$%s" % (ITERACJE_WERYFIKATORA, sol, wynik.hex())
+
+
+def _skrot_pasuje(wpis, skrot: str) -> bool:
+    """Czy skrót hasła zgadza się z wpisem historii logowań: z weryfikatorem albo
+    (wpis sprzed 3.25.1, jeszcze nieprzepisany) z zapisanym wprost skrótem."""
+    if not isinstance(wpis, dict) or not skrot:
+        return False
+    weryfikator = str(wpis.get("weryfikator") or "")
+    if weryfikator:
+        try:
+            rodzaj, iteracje, sol, wartosc = weryfikator.split("$")
+            if rodzaj != "pbkdf2_sha256":
+                return False
+            policzony = hashlib.pbkdf2_hmac("sha256", str(skrot).encode("utf-8"),
+                                            bytes.fromhex(sol), int(iteracje)).hex()
+            return hmac.compare_digest(policzony, wartosc)
+        except Exception:
+            return False
+    stary = str(wpis.get("skrot") or "")
+    return bool(stary) and hmac.compare_digest(stary, str(skrot))
+
+
+def _usun_skroty_z_dysku():
+    """Wpisy historii logowań sprzed 3.25.1 i plik statusu trzymały skrót hasła
+    wprost. Zamieniamy go na weryfikator (liczony z samego skrótu, bez hasła)."""
     try:
+        dane = _wczytaj(PLIK_LOGOWAN, {}) or {}
+        zmiana = False
+        for wpis in dane.values():
+            if isinstance(wpis, dict) and "skrot" in wpis:
+                if wpis.get("skrot") and not wpis.get("weryfikator"):
+                    wpis["weryfikator"] = _weryfikator_skrotu(str(wpis["skrot"]))
+                wpis.pop("skrot", None)
+                zmiana = True
+        if zmiana:
+            _zapisz(PLIK_LOGOWAN, dane)
+        st = _wczytaj(PLIK_STATUSU, {}) or {}
+        if "skrot" in st:
+            st.pop("skrot", None)
+            _zapisz(PLIK_STATUSU, st)
+    except Exception:
+        pass
+
+
+def _skrot_hasla_lokalny(kod) -> str:
+    """Skrót hasła konta z logowania w TYM procesie (patrz _SKROTY_SESJI); pusty,
+    gdy konto się nie logowało. Samo hasło nigdy nie jest zapisywane."""
+    kod = str(kod or "").strip()
+    if _SKROTY_SESJI.get(kod):
+        return _SKROTY_SESJI[kod]
+    try:
+        # pliki sprzed 3.25.1, których _usun_skroty_z_dysku jeszcze nie przepisała
         skrot = (_wczytaj(PLIK_LOGOWAN, {}).get(kod, {}) or {}).get("skrot")
         if skrot:
             return str(skrot)
@@ -1293,15 +1437,17 @@ def historia_logowan(limit: int = 3):
 
 
 def _zapisz_logowanie(kod: str, imie: str, skrot: str):
-    """Dopisuje konto do historii urządzenia. Skrót hasła pozwala zalogować
-    się później BEZ internetu — samo hasło nigdy nie jest zapisywane."""
+    """Dopisuje konto do historii urządzenia. Weryfikator skrótu hasła pozwala
+    zalogować się później BEZ internetu — hasło ani skrót nie są zapisywane."""
     dane = _wczytaj(PLIK_LOGOWAN, {})
     stary = dane.get(str(kod))
     if not isinstance(stary, dict):
         stary = {}
     wpis = {"imie": str(imie or "") or str(stary.get("imie", "") or ""),
-            "skrot": str(skrot),
             "ostatnio": datetime.datetime.now().isoformat(timespec="seconds")}
+    if skrot:
+        wpis["weryfikator"] = _weryfikator_skrotu(str(skrot))
+        _SKROTY_SESJI[str(kod)] = str(skrot)
     if stary.get("wazne_do"):
         wpis["wazne_do"] = str(stary["wazne_do"])
     dane[str(kod)] = wpis
@@ -1341,7 +1487,9 @@ def _zapisz_status_po_logowaniu(kod: str, skrot: str, imie: str, wazne_do: str =
         for _pole in POLA_OSOBISTE_STATUSU:
             st.pop(_pole, None)
     st["kod"] = kod
-    st["skrot"] = skrot
+    st.pop("skrot", None)
+    if skrot:
+        _SKROTY_SESJI[str(kod)] = str(skrot)
     if imie:
         st["imie"] = str(imie)
     else:
@@ -1385,7 +1533,7 @@ def _sesja_z_historii_urzadzenia():
             except Exception:
                 pass
         ost = str(wpis.get("ostatnio", "") or "")
-        if wpis.get("skrot") and ost:
+        if (wpis.get("weryfikator") or wpis.get("skrot")) and ost:
             # bez daty ostatniego logowania online nie ma od czego liczyć —
             # wtedy decyduje zasada demo, nie bezterminowy zapas
             if _logowanie_offline_dozwolone(wpis):
@@ -1443,7 +1591,7 @@ def _haslo_znane_lokalnie(kod: str, haslo: str) -> bool:
     try:
         skrot = _hash_hasla(kod, str(haslo))
         znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
-        if znane.get("skrot") == skrot:
+        if _skrot_pasuje(znane, skrot):
             return True
         st = _wczytaj(PLIK_STATUSU, {})
         return str(st.get("kod", "")) == kod and st.get("skrot") == skrot
@@ -1485,7 +1633,7 @@ def online_zaloguj(kod: str, haslo: str):
         znane = _wczytaj(PLIK_LOGOWAN, {}).get(kod, {})
         st = _wczytaj(PLIK_STATUSU, {})
         skrot = _hash_hasla(kod, haslo)
-        if znane.get("skrot") == skrot or (st.get("kod") == kod and st.get("skrot") == skrot):
+        if _skrot_pasuje(znane, skrot) or (st.get("kod") == kod and st.get("skrot") == skrot):
             if not _logowanie_offline_dozwolone(znane):
                 return False, "", ("Minęło ponad %d dni od ostatniego logowania z internetem. "
                                    "Połącz się z siecią i zaloguj raz online — potem znów "
@@ -1511,11 +1659,12 @@ def online_zaloguj(kod: str, haslo: str):
         return False, "", _powod
     if odp.get("status") != "ok":
         return False, "", str(odp.get("opis") or "Logowanie nie powiodło się.")
-    st = _zapisz_status_po_logowaniu(kod, _hash_hasla(kod, haslo), str(odp.get("imie", "")))
+    skrot = _hash_hasla(kod, haslo)
+    st = _zapisz_status_po_logowaniu(kod, skrot, str(odp.get("imie", "")))
     if odp.get("wazne_do"):
         st["wazne_do"] = str(odp.get("wazne_do"))
         _zapisz(PLIK_STATUSU, st)
-    _zapisz_logowanie(kod, st.get("imie", ""), st["skrot"])
+    _zapisz_logowanie(kod, st.get("imie", ""), skrot)
     if odp.get("wazne_do"):
         _zapamietaj_waznosc_konta(kod, str(odp.get("wazne_do")), st.get("imie", ""))
     try:
@@ -1639,6 +1788,8 @@ def _wyczysc_status_osoby():
 def online_wyloguj():
     """Usuwa z komputera wszystko, co identyfikuje wylogowaną osobę:
     kod, skrót hasła, imię, rejon, ważność sesji i listę nieobecności."""
+    _SKROTY_SESJI.clear()
+    _usun_skroty_z_dysku()
     return _wyczysc_status_osoby()
 
 
@@ -3328,6 +3479,11 @@ def przygotuj_skrypt_aktualizacji(nowy_plik: str, docelowy: str, pid: int):
                 return sh, [nowy_plik, docelowy, str(pid)]
             except Exception:
                 pass
+        if os.path.isdir(nowy_plik):
+            # wbudowany skrypt podmienia jeden plik — z folderem zamknąłby
+            # program i niczego nie zainstalował
+            raise RuntimeError("Nie udało się pobrać skryptu aktualizacji (updater.sh). "
+                               "Sprawdź połączenie z internetem i spróbuj ponownie.")
         return zbuduj_skrypt_podmiany_sh(nowy_plik, docelowy, pid), []
 
     # Wersja folderowa ma wlasny skrypt — podmienia caly katalog programu,
@@ -3358,6 +3514,11 @@ def przygotuj_skrypt_aktualizacji(nowy_plik: str, docelowy: str, pid: int):
             return bat, [nowy_plik, docelowy, str(pid)]
         except Exception:
             pass
+    if _nowa_to_folder:
+        # wbudowany skrypt robi „copy folder → .exe”: psuje program, a _internal
+        # zostaje stary — lepiej odmówić, zanim program się zamknie
+        raise RuntimeError("Nie udało się pobrać skryptu aktualizacji (updater_folder.bat). "
+                           "Sprawdź połączenie z internetem i spróbuj ponownie.")
     # zapasowo: wbudowany generator (zawsze dostępny, nawet offline)
     return zbuduj_skrypt_podmiany(nowy_plik, docelowy, pid), []
 
@@ -4917,8 +5078,8 @@ def zmien_haslo_w_programie(rodzic, kod: str, ciemny: bool = True):
     if odp.get("status") == "ok":
         try:
             st = _wczytaj(PLIK_STATUSU, {})
-            if str(st.get("kod", "")) == kod:
-                st["skrot"] = _hash_hasla(kod, nowe)
+            if str(st.get("kod", "")) == kod and "skrot" in st:
+                st.pop("skrot", None)
                 _zapisz(PLIK_STATUSU, st)
             hist = _wczytaj(PLIK_LOGOWAN, {})
             im_ = str((hist.get(kod) or {}).get("imie", "") or st.get("imie", ""))
@@ -5653,7 +5814,9 @@ def czy_dzien_wolny(data: datetime.date) -> bool:
 # albo przeniesieniu programu na inny komputer.
 def wszystkie_magazyny() -> dict:
     """Magazyny danych ZALOGOWANEGO konta — liczone przy każdym wywołaniu,
-    bo ścieżki zależą od tego, kto jest zalogowany."""
+    bo ścieżki zależą od tego, kto jest zalogowany. „ustawienia" i
+    „uzytkownicy" są wspólne dla komputera: do kopii i z kopii idzie z nich
+    tylko część tego konta (_tylko_tego_konta)."""
     return {
         "punkty": _plik_punktow(),
         "plan": _plik_planu(),
@@ -5667,9 +5830,58 @@ def wszystkie_magazyny() -> dict:
     }
 
 
+# Ustawienia bez przyrostka konta, które przed 3.21.0 były osobiste (adres
+# bazy, poczta) albo wskazują osobę — mogą należeć do kogoś innego.
+_USTAWIENIA_NIE_DO_KOPII = ("adres_bazy", "wysylka_", "kod_przed_aktualizacja")
+
+
+def _profile_tego_konta(store: dict) -> dict:
+    """Wpisy magazynu profili zalogowanej osoby: po imieniu z konta, a na
+    komputerze jednego konta z jednym wpisem — ten wpis. Cudzy PESEL nie
+    może trafić do kopii ani nadpisać cudzego wpisu przy odtworzeniu."""
+    kod = "".join(ch for ch in str(online_kod_uzytkownika() or "") if ch.isdigit())
+    _n = lambda x: " ".join(str(x or "").split()).lower()      # arkusz bywa z podwójną spacją, formularz ją normalizuje
+    imiona = {_n(online_imie_uzytkownika())}
+    try:
+        imiona.add(_n(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "")))
+    except Exception:
+        pass
+    imiona.discard("")
+    wlasne = {k: w for k, w in store.items() if isinstance(w, dict)
+              and _n((w.get("profil") or {}).get("imie", "")) in imiona}
+    if not wlasne and len(store) == 1 and kod and _tylko_jedno_konto_na_komputerze(kod):
+        wlasne = dict(store)
+    return wlasne
+
+
+def _tylko_tego_konta(klucz: str, dane):
+    """Część wspólnego magazynu („ustawienia", „uzytkownicy") należąca do
+    zalogowanego konta; inne magazyny bez zmian."""
+    if klucz == "uzytkownicy":
+        return _profile_tego_konta(dane if isinstance(dane, dict) else {})
+    if klucz == "ustawienia":
+        wynik = {}
+        for k, v in (dane if isinstance(dane, dict) else {}).items():
+            m = re.search(r"__([0-9a-f]{16})$", str(k))
+            if m:
+                if AKTYWNY_UZYTKOWNIK and m.group(1) == AKTYWNY_UZYTKOWNIK:
+                    wynik[k] = v
+            elif not str(k).startswith(_USTAWIENIA_NIE_DO_KOPII):
+                wynik[k] = v
+        return wynik
+    return dane
+
+
+# Pamięć geokodowania i tras jest wspólna dla komputera i zawiera adresy domowe WSZYSTKICH kont
+# (generowanie zawsze geokoduje adres pracownika) — do kopii nie idzie; program odtworzy ją sam z sieci.
+_MAGAZYNY_POZA_KOPIA = ("geo_cache", "geo_braki", "road_cache")
+_STAN_KOPII = {"bez_profilu": False}      # ostatni eksport: magazyn profili nie był pusty, a własnego wpisu nie znaleziono
+
+
 def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
     """Pakuje wszystkie istniejące magazyny danych do jednego pliku .zip.
     Zwraca liczbę spakowanych plików (0 = nic do zapisania)."""
+    _STAN_KOPII["bez_profilu"] = False
     manifest = {
         "program": "PMT Planer",
         "wersja": WERSJA_PROGRAMU,
@@ -5679,10 +5891,20 @@ def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
     ile = 0
     with zipfile.ZipFile(sciezka_zip, "w", zipfile.ZIP_DEFLATED) as z:
         for klucz, sciezka in wszystkie_magazyny().items():
-            if os.path.exists(sciezka):
+            if not os.path.exists(sciezka) or klucz in _MAGAZYNY_POZA_KOPIA:
+                continue
+            if klucz in ("ustawienia", "uzytkownicy"):
+                calosc = _json_z_pliku(sciezka)
+                czesc = _tylko_tego_konta(klucz, calosc)
+                if not czesc:
+                    if klucz == "uzytkownicy" and isinstance(calosc, dict) and calosc:
+                        _STAN_KOPII["bez_profilu"] = True
+                    continue
+                z.writestr(os.path.basename(sciezka), json.dumps(czesc, ensure_ascii=False, indent=1))
+            else:
                 z.write(sciezka, arcname=os.path.basename(sciezka))
-                manifest["pliki"].append(klucz)
-                ile += 1
+            manifest["pliki"].append(klucz)
+            ile += 1
         z.writestr("_manifest_pmt.json", json.dumps(manifest, ensure_ascii=False, indent=2))
     return ile
 
@@ -5725,6 +5947,26 @@ def przywroc_z_kopii(sciezka_zip: str) -> int:
                 nazwa_pliku = _stare_nazwy.get(klucz, "")
                 if not nazwa_pliku or nazwa_pliku not in nazwy_w_zip:
                     continue
+            if klucz in ("ustawienia", "uzytkownicy"):
+                # wspólne pliki komputera: dopisujemy część tego konta, nie
+                # nadpisujemy całości (znikałyby dane innych kont)
+                try:
+                    z_kopii = json.loads(z.read(nazwa_pliku).decode("utf-8"))
+                except Exception:
+                    continue
+                czesc = _tylko_tego_konta(klucz, z_kopii)
+                if not czesc:
+                    continue
+                if klucz == "uzytkownicy":
+                    store = _wczytaj_store()
+                    store.update(czesc)
+                    _zapisz_store(store)
+                else:
+                    _ustawienia_reset()
+                    for k, v in czesc.items():
+                        zapisz_ustawienie(k, v)
+                ile += 1
+                continue
             with z.open(nazwa_pliku) as src, open(sciezka, "wb") as dst:
                 dst.write(src.read())
             ile += 1
@@ -9287,8 +9529,18 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     return podsumowanie
 
 def log_error(exc: Exception):
-    os.makedirs(LOGS_DIR, exist_ok=True)
-    with open(LOG_FILE, 'a', encoding='utf-8') as f: f.write(f"\n{'='*60}\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{traceback.format_exc()}")
+    # Woła się ją w blokach except (także w QThread.run), a wyjątek stamtąd
+    # PyQt6 kończy abortem — zapis dziennika nie może więc rzucić. Folder
+    # programu bywa tylko do odczytu (C:\Program Files): wtedy katalog użytkownika.
+    wpis = f"\n{'='*60}\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{traceback.format_exc()}"
+    for plik in (LOG_FILE, os.path.join(os.path.expanduser("~"), ".pmt_logs", "error.log")):
+        try:
+            os.makedirs(os.path.dirname(plik), exist_ok=True)
+            with open(plik, 'a', encoding='utf-8') as f:
+                f.write(wpis)
+            return
+        except Exception:
+            continue
 
 class OdcinkiThread(QThread):
     """Liczy z góry odległości wszystkich odcinków miesiąca i zostawia je
@@ -12433,7 +12685,11 @@ class OknoAktualizacji(QDialog):
         self.btn_akt.setText("Instaluję…")
         QApplication.processEvents()
         if self._on_instaluj:
-            self._on_instaluj(sciezka)      # tu program się kończy
+            blad = self._on_instaluj(sciezka)      # tu program się kończy
+            if isinstance(blad, str) and blad:
+                # przy obowiązkowej aktualizacji błąd ginął razem z oknem
+                self._blad("Nie udało się zainstalować: " + blad)
+                return
         self.accept()
 
     def _blad(self, komunikat):
@@ -14625,7 +14881,9 @@ class DialogKopiaZapasowa(QDialog):
             if n == 0:
                 self.lbl_status.setText("⚠ Brak danych do zapisania — program jest jeszcze pusty.")
             else:
-                self.lbl_status.setText(f"✓ Zapisano kopię ({n} plików) w:\n{sciezka}")
+                uwaga = ("\n⚠ Twój profil i historia nie trafiły do kopii — imię w programie różni się od imienia konta."
+                         if _STAN_KOPII.get("bez_profilu") else "")
+                self.lbl_status.setText(f"✓ Zapisano kopię ({n} plików) w:\n{sciezka}{uwaga}")
                 self.lbl_status.setStyleSheet(f"color:{self._zie}; font-family:'Segoe UI'; font-size:11px; font-weight:600; background:transparent;")
         except Exception as e:
             self.lbl_status.setText(f"✗ Nie udało się zapisać kopii: {e}")
@@ -16829,7 +17087,7 @@ class DialogPodpis(QDialog):
     # --- wskazanie pliku ręcznie ------------------------------------------
     def _wpis_do_recznego(self, nazwa_pliku: str):
         """Wpis manifestu, do którego pasuje ręcznie wskazany plik."""
-        wpisy = [w for w in self._wpisy() if w.get("status") != "podpisany"]
+        wpisy = [w for w in self._wpisy() if w.get("status") not in ("podpisany", "nieaktualny")]      # nieaktualny = dokument poprzedniej generacji
         if not wpisy:
             return None
         prosta = os.path.splitext(os.path.basename(nazwa_pliku))[0].lower()
@@ -16837,7 +17095,18 @@ class DialogPodpis(QDialog):
             rdzen = os.path.splitext(w.get("plik") or "")[0].lower()
             if rdzen and rdzen in prosta:
                 return w
-        return wpisy[0]
+        if len(wpisy) == 1:
+            return wpisy[0]
+        # nazwa nie wskazuje dokumentu (np. skan „IMG_0045.pdf”): pytamy, zamiast
+        # oznaczać pierwszy z brzegu
+        from PyQt6.QtWidgets import QInputDialog
+        nazwy = [str(w.get("plik") or "") for w in wpisy]
+        wybor, ok = QInputDialog.getItem(self, "Podpisany plik",
+                                         "Który dokument jest w pliku %s?" % os.path.basename(nazwa_pliku),
+                                         nazwy, 0, False)
+        if not ok or wybor not in nazwy:
+            return None
+        return wpisy[nazwy.index(wybor)]
 
     def _wskaz_plik(self):
         modul = modul_pomocniczy("pmt_podpis")
@@ -16859,11 +17128,20 @@ class DialogPodpis(QDialog):
                 "Dokumenty i podpisy (*.pdf *.xades *.xml *.sig *.p7s *.p7m);;Wszystkie pliki (*)")
             if not sciezka:
                 return
+            try:
+                suma = modul.suma_sha256(sciezka)
+            except Exception:
+                suma = ""
+            # weto jak w znajdz_podpisane: suma oryginału = plik bez podpisu
+            if suma and any(w.get("skrot") == suma for w in self._wpisy()):
+                self._komunikat("To niepodpisana kopia dokumentu — wskaż plik po podpisaniu.")
+                return
             wpis = self._wpis_do_recznego(sciezka)
             if wpis is None:
                 self._komunikat("Brak wpisu do oznaczenia.")
                 return
-            dopasowanie = {"sciezka": sciezka, "dostawca_deklarowany": self.c_sposob.currentText()}
+            dopasowanie = {"sciezka": sciezka, "dostawca_deklarowany": self.c_sposob.currentText(),
+                           "skrot": suma or None}
             kopia = self._do_podpisanych(sciezka)
             if kopia:
                 dopasowanie["podpisany_plik"] = os.path.basename(kopia)
@@ -18039,6 +18317,7 @@ if __name__ == "__main__":
     # ── PRZEJŚCIE NA APLIKACJĘ WEB — informacja dla każdego użytkownika ──
     # Do terminu raz dziennie (można pracować dalej), od terminu sama informacja i koniec programu.
     # Działa tylko, gdy wersja.txt ma wiersz „web=" (patrz przejscie_na_web_stan).
+    _usun_skroty_z_dysku()
     try:
         if przejscie_na_web_przy_starcie():
             sys.exit(0)

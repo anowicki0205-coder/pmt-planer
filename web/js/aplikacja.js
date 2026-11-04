@@ -1543,7 +1543,7 @@ function otworzMojeDane(pierwsze) {
   const p = PROFIL || { imie: dostep.imieZSerwera(), pesel: '', adres: '', stanowisko: 'merchandiser', silnik_powyzej_900: true, tryb: 'tydzien' };
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Zacznijmy od Twoich danych' : 'Moje dane')}
     <p class="ark-opis">Imię i PESEL zostają tylko na tym urządzeniu (trafiają na dokumenty). Sam adres wysyłam do mapy OpenStreetMap, żeby policzyć kilometry.</p>
-    <div class="przenos"><label class="przycisk" id="przenos-etykieta">Wczytaj dane z programu na komputerze<input type="file" id="plik-program" accept=".pmtdane,.json,application/json" hidden></label><small id="przenos-info" aria-live="polite">Pracowałeś w programie na komputerze? Wskaż plik z danymi, który zapisał (PMT_dane_do_aplikacji.pmtdane) — nie musisz niczego wpisywać od nowa.</small></div>
+    <div class="przenos"><label class="przycisk" id="przenos-etykieta">Wczytaj dane z programu na komputerze<input type="file" id="plik-program" accept=".pmtdane,.json,application/json" hidden></label><small id="przenos-info" aria-live="polite">Pracowałeś w programie na komputerze? Wskaż plik z danymi, który zapisał (PMT_dane_do_aplikacji.pmtdane) — nie musisz niczego wpisywać od nowa.</small><div class="przenos-stare" id="przenos-stare" hidden><label class="pole"><span>Hasło z programu na komputerze</span><input id="przenos-haslo" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label><button type="button" class="przycisk" id="przenos-odczytaj">Odczytaj plik</button></div></div>
     <form id="form-dane" class="ark-pola" novalidate autocomplete="off">
       <label class="pole pelne"><span>Imię i nazwisko</span><input id="d-imie" data-pierwsze value="${bezZnacznikow(p.imie)}" autocomplete="name" required><small></small></label>
       <label class="pole"><span>PESEL</span><input id="d-pesel" inputmode="numeric" maxlength="11" value="${bezZnacznikow(p.pesel)}" autocomplete="off" required><small></small></label>
@@ -1577,15 +1577,35 @@ function otworzMojeDane(pierwsze) {
   /* dane z programu na komputerze: plik jest zaszyfrowany kodem i hasłem tego konta; wypełniamy formularz (nic nie zapisuje się samo — sprawdzasz i klikasz „Zapisz”), a lista sklepów czeka w oknie „Plan” */
   let silnikZPliku = null, sklepyZPliku = null, planZPliku = null, odhaczeniaZPliku = {};
   const infoPrzenos = (html, klasa = '') => { const i = $('#przenos-info', arkTresc); if (i) { i.innerHTML = html; i.className = klasa; } };
+  /* hasło zmienione albo zresetowane w aplikacji po zapisaniu pliku w programie: plik ma klucz z hasła, którym logowano się w programie */
+  const stare = $('#przenos-stare', arkTresc), poleStare = $('#przenos-haslo', arkTresc); let plikStarym = null;
   const wczytajZProgramu = async plik => {
+    stare.hidden = true; plikStarym = null;
     infoPrzenos('Odczytuję plik…');
     let tekst = ''; try { tekst = await plik.text(); } catch (e) { return infoPrzenos('Nie udało się otworzyć pliku.', 'zle'); }
     const kodPliku = przen.kodZPliku(tekst);
     if (kodPliku === null) return infoPrzenos('To nie jest plik z danymi z programu PMT (PMT_dane_do_aplikacji.pmtdane).', 'zle');
     if (kodPliku !== dostep.kodAktywny()) return infoPrzenos(`Ten plik jest z konta ${bezZnacznikow(kodPliku)}, a jesteś zalogowany jako ${bezZnacznikow(dostep.kodAktywny())}. Wyloguj się i zaloguj kodem z pliku.`, 'zle');
     const w = await przen.odczytaj(tekst, dostep.skrotAktywny());
+    if (!w.ok && w.powod === 'klucz' && dostep.skrotAktywny()) {
+      plikStarym = { tekst, kod: kodPliku }; poleStare.value = ''; stare.hidden = false;
+      return infoPrzenos(`${bezZnacznikow(w.komunikat)} Jeśli po zapisaniu pliku zmieniłeś hasło w aplikacji, wpisz niżej hasło, którym logowałeś się w programie.`, 'zle');
+    }
     if (!w.ok) return infoPrzenos(bezZnacznikow(w.komunikat), 'zle');
-    const d = w.dane, czesci = [];
+    pokazZPliku(w.dane);
+  };
+  const odczytajStarym = async () => {
+    if (!plikStarym || !poleStare.value) return poleStare.focus();
+    const { tekst, kod } = plikStarym; infoPrzenos('Odczytuję plik…');
+    const w = await przen.odczytajHaslem(tekst, kod, poleStare.value, dostep.skrotHasla);
+    poleStare.value = '';
+    if (!w.ok) { poleStare.focus(); return infoPrzenos(bezZnacznikow(w.komunikat), 'zle'); }
+    stare.hidden = true; plikStarym = null; pokazZPliku(w.dane);
+  };
+  $('#przenos-odczytaj', arkTresc).addEventListener('click', odczytajStarym);
+  poleStare.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); odczytajStarym(); } });
+  const pokazZPliku = d => {
+    const czesci = [];
     if (d.profil) {
       $('#d-imie', arkTresc).value = d.profil.imie; $('#d-pesel', arkTresc).value = d.profil.pesel; $('#d-stan', arkTresc).value = d.profil.stanowisko; $('#d-adres', arkTresc).value = d.profil.adres;
       silnikZPliku = d.profil.silnik_powyzej_900; wybor = null; sprawdzAdres(); czesci.push('imię, PESEL, adres i stanowisko');

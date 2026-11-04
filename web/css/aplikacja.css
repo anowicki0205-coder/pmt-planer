@@ -2196,6 +2196,8 @@ html.okno .scena{filter:saturate(.7)}
 .przenos small{color:var(--t2);font-size:.82rem;line-height:1.4}
 .przenos small.zle{color:var(--a-blad)}
 .przenos small.ok{color:var(--a-ziel)}
+.przenos-stare{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem}
+.przenos-stare[hidden]{display:none}
 
 
 /* ============ KARUZELA 3D DOKUMENTÓW (opcja w oknie „Dokumenty do podpisu”; domyślnie lista kart) ============

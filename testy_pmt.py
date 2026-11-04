@@ -484,7 +484,7 @@ P._zapisz_logowanie(_kod_o, "Jan Testowy", P._hash_hasla(_kod_o, _haslo_o))
 P._zapamietaj_waznosc_konta(_kod_o, (datetime.date.today() + datetime.timedelta(days=200)).isoformat())
 _hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
 sprawdz("historia urządzenia pamięta ważność konta PER KONTO",
-        bool(_hist.get("wazne_do")) and bool(_hist.get("skrot")), str(_hist))
+        bool(_hist.get("wazne_do")) and bool(_hist.get("weryfikator")), str(_hist))
 P._zapisz_logowanie(_kod_o, "", P._hash_hasla(_kod_o, _haslo_o))
 _hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
 sprawdz("ponowne logowanie nie kasuje ważności ani imienia w historii",
@@ -2011,6 +2011,9 @@ try:
     # Puls nigdy nie sprawdzał hasła: znajomość samego 5-cyfrowego kodu dawała cudze imię, rejon i L4.
     # Teraz program podpisuje puls i sesję HMAC-iem, którego kluczem jest skrót hasła z tego komputera
     # (backend zna ten sam skrót z kolumny „Haslo hash”). Hasło nigdzie nie jedzie.
+    # Od 3.25.1 skrót żyje w pamięci od logowania (_SKROTY_SESJI); tu nowy proces z plikiem
+    # historii zapisanym przez starszą wersję (skrót wprost na dysku).
+    P._SKROTY_SESJI.clear()
     _skrot5 = P._hash_hasla("12345", "haslo123")
     P._zapisz(P.PLIK_LOGOWAN, {"12345": {"imie": "Jan Testowy", "skrot": _skrot5, "ostatnio": "2026-10-28T10:00:00"}})
     _dp5 = P._podpisz_zadanie({"akcja": "puls", "kod": "12345"})
@@ -4060,6 +4063,45 @@ if _PW is not None:
                 _pliki_tylko9 == [] and "bez podpisu: 5" in _tylko9, repr(_tylko9))
     except Exception as _e:
         sprawdz("okno wysyłki pokazuje liczbę dokumentów bez podpisu", False, repr(_e))
+
+    # PDF podpisany na gov.pl ma często nazwę oryginału. Szukanie po samej
+    # nazwie trafiało najpierw na niepodpisany oryginał w folderze wyniku.
+    if _PS is not None:
+        try:
+            _s9n = os.path.join(_S9, "ta_sama_nazwa", "Rozliczenie_Jan_Kowalski_Lipiec_2026r")
+            _s9n_pob = os.path.join(_S9, "ta_sama_nazwa", "Pobrane")
+            os.makedirs(_s9n)
+            os.makedirs(_s9n_pob)
+            _s9n_nazwa = "delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf"
+            with open(os.path.join(_s9n, _s9n_nazwa), "wb") as _f:
+                _f.write(b"%PDF-1.4 NIEPODPISANY\n" + b"x" * 100)
+            _s9n_paczka, _ = _PS.przygotuj_paczke(_s9n)
+            _s9n_man = _PS.sciezka_manifestu(_s9n_paczka)
+            _s9n_od = time.time() - 1
+            with open(os.path.join(_s9n_pob, _s9n_nazwa), "wb") as _f:
+                _f.write(b"%PDF-1.4 PODPISANY PAdES\n" + b"y" * 300)
+            _s9n_wyn = [w for w in _PS.znajdz_podpisane(_s9n_man, [_s9n_pob, _s9n_paczka], _s9n_od)
+                        if w.get("decyzja") == "przyjmij"]
+            _s9n_cel = os.path.join(_s9n_paczka, "Podpisane")
+            os.makedirs(_s9n_cel)
+            for _w in _s9n_wyn:
+                shutil.copy2(_w["sciezka"], os.path.join(_s9n_cel, _s9n_nazwa))
+                _PS.oznacz_podpisany(_s9n_man, _w["plik"], dict(_w, podpisany_plik=_s9n_nazwa))
+            _s9n_z = _PW.zalaczniki(_s9n, tylko_podpisane=True)
+            _s9n_tresci = [open(_p, "rb").read(24) for _p in _s9n_z.pliki]
+            sprawdz("wysyłka „tylko podpisane”: podpisany PDF o nazwie oryginału idzie z Podpisane, nie oryginał",
+                    len(_s9n_wyn) == 1 and len(_s9n_tresci) == 1
+                    and _s9n_tresci[0].startswith(b"%PDF-1.4 PODPISANY")
+                    and _s9n_z.niepodpisane == 0,
+                    str((len(_s9n_wyn), _s9n_tresci, _s9n_z.niepodpisane)))
+            # do Podpisane trafiła kopia bez podpisu (suma oryginału)
+            shutil.copy2(os.path.join(_s9n, _s9n_nazwa), os.path.join(_s9n_cel, _s9n_nazwa))
+            _s9n_z = _PW.zalaczniki(_s9n, tylko_podpisane=True)
+            sprawdz("wysyłka „tylko podpisane”: plik w Podpisane o sumie oryginału nie uchodzi za podpisany",
+                    _s9n_z.pliki == [] and _s9n_z.niepodpisane == 1,
+                    str(([os.path.basename(_p) for _p in _s9n_z.pliki], _s9n_z.niepodpisane)))
+        except Exception as _e:
+            sprawdz("wysyłka „tylko podpisane” przy podpisanym PDF o nazwie oryginału", False, repr(_e))
 
 # ── etykieta wydania a czysty numer wersji ────────────────────────
 # testy_pmt.py robi int() na członach numeru POZA blokiem obsługi wyjątków —
@@ -12180,6 +12222,366 @@ finally:
     P.ustaw_tryb_pracy("tydzien")
 
 # ── koniec sekcji 33 ──
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("34. Program przed wygaszeniem: dziennik błędów, aktualizacja, dane kont")
+
+# log_error woła się w blokach except (także w QThread.run). Wyjątek z niej
+# w PyQt6 to abort całego programu zamiast komunikatu o błędzie.
+_s34_log = P.LOG_FILE
+try:
+    _s34_zly = os.path.join(_TMP_HOME, "s34_plik_zamiast_folderu")
+    open(_s34_zly, "w").close()
+    P.LOG_FILE = os.path.join(_s34_zly, "logs", "error.log")
+    _s34_rzucil = None
+    try:
+        raise ValueError("s34 zamierzony błąd")
+    except ValueError as _e34:
+        try:
+            P.log_error(_e34)
+        except Exception as _x34:
+            _s34_rzucil = repr(_x34)
+    _s34_zapas = os.path.join(_TMP_HOME, ".pmt_logs", "error.log")
+    _s34_tresc = open(_s34_zapas, encoding="utf-8").read() if os.path.isfile(_s34_zapas) else ""
+    sprawdz("log_error w niezapisywalnym folderze programu nie rzuca, a wpis trafia do katalogu użytkownika",
+            _s34_rzucil is None and "s34 zamierzony błąd" in _s34_tresc,
+            str((_s34_rzucil, _s34_tresc[-80:])))
+finally:
+    P.LOG_FILE = _s34_log
+
+# updater_folder.bat: sukces tylko po fladze życia. Proces wiszący na oknie
+# błędu bootloadera też „żyje”, a uznanie go za sukces kasowało kopię
+# poprzedniej wersji.
+with open(os.path.join(KATALOG, "updater_folder.bat"), "rb") as _f34:
+    _bat34 = _f34.read().decode("ascii", errors="replace").replace("\r\n", "\n")
+_kod34 = "\n".join(l for l in _bat34.split("\n") if not l.strip().lower().startswith("rem"))
+_petla34 = re.search(r"for /l %%i in \(1,1,(\d+)\) do \(\n\s*ping -n 2 127\.0\.0\.1 >nul\n\s*if exist \"%FLAGA%\"",
+                     _kod34)
+_porazka34 = _kod34.split(":porazka", 1)[-1]
+sprawdz("updater_folder.bat: żywy proces bez flagi nie jest sukcesem, flagi czeka się do ok. minuty",
+        "ZYWY" not in _kod34 and "uznaje sukces" not in _kod34
+        and bool(_petla34) and int(_petla34.group(1)) >= 45,
+        repr(_petla34.group(0) if _petla34 else None))
+sprawdz("updater_folder.bat: przy porażce najpierw zamyka wiszący proces, potem przywraca kopię",
+        'taskkill /f /im "%NAZWA_EXE%"' in _porazka34
+        and _porazka34.index("taskkill") < _porazka34.index('xcopy "%KOPIA%"'))
+sprawdz("updater_folder.bat: bez opóźnionej ekspansji („!” w ścieżce programu przeżywa)",
+        "enabledelayedexpansion" not in _kod34.lower() and "!" not in _kod34)
+# programy 3.2x przyjmują pobrany skrypt tylko z tym napisem (inaczej
+# wracają do wbudowanego skryptu dla pojedynczego pliku)
+sprawdz("updater_folder.bat nadal przechodzi sprawdzenie, którym programy 3.2x rozpoznają skrypt",
+        "setlocal enabledelayedexpansion" in _bat34 and len(_bat34) < 20000
+        and "setlocal enabledelayedexpansion" in inspect.getsource(P.przygotuj_skrypt_aktualizacji))
+
+# Paczki macOS i Linux to FOLDER (PMT_Planer + _internal). updater.sh przyjmował
+# tylko plik: program się zamykał, a skrypt kończył się „Brak pobranego pliku”.
+import subprocess as _sp34
+_bash34 = shutil.which("bash")
+if _bash34 and os.name != "nt":
+    sprawdz("updater.sh ma poprawną składnię (bash -n)",
+            _sp34.run([_bash34, "-n", os.path.join(KATALOG, "updater.sh")]).returncode == 0)
+
+    def _updater34(nowa_pisze_flage):
+        baza = tempfile.mkdtemp(prefix="pmt_upd34_")
+        tmp = os.path.join(baza, "tmp")
+        stary = os.path.join(baza, "app", "PMT_Planer")
+        nowy = os.path.join(baza, "pobrane", "PMT_Planer")
+        for k in (tmp, os.path.join(stary, "_internal"), os.path.join(nowy, "_internal")):
+            os.makedirs(k)
+        for katalog, wersja, tresc in (
+                (stary, "stara", 'echo stara > "$TMPDIR/stara_ruszyla"\n'),
+                (nowy, "nowa", 'echo $$ > "$TMPDIR/pmt_zyje.flag"\n' if nowa_pisze_flage else "exit 3\n")):
+            with open(os.path.join(katalog, "PMT_Planer"), "w") as f:
+                f.write("#!/bin/bash\n" + tresc)
+            os.chmod(os.path.join(katalog, "PMT_Planer"), 0o755)
+            with open(os.path.join(katalog, "_internal", "lib.txt"), "w") as f:
+                f.write(wersja)
+        # te same kroki, krótsze przerwy (sleep 25 czeka na Gatekeepera)
+        with open(os.path.join(KATALOG, "updater.sh"), encoding="utf-8") as f:
+            skrypt = re.sub(r"sleep \d+", "sleep 0.1", f.read())
+        sciezka = os.path.join(baza, "upd.sh")
+        with open(sciezka, "w", encoding="utf-8") as f:
+            f.write(skrypt)
+        kod = _sp34.run([_bash34, sciezka, nowy, os.path.join(stary, "PMT_Planer"), "999999"],
+                        env=dict(os.environ, TMPDIR=tmp), timeout=120).returncode
+        for _ in range(30):              # przywrócona wersja startuje w tle
+            if nowa_pisze_flage or os.path.exists(os.path.join(tmp, "stara_ruszyla")):
+                break
+            time.sleep(0.1)
+        with open(os.path.join(stary, "_internal", "lib.txt")) as f:
+            lib = f.read()
+        wynik = (kod, lib, os.path.isdir(stary + ".poprzednia"), os.path.exists(nowy),
+                 os.path.exists(os.path.join(tmp, "stara_ruszyla")))
+        shutil.rmtree(baza, ignore_errors=True)
+        return wynik
+
+    try:
+        _u34 = _updater34(True)
+        sprawdz("updater.sh: nowa wersja jako FOLDER podmienia cały folder programu i sprząta kopię",
+                _u34[:4] == (0, "nowa", False, False), str(_u34))
+        _u34 = _updater34(False)
+        sprawdz("updater.sh: folder bez flagi życia wraca do poprzedniej wersji i ją uruchamia",
+                _u34[0] == 1 and _u34[1] == "stara" and _u34[2] is False and _u34[4], str(_u34))
+    except Exception as _e34:
+        sprawdz("updater.sh podmienia wersję folderową", False, repr(_e34))
+
+# Wbudowane skrypty zapasowe (gdy nie da się pobrać skryptu z GitHuba) umieją
+# tylko pojedynczy plik. Dla folderu: błąd PRZED zamknięciem programu.
+_s34_folder = tempfile.mkdtemp(prefix="pmt_nowa34_")
+os.makedirs(os.path.join(_s34_folder, "_internal"))
+open(os.path.join(_s34_folder, "PMT_Planer.exe"), "w").close()
+_s34_win = P.CZY_WINDOWS
+_s34_pobierz = P.pobierz_tekst_url
+P.pobierz_tekst_url = lambda *_a, **_k: ""
+_s34_wyniki = []
+try:
+    for _w34 in (True, False):
+        P.CZY_WINDOWS = _w34
+        try:
+            P.przygotuj_skrypt_aktualizacji(_s34_folder, os.path.join(_TMP_HOME, "PMT_Planer.exe"), 1)
+            _s34_wyniki.append("bez błędu")
+        except RuntimeError as _e34:
+            _s34_wyniki.append(str(_e34))
+finally:
+    P.CZY_WINDOWS = _s34_win
+    P.pobierz_tekst_url = _s34_pobierz
+    shutil.rmtree(_s34_folder, ignore_errors=True)
+sprawdz("bez skryptu z GitHuba paczka folderowa kończy się czytelnym błędem (Windows i macOS/Linux), nie zamknięciem programu",
+        len(_s34_wyniki) == 2 and all("skryptu aktualizacji" in _t for _t in _s34_wyniki),
+        str(_s34_wyniki))
+sprawdz("okno aktualizacji pokazuje błąd instalacji zamiast znikać (obowiązkowa aktualizacja)",
+        "self._blad(" in inspect.getsource(P.OknoAktualizacji._pobrano))
+
+# Kopia zapasowa: wspólne pliki komputera (.pmt_uzytkownicy.json z PESEL-ami
+# wszystkich, .pmt_ustawienia.json z adresami baz) szły do ZIP-a w całości,
+# a odtworzenie nadpisywało je w całości — znikały dane innych kont.
+def _dom34():
+    for w in glob.glob(os.path.join(_TMP_HOME, ".pmt_*")):
+        try:
+            os.remove(w)
+        except Exception:
+            pass
+    P._ustawienia_reset()
+    P._resetuj_pamiec_kont()
+
+
+def _zaloguj34(imie, kod):
+    P.online_zapisz_kod(kod)
+    P._zapisz(P.PLIK_STATUSU, dict(P._wczytaj(P.PLIK_STATUSU, {}), kod=kod, imie=imie))
+    P.ustaw_uzytkownika_planu(imie, kod)
+
+
+try:
+    _dom34()
+    _zaloguj34("Anna Kowalska", "11111")
+    P.zapisz_profil("Anna Kowalska", "90010112349", "ul. Anny 1, Radom", "Merchandiser", 0)
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Anny 1, Radom")
+    _zaloguj34("Bogdan Nowak", "22222")
+    P.zapisz_profil("Bogdan Nowak", "85020212344", "ul. Bogdana 2, Płock", "Merchandiser", 1)
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Bogdana 2, Płock")
+    P.zapisz_ustawienie("ciemny_motyw", False)
+    P.zapisz_punkty([{"adres": "Sklep B", "siec": "Lidl", "miasto": "Płock"}])
+    P._geo_cache[P._klucz_geo("ul. Anny 1, 26-600 Radom")] = [51.4, 21.15]; P.zapisz_geo_cache()      # wspólna pamięć geokodowania z adresem domu Anny
+    _zip34 = os.path.join(_TMP_HOME, "kopia34.zip")
+    _ile34 = P.eksportuj_kopie_zapasowa(_zip34)
+    import zipfile as _zf34
+    with _zf34.ZipFile(_zip34) as _z34:
+        _tresc34 = {n: _z34.read(n).decode("utf-8") for n in _z34.namelist()}
+    _razem34 = "\n".join(_tresc34.values())
+    sprawdz("kopia zapasowa nie zabiera PESEL-u ani adresu bazy innego konta z tego komputera",
+            "90010112349" not in _razem34 and "ul. Anny 1" not in _razem34 and "ul. anny 1" not in _razem34, str(sorted(_tresc34)))
+    sprawdz("kopia zapasowa nie zabiera wspólnej pamięci geokodowania i tras (adresy domów innych kont)",
+            not any(os.path.basename(f) in _tresc34 for f in (P.GEO_CACHE, P.GEO_BRAKI, P.ROAD_CACHE_FILE)), str(sorted(_tresc34)))
+    _zaloguj34("Bogdan  Nowak", "22222")      # imię z arkusza z podwójną spacją
+    _zip33b = os.path.join(_TMP_HOME, "kopia33b.zip"); P.eksportuj_kopie_zapasowa(_zip33b)
+    with _zf34.ZipFile(_zip33b) as _z33b:
+        _razem33b = "\n".join(_z33b.read(n).decode("utf-8") for n in _z33b.namelist())
+    sprawdz("imię konta z podwójną spacją nadal dopasowuje własny profil (kopia ma PESEL właściciela)",
+            "85020212344" in _razem33b and not P._STAN_KOPII["bez_profilu"])
+    _zaloguj34("Zenon Obcy", "44444")
+    _zip33c = os.path.join(_TMP_HOME, "kopia33c.zip"); P.eksportuj_kopie_zapasowa(_zip33c)
+    sprawdz("brak własnego profilu w kopii (inne imię) jest zgłaszany, a nie pomijany po cichu", P._STAN_KOPII["bez_profilu"] is True)
+    _zaloguj34("Bogdan Nowak", "22222")
+    sprawdz("kopia zapasowa ma własny profil, własny adres bazy i wspólne ustawienia programu",
+            "85020212344" in _razem34 and "ul. Bogdana 2" in _razem34
+            and json.loads(_tresc34[os.path.basename(P.USTAWIENIA_STORE)]).get("ciemny_motyw") is False,
+            str((_ile34, sorted(_tresc34))))
+    # po kopii: Anna zmienia adres, dochodzi trzecie konto; Bogdan odtwarza swoją kopię
+    _zaloguj34("Anna Kowalska", "11111")
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Anny 5, Radom")
+    _zaloguj34("Celina Wiśniewska", "33333")
+    P.zapisz_profil("Celina Wiśniewska", "92030312345", "ul. Celiny 3, Kielce", "Merchandiser", 0)
+    _zaloguj34("Bogdan Nowak", "22222")
+    P.zapisz_ustawienie_osobiste("adres_bazy", "zmieniony po kopii")
+    P.przywroc_z_kopii(_zip34)
+    P._ustawienia_reset()
+    _po34 = (P.ustawienie_osobiste("adres_bazy"), bool(P.szukaj_profilu_po_nazwisku("Bogdan Nowak")))
+    _zaloguj34("Anna Kowalska", "11111")
+    _anna34 = (P.ustawienie_osobiste("adres_bazy"), bool(P.szukaj_profilu_po_nazwisku("Anna Kowalska")),
+               bool(P.szukaj_profilu_po_nazwisku("Celina Wiśniewska")))
+    sprawdz("odtworzenie kopii przywraca dane tego konta",
+            _po34 == ("ul. Bogdana 2, Płock", True), str(_po34))
+    sprawdz("odtworzenie kopii nie kasuje ani nie cofa danych innych kont",
+            _anna34 == ("ul. Anny 5, Radom", True, True), str(_anna34))
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("kopia zapasowa tylko z danymi zalogowanego konta", False, repr(_e34))
+finally:
+    _dom34()
+
+# Skrót hasła SHA-256("PMT|kod|hasło") jest kluczem podpisu hasłem (puls, sesja,
+# hasło paczki) — leżał jawnie w ~/.pmt_logowania.json każdego konta i zostawał
+# po wylogowaniu. Teraz: w pamięci procesu, a na dysku weryfikator PBKDF2.
+try:
+    _dom34()
+    P._SKROTY_SESJI.clear()
+    _skr34 = P._hash_hasla("11111", "Haslo Anny 1")
+    P._zapisz_status_po_logowaniu("11111", _skr34, "Anna Kowalska")
+    P._zapisz_logowanie("11111", "Anna Kowalska", _skr34)
+    _dysk34 = open(P.PLIK_LOGOWAN, encoding="utf-8").read() + open(P.PLIK_STATUSU, encoding="utf-8").read()
+    sprawdz("po logowaniu skrót hasła nie leży na dysku (historia logowań ma weryfikator PBKDF2)",
+            _skr34 not in _dysk34
+            and str((P._wczytaj(P.PLIK_LOGOWAN, {}).get("11111") or {}).get("weryfikator", "")).startswith("pbkdf2_sha256$"),
+            _dysk34[:200])
+    sprawdz("w trakcie sesji puls dalej niesie podpis hasłem",
+            "podpis_hasla" in P._podpisz_zadanie({"akcja": "puls", "kod": "11111"}))
+    _ur34 = P.urllib.request.urlopen
+    P.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("bez sieci (test)"))
+    try:
+        P._SKROTY_SESJI.clear()                      # nowy start programu
+        _off34 = (P.online_zaloguj("11111", "Haslo Anny 1")[0], P.online_zaloguj("11111", "Haslo Anny 2")[0],
+                  P._haslo_znane_lokalnie("11111", "Haslo Anny 1"), P._haslo_znane_lokalnie("11111", "Haslo Anny 2"))
+    finally:
+        P.urllib.request.urlopen = _ur34
+    sprawdz("logowanie bez sieci i autologowanie działają na weryfikatorze (złe hasło nie wchodzi)",
+            _off34 == (True, False, True, False), str(_off34))
+    P.online_wyloguj()
+    sprawdz("po wylogowaniu nie ma czym podpisać pulsu tego konta",
+            "podpis_hasla" not in P._podpisz_zadanie({"akcja": "puls", "kod": "11111"})
+            and P._skrot_hasla_lokalny("11111") == "")
+    # pliki sprzed 3.25.1: skrót wprost w historii logowań i w statusie
+    _skr33b = P._hash_hasla("22222", "Haslo Bogdana")
+    P._zapisz(P.PLIK_LOGOWAN, {"22222": {"imie": "Bogdan Nowak", "skrot": _skr33b,
+                                         "ostatnio": "2026-10-28T10:00:00"}})
+    P._zapisz(P.PLIK_STATUSU, {"kod": "22222", "skrot": _skr33b})
+    P._usun_skroty_z_dysku()
+    _dysk34 = open(P.PLIK_LOGOWAN, encoding="utf-8").read() + open(P.PLIK_STATUSU, encoding="utf-8").read()
+    sprawdz("start programu zdejmuje z dysku skróty zapisane przez starsze wersje, a hasło dalej się zgadza",
+            _skr33b not in _dysk34 and P._haslo_znane_lokalnie("22222", "Haslo Bogdana")
+            and P._skrot_zweryfikowany("22222", "Haslo Bogdana") == _skr33b
+            and P._skrot_zweryfikowany("22222", "Haslo Bogdan") == "", _dysk34[:200])
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("skrót hasła tylko w pamięci, na dysku weryfikator", False, repr(_e34))
+finally:
+    P._SKROTY_SESJI.clear()
+    _dom34()
+
+# „Przenieś dane” po zmianie albo resecie hasła w aplikacji web: ten komputer zna tylko stare hasło,
+# a aplikacja odczytuje plik skrótem bieżącego. Nowe hasło potwierdza serwer (akcja „logowanie”).
+class _Odp34:
+    def __init__(self, dane):
+        self._d = json.dumps(dane).encode("utf-8")
+    def read(self):
+        return self._d
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+_zapytania34 = []
+
+
+def _serwer34(req, *a, **k):
+    d = json.loads(req.data.decode("utf-8"))
+    _zapytania34.append(d)
+    if d.get("akcja") == "logowanie" and d.get("kod") == "11111" and d.get("haslo") == "Nowe haslo z webu":
+        return _Odp34({"status": "ok", "imie": "Anna Kowalska", "przez": "haslo"})
+    return _Odp34({"status": "blad", "opis": "Nieprawidlowe haslo"})
+
+
+try:
+    _dom34()
+    P._SKROTY_SESJI.clear()
+    P._zapisz(P.PLIK_LOGOWAN, {"11111": {"imie": "Anna Kowalska",
+                                         "weryfikator": P._weryfikator_skrotu(P._hash_hasla("11111", "Stare haslo")),
+                                         "ostatnio": "2026-10-28T10:00:00"}})
+    _ur34 = P.urllib.request.urlopen
+    P.urllib.request.urlopen = _serwer34
+    try:
+        _nowe34 = P._skrot_potwierdzony_online("11111", " Nowe haslo z webu ")
+        _zle34 = P._skrot_potwierdzony_online("11111", "Zle haslo")
+    finally:
+        P.urllib.request.urlopen = _ur34
+    P.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("bez sieci (test)"))
+    try:
+        _bez_sieci34 = P._skrot_potwierdzony_online("11111", "Nowe haslo z webu")
+    finally:
+        P.urllib.request.urlopen = _ur34
+    sprawdz("„Przenieś dane”: hasło zmienione w aplikacji potwierdza serwer i plik dostaje klucz bieżącego hasła",
+            P._skrot_zweryfikowany("11111", "Nowe haslo z webu") == ""
+            and _nowe34 == P._hash_hasla("11111", "Nowe haslo z webu") and _zle34 == "" and _bez_sieci34 == ""
+            and _zapytania34 and _zapytania34[0].get("zrodlo") == "przeniesienie",
+            str((_nowe34[:8], _zle34, _bez_sieci34, _zapytania34[:1])))
+    sprawdz("„Przenieś dane” sprawdza hasło na serwerze, gdy lokalny skrót go nie zna",
+            "_skrot_potwierdzony_online(kod, haslo, rodzic)" in inspect.getsource(P.przenies_dane_do_web))
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("„Przenieś dane” po zmianie hasła w aplikacji", False, repr(_e34))
+finally:
+    P._SKROTY_SESJI.clear()
+    _dom34()
+
+# Ręczne „Wskaż plik”: niepodpisana kopia z Do_podpisu (suma oryginału) nie może zostać
+# „podpisana”, a plik o obcej nazwie nie może trafić z automatu do pierwszego dokumentu.
+try:
+    from PyQt6.QtWidgets import QApplication as _QA34, QInputDialog as _QID34
+    import pmt_podpis as _PS34
+    _app34 = _QA34.instance() or _QA34(sys.argv)
+    _f34 = tempfile.mkdtemp(prefix="pmt_wskaz34_")
+    _wyn34 = os.path.join(_f34, "Rozliczenie_Jan_Kowalski_Lipiec_2026r")
+    os.makedirs(_wyn34)
+    for _n34 in ("delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf", "delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf"):
+        with open(os.path.join(_wyn34, _n34), "wb") as _f:
+            _f.write(b"%PDF-1.4 " + _n34.encode() + b" bez podpisu")
+    _skan34 = os.path.join(_f34, "IMG_0045.pdf")
+    with open(_skan34, "wb") as _f:
+        _f.write(b"%PDF-1.4 skan z podpisem odrecznym")
+    _dlg34 = P.DialogPodpis(None, folder=_wyn34)
+    _dlg34.paczka, _ = _PS34.przygotuj_paczke(_wyn34)
+    _dlg34.manifest = _PS34.sciezka_manifestu(_dlg34.paczka)
+    _wybor34 = []
+    _stary_fd34, _stary_id34 = P.QFileDialog.getOpenFileName, _QID34.getItem
+    _QID34.getItem = staticmethod(lambda *a, **k: _wybor34.pop(0) if _wybor34 else ("", False))
+    try:
+        def _wskaz34(sciezka):
+            P.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (sciezka, ""))
+            _dlg34._wskaz_plik()
+            return {w["plik"]: w.get("status") for w in _dlg34._wpisy()}
+        _st_kopia34 = _wskaz34(os.path.join(_dlg34.paczka, "delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf"))
+        _st_anul34 = _wskaz34(_skan34)                       # pytanie o dokument: „Anuluj”
+        _wybor34.append(("delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf", True))
+        _st_skan34 = _wskaz34(_skan34)
+    finally:
+        P.QFileDialog.getOpenFileName, _QID34.getItem = _stary_fd34, _stary_id34
+        _dlg34.zatrzymaj_zegar() if hasattr(_dlg34, "zatrzymaj_zegar") else None
+        _dlg34.deleteLater()
+    sprawdz("„Wskaż plik”: niepodpisana kopia z Do_podpisu nie dostaje statusu „podpisany”",
+            set(_st_kopia34.values()) == {"do_podpisu"}, str(_st_kopia34))
+    sprawdz("„Wskaż plik”: plik o obcej nazwie — pytanie, który to dokument (anulowanie niczego nie oznacza)",
+            set(_st_anul34.values()) == {"do_podpisu"}
+            and _st_skan34.get("delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf") == "podpisany"
+            and _st_skan34.get("delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf") == "do_podpisu",
+            str((_st_anul34, _st_skan34)))
+    shutil.rmtree(_f34, ignore_errors=True)
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("„Wskaż plik” sprawdza sumę i pyta o dokument", False, repr(_e34))
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

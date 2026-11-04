@@ -1,6 +1,6 @@
 // PMT Planer (web) — „żywy interfejs": interakcje, które wciągają. Moduł nie zna wnętrza aplikacji: dostaje uchwyty (k) i nasłuchuje sygnałów „pmt:*".
 //   suwak kwoty z podglądem cieczy w dniach · kalendarz (lupa, fala, malowanie dni wolnych) · teatr trasy (▶, przewijanie osi, pojazd na mapie)
-//   fiolki (bąbelki, chlupot) · paleta poleceń (Ctrl+K) · wycieczka po aplikacji · przesuwanie zakładek na telefonie
+//   fiolki (bąbelki w cieczy; bez kołysania) · paleta poleceń (Ctrl+K) · wycieczka po aplikacji · przesuwanie zakładek na telefonie
 export function zainstalujZywe(k) {
   const { $, $$, doc, root, app, bento, fmt, dwa, hhmm, minuty, anim, iskry, pamiec, spokoj } = k;
   const S = () => k.stan();
@@ -381,32 +381,11 @@ export function zainstalujZywe(k) {
     if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(() => miesci()).catch(() => {});
     const babelki = () => {
       const { M } = S(); if (!M || M.stan !== 'gotowe') { duchFiolek(); return; }
-      $$('.f-ciecz', fio).forEach((c, i) => { if ($('.babel', c)) return; for (let b = 0; b < 4; b++) c.appendChild(el('i', 'babel')).style.cssText = `--x:${18 + ((b * 29 + i * 13) % 58)}%;--r:${2 + (b + i) % 3}px;--t:${3.2 + ((b * 7 + i * 5) % 9) / 3}s;--o:${-((b * 17 + i * 11) % 30) / 10}s`; });
+      $$('.f-ciecz', fio).forEach((c, i) => { if ($('.babel', c)) return; for (let b = 0; b < 8; b++) c.appendChild(el('i', 'babel')).style.cssText = `--x:${14 + ((b * 23 + i * 13) % 66)}%;--r:${3 + (b * 3 + i) % 4}px;--t:${2.8 + ((b * 7 + i * 5) % 11) / 3}s;--o:${-((b * 17 + i * 11) % 36) / 10}s`; });
     };
     slucha('fiolki', babelki);
     if ($('.f-ciecz', fio)) babelki();      // fiolki narysowane, zanim moduł się załadował (sygnał już przeminął) — bąbelki dokładamy od razu
-    /* chlupot: ruch kursora po fiolkach kołysze probówki, a ciecz opóźnia się za szkłem (dwie sprężyny) */
-    const F = new Map(); let raf = 0, ost = 0;
-    const krok = t => {
-      const dt = Math.min(.04, (t - ost) / 1000 || .016); ost = t; let zyje = false;
-      for (const [f, s] of F) {
-        s.va += (-70 * s.a - 5.5 * s.va) * dt; s.a += s.va * dt;
-        s.vb += (-38 * (s.b + s.a * 1.7) - 3.2 * s.vb) * dt; s.b += s.vb * dt;
-        if (Math.abs(s.a) + Math.abs(s.va) + Math.abs(s.b) + Math.abs(s.vb) > .02) { zyje = true; f.style.rotate = `${s.a.toFixed(2)}deg`; f.style.setProperty('--sl', s.b.toFixed(2)); }
-        else { f.style.rotate = ''; f.style.removeProperty('--sl'); F.delete(f); }
-      }
-      raf = zyje ? requestAnimationFrame(krok) : 0;
-    };
-    fio.addEventListener('pointermove', e => {
-      if (spokoj || e.pointerType === 'touch' || !e.movementX) return;      // chlupot probówek za kursorem — tylko w pełnym ruchu
-      for (const f of $$('.fiolka', fio)) {
-        const r = f.getBoundingClientRect(), d = Math.abs(e.clientX - (r.left + r.width / 2));
-        if (d > r.width * 1.4 || e.clientY < r.top - 20 || e.clientY > r.bottom + 20) continue;
-        let s = F.get(f); if (!s) { s = { a: 0, va: 0, b: 0, vb: 0 }; F.set(f, s); }
-        s.va = ogr(s.va + e.movementX * .55 * (1 - d / (r.width * 1.4)), -90, 90);
-      }
-      if (!raf) { ost = performance.now(); raf = requestAnimationFrame(krok); }
-    }, { passive: true });
+    /* Probówki się nie kołyszą (ani same, ani za kursorem): napełnianie cieczy i bąbelki robi sam CSS (html.zyje, zycie-napelnij / zycie-babel). */
   }
 
   /* ============================================================ PALETA POLECEŃ ============================================================ */

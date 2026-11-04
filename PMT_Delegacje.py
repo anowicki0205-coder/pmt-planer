@@ -9061,8 +9061,7 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
     text_muted = "#94A3B8" if is_dark else "#475569"
     btn_bg = "linear-gradient(to right, #00F0FF, #0093E9)" if is_dark else "#10B981"
     btn_txt = "#000000" if is_dark else "#FFFFFF"
-    _etykieta_zrodla = etykieta_zrodla_odleglosci()
-    zrodlo_html = ("<p>Odległości: %s</p>" % _etykieta_zrodla) if _etykieta_zrodla else ""
+    zrodlo_html = ""      # źródło odległości (drogi / szacunek) nie jest drukowane na dokumentach ani w raporcie — widzi je tylko okno programu
     
     html_content = f"""
     <!DOCTYPE html>
@@ -9418,12 +9417,8 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     if FPDF_BLAD:
         raise ValueError(_opis_bledu_pdf())
     if stawka is None: stawka = STAWKA_ZA_KM
-    # Skąd wzięły się kilometry — to stoi na dokumencie, bo od tego zależy,
-    # czy podane odległości są realne. Pusta etykieta (stan „brak": ani jeden
-    # odcinek nie był liczony) = dokument o źródle milczy, zamiast zapewniać.
-    if zrodlo is None: zrodlo = stan_zrodla_odleglosci()
-    etykieta_zrodla = str(zrodlo.get("etykieta") or "")
-    zrodlo_txt = ("Odległości: %s" % etykieta_zrodla) if etykieta_zrodla else ""
+    # Skąd wzięły się kilometry (zrodlo) widzi użytkownik w oknie programu i aplikacji — NA DOKUMENCIE
+    # nie ma o tym ani słowa („Odległości: szacunek” itp. na górze delegacji nie może się pojawić).
     os.makedirs(folder, exist_ok=True)
     ms = MIESIACE_PL[miesiac - 1]
     imie_plik = nazwa_do_pliku(pracownik.imie)
@@ -9457,8 +9452,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"adres zamieszkania",border=0,align='C'); pdf.cell(95,3,"przełożony",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'B',8); pdf.cell(95,5,"projekt: Biedronka, Dino, Eurocash, Społem, Stokrotka, Żabka",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"cel wyjazdu - Projekt",border=0,new_x="LMARGIN",new_y="NEXT",align='C'); pdf.ln(3)
-        pdf.set_font("Arial",'B',10); pdf.cell(120,5,"Rozliczenie kosztów podróży",border=0)
-        pdf.set_font("Arial",'',7); pdf.cell(70,5,zrodlo_txt,border=0,new_x="LMARGIN",new_y="NEXT",align='R')
+        pdf.set_font("Arial",'B',10); pdf.cell(190,5,"Rozliczenie kosztów podróży",border=0,new_x="LMARGIN",new_y="NEXT")
         pdf.set_font("Arial",'B',8); pdf.cell(65,4,"WYJAZD",border=1,align='C'); pdf.cell(65,4,"PRZYJAZD",border=1,align='C')
         y_s = pdf.get_y(); pdf.cell(35,8,"Środki lokomocji",border=1,align='C'); pdf.cell(25,8,"Koszty",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_y(y_s+4)
@@ -9499,7 +9493,6 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf.set_font("Arial",'',10); pdf.cell(0,5,"ul. Ptasia 10, 60-319 Poznań",new_x="LMARGIN",new_y="NEXT"); pdf.cell(0,5,nip_krotki,new_x="LMARGIN",new_y="NEXT"); pdf.ln(5)
     pdf.set_font("Arial",'B',12); pdf.cell(0,8,f"Rozliczenie wydatków za miesiąc: {ms} {rok}r.",new_x="LMARGIN",new_y="NEXT"); pdf.ln(2)
     wiersze_naglowka = [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie)))]
-    if etykieta_zrodla: wiersze_naglowka.append(("Odległości:", etykieta_zrodla))
     for lbl,val in wiersze_naglowka:
         pdf.set_font("Arial",'B',9); pdf.cell(50,6,lbl,border=0); pdf.set_font("Arial",'',9); pdf.cell(140,6,val,border=0,new_x="LMARGIN",new_y="NEXT")
     pdf.ln(5); pdf.set_font("Arial",'B',9)

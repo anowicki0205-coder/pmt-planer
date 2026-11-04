@@ -39,7 +39,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
 - [x] wdrożenie na GitHub Pages: .github/workflows/web-pages.yml (tylko ręczny start — Actions → Run workflow, po scaleniu do głównej gałęzi; sekrety PMT_SEKRET i PMT_MENEDZER z sekretów repo)
 - [x] JEDNA PEŁNA WERSJA wizualna (decyzja właściciela: bez wyboru trybów animacji; ruch zawsze włączony; zorza dwuprzebiegowa z wygładzaniem bikubicznym — bez pikselozy)
 - [x] ŻYWY INTERFEJS (js/zywe.js, sygnały „pmt:*” z aplikacji): suwak kwoty, podgląd cieczy w dniach, lupa i fala w kalendarzu, malowanie dni wolnych,
-      teatr trasy (▶, pojazd, przewijanie osi), duchy w pustych stanach, bąbelki i chlupot probówek, podpowiedzi w Kontroli, paleta poleceń (Ctrl+K),
+      teatr trasy (▶, pojazd, przewijanie osi), duchy w pustych stanach, bąbelki w probówkach, podpowiedzi w Kontroli, paleta poleceń (Ctrl+K),
       wycieczka po aplikacji, przesuwanie zakładek na telefonie, akcenty kolorystyczne kafli. Test: testy/zywe_app.js
 - [x] service worker: kod aplikacji (strona, skrypty, style) zawsze z sieci, gdy jest internet (kopia z pamięci tylko offline) — koniec ze starą wersją po aktualizacji
 - [x] kwota wpisywana (suwak wyłączony stałą SUWAK_KWOTY) + arkusz „Sprawdź, zanim wygeneruję” przed generowaniem; testy używają pomocnika generuj() z testy/wspolne.js
@@ -232,3 +232,10 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       przez workflow_call); wersja.txt zachowuje min=/blokada=/web=/wygaszenie=, nie rusza po anulowaniu, ponowne uruchomienie nie odkręca hamulca, podbicie tylko dla wydania
       „Latest”; filtr ścieżek testów obejmuje wszystkie moduły paczki. Do zrobienia przez właściciela: przypięcie akcji do SHA (+ ewentualnie dependabot), opcjonalnie
       Settings → Actions → „Read repository contents” jako domyślne uprawnienie.
+- [x] UWAGI WŁAŚCICIELA PO TEŚCIE (4.11): (1) NA DOKUMENCIE (delegacja, rozliczenie, raport tras HTML) nie ma już dopisku o źródle odległości („Odległości: szacunek / realne drogi / drogi z pamięci”) —
+      program i aplikacja nadal wiedzą, skąd są kilometry (okno programu, komunikat po generowaniu w aplikacji „Kilometry z szacunku…”), ale dokument milczy; układ strony bez zmian (ta sama wysokość nagłówka).
+      Tacka programu dla miesiąca z dysku pokazuje wtedy zwykłe „KILOMETRY” (dawne PDF-y z dopiskiem nadal się czytają). Atrapa dokumentu w aplikacji też bez dopisku. wyciagnij_silnik.py ma teraz w korzeniach
+      stan_zrodla_odleglosci i zeruj_zrodlo_odleglosci (most.py ich używa, a PDF już ich nie wciąga). (2) FIOLKI SIĘ NIE KOŁYSZĄ: zniknęło bujanie probówki, chlupot powierzchni cieczy i chlupot za kursorem;
+      zamiast tego ciecz napełnia się od dołu do swojego poziomu (animacja „zycie-napelnij”, każda fiolka po kolei, przy każdym narysowaniu fiolek) i idzie więcej, wyraźniejszych bąbelków (8 na fiolkę).
+      Przy okazji naprawiony błąd: rejestracja `@property --sw` (liczba, dla chlupotu) zerowała szerokość łączników na osi podróży (.pr-odc, .pr-km) i wyłączała poświatę fali przy zmianie motywu —
+      `--sw` ma w pliku trzy znaczenia, więc nie wolno go rejestrować (komentarz w CSS). Testy: zycie_app.js (napełnianie sprawdzane na wybranych klatkach animacji), zywe_app.js, atrapa_test.js, testy_pmt.py.

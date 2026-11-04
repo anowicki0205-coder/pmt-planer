@@ -2931,19 +2931,21 @@ if not SZYBKO:
             abs(sum(x["kwota"] for x in _pods) - sum(d.suma for d in _dni)) <= 0.02,
             "%.2f vs %.2f" % (sum(x["kwota"] for x in _pods), sum(d.suma for d in _dni)))
 
-    # ŹRÓDŁO ODLEGŁOŚCI NA DOKUMENCIE. Testy liczą bez sieci, więc stanem
-    # jest szacunek — i dokument ma to mówić wprost, a nie milczeć.
+    # ŹRÓDŁO ODLEGŁOŚCI NIE STOI NA DOKUMENCIE. Testy liczą bez sieci, więc stanem
+    # jest szacunek — program to wie (okno, komunikat), ale ani delegacja, ani
+    # rozliczenie nie drukują o tym słowa („Odległości: szacunek” na górze
+    # dokumentu nie może się pojawić — decyzja właściciela po testach).
     _stan_pdf = P.stan_zrodla_odleglosci()
-    sprawdz("stan źródła odległości po zbudowaniu tras to szacunek (testy bez sieci)",
+    sprawdz("stan źródła odległości po zbudowaniu tras to szacunek (testy bez sieci) — program go zna",
             _stan_pdf["stan"] == P.ZRODLO_SZACUNEK, str(_stan_pdf))
     _delegacje = [x for x in _pliki if "rozliczenie" not in os.path.basename(x).lower()]
-    _bez_zrodla = [os.path.basename(x) for x in _delegacje
-                   if not _w_pdf(x, "Odległości: szacunek")]
-    sprawdz("każde polecenie wyjazdu odnotowuje źródło odległości",
-            _delegacje and not _bez_zrodla, str(_bez_zrodla))
+    _ze_zrodlem = [os.path.basename(x) for x in _delegacje
+                   if _w_pdf(x, "Odległości") or _w_pdf(x, "szacunek") or _w_pdf(x, "realne drogi")]
+    sprawdz("żadne polecenie wyjazdu nie ma dopisku o źródle odległości (szacunek / drogi)",
+            _delegacje and not _ze_zrodlem, str(_ze_zrodlem))
     _zbiorcze = [x for x in _pliki if "rozliczenie" in os.path.basename(x).lower()]
-    sprawdz("rozliczenie zbiorcze odnotowuje źródło odległości",
-            _zbiorcze and _w_pdf(_zbiorcze[0], "szacunek"),
+    sprawdz("rozliczenie zbiorcze też nie ma dopisku o źródle odległości",
+            _zbiorcze and not (_w_pdf(_zbiorcze[0], "Odległości") or _w_pdf(_zbiorcze[0], "szacunek")),
             str([os.path.basename(x) for x in _zbiorcze]))
 
     # ten sam stan na podglądzie tras
@@ -2951,10 +2953,10 @@ if not SZYBKO:
     P.generuj_mape_html(_dni, _prac, "październik", _rok, _folder_z, True)
     with open(os.path.join(_folder_z, "Trasy_Mapa.html"), encoding="utf-8") as _f:
         _html_z = _f.read()
-    sprawdz("podgląd tras pokazuje stan źródła odległości",
-            "Odległości: szacunek" in _html_z)
+    sprawdz("raport tras (HTML) też nie drukuje źródła odległości",
+            "Odległości" not in _html_z and "szacunek" not in _html_z)
 
-    # z pamięci podręcznej dokument mówi co innego — i mówi prawdę
+    # niezależnie od źródła (też drogi z pamięci) dokument milczy o odległościach
     _stan_udawany = {"stan": P.ZRODLO_PAMIEC, "etykieta": "drogi z pamięci",
                      "odcinki": 5, "realne": True}
     _folder_r = os.path.join(_TMP_HOME, "pdf_realne")
@@ -2962,9 +2964,9 @@ if not SZYBKO:
                    zrodlo=_stan_udawany)
     _pl_r = [x for x in sorted(glob.glob(os.path.join(_folder_r, "*.pdf")))
              if "rozliczenie" not in os.path.basename(x).lower()]
-    sprawdz("przy realnych drogach dokument nie mówi „szacunek”",
-            _pl_r and _w_pdf(_pl_r[0], "Odległości: drogi z pamięci")
-            and not _w_pdf(_pl_r[0], "szacunek"),
+    sprawdz("przy drogach z pamięci dokument też nie ma dopisku („Odległości”, „szacunek”, „drogi z pamięci”)",
+            _pl_r and not _w_pdf(_pl_r[0], "Odległości") and not _w_pdf(_pl_r[0], "szacunek")
+            and not _w_pdf(_pl_r[0], "drogi z pamięci"),
             str([os.path.basename(x) for x in _pl_r]))
 
     # ── KILOMETRY I STAWKA NA DOKUMENCIE ──────────────────────────
@@ -3022,13 +3024,9 @@ if not SZYBKO:
                      if _pdf7.get_string_width(P.opis_przejazdow(w["kwota"], _stawka)) > 140.0 - 2.0]
     _najszerszy7 = max(_pdf7.get_string_width(P.opis_przejazdow(k, s))
                        for k in (986.34, 999.99, 1234.56) for s in (0.60, 0.89, 1.15, 0.8935))
-    _pdf7.set_font("Arial", "", 7)
-    _etykiety7 = max(_pdf7.get_string_width("Odległości: %s" % e) for e in P.ETYKIETY_ZRODLA.values())
     sprawdz("rubryka „(1) Przejazdy” (140 mm) mieści opis z kilometrami i stawką",
             not _za_szerokie7 and _najszerszy7 <= 138.0,
             "%s / najszerszy %.1f mm" % (_za_szerokie7[:2], _najszerszy7))
-    sprawdz("rubryka źródła odległości (70 mm) mieści każdą etykietę",
-            _etykiety7 <= 68.0, "%.1f mm" % _etykiety7)
 
     # ── PUSTY LICZNIK ODCINKÓW: BEZ ZAPEWNIENIA ───────────────────
     # stan_zrodla_odleglosci() przy zerowym liczniku mówiło „realne drogi"
@@ -8483,12 +8481,13 @@ try:
                 and len({d["dokument"] for d in _dk23}) == 2
                 and _dk23[0]["start"] == "07:00" and _dk23[0]["koniec"] == "09:40",
                 str(_dk23))
-        sprawdz("suma dni = suma kompletu = suma tras co do grosza; km dni sumują się do km z rubryki „Przejazdy”; etykieta źródła z PDF-u",
+        sprawdz("suma dni = suma kompletu = suma tras co do grosza; km dni sumują się do km z rubryki „Przejazdy”; PDF milczy o źródle odległości (dawne dokumenty z dopiskiem nadal się czytają)",
                 abs(sum(d["kwota"] for d in _dk23) - _suma_m1) < 0.005
                 and abs(float(_lk23["kwota"]) - _suma_m1) < 0.005
                 and _lk23["km"] is not None
                 and abs(sum(d["km"] for d in _dk23) - _lk23["km"]) <= 0.1 * len(_dk23)
-                and _lk23["odleglosci"] == "szacunek",
+                and _lk23["odleglosci"] == ""
+                and _PD23._etykieta_odleglosci(["Odległości: szacunek"]) == "szacunek",
                 str((sum(d["kwota"] for d in _dk23), _suma_m1, _lk23)))
         _kwoty_zle = ["Radom", "02.03.2026r", "07:00", "Iłża", "02.03.2026r", "07:40", "samochód osobowy", "10.00",
                       "Suma wydatków", "99.00"]
@@ -8685,7 +8684,7 @@ try:
                 and _okno23.taca.miesiace.aktywny() == _m1
                 and _okno23.taca.l_sciezka.text().startswith("%s %d · " % (P.MIESIACE_PL[_m1[1] - 1], _m1[0]))
                 and _okno23.taca.l_folder.toolTip() == _folder23(*_m1)
-                and _okno23.taca.k_km._opis == "SZACUNEK",
+                and _okno23.taca.k_km._opis == "KILOMETRY",      # dokumenty nie mówią o źródle odległości, więc kafel ma zwykły podpis
                 str((_okno23._taca_widoczna, _okno23._folder_tacy(), len(_okno23.taca.dni),
                      _okno23.taca.k_kwota._cel, _okno23.taca.k_km._cel, _okno23.taca.miesiace.miesiace(),
                      _okno23.taca.l_sciezka.text(), _okno23.taca.k_km._opis)))

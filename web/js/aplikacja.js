@@ -1830,7 +1830,7 @@ async function generuj() {
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
   zorza && zorza.flara(1); kurtyna && kurtyna.swieto();
   pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}`);
-  if (w.wynik.zrodlo && w.wynik.zrodlo.etykieta && /szacunek/i.test(w.wynik.zrodlo.etykieta)) setTimeout(() => pokazToast('Kilometry z szacunku — bez internetu nie sprawdzę dróg. Dokument to zaznacza.'), 3300);
+  if (w.wynik.zrodlo && w.wynik.zrodlo.etykieta && /szacunek/i.test(w.wynik.zrodlo.etykieta)) setTimeout(() => pokazToast('Kilometry z szacunku — bez internetu nie sprawdzę dróg. Jeśli to ma być dokładne, wygeneruj od nowa z internetem.'), 3300);
 }
 /** Dni robocze miesiąca z silnika. Przy chwilowym błędzie (np. silnik jeszcze się rozgrzewa) próbuje jeszcze dwa razy, zamiast po cichu pokazać miesiąc bez dni roboczych. */
 async function dniRoboczeZSilnika(rok, mies, trybWym) {

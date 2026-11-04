@@ -12,13 +12,13 @@ JAK URUCHOMIĆ NA KOMPUTERZE
      macOS / Linux: ./uruchom_lokalnie.sh, potem http://localhost:8080/index.html
   Wymaga Pythona 3 (masz go z programu). Najlepiej Chrome albo Edge (pełne „ciekłe szkło”); Safari i Firefox działają ze zwykłym rozmyciem.
   Pierwsze uruchomienie pobiera silnik (kilkanaście MB, ok. 8 s), kolejne są szybsze, a po pierwszym razie aplikacja działa także
-  bez internetu (wtedy kilometry z szacunku, a dokument to zaznacza).
+  bez internetu (wtedy kilometry z szacunku — aplikacja mówi o tym w komunikacie po generowaniu; na samym dokumencie nie ma żadnego dopisku o źródle odległości).
   TELEFON: komputer i telefon w tej samej sieci Wi-Fi → na telefonie wpisz http://<adres komputera>:8080/index.html (adres: ipconfig / ifconfig).
   Po zwykłym http działa logowanie i cała aplikacja, ale bez instalacji jako aplikacja i bez pracy offline — to wymaga https (po wdrożeniu).
 
 JEDNA PEŁNA WERSJA
   CZASOWO (test płynności, decyzja właściciela): ANIMACJE SĄ WYŁĄCZONE dla wszystkich. Wygląd zostaje ten sam, ale nic się nie rusza: zorza w tle jest narysowana raz (nieruchomo), nie ma
-  ruchu za kursorem (połysk krawędzi, przechylanie kafli, pył gwiezdny, magnetyczne przyciski, chlupot probówek, lupa w kalendarzu), ciągłych animacji (poświaty, pulsowanie, „oddychanie” przycisków,
+  ruchu za kursorem (połysk krawędzi, przechylanie kafli, pył gwiezdny, magnetyczne przyciski, lupa w kalendarzu), ciągłych animacji (poświaty, pulsowanie, „oddychanie” przycisków,
   demo w pustych stanach), przejść między miesiącami i dniami, staczania cyfr kwoty, konfetti i fanfar (zamiast fanfar — krótka informacja „Cały dzień zrobiony”). Okna otwierają się i zamykają od razu.
   Zostaje wszystko, co robi aplikacja (generowanie, podpisy, trasy, plan, odhaczanie); zostają też krótkie przejścia po najechaniu myszą (zmiana koloru przycisku) i ▶ w trasie dnia (uruchamiasz je sam).
   W spoczynku aplikacja nie żąda już ani jednej klatki animacji (test testy/spokoj_app.js). Jak sprawdzić płynność u siebie: dopisz do adresu  ?diag  (liczba klatek/s, nazwa karty, wersja).
@@ -39,7 +39,7 @@ JEDNA PEŁNA WERSJA
   Trasa dnia: przycisk ▶ odtwarza dzień — pojazd jedzie po mapie, na osi tyka zegar, minięte przystanki się zapalają, a kwota dnia rośnie od zera do sumy.
     Samo przesuwanie kursora po osi podróży (w widoku rozwiniętym także po osi czasu) przewija dzień jak film; kliknięcie w mapę też włącza ▶.
   Pusty stan: zamiast pustki widać „ducha” trasy i puste probówki, więc od razu wiadomo, co tu będzie.
-  Dokumenty: bąbelki w probówkach i chlupot cieczy, gdy przesuniesz kursor po probówkach. Kontrola: najechanie na punkt pokazuje, czego dotyczy (np. najdroższy dzień).
+  Dokumenty: ciecz w probówkach napełnia się do swojego poziomu, a w cieczy idą bąbelki (probówki się nie kołyszą). Kontrola: najechanie na punkt pokazuje, czego dotyczy (np. najdroższy dzień).
   Paleta poleceń: Ctrl+K (Mac: Cmd+K) albo „/” albo lupa w nagłówku (na telefonie: menu konta → „Szukaj poleceń”). Wpisz „luty”, „14” (dzień), „3200” (kwota), „motyw”, „podpisz”…
   Wycieczka: przy pierwszym uruchomieniu (na przykładowym miesiącu; kto ma już dane — po zapisaniu Moich danych) kilkanaście krótkich kroków z reflektorem; Esc pomija. Wróci z palety: „Pokaż wycieczkę po aplikacji”.
   Telefon: przesunięcie palcem w bok zmienia zakładkę (Dziś ⇄ Miesiąc ⇄ Dokumenty).
@@ -77,7 +77,7 @@ WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
 
 ŻYCIE KALENDARZA I FIOLEK (RUCH TYLKO TAM)
   Aplikacja jest w „trybie spokojnym” (po teście płynności), ale w dwóch kaflach „coś się dzieje”: w KALENDARZU dni z trasą lekko się unoszą, oddychają światłem i co kilka sekund przebiega po nich
-  błysk (każdy dzień w innej fazie), a wybrany dzień pulsuje (fala i pierścień); w FIOLKACH dokumentów ciecz się kołysze (pochylona powierzchnia), fiolki delikatnie się bujają, połysk faluje, bąbelki
+  błysk (każdy dzień w innej fazie), a wybrany dzień pulsuje (fala i pierścień); w FIOLKACH dokumentów ciecz napełnia się do swojego poziomu (każda fiolka po kolei, przy każdym narysowaniu fiolek), fiolki się NIE kołyszą, połysk faluje, bąbelki
   idą w górę. Ruch to wyłącznie przesunięcia i przezroczystość (lekkie dla karty graficznej), kilkanaście drobnych animacji; dni bez trasy, wolne i cała reszta aplikacji stoją.
   Gdy w systemie jest włączone „Ogranicz ruch” (Windows: Ustawienia → Ułatwienia dostępu → Efekty wizualne → Efekty animacji), nic się nie rusza.
   Wyłączenie: w js/aplikacja.js zmień `const zycie = !window.__bezZycia;` na `const zycie = false;` (klasa html.zyje znika, wszystko staje). Kod animacji: koniec css/aplikacja.css („ŻYCIE”).

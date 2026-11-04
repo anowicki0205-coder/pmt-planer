@@ -28,13 +28,12 @@ export function daneDelegacji(wynik, nr, ctx) {
   const dni = (wynik.dni || []).filter(d => Number(d.dokument) === nr).sort((a, b) => String(a.data).localeCompare(String(b.data)));
   const rzedy = []; for (const d of dni) for (const e of (d.etapy || [])) rzedy.push({ skad: e.skad, data: dataPdf(d.data), wyj: e.wyjazd, dokad: e.dokad, przyj: e.przyjazd, kwota: kwotaPdf(e.kwota) });
   const suma = dni.reduce((s, d) => s + Number(d.suma || 0), 0) || Number(dok.kw || 0);
-  return { typ: 'delegacja', nr, ...ctx, firma: firma(ctx.stanowisko), sieci: (dok.sieci || []).join(', '), rzedy, suma: kwotaPdf(suma), km: kilometryDokumentu(suma, wynik.stawka), stawka: tekstStawki(wynik.stawka),
-    zrodlo: wynik.zrodlo && wynik.zrodlo.etykieta ? `Odległości: ${wynik.zrodlo.etykieta}` : '' };
+  return { typ: 'delegacja', nr, ...ctx, firma: firma(ctx.stanowisko), sieci: (dok.sieci || []).join(', '), rzedy, suma: kwotaPdf(suma), km: kilometryDokumentu(suma, wynik.stawka), stawka: tekstStawki(wynik.stawka) };
 }
 /** Dane rozliczenia zbiorczego: lista poleceń z kwotami, miesiąc i rok. ctx jak wyżej + { miesiac (nazwa), rok }. */
 export function daneRozliczenia(wynik, ctx) {
   const wiersze = (wynik.dokumenty || []).map(x => ({ lp: x.nr, dokument: `delegacja ${String(x.nr).padStart(2, '0')} ${ctx.imie}`, opis: 'Koszty dojazdów', kwota: kwotaPdf(x.kw) }));
-  return { typ: 'rozliczenie', nr: 0, ...ctx, firma: firma(ctx.stanowisko), wiersze, suma: kwotaPdf((wynik.dokumenty || []).reduce((s, x) => s + Number(x.kw || 0), 0)), zrodlo: wynik.zrodlo && wynik.zrodlo.etykieta ? wynik.zrodlo.etykieta : '' };
+  return { typ: 'rozliczenie', nr: 0, ...ctx, firma: firma(ctx.stanowisko), wiersze, suma: kwotaPdf((wynik.dokumenty || []).reduce((s, x) => s + Number(x.kw || 0), 0)) };
 }
 
 const PODPIS_SVG = '<svg class="da-podpis" viewBox="0 0 60 30" fill="none" stroke="#1d2f8a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M3 22C8 6 12 4 14 14S18 26 24 12 30 6 32 16s4 8 9-6 6 6 14-4"/><path pathLength="1" d="M6 26c14-3 30-3 50-6" stroke-width="1"/></svg>';
@@ -53,7 +52,7 @@ export function atrapaHtml(d, o = {}) {
     const puste = o.maks === undefined || o.maks === Infinity ? Array.from({ length: Math.max(0, 13 - d.wiersze.length) }, (_, i) => `<span class="c">${d.wiersze.length + i + 1}.</span><span>&nbsp;</span><span></span><span></span>`).join('') : '';
     tresc = `<div class="da-firma">${esc(d.firma.nazwa)}</div><div class="da-adr">ul. Ptasia 10, 60-319 Poznań</div><div class="da-adr">${esc(d.firma.nipKrotki)}</div>
       <div class="da-tyt2">Rozliczenie wydatków za miesiąc: ${esc(d.miesiac)} ${esc(d.rok)}r.</div>
-      <div class="da-nagl"><b>Imię i Nazwisko:</b><span>${esc(d.imie)}</span><b>Projekt/Stanowisko:</b><span>${esc(d.stanowisko)}</span><b>MENEDŻER:</b><span>${esc(d.przelozony || '—')}</span><b>Liczba dokumentów:</b><span>${esc(d.wiersze.length)}</span>${d.zrodlo ? `<b>Odległości:</b><span>${esc(d.zrodlo)}</span>` : ''}</div>
+      <div class="da-nagl"><b>Imię i Nazwisko:</b><span>${esc(d.imie)}</span><b>Projekt/Stanowisko:</b><span>${esc(d.stanowisko)}</span><b>MENEDŻER:</b><span>${esc(d.przelozony || '—')}</span><b>Liczba dokumentów:</b><span>${esc(d.wiersze.length)}</span></div>
       <div class="da-tab da-tab4"><span class="h">Lp.</span><span class="h">Dokument</span><span class="h">Opis</span><span class="h">Kwota brutto</span>${pelne}${reszta > 0 ? `<span class="c">…</span><span class="szary" style="grid-column:span 3">jeszcze ${reszta} ${reszta === 1 ? 'dokument' : 'dokumenty'}</span>` : ''}${puste}</div>
       <div class="da-sumy"><span>zaliczka:</span><span class="r">&nbsp;</span><b>Suma wydatków global:</b><span class="r b">${esc(d.suma)}</span></div>
       <div class="da-akc da-akc1"><div class="da-pole">&nbsp;</div>${polePodpisu(stan)}</div>`;
@@ -66,7 +65,7 @@ export function atrapaHtml(d, o = {}) {
       <div><div class="da-box"><div>${esc(d.imie)} ${esc(pesel)}</div><div>${esc(d.stanowisko)}</div></div><div class="da-pod"><span>imię i nazwisko oraz PESEL</span><span>stanowisko</span></div></div>
       <div><div class="da-box"><div>${esc(d.adres)}</div><div>${esc(d.przelozony || '—')}</div></div><div class="da-pod"><span>adres zamieszkania</span><span>przełożony</span></div></div>
       <div><div class="da-proj">projekt: ${esc(d.sieci || '—')}</div><div class="da-pod1">cel wyjazdu - Projekt</div></div>
-      <div class="da-sek"><b>Rozliczenie kosztów podróży</b><span>${esc(d.zrodlo)}</span></div>
+      <div class="da-sek"><b>Rozliczenie kosztów podróży</b></div>
       <div class="da-tab"><span class="h sp3">WYJAZD</span><span class="h sp3">PRZYJAZD</span><span class="h">Środki lokomocji</span><span class="h">Koszty</span>
         <span class="h">miejscowość</span><span class="h">data</span><span class="h">godz.</span><span class="h">miejscowość</span><span class="h">data</span><span class="h">godz.</span><span class="h">&nbsp;</span><span class="h">&nbsp;</span>${wiersze}</div>
       <div class="da-koszty"><span>(1) Przejazdy</span><span>Prywatny samochód${d.km ? `: ${esc(d.km)} km × ${esc(d.stawka)} zł/km` : ''}</span><span class="r">${esc(d.suma)}</span>

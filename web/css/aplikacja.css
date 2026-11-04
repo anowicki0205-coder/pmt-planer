@@ -756,7 +756,7 @@ button.dz:hover .pl{filter:brightness(1.25) saturate(1.2)}
   background:linear-gradient(90deg,var(--b10),var(--b02) 35%,var(--b02) 65%,var(--b12)),var(--wneka);
   box-shadow:inset 0 0 0 1px var(--k16),inset 0 2px 3px var(--n40),0 8px 18px -12px var(--n70);transition:box-shadow .5s}
 .fiolka.podp-ok .f-rurka{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ziel) 60%,transparent),inset 0 2px 3px var(--n40),0 0 20px -6px var(--ziel)}
-.f-ciecz{position:absolute;left:3px;right:3px;bottom:3px;height:calc((100% - 6px)*var(--p));border-radius:999px;transform-origin:50% 100%;
+.f-ciecz{position:absolute;left:3px;right:3px;bottom:3px;height:calc((100% - 6px)*var(--p)*var(--fp,1));border-radius:999px;transform-origin:50% 100%;
   background:linear-gradient(90deg,color-mix(in srgb,var(--ziel) 70%,transparent),var(--mieta) 45%,color-mix(in srgb,var(--cyan) 75%,transparent));
   box-shadow:0 0 14px -2px color-mix(in srgb,var(--mieta) 70%,transparent)}
 /* blisko limitu (≥ 85 %): ciecz przechodzi z mięty w bursztyn */
@@ -1426,10 +1426,9 @@ html.motyw-plynnie,html.motyw-plynnie *,html.motyw-plynnie *::before,html.motyw-
 .pusty-stan .przycisk.glowny::after{content:"";position:absolute;inset:-3px;border-radius:inherit;box-shadow:0 0 0 1.5px var(--cyan);opacity:0;animation:fala 2.8s ease-out infinite;pointer-events:none}
 @media (max-width:899px){.duch{display:none}.k-dzien .pusty-stan>:not(.duch){max-width:none}}
 
-/* ---- fiolki: bąbelki i chlupot ---- */
-.fiolka{transform-origin:50% 6%}
-.f-ciecz{overflow:hidden;clip-path:polygon(0 calc((var(--sl,0) + var(--sw,0))*.4px),100% calc((var(--sl,0) + var(--sw,0))*-.4px),100% 100%,0 100%)}
-.f-ciecz .babel{position:absolute;bottom:0;left:var(--x);width:var(--r);height:var(--r);border-radius:50%;background:var(--b40);box-shadow:inset 0 0 0 1px var(--b55);opacity:0;animation:babel var(--t) linear var(--o) infinite}
+/* ---- fiolki: bąbelki w cieczy (probówki się nie kołyszą) ---- */
+.f-ciecz{overflow:hidden}
+.f-ciecz .babel{position:absolute;bottom:0;left:var(--x);width:var(--r);height:var(--r);border-radius:50%;background:radial-gradient(circle at 32% 30%,var(--b85,rgb(255 255 255/.9)),var(--b25,rgb(255 255 255/.25)) 58%,transparent 72%);box-shadow:inset 0 0 0 1px var(--b70);opacity:0;animation:babel var(--t) linear var(--o) infinite}
 @keyframes babel{0%{transform:translateY(0) scale(.6);opacity:0}12%{opacity:.85}100%{transform:translateY(-120px) scale(1);opacity:0}}
 
 /* ---- paleta poleceń (Ctrl+K) ---- */
@@ -2162,19 +2161,20 @@ html.okno .scena{filter:saturate(.7)}
 
 /* ============ ŻYCIE: kalendarz i fiolki dokumentów ============
    Prośba właściciela: „coś tu mogłoby się dziać”. Reszta aplikacji zostaje w trybie spokojnym (`.spokojne`), ale w kaflu kalendarza i w fiolkach dokumentów jest lekki, ciągły ruch:
-   dni z trasą unoszą się i co jakiś czas przebiega po nich błysk, wybrany dzień pulsuje (fala i pierścień), ciecz w fiolkach się kołysze, fiolki lekko się bujają, bąbelki idą w górę.
-   Ruch to transform/opacity/rotate (karta graficzna); jedyny wyjątek to liczba --sw (pochylenie powierzchni cieczy). Klasę html.zyje dodaje js/aplikacja.js (`const zycie`); znika przy „Ogranicz ruch” w systemie.
+   dni z trasą unoszą się i co jakiś czas przebiega po nich błysk, wybrany dzień pulsuje (fala i pierścień), fiolki się napełniają (ciecz rośnie do swojego poziomu), a w cieczy idą w górę bąbelki.
+   Fiolki się NIE kołyszą (uwaga właściciela po testach: kołysanie źle wygląda). Ruch to transform/opacity (karta graficzna); jedyny wyjątek to liczba --fp (postęp napełniania cieczy).
+   Klasę html.zyje dodaje js/aplikacja.js (`const zycie`); znika przy „Ogranicz ruch” w systemie.
    Reguły mają !important i większą swoistość niż `.spokojne *{animation:none!important}`; nazwy animacji zaczynają się od „zycie-”, żeby testy odróżniały je od reszty. */
-@property --sw{syntax:"<number>";inherits:true;initial-value:0}
+/* --fp: postęp napełniania fiolki 0…1. UWAGA: nie rejestrować tu --sw — ta nazwa ma w pliku inne znaczenia (szerokość odcinka osi podróży, kolor fali motywu), a rejestracja jako <number> zerowała je. */
+@property --fp{syntax:"<number>";inherits:true;initial-value:1}
 @keyframes zycie-plyn{0%,100%{translate:0 0}50%{translate:0 -1.7px}}
 @keyframes zycie-blysk{0%,50%{transform:translateX(-140%) skewX(-18deg)}100%{transform:translateX(380%) skewX(-18deg)}}
 @keyframes zycie-sonar{0%{transform:scale(1);opacity:.9}75%,100%{transform:scale(1.34,1.4);opacity:0}}
 @keyframes zycie-puls{0%,100%{scale:1;opacity:1}50%{scale:1.085;opacity:.7}}
-@keyframes zycie-chlup{0%,100%{--sw:9}50%{--sw:-9}}
+@keyframes zycie-napelnij{from{--fp:0}to{--fp:1}}
 @keyframes zycie-oddech{0%,100%{opacity:.1}50%{opacity:.95}}
-@keyframes zycie-kolys{0%,100%{rotate:1.1deg}50%{rotate:-1.1deg}}
 @keyframes zycie-polysk{0%,100%{opacity:.3}50%{opacity:1}}
-@keyframes zycie-babel{0%{transform:translateY(0) scale(.6);opacity:0}12%{opacity:.85}100%{transform:translateY(-120px) scale(1);opacity:0}}
+@keyframes zycie-babel{0%{transform:translate(0,0) scale(.55);opacity:0}12%{opacity:.9}38%{transform:translate(2px,-44px) scale(.8)}68%{transform:translate(-2px,-88px) scale(.95)}100%{transform:translate(1px,-132px) scale(1.05);opacity:0}}
 @media (prefers-reduced-motion:no-preference){
   html.zyje #siatka .dz.trasa{animation:zycie-plyn 5.4s ease-in-out infinite!important;animation-delay:calc(var(--k,0)*-470ms)!important}
   html.zyje #siatka .dz.trasa .pl-w{display:block}
@@ -2184,8 +2184,8 @@ html.okno .scena{filter:saturate(.7)}
     animation:zycie-blysk 7.5s ease-in-out infinite!important;animation-delay:calc(var(--k,0)*-830ms)!important}
   html.zyje #siatka .dz.trasa.wybrany::before{content:"";position:absolute;inset:-2px;border-radius:15px;border:2px solid rgb(255 255 255/.9);pointer-events:none;animation:zycie-sonar 2.1s ease-out infinite!important}
   html.zyje #siatka .pierscien{animation:zycie-puls 1.9s ease-in-out infinite!important}
-  html.zyje .fiolki .f-rurka{transform-origin:50% 0;animation:zycie-chlup calc(2.6s + var(--s,0)*.33s) ease-in-out infinite,zycie-kolys calc(2.6s + var(--s,0)*.33s) ease-in-out infinite!important;animation-delay:calc(var(--s,0)*-.9s)!important}
-  html.zyje .fiolki .f-ciecz::before{transform:rotate(calc(var(--sw,0)*-1.7deg))}
+  html.zyje .fiolki .f-ciecz{animation:zycie-napelnij 1.9s cubic-bezier(.3,.7,.2,1) backwards!important;animation-delay:calc(var(--s,0)*130ms)!important}
+  html.zyje .wejscie .fiolki .f-ciecz{animation-delay:calc(1450ms + var(--s,0)*130ms)!important}
   html.zyje .fiolki .f-ciecz::after{animation:zycie-polysk 3.4s ease-in-out infinite!important;animation-delay:calc(var(--s,0)*-.7s)!important}
   html.zyje .fiolki .f-ciecz .babel{animation:zycie-babel var(--t) linear var(--o) infinite!important}
 }

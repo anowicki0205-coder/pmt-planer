@@ -211,3 +211,24 @@ Przegląd w obszarach (aplikacja web, podpisy, dostęp i sejf, backend, silnik, 
       próba nieznanego hasła (limit prób na serwerze); niepodzielna instalacja service workera; „Usuń dane” kasuje też login ze statusu; wymuszone wylogowanie czyści silnik.
 - Testy: naprawy_aplikacja_app.js (nowy), weryfikacja_test.js (+ nowe pliki w dane/podpisy), karuzela_test.js, dostep_test.js, sw_instalacja_app.js, szyfrowanie_app.js, logowanie_app.js,
   dane_na_urzadzeniu_app.js, podpis_offline_app.js, przeplyw_app.js, xss_app.js, widowisko_app.js, zywe_app.js — wszystkie przechodzą. Testy odświeżające stronę bez gotowej sesji udają F5.
+Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją i poprawkami po niej):
+- [x] BACKEND (apps_script_POPRAWIONY_v2.gs, WYMAGA WDROŻENIA NOWEJ WERSJI SKRYPTU): złe podpisy hasłem (puls, sesja, hasło paczki) 150 / 6 h na kod — koniec wyroczni do zgadywania
+      hasła; ochrona przed formułami także przy wartościach zapisywanych z powrotem; reset hasła w stałym oknie + odblokujKonta() z edytora; dzienniki z osobnymi przydziałami
+      (zdarzenia po uwierzytelnieniu, odmowy na istniejące konta) i najwyżej 20 wpisów odmów bez hasła na zdarzenie na godzinę; nieistniejące kody bez kluczy w CacheService;
+      logowanie i zmiana hasła nie zdradzają, czy telefon pasuje do kodu; „Serwer zajety” zamiast pracy bez blokady; daty tekstowe DD.MM.RRRR / RRRR-MM-DD; hasło paczki tylko
+      z tekstu/liczby całkowitej; aplikacja web (pole klient: "web") zwolniona z bramki wersji programu. Web: po „pelne: false” karta nie podpisuje odrzuconym skrótem.
+- [x] SILNIK (PMT_Delegacje.py → ponowny wyciąg web/silnik/pmt_silnik.py; zgodność program ↔ web potwierdzona): plan wizyt — miejscowości spoza bazy offline do „bez lokalizacji”
+      (nie Warszawa), każdy dzień od domu; jedna awaria sieci nie wyłącza OSRM/geokodowania do końca życia workera; baza bez sieci = miejscowość lub poczta zgodna z województwem
+      (nie stolica; web bez żadnej pozycji odmawia generowania); CSV z polskiego Excela (cp1250, UTF-16); grudzień od 2025 — trzy niedziele handlowe; województwa dla kodów
+      z pogranicza; adres: „Bielsko-Biała”, „Jana Pawła II”, „Nakło nad Notecią”; PESEL — także data urodzenia; wieczory — powrót najpóźniej o 22:00.
+      Do decyzji (pominięte): „maks.” kwoty miesiąca zawyżony względem tego, co silnik rozpisze; kwoty < ok. 300 zł czasem niedobite (zgłaszane).
+- [x] PROGRAM (do niewydanej 3.25.1): „Tylko podpisane” nie dołącza niepodpisanego oryginału (tylko Podpisane + kontrola sumy); kopia zapasowa tylko z danymi tego konta, bez wspólnej
+      pamięci adresów, odtworzenie nie kasuje innych kont; skrót hasła tylko w pamięci (na dysku weryfikator PBKDF2); log_error bez abortu; updater_folder.bat — sukces tylko po fladze,
+      wiszący proces zamykany przed przywróceniem kopii, „!” w ścieżce; updater.sh — paczki folderowe macOS/Linux; „Przenieś dane” po zmianie hasła w webie (serwer potwierdza
+      bieżące hasło; w webie pole „Hasło z programu na komputerze” dla pliku ze starszym hasłem); „Wskaż plik” odrzuca niepodpisaną kopię i pyta o dokument.
+      Do decyzji (pominięte): sprzątanie PESEL-i z ~/.pmt_uzytkownicy.json po przeniesieniu; panel „Ustawienia” widoczny dla każdego zalogowanego; „&” w ścieżce programu.
+      UWAGA: poprawione updater_folder.bat / updater.sh programy pobierają z gałęzi main — działają dopiero po scaleniu do main.
+- [x] CI: domyślnie contents: read, zapis tylko w jobach wydania bez pip; bez zewnętrznej akcji z tokenem (gh release); wydanie z tagu dopiero po zielonych testach (testy.yml
+      przez workflow_call); wersja.txt zachowuje min=/blokada=/web=/wygaszenie=, nie rusza po anulowaniu, ponowne uruchomienie nie odkręca hamulca, podbicie tylko dla wydania
+      „Latest”; filtr ścieżek testów obejmuje wszystkie moduły paczki. Do zrobienia przez właściciela: przypięcie akcji do SHA (+ ewentualnie dependabot), opcjonalnie
+      Settings → Actions → „Read repository contents” jako domyślne uprawnienie.

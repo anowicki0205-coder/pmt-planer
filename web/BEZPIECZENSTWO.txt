@@ -83,14 +83,17 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
      Zostaje drobiazg: login istnieje albo nie (puls i logowanie to zdradzają) — limit prób na login ogranicza wyliczanie haseł, nie kodów.
   B. [NAPRAWIONE] Dane na urządzeniu były NIESZYFROWANE — zob. punkt 2b.
   C. [ŚREDNIE] Skrót hasła w ARKUSZU (SHA-256, sól = 5-cyfrowy login) jest szybki do łamania, jeśli ktoś dostanie arkusz. Apps Script nie ma bcrypt/PBKDF2, a ten sam skrót służy teraz za klucz
-     podpisu pulsu. (Na urządzeniach skrótu hasła już nie ma — zob. 2b; program na komputerze nadal trzyma go lokalnie.)
+     podpisu pulsu. (Na urządzeniach skrótu hasła już nie ma — zob. 2b; program na komputerze od 3.25.1 też nie: na dysku ma tylko weryfikator
+     PBKDF2-SHA256 z losową solą, a skrót do podpisu pulsu trzyma w pamięci procesu.)
      Obrona: arkusz dostępny tylko dla administratora, hasła min. 6 znaków (zalecaj dłuższe), limity prób na backendzie.
   D. [NISKIE] Blokada konta może być użyta złośliwie: znający cudzy login może go zablokować na 15 min–6 h (zgadując hasło). Odblokowuje „Nie pamiętam hasła” albo upływ czasu.
   E. [NISKIE] Zapytania do backendu podpisuje jawny sekret (zob. pkt 1) — podpis obejmuje login, akcję i czas, nie całą treść; zapytanie można odtworzyć w ciągu 10 minut.
      Chroni to szyfrowanie https, a nie sam podpis.
   F. Strona na http (bez https): brak service workera i instalacji, a przy tym możliwość podmiany strony w sieci — używać wyłącznie w zamkniętej sieci firmowej.
   G. [ŚWIADOMIE NIE ZMIENIAM] Program na komputerze (PMT_Delegacje.py) trzyma dane NIEZASZYFROWANE: profil z PESEL-em, plan, punkty, dziennik wizyt i adres bazy leżą jawnie w katalogu
-     domowym (pliki .pmt_*), a obok nich skrót hasła, który wystarcza do podpisania pulsu cudzym kontem. Szyfrowania tam nie dodaję, bo program ma zostać zastąpiony wersją web.
+     domowym (pliki .pmt_*). Od 3.25.1 nie ma tam już skrótu hasła (stare pola „skrot” są przepisywane na weryfikator PBKDF2 przy starcie i wylogowaniu), a kopia zapasowa
+     zabiera ze wspólnych plików komputera tylko dane zalogowanego konta, bez wspólnej pamięci geokodowania i tras (w niej są adresy domów wszystkich kont); kopia NIE jest
+     szyfrowana. Szyfrowania danych programu nie dodaję, bo program ma zostać zastąpiony wersją web.
      Do czasu wycofania: komputer z programem powinien mieć własne konto systemowe i blokadę ekranu; po przejściu na wersję web usuń z komputerów pliki ~/.pmt_* (po wyeksportowaniu danych).
 
 5. CO ZROBIĆ PO TEJ AKTUALIZACJI (kolejność)

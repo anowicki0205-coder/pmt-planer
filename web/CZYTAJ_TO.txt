@@ -65,11 +65,13 @@ OKNO „DOKUMENTY DO PODPISU”: PIĘĆ KROKÓW
 
 WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
   Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) zielony przycisk „Przenieś dane” pyta o WŁASNY kod i hasło
-  (programem nie da się pobrać cudzych danych: nie ma listy kont, a kod i hasło są sprawdzane ze skrótem zapisanym na komputerze) i zapisuje plik PMT_dane_do_aplikacji.pmtdane: imię, PESEL, adres,
+  (programem nie da się pobrać cudzych danych: nie ma listy kont, a kod i hasło są sprawdzane z tym, co zapamiętał komputer; hasło zmienione albo zresetowane już w aplikacji
+  program sprawdza na serwerze — wtedy potrzebny jest internet; wpisz hasło, którym logujesz się TERAZ do aplikacji) i zapisuje plik PMT_dane_do_aplikacji.pmtdane: imię, PESEL, adres,
   stanowisko, pojemność silnika, lista sklepów, plan wizyt i odhaczone wizyty (dni od 31 dni wstecz) — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem:
   Moje dane → „Wczytaj dane z programu na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”: plan wizyt trafia do kafla Dziś (wizyty odhaczone w programie są
   odhaczone), a gdy plik miał tylko listę sklepów, otwiera się okno „Plan” z gotową listą (zostaje „Ułóż plan”). Historia miesięcy i wygenerowane wcześniej trasy się nie przenoszą (wygenerowane
-  dokumenty zostają na dysku). Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla
+  dokumenty zostają na dysku). Plik innego konta albo zmieniony jest odrzucany z komunikatem; plik zrobiony starszym hasłem (sprzed zmiany w aplikacji) otworzysz, wpisując
+  to hasło w polu „Hasło z programu na komputerze”. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla
   nowych użytkowników. Kod: js/przeniesienie.js (odczyt i oczyszczanie), silnik/most.py plan_z_programu (sumy i godziny), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js
   (Python↔JS, plan, odhaczenia) i przeniesienie_app.js (przepływ w przeglądarce, kafel Dziś).
 
@@ -301,8 +303,10 @@ LOGOWANIE
   znaczy: serwer odpowiada, ale przeglądarka blokuje odpowiedź — wdrożenie Apps Script musi mieć dostęp „Każdy”.
 
 PLAN WIZYT (kafel „Dziś")
-  Przycisk „Plan" → wczytaj listę sklepów (.xlsx albo .csv; kolumny: kod, miasto, ulica, numer, sieć) → wybierz układ
-  (zwykły albo cykliczny) → plan zapisuje się na urządzeniu. Dziś pokazuje wizyty z godzinami szacunkowymi, odhaczanie
+  Przycisk „Plan" → wczytaj listę sklepów (.xlsx albo .csv — także CSV zapisany przez polskiego Excela, Windows-1250 albo „Tekst Unicode”;
+  kolumny: kod, miasto, ulica, numer, sieć) → wybierz układ (zwykły albo cykliczny) → plan zapisuje się na urządzeniu. Każdy dzień planu zaczyna się
+  w domu (kilometry i czas obejmują dojazd). Sklep z miejscowości, której nie zna ani baza offline, ani serwer map (np. bez internetu), trafia do
+  „bez lokalizacji” (komunikat z liczbą) zamiast dostać współrzędne Warszawy. Dziś pokazuje wizyty z godzinami szacunkowymi, odhaczanie
   i „Nawiguj" (otwiera Mapy Google). Lista sklepów nie opuszcza urządzenia.
   Każda wizyta odhaczana jest OSOBNO (także gdy ten sam adres wystąpi w planie kilka razy tego dnia). Gdy odhaczysz wszystkie wizyty dnia, pojawia się baner „Gratulacje! Dzień zrobiony” (także w trybie spokojnym;
   konfetti i zorza tylko przy włączonych animacjach).

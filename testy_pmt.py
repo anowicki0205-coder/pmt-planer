@@ -1164,6 +1164,55 @@ if _bash3b:
                     repr((_l_ok3b, _l_inne3b, _l_brak3b)))
         finally:
             shutil.rmtree(_katgh3b, ignore_errors=True)
+    # kroki „Dołącz do wydania” (zamiast zewnętrznej akcji z tokenem do zapisu): wydanie z tagu bez wydania
+    # dostaje je z „--verify-tag”, paczki idą z --clobber, brak paczek = czerwony job, Windows nie idzie drugi raz
+    def _dolacz_skrypt3b(nr):
+        _i3b = -1
+        for _ in range(nr + 1):
+            _i3b = _yml3b.index("- name: Dołącz do wydania", _i3b + 1)
+        _linie3b = []
+        for _l3b in _yml3b[_yml3b.index("run: |", _i3b):].split("\n")[1:]:
+            if _l3b.strip() and not _l3b.startswith(" " * 10):
+                break
+            _linie3b.append(_l3b[10:])
+        return "\n".join(_linie3b)
+    if os.name != "nt":
+        _katd3b = tempfile.mkdtemp(prefix="pmt_dolacz_gh_")
+        try:
+            with open(os.path.join(_katd3b, "gh"), "w", encoding="utf-8", newline="\n") as _f3b:
+                _f3b.write('#!/bin/sh\necho "$*" >> "$GH_LOG"\n'
+                           'if [ "$1 $2" = "release view" ] && [ -z "$WYDANIE_JEST" ]; then exit 1; fi\nexit 0\n')
+            os.chmod(os.path.join(_katd3b, "gh"), 0o755)
+
+            def _dolacz3b(nr, pliki, jest=True):
+                _kp3b = tempfile.mkdtemp(prefix="pmt_dolacz_")
+                try:
+                    for _p3b in pliki:
+                        open(os.path.join(_kp3b, _p3b), "w").close()
+                    _log3b = os.path.join(_kp3b, "gh.log")
+                    _env3b = dict(os.environ, PATH=_katd3b + os.pathsep + os.environ.get("PATH", ""), GH_LOG=_log3b,
+                                  WYDANIE_JEST="1" if jest else "", TAG="v3.25.1", GH_TOKEN="x", GH_REPO="wlasciciel/repo")
+                    _w3b = _sp3b.run([_bash3b, "-c", _dolacz_skrypt3b(nr)], cwd=_kp3b, env=_env3b, capture_output=True, timeout=30)
+                    _wyw3b = open(_log3b, encoding="utf-8").read().splitlines() if os.path.exists(_log3b) else []
+                    return _w3b.returncode, _wyw3b, _w3b.stdout.decode("utf-8", "replace")
+                finally:
+                    shutil.rmtree(_kp3b, ignore_errors=True)
+            _W3b = "PMT_Planer.Windows.zip"
+            _w_jest3b, _w_brak3b, _w_bez3b = _dolacz3b(0, [_W3b]), _dolacz3b(0, [_W3b], jest=False), _dolacz3b(0, [])
+            sprawdz("build.yml (bash): „Dołącz do wydania” Windows — wydanie jest → upload --clobber; brak wydania → create --verify-tag + upload; brak paczki → ::error::",
+                    _w_jest3b[0] == 0 and _w_jest3b[1] == ["release view v3.25.1", "release upload v3.25.1 %s --clobber" % _W3b]
+                    and _w_brak3b[0] == 0 and len(_w_brak3b[1]) == 3 and _w_brak3b[1][1].startswith("release create v3.25.1 --verify-tag")
+                    and _w_brak3b[1][2] == "release upload v3.25.1 %s --clobber" % _W3b
+                    and _w_bez3b[0] != 0 and "::error::" in _w_bez3b[2] and not _w_bez3b[1],
+                    repr((_w_jest3b, _w_brak3b, _w_bez3b)))
+            _p0, _p1, _p2 = _dolacz3b(1, [_W3b]), _dolacz3b(1, ["PMT_Planer_Linux.zip"]), _dolacz3b(1, [_W3b, "PMT_Planer_Linux.zip", "PMT_Planer_macOS.zip"])
+            sprawdz("build.yml (bash): „Dołącz do wydania” macOS/Linux — 0 paczek → ::error::, jedna → 1 upload, dwie → 2 uploady, Windows nigdy drugi raz",
+                    _p0[0] != 0 and "::error::" in _p0[2] and not _p0[1]
+                    and _p1[0] == 0 and _p1[1] == ["release upload v3.25.1 PMT_Planer_Linux.zip --clobber"]
+                    and _p2[0] == 0 and len(_p2[1]) == 2 and all(x.endswith("--clobber") and _W3b not in x for x in _p2[1]),
+                    repr((_p0, _p1, _p2)))
+        finally:
+            shutil.rmtree(_katd3b, ignore_errors=True)
 
 # ── teksty i okno przy starcie ──
 _zeruj_przejscie3b()

@@ -305,8 +305,10 @@ Ostatnia wersja programu na komputerze. Dalej pracujesz w aplikacji w przegląda
       CO ZOBACZYSZ: strona v3.25.1 z zieloną etykietą „Latest" i na
       razie tylko dwoma plikami „Source code". Paczki dojdą same.
   6f. Zakładka „Actions" → przebieg „Buduj wydanie" z etykietą v3.25.1.
-      Joby po kolei: windows → dwa razy „pozostale" (macOS, Linux) →
-      „wersja". Całość ok. 20 minut, ma być zielona.
+      Joby po kolei: „testy" (pełne testy programu — paczka powstaje dopiero
+      po zielonych) → „windows" → „wydanie_windows" razem z dwoma
+      „pozostale" (macOS, Linux) → „wydanie_pozostale" → „wersja".
+      Całość ok. 25 minut, ma być zielona.
   6g. SPRAWDŹ:
         · Releases → v3.25.1: trzy pliki .zip, pierwszy
           PMT_Planer.Windows.zip.
@@ -315,9 +317,18 @@ Ostatnia wersja programu na komputerze. Dalej pracujesz w aplikacji w przegląda
       Od tej chwili programy u ludzi proponują aktualizację.
 
   CZERWONY PRZEBIEG W 6f — zobacz, który job jest czerwony:
-    · tylko „pozostale" (macOS albo Linux) → Windows jest już w wydaniu
-      i ludzie dostają aktualizację. Kliknij „Re-run failed jobs"
-      (NIE „Re-run all jobs").
+    · „testy" → paczka NIE powstała, nikt nie dostaje aktualizacji. Kliknij
+      „Re-run failed jobs" (czasem padnie test zależny od szybkości maszyny).
+      Gdy dalej czerwono → STOP, zrób zrzut ekranu i napisz do mnie: to
+      prawdziwy błąd, który wymaga poprawki i nowego numeru wersji.
+    · tylko „pozostale" (macOS albo Linux), także razem z
+      „wydanie_pozostale" → Windows jest już w wydaniu i ludzie dostają
+      aktualizację. Kliknij „Re-run failed jobs" (NIE „Re-run all jobs").
+    · „wydanie_windows" albo „wydanie_pozostale" sam → „Re-run failed jobs".
+    · „wersja" z komunikatem, że wydanie nie jest najnowsze („Latest") albo
+      jest pre-release → Releases → v3.25.1 → Edit: odznacz „Set as a
+      pre-release", zaznacz „Set as the latest release" → „Update release"
+      → wróć do przebiegu → „Re-run failed jobs".
     · „windows" → komunikat na górze mówi dlaczego (najczęściej
       KROK 2). Popraw → „Re-run all jobs".
     NIE twórz drugiego wydania i NIE kasuj tagu.
@@ -346,6 +357,9 @@ HAMULEC AWARYJNY — tylko gdy 3.25.1 okaże się zepsuta
   → „Commit changes…" → „Commit changes".
   Od tej chwili nikt nowy nie dostaje propozycji aktualizacji; kto ma
   3.25.0, zostaje na niej. Wydania i tagu NIE kasuj. Napisz do mnie.
+  Ponowne uruchomienie przebiegu „Buduj wydanie" hamulca już NIE odkręca
+  (job „wersja" tylko ostrzega) — numer 3.25.1 wraca wyłącznie wtedy, gdy
+  sam wpiszesz go z powrotem w pierwszej linii.
   (Jedyny wyjątek od zasady „nie edytujesz wersja.txt przed KROKIEM 8".)
 
 

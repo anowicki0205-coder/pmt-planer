@@ -1053,24 +1053,166 @@ _yml3b = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encodi
 _poczatek3b = _yml3b.index("OPIS=${OPIS:-")
 _koniec3b = _yml3b.index('echo "--- wersja.txt po zapisie ---"')
 _skrypt3b = _yml3b[_poczatek3b:_koniec3b]
-sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie=",
-        all(("'^%s='" % k) in _skrypt3b and ('"$%s"' % z) in _skrypt3b
-            for k, z in (("min", "MIN"), ("blokada", "BLOKADA"), ("web", "WEB"), ("wygaszenie", "WYGASZENIE"))))
+sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie= — każde wystąpienie, bez względu na wielkość liter i wcięcie",
+        "grep -iE '^[[:space:]]*(min|blokada|web|wygaszenie)[[:space:]]*='" in _skrypt3b)
 _bash3b = shutil.which("bash")
 if _bash3b:
     import subprocess as _sp3b
-    _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
-    with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
-        _f3b.write(_PLIK3b.replace("3.25.1", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
-    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
-                         cwd=_kat3b, capture_output=True, timeout=30)
-    _po3b = open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8")
+
+    def _podbij3b(tresc):
+        _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
+        try:
+            with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
+                _f3b.write(tresc.replace("\n", "\r\n").encode("utf-8"))
+            _w3b = _sp3b.run([_bash3b, "-e", "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b],
+                             cwd=_kat3b, capture_output=True, timeout=30)
+            return (_w3b.returncode, open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8"),
+                    (_w3b.stdout + _w3b.stderr).decode("utf-8", "replace"))
+        finally:
+            shutil.rmtree(_kat3b, ignore_errors=True)
+
+    def _czytaj3b(tresc):
+        _zeruj_przejscie3b()
+        P._czytaj_wymagania_z_tekstu(tresc)
+        return (P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.ADRES_WEB, P.TERMIN_WYGASZENIA)
+
+    _kod3b, _po3b, _log3b = _podbij3b(_PLIK3b.replace("3.25.1", "3.24.0"))
     _wiersze3b = [l for l in _po3b.replace("\r\n", "\n").split("\n") if l]
     sprawdz("build.yml (uruchomiony w bashu na próbnym pliku): nowy numer i opis, a wiersze min=, blokada=, web=, wygaszenie= zostają, końce wierszy CRLF",
-            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
+            _kod3b == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
             and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
-            and _po3b.count("\r\n") == len(_wiersze3b), repr(_po3b) + _wynik3b.stderr.decode()[:200])
-    shutil.rmtree(_kat3b, ignore_errors=True)
+            and _po3b.count("\r\n") == len(_wiersze3b) and "::warning::" not in _log3b, repr(_po3b) + _log3b[:200])
+    # Program czyta wiersze kluczowe pobłażliwie (strip, lower, ostatnie wygrywa) —
+    # bot musi zostawić wszystko, co program respektuje. Do 3.25.0 brał tylko
+    # pierwsze „^min=”: wcięte wiersze z wyjścia przygotuj_przejscie.py znikały
+    # po cichu, a przy powtórce wracała stara data wygaszenia.
+    _proby3b = {
+        "wcięte jak w wyjściu przygotuj_przejscie.py":
+            "3.24.0\nOpis.\n    min=3.24.0\n    blokada=2099-12-01\n    web=%s\n    wygaszenie=2099-12-20\n" % _ADRES3b,
+        "wielkie litery, spacje wokół „=” i powtórzone web=/wygaszenie=":
+            "3.24.0\nOpis.\nMin = 3.24.0\n\tBLOKADA=2099-12-01  \nweb=%s\nwygaszenie=2099-11-30\nweb=%s\nwygaszenie=2099-12-20\n"
+            % (_ADRES3b, _ADRES3b),
+    }
+    for _nazwa3b, _tresc3b in _proby3b.items():
+        _kod3b, _po3b, _log3b = _podbij3b(_tresc3b)
+        _przed3b, _po_odczyt3b = _czytaj3b(_tresc3b), _czytaj3b(_po3b)
+        sprawdz("build.yml (bash): po podbiciu program czyta min=, blokada=, web= i wygaszenie= tak samo jak przed — " + _nazwa3b,
+                _kod3b == 0 and _po3b.startswith("3.25.1\r\nNowy opis.\r\n")
+                and _przed3b == _po_odczyt3b == ("3.24.0", "2099-12-01", _ADRES3b, "2099-12-20")
+                and (("::warning::" in _log3b and "wygaszenie" in _log3b) == ("powtórzone" in _nazwa3b)),
+                "%r -> %r %s" % (_przed3b, _po_odczyt3b, _log3b[:200]))
+    _zeruj_przejscie3b()
+    # „Re-run failed jobs” po HAMULCU AWARYJNYM (ręczne cofnięcie pierwszej linii
+    # wersja.txt) nie może po cichu wpisać numeru z powrotem
+    # (tylko poza Windows: bash z WSL nie widzi git ani podstawionego gh z PATH Windows;
+    # CI, które zatrzymuje wydanie, biegnie na Linuksie)
+    _git3b = shutil.which("git") if os.name != "nt" else None
+    _a3b, _b3b = _yml3b.index("OBECNA=$(head -n1 wersja.txt"), _yml3b.index("# Program szuka paczki przez releases/latest")
+    _przed_opisem3b = _yml3b[_a3b:_b3b]
+    if _git3b:
+        def _rerun3b(historia, numer):
+            _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_git_")
+            try:
+                _g3b = lambda *a: _sp3b.run([_git3b, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                                             "-C", _kat3b] + list(a), capture_output=True, timeout=30)
+                _g3b("init", "-q")
+                for _tresc3b, _opis_c3b in historia:
+                    with open(os.path.join(_kat3b, "wersja.txt"), "w", encoding="utf-8", newline="\r\n") as _f3b:
+                        _f3b.write(_tresc3b)
+                    _g3b("add", "wersja.txt")
+                    _g3b("commit", "-q", "-m", _opis_c3b)
+                _w3b = _sp3b.run([_bash3b, "-e", "-c", "NUMER=%s\n" % numer + _przed_opisem3b + "\necho DALEJ"],
+                                 cwd=_kat3b, capture_output=True, timeout=30)
+                return _w3b.returncode, _w3b.stdout.decode("utf-8", "replace")
+            finally:
+                shutil.rmtree(_kat3b, ignore_errors=True)
+        _hist3b = [("3.25.0\nStary opis.\nmin=3.25.0\n", "wydanie 3.25.0"),
+                   ("3.25.1\nNowy opis.\nmin=3.25.0\n", "wersja.txt -> 3.25.1 [skip ci]")]
+        _hamulec3b = _rerun3b(_hist3b + [("3.25.0\nNowy opis.\nmin=3.25.0\n", "Update wersja.txt")], "3.25.1")
+        _drugi3b = _rerun3b(_hist3b, "3.25.1")
+        _nowy_nr3b = _rerun3b(_hist3b, "3.25.2")
+        _starszy3b = _rerun3b(_hist3b, "3.24.9")
+        sprawdz("build.yml (bash + git): ponowny przebieg po hamulcu awaryjnym NIE wpisuje numeru z powrotem (::warning::), drugi przebieg nic nie zmienia, nowy numer idzie dalej, starszy nie cofa",
+                _hamulec3b[0] == 0 and "::warning::" in _hamulec3b[1] and "DALEJ" not in _hamulec3b[1]
+                and _drugi3b[0] == 0 and "DALEJ" not in _drugi3b[1] and "::warning::" not in _drugi3b[1]
+                and _nowy_nr3b == (0, "DALEJ\n")
+                and _starszy3b[0] == 0 and "nowszy numer" in _starszy3b[1] and "DALEJ" not in _starszy3b[1],
+                repr((_hamulec3b, _drugi3b, _nowy_nr3b, _starszy3b)))
+    # program pobiera paczkę z releases/latest — numer dla wydania pre-release albo
+    # bez „Latest” to pętla „poprzednia paczka” u wszystkich
+    _c3b = _yml3b.index("# Program szuka paczki przez releases/latest")
+    _latest3b = _yml3b[_c3b:_yml3b.index("OPIS=$(gh release view", _c3b)]
+    if os.name != "nt":
+        _katgh3b = tempfile.mkdtemp(prefix="pmt_wersja_gh_")
+        try:
+            with open(os.path.join(_katgh3b, "gh"), "w", encoding="utf-8", newline="\n") as _f3b:
+                _f3b.write('#!/bin/sh\n[ "$1 $2" = "api repos/wlasciciel/repo/releases/latest" ] || exit 2\n'
+                           '[ -n "$NAJNOWSZE_PROBA" ] || { echo "HTTP 404" >&2; exit 1; }\necho "$NAJNOWSZE_PROBA"\n')
+            os.chmod(os.path.join(_katgh3b, "gh"), 0o755)
+
+            def _latest_proba3b(najnowsze):
+                _env3b = dict(os.environ, PATH=_katgh3b + os.pathsep + os.environ.get("PATH", ""),
+                              NAJNOWSZE_PROBA=najnowsze, GITHUB_REPOSITORY="wlasciciel/repo", TAG="v3.25.1")
+                _w3b = _sp3b.run([_bash3b, "-e", "-c", _latest3b + "\necho DALEJ"], env=_env3b,
+                                 capture_output=True, timeout=30)
+                return _w3b.returncode, _w3b.stdout.decode("utf-8", "replace")
+            _l_ok3b, _l_inne3b, _l_brak3b = _latest_proba3b("v3.25.1"), _latest_proba3b("v3.25.0"), _latest_proba3b("")
+            sprawdz("build.yml (bash): wersja.txt idzie dalej tylko dla wydania „Latest” — pre-release / bez „Latest” / błąd API zatrzymuje podbicie (::error::)",
+                    _l_ok3b == (0, "DALEJ\n")
+                    and _l_inne3b[0] != 0 and "::error::" in _l_inne3b[1] and "DALEJ" not in _l_inne3b[1]
+                    and _l_brak3b[0] != 0 and "::error::" in _l_brak3b[1] and "DALEJ" not in _l_brak3b[1],
+                    repr((_l_ok3b, _l_inne3b, _l_brak3b)))
+        finally:
+            shutil.rmtree(_katgh3b, ignore_errors=True)
+    # kroki „Dołącz do wydania” (zamiast zewnętrznej akcji z tokenem do zapisu): wydanie z tagu bez wydania
+    # dostaje je z „--verify-tag”, paczki idą z --clobber, brak paczek = czerwony job, Windows nie idzie drugi raz
+    def _dolacz_skrypt3b(nr):
+        _i3b = -1
+        for _ in range(nr + 1):
+            _i3b = _yml3b.index("- name: Dołącz do wydania", _i3b + 1)
+        _linie3b = []
+        for _l3b in _yml3b[_yml3b.index("run: |", _i3b):].split("\n")[1:]:
+            if _l3b.strip() and not _l3b.startswith(" " * 10):
+                break
+            _linie3b.append(_l3b[10:])
+        return "\n".join(_linie3b)
+    if os.name != "nt":
+        _katd3b = tempfile.mkdtemp(prefix="pmt_dolacz_gh_")
+        try:
+            with open(os.path.join(_katd3b, "gh"), "w", encoding="utf-8", newline="\n") as _f3b:
+                _f3b.write('#!/bin/sh\necho "$*" >> "$GH_LOG"\n'
+                           'if [ "$1 $2" = "release view" ] && [ -z "$WYDANIE_JEST" ]; then exit 1; fi\nexit 0\n')
+            os.chmod(os.path.join(_katd3b, "gh"), 0o755)
+
+            def _dolacz3b(nr, pliki, jest=True):
+                _kp3b = tempfile.mkdtemp(prefix="pmt_dolacz_")
+                try:
+                    for _p3b in pliki:
+                        open(os.path.join(_kp3b, _p3b), "w").close()
+                    _log3b = os.path.join(_kp3b, "gh.log")
+                    _env3b = dict(os.environ, PATH=_katd3b + os.pathsep + os.environ.get("PATH", ""), GH_LOG=_log3b,
+                                  WYDANIE_JEST="1" if jest else "", TAG="v3.25.1", GH_TOKEN="x", GH_REPO="wlasciciel/repo")
+                    _w3b = _sp3b.run([_bash3b, "-c", _dolacz_skrypt3b(nr)], cwd=_kp3b, env=_env3b, capture_output=True, timeout=30)
+                    _wyw3b = open(_log3b, encoding="utf-8").read().splitlines() if os.path.exists(_log3b) else []
+                    return _w3b.returncode, _wyw3b, _w3b.stdout.decode("utf-8", "replace")
+                finally:
+                    shutil.rmtree(_kp3b, ignore_errors=True)
+            _W3b = "PMT_Planer.Windows.zip"
+            _w_jest3b, _w_brak3b, _w_bez3b = _dolacz3b(0, [_W3b]), _dolacz3b(0, [_W3b], jest=False), _dolacz3b(0, [])
+            sprawdz("build.yml (bash): „Dołącz do wydania” Windows — wydanie jest → upload --clobber; brak wydania → create --verify-tag + upload; brak paczki → ::error::",
+                    _w_jest3b[0] == 0 and _w_jest3b[1] == ["release view v3.25.1", "release upload v3.25.1 %s --clobber" % _W3b]
+                    and _w_brak3b[0] == 0 and len(_w_brak3b[1]) == 3 and _w_brak3b[1][1].startswith("release create v3.25.1 --verify-tag")
+                    and _w_brak3b[1][2] == "release upload v3.25.1 %s --clobber" % _W3b
+                    and _w_bez3b[0] != 0 and "::error::" in _w_bez3b[2] and not _w_bez3b[1],
+                    repr((_w_jest3b, _w_brak3b, _w_bez3b)))
+            _p0, _p1, _p2 = _dolacz3b(1, [_W3b]), _dolacz3b(1, ["PMT_Planer_Linux.zip"]), _dolacz3b(1, [_W3b, "PMT_Planer_Linux.zip", "PMT_Planer_macOS.zip"])
+            sprawdz("build.yml (bash): „Dołącz do wydania” macOS/Linux — 0 paczek → ::error::, jedna → 1 upload, dwie → 2 uploady, Windows nigdy drugi raz",
+                    _p0[0] != 0 and "::error::" in _p0[2] and not _p0[1]
+                    and _p1[0] == 0 and _p1[1] == ["release upload v3.25.1 PMT_Planer_Linux.zip --clobber"]
+                    and _p2[0] == 0 and len(_p2[1]) == 2 and all(x.endswith("--clobber") and _W3b not in x for x in _p2[1]),
+                    repr((_p0, _p1, _p2)))
+        finally:
+            shutil.rmtree(_katd3b, ignore_errors=True)
 
 # ── teksty i okno przy starcie ──
 _zeruj_przejscie3b()
@@ -7646,6 +7788,29 @@ try:
     import wersja_pomocnik as _WP21
     sprawdz("zbuduj.py i wersja_pomocnik.py czytają numer z PMT_Delegacje.py — ten sam",
             _ZB21.wersja_zrodla() == P.WERSJA_PROGRAMU == _WP21.wersja_zrodla(KATALOG))
+    # job „wersja” w build.yml wycina numer sedem — zachłanne „.*” brało OSTATNI
+    # napis w cudzysłowie w wierszu, więc komentarz z cudzysłowem dawał wersja.txt
+    # inny numer niż w paczce
+    _numer21 = [l.strip() for l in open(os.path.join(KATALOG, ".github", "workflows", "build.yml"),
+                                        encoding="utf-8").read().splitlines()
+                if l.strip().startswith("NUMER=$(grep -m1 -E '^WERSJA_PROGRAMU")]
+    sprawdz("build.yml: jeden wiersz wycinający NUMER w jobie „wersja”", len(_numer21) == 1, str(_numer21))
+    _bash21 = shutil.which("bash") if os.name != "nt" else None     # (bash z WSL nie czyta ścieżek Windows)
+    if _bash21 and len(_numer21) == 1:
+        import subprocess as _sp21
+        _wyc21 = []
+        for _zr_wiersz21 in (None, 'WERSJA_PROGRAMU = "3.26.0"   # poprzednio "3.25.1", "x"\r\n'):
+            _plik_n21 = os.path.join(_kat21, "zrodlo_numer.py")
+            if _zr_wiersz21 is None:
+                shutil.copy(os.path.join(KATALOG, "PMT_Delegacje.py"), _plik_n21)
+            else:
+                with open(_plik_n21, "w", encoding="utf-8", newline="") as _f21:
+                    _f21.write("import os\n" + _zr_wiersz21)
+            _r21 = _sp21.run([_bash21, "-c", 'TMP_SRC="$1"\n' + _numer21[0] + '\nprintf %s "$NUMER"', "x", _plik_n21],
+                             capture_output=True, timeout=30)
+            _wyc21.append(_r21.stdout.decode("utf-8", "replace"))
+        sprawdz("build.yml (bash): job „wersja” bierze numer jak zbuduj.py — pierwszy napis w cudzysłowie, nie ostatni z komentarza",
+                _wyc21 == [P.WERSJA_PROGRAMU, "3.26.0"], str(_wyc21))
     _stale21 = []
     for _plik21, _wzor21 in (("START_TUTAJ.txt", "PMT PLANER %s"),
                              ("WYDANIE.txt", "PMT PLANER %s"),
@@ -7728,15 +7893,71 @@ try:
     # wersja.txt — inaczej „test" ogłosiłby aktualizację 65 osobom.
     _byml21 = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encoding="utf-8").read()
     _tag21 = "startsWith(github.ref, 'refs/tags/')"
-    _win21 = _byml21.split("\n  pozostale:")[0]
-    _poz21 = _byml21.split("\n  pozostale:")[1].split("\n  wersja:")[0]
+    _joby21 = re.split(r"^  ([a-z_]+):[ \t]*$", _byml21.split("\njobs:\n", 1)[1], flags=re.M)
+    _kod21 = {_n21: "\n".join(l for l in _t21.splitlines() if not l.strip().startswith("#"))
+              for _n21, _t21 in zip(_joby21[1::2], _joby21[2::2])}
+    _jobif21 = lambda n: re.search(r"^    if: " + re.escape(_tag21) + "$", _kod21.get(n, ""), re.M) is not None
     sprawdz("budowanie testowe: paczka Windows idzie do Artifacts, a do wydania tylko z tagu",
-            re.search(r"name: Dołącz do wydania\n\s+if: " + re.escape(_tag21), _win21) is not None
+            re.search(r"name: Przekaż paczkę do wydania\n\s+if: " + re.escape(_tag21)
+                      + r"\n\s+uses: actions/upload-artifact@", _kod21.get("windows", "")) is not None
             and re.search(r"name: Paczka testowa[^\n]*\n\s+if: \$\{\{ !" + re.escape(_tag21)
-                          + r" \}\}\n\s+uses: actions/upload-artifact@", _win21) is not None)
+                          + r" \}\}\n\s+uses: actions/upload-artifact@", _kod21.get("windows", "")) is not None
+            and _jobif21("wydanie_windows"), str(sorted(_kod21)))
     sprawdz("budowanie testowe nie buduje macOS/Linux i nie podbija wersja.txt — tylko tag",
-            re.search(r"\n    if: " + re.escape(_tag21) + r"\n", _poz21) is not None
-            and _tag21 in _byml21.split("\n  wersja:")[1].split("steps:")[0])
+            _jobif21("pozostale")
+            and all(_tag21 in _kod21.get(n, "").split("steps:")[0] for n in ("wydanie_pozostale", "wersja")))
+    # Do 3.25.0 contents: write miał CAŁY workflow, a checkout zostawiał token
+    # w .git/config — kod z PyPI (pip install, fontTools ze źródeł) mógł nim
+    # wypchnąć na main updater.bat, który programy pobierają i uruchamiają.
+    _pisza21 = sorted(n for n, t in _kod21.items() if re.search(r"^\s+contents: write\s*$", t, re.M))
+    _pip21 = sorted(n for n, t in _kod21.items() if "pip install" in t)
+    sprawdz("build.yml: workflow ma domyślnie tylko odczyt, contents: write mają wyłącznie joby wydania i wersja",
+            re.search(r"^permissions:\n  contents: read\n", _byml21, re.M) is not None
+            and "contents: write" not in _byml21.split("\njobs:\n")[0]
+            and _pisza21 == ["wersja", "wydanie_pozostale", "wydanie_windows"], str(_pisza21))
+    sprawdz("build.yml: joby instalujące z PyPI nie zostawiają tokenu w .git/config, a joby z zapisem niczego nie instalują",
+            _pip21 == ["pozostale", "windows"]
+            and all(_kod21[n].count("actions/checkout@") == _kod21[n].count("persist-credentials: false") == 1
+                    for n in _pip21)
+            and not any(re.search(r"pip |requirements\.txt|setup-python|zbuduj\.py", _kod21[n]) for n in _pisza21)
+            and all(u.startswith("actions/") for n in _pisza21
+                    for u in re.findall(r"uses: *(\S+)", _kod21[n])), str(_pip21))
+    sprawdz("build.yml: paczki dołącza „gh release upload” (bez zewnętrznej akcji z tokenem), macOS/Linux dopiero po Windows",
+            "softprops/" not in "".join(_kod21.values())
+            and all("gh release upload" in _kod21.get(n, "") for n in ("wydanie_windows", "wydanie_pozostale"))
+            and re.search(r"^    needs: \[wydanie_windows, pozostale\]$", _kod21.get("wydanie_pozostale", ""), re.M)
+            is not None)
+    sprawdz("build.yml: „Cancel workflow” zatrzymuje wydanie — joby wydania i wersja mają !cancelled(), nigdzie always()",
+            "always()" not in "".join(_kod21.values())
+            and all(re.search(r"^    if: \$\{\{ !cancelled\(\) && needs\.wydanie_windows\.result == 'success' && "
+                              + re.escape(_tag21) + r" \}\}$", _kod21.get(n, ""), re.M)
+                    for n in ("wydanie_pozostale", "wersja")))
+    _tyml21 = open(os.path.join(KATALOG, ".github", "workflows", "testy.yml"), encoding="utf-8").read()
+    sprawdz("testy.yml: token tylko do odczytu i bez zapisanych poświadczeń (pip uruchamia kod z PyPI)",
+            re.search(r"^permissions:\n  contents: read\n", _tyml21, re.M) is not None
+            and "persist-credentials: false" in _tyml21 and "contents: write" not in _tyml21)
+    # testy.yml nie startuje dla tagu, a build.yml do 3.25.0 nie czekał na testy —
+    # commit wypchnięty prosto na main szedł do zespołu, zanim testy zdążyły paść
+    sprawdz("build.yml: paczka z tagu powstaje dopiero po zielonych testach (testy.yml przez workflow_call), budowanie ręczne bez zmian",
+            re.search(r"^    uses: \./\.github/workflows/testy\.yml$", _kod21.get("testy", ""), re.M) is not None
+            and _jobif21("testy") and re.search(r"^    needs: testy$", _kod21.get("windows", ""), re.M) is not None
+            and ("if: ${{ !cancelled() && (needs.testy.result == 'success' || !%s) }}" % _tag21) in _kod21.get("windows", "")
+            and re.search(r"^  workflow_call:", _tyml21, re.M) is not None)
+    # filtr „paths” w testy.yml: do 3.25.0 lista plików pomijała moduły z paczki
+    # i build.yml — ich zmiana wypchnięta na main nie uruchamiała testów wcale
+    _wzorce21 = re.findall(r'^      - "([^"]+)"$', _tyml21.split("\n    paths:\n")[1].split("\n  pull_request:")[0], re.M) \
+        if "\n    paths:\n" in _tyml21 else []
+    _rx21 = [re.compile("^" + re.escape(w).replace(r"\*\*", ".*").replace(r"\*", "[^/]*") + "$") for w in _wzorce21]
+    _pilnowane21 = [f.replace(os.sep, "/") for f in _ZB21.WYMAGANE] + [
+        ".github/workflows/build.yml", ".github/workflows/testy.yml", "testy_pmt.py", "zbuduj.py",
+        "wersja_pomocnik.py", "przygotuj_przejscie.py", "wersja.txt", "wersja_exe.txt", "requirements.txt",
+        "PRZEJSCIE_NA_WEB.txt", "WYDANIE.txt", "README.md", "apps_script_POPRAWIONY_v2.gs", ".gitignore",
+        "URUCHOM_PROGRAM.bat", "updater.bat", "updater.sh", "pmt_logo_retro.png", "pmt_logo_retro.ico"]
+    _bez21 = [f for f in _pilnowane21 if not any(r.match(f) for r in _rx21)]
+    _martwe21 = [w for w in _wzorce21 if "*" not in w and not os.path.exists(os.path.join(KATALOG, w))]
+    sprawdz("testy.yml: zmiana każdego modułu z paczki, build.yml i plików sprawdzanych przez testy uruchamia testy (filtr paths), bez martwych wpisów",
+            _wzorce21 and not _bez21 and not _martwe21 and not any(r.match("web/js/app.js") for r in _rx21),
+            "poza filtrem: %s, nie ma: %s" % (_bez21, _martwe21))
     sprawdz("nie ma już ZABEZPIECZENIA_BACKEND.txt (kazał włączyć podpis dla wszystkich — odcinało telefon)",
             not os.path.exists(os.path.join(KATALOG, "ZABEZPIECZENIA_BACKEND.txt"))
             and "ZABEZPIECZENIA_BACKEND" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"),

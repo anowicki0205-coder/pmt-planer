@@ -96,6 +96,15 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
      szyfrowana. Szyfrowania danych programu nie dodaję, bo program ma zostać zastąpiony wersją web.
      Do czasu wycofania: komputer z programem powinien mieć własne konto systemowe i blokadę ekranu; po przejściu na wersję web usuń z komputerów pliki ~/.pmt_* (po wyeksportowaniu danych).
 
+  SZKIC W OUTLOOKU (opcjonalny, włączany zmienną PMT_MS_KLIENT — WDROZENIE.txt, punkt 7):
+    · Aplikacja prosi użytkownika o uprawnienie Microsoft „Mail.ReadWrite” (w oknie zgody: „Odczytywanie i zapisywanie poczty”). To uprawnienie jest szersze, niż potrzeba — Microsoft nie ma węższego,
+      które pozwala utworzyć szkic z załącznikiem. Aplikacja używa go TYLKO do utworzenia jednej wiadomości w „Wersjach roboczych” i dołączenia do niej paczki; skrzynki nie czyta ani nie przegląda.
+    · Logowanie: kod autoryzacji z PKCE w osobnym oknie; w stronie nie ma żadnego sekretu aplikacji ani hasła Microsoft. Token żyje tylko w pamięci karty (bez „offline_access”, bez zapisu na dysku,
+      bez odświeżania w tle) i znika po zamknięciu karty; kod z adresu powrotu nie jest zapisywany, a strona powrotu usuwa go z paska adresu. Przy kolejnej wysyłce logowanie powtarza się.
+    · Paczka w skrzynce użytkownika jest ZAHASŁOWANA (AES-256) tak samo jak w pliku .eml; hasło nadal nie trafia do wiadomości. Szkic zostaje w skrzynce, dopóki użytkownik go nie wyśle albo nie usunie.
+    · Strona zezwala na połączenia z login.microsoftonline.com, graph.microsoft.com, outlook.office.com i outlook.office365.com (polityka CSP w index.html) — tylko do tego celu.
+    · Wycofanie: usuń zmienną PMT_MS_KLIENT i wdroż stronę ponownie; użytkownik cofa zgodę w ustawieniach konta Microsoft, administrator firmy w Entra → Aplikacje przedsiębiorstwa.
+
 5. CO ZROBIĆ PO TEJ AKTUALIZACJI (kolejność)
 --------------------------------------------------------------------------------
   1. Wklej nowy apps_script_POPRAWIONY_v2.gs do Code.gs (Ctrl+A, wklej), WPISZ sekret w SEKRETY_PMT w miejsce <NOWY_SEKRET> (plik w repozytorium go nie zawiera), Wdróż → Wdrożenia

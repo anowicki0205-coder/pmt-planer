@@ -236,6 +236,95 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pobAgain = await pobierz(wyslijSel); await p.waitForTimeout(600);
   ok('po powrocie internetu wysyłka działa i znów ustawia status „Wysłane” (ten stan sprawdzają kolejne kroki testu)', pobAgain.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  /* [H] SZKIC W OUTLOOKU (Microsoft Graph): gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt), „Wyślij” loguje do poczty użytkownika w osobnym oknie, tworzy szkic z adresem, tematem,
+     treścią i zahasłowaną paczką i otwiera go w Outlooku. Microsoft jest tu atrapą (trasy Playwrighta): sprawdzamy to, co wysyłamy i jak aplikacja radzi sobie z odmową, złym tokenem i zablokowanym oknem. */
+  const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,content-range', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' };
+  const ms = { wlaczony: false, klient: '11111111-2222-3333-4444-555555555555', zadania: [], szkic: null, zalaczniki: [], sesja: null, kawalki: [], putZAutoryzacja: false, odmowa: false, zlyToken: false, token: 'TOKEN-TEST-Outlook' };
+  await t.ctx.route('**/poczta_microsoft.txt', r => r.fulfill({ status: ms.wlaczony ? 200 : 404, contentType: 'text/plain', body: ms.wlaczony ? '# test\n' + ms.klient.toUpperCase() + '\n' : '' }));
+  await t.ctx.route('https://login.microsoftonline.com/**', async r => {
+    const rq = r.request(), u = new URL(rq.url());
+    if (rq.method() === 'OPTIONS') return r.fulfill({ status: 204, headers: CORS });
+    if (u.pathname.endsWith('/authorize')) {
+      ms.zadania.push({ co: 'authorize', q: Object.fromEntries(u.searchParams) }); const powrot = u.searchParams.get('redirect_uri'), st = encodeURIComponent(u.searchParams.get('state'));
+      return r.fulfill({ status: 302, headers: { location: ms.odmowa ? `${powrot}?error=access_denied&error_description=AADSTS65004%3A+odmowa&state=${st}` : `${powrot}?code=KOD-TEST-Outlook&state=${st}` } });
+    }
+    if (u.pathname.endsWith('/token')) { ms.zadania.push({ co: 'token', body: Object.fromEntries(new URLSearchParams(rq.postData())) }); return r.fulfill({ status: 200, headers: CORS, contentType: 'application/json', body: JSON.stringify({ access_token: ms.zlyToken ? 'ZLY-TOKEN' : ms.token, token_type: 'Bearer', expires_in: 3599 }) }); }
+    return r.fulfill({ status: 404, body: '' });
+  });
+  await t.ctx.route('https://graph.microsoft.com/**', async r => {
+    const rq = r.request(), u = new URL(rq.url()), m = rq.method(); if (m === 'OPTIONS') return r.fulfill({ status: 204, headers: CORS });
+    if (rq.headers()['authorization'] !== 'Bearer ' + ms.token) return r.fulfill({ status: 401, headers: CORS, contentType: 'application/json', body: JSON.stringify({ error: { code: 'InvalidAuthenticationToken', message: 'Access token is empty or invalid' } }) });
+    if (u.pathname === '/v1.0/me/messages' && m === 'POST') { ms.szkic = JSON.parse(rq.postData()); return r.fulfill({ status: 201, headers: CORS, contentType: 'application/json', body: JSON.stringify({ id: 'AAMkTEST=', webLink: 'https://outlook.office365.com/owa/?ItemID=AAMkTEST%3D&exvsurl=1&viewmodel=ReadMessageItem' }) }); }
+    if (/\/attachments$/.test(u.pathname) && m === 'POST') { ms.zalaczniki.push(JSON.parse(rq.postData())); return r.fulfill({ status: 201, headers: CORS, contentType: 'application/json', body: '{}' }); }
+    if (/createUploadSession$/.test(u.pathname) && m === 'POST') { ms.sesja = JSON.parse(rq.postData()); return r.fulfill({ status: 201, headers: CORS, contentType: 'application/json', body: JSON.stringify({ uploadUrl: 'https://outlook.office.com/api/gv2.0/upload/SESJA-TEST' }) }); }
+    return r.fulfill({ status: 404, headers: CORS, body: '' });
+  });
+  await t.ctx.route('https://outlook.office.com/**', async r => {
+    const rq = r.request(); if (rq.method() === 'OPTIONS') return r.fulfill({ status: 204, headers: CORS });
+    const zakres = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(rq.headers()['content-range'] || ''); if (rq.headers()['authorization']) ms.putZAutoryzacja = true;
+    if (rq.method() === 'PUT' && zakres) { ms.kawalki.push({ od: Number(zakres[1]), do: Number(zakres[2]), razemMs: Number(zakres[3]), bajty: rq.postDataBuffer() }); return r.fulfill({ status: Number(zakres[2]) + 1 === Number(zakres[3]) ? 201 : 200, headers: CORS, contentType: 'application/json', body: '{}' }); }
+    return r.fulfill({ status: 400, headers: CORS, body: '' });
+  });
+  await t.ctx.route('https://outlook.office365.com/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><title>Szkic testowy</title><h1>SZKIC</h1>' }));
+  const cofnijIOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500); };
+  const czekajStan = re => p.waitForFunction(r => new RegExp(r).test(document.querySelector('#podp-wyslij-stan').textContent), re.source, { timeout: 90000 });
+  const wyslijSel2 = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
+  ok('bez identyfikatora aplikacji Microsoft nic się nie zmienia: jeden przycisk „Wyślij” (plik .eml), bez „Inna poczta”', (await p.locator('#podp-wyslij-akcje button').count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0);
+  ms.wlaczony = true; await cofnijIOtworz();
+  ok('po wpisaniu identyfikatora w pliku poczta_microsoft.txt krok 5 mówi o szkicu w Outlooku, „Wyślij” ma metodę „outlook”, obok jest „Inna poczta”', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && /Inna poczta/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && /szkic wiadomości w Twoim Outlooku/.test(await opisK5()) && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
+  await p.screenshot({ path: tmp + '/7_outlook_krok5.png' });
+  // [H1] przeglądarka blokuje okno logowania → jasny komunikat i wyjście plikiem .eml
+  await p.evaluate(() => { window.__openOrig = window.open; window.open = () => null; });
+  await p.click(wyslijSel2); await czekajStan(/zablokowała okno logowania/);
+  ok('zablokowane okno logowania: komunikat z poradą i przyciskiem „Wyślij plikiem .eml”; nic nie wysłano, status „Wysłane” się nie ustawia', (await p.locator('#podp-wyslij-stan [data-akcja="wyslij-plik"]').count()) === 1 && !(await p.locator('#status').innerText()).includes('Wysłane') && ms.zadania.length === 0);
+  await p.evaluate(() => { window.open = window.__openOrig; });
+  const emlZast = await pobierz('#podp-wyslij-stan [data-akcja="wyslij-plik"]'); await p.waitForTimeout(500);
+  ok('„Wyślij plikiem .eml” robi to, co dawniej: pobiera gotową wiadomość i ustawia status „Wysłane”', emlZast.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+  await cofnijIOtworz();
+  // [H2] odmowa zgody w oknie Microsoft
+  ms.odmowa = true; const [oknoOdm] = await Promise.all([p.waitForEvent('popup', { timeout: 20000 }), p.click(wyslijSel2)]);
+  await czekajStan(/Odmówiono zgody/); await p.waitForTimeout(600);
+  ok('odmowa zgody w Microsoft: komunikat po polsku, przycisk „Wyślij plikiem .eml”, okno logowania zamknięte, status „Wysłane” się nie ustawia, szkic nie powstał', (await p.locator('#podp-wyslij-stan [data-akcja="wyslij-plik"]').count()) === 1 && oknoOdm.isClosed() && !(await p.locator('#status').innerText()).includes('Wysłane') && ms.szkic === null, await stanW());
+  ms.odmowa = false;
+  // [H3] token odrzucony przez Graph (401)
+  ms.zlyToken = true; const [oknoZly] = await Promise.all([p.waitForEvent('popup', { timeout: 20000 }), p.click(wyslijSel2)]);
+  await czekajStan(/odrzuciła dostęp/); await p.waitForTimeout(600);
+  ok('token odrzucony przez Graph (401): komunikat o braku uprawnień, wyjście plikiem .eml, okno zamknięte, szkic nie powstał', (await p.locator('#podp-wyslij-stan [data-akcja="wyslij-plik"]').count()) === 1 && oknoZly.isClosed() && ms.szkic === null && !(await p.locator('#status').innerText()).includes('Wysłane'), await stanW());
+  ms.zlyToken = false; ms.zadania.length = 0;
+  // [H4] wszystko poprawnie
+  const [oknoOk] = await Promise.all([p.waitForEvent('popup', { timeout: 20000 }), p.click(wyslijSel2)]);
+  await czekajStan(/Szkic gotowy w Twoim Outlooku/); await oknoOk.waitForURL(/outlook\.office365\.com\/owa\//, { timeout: 15000 }); await p.waitForTimeout(500);
+  const auth = (ms.zadania.find(z => z.co === 'authorize') || {}).q || {}, tok = (ms.zadania.find(z => z.co === 'token') || {}).body || {};
+  ok('logowanie: identyfikator aplikacji z pliku, kod autoryzacji z PKCE (S256), tylko uprawnienie Mail.ReadWrite (bez „offline_access”), adres powrotu = ms_powrot.html tej strony, losowy „state”', auth.client_id === ms.klient && auth.response_type === 'code' && auth.code_challenge_method === 'S256' && auth.scope === 'https://graph.microsoft.com/Mail.ReadWrite' && /\/ms_powrot\.html$/.test(auth.redirect_uri || '') && (auth.state || '').length >= 24 && !/offline_access/.test(JSON.stringify(auth)), JSON.stringify(auth));
+  const sk = require('crypto').createHash('sha256').update(tok.code_verifier || '').digest('base64url');
+  ok('wymiana kodu na token: ten sam adres powrotu, kod z odpowiedzi, a „code_verifier” pasuje do „code_challenge” z logowania (PKCE)', tok.grant_type === 'authorization_code' && tok.code === 'KOD-TEST-Outlook' && tok.redirect_uri === auth.redirect_uri && sk === auth.code_challenge && tok.client_id === ms.klient, JSON.stringify(tok));
+  ok('szkic: adresat z arkusza, temat „[PMT] Delegacje — Jan Testowy — …”, treść zwykłym tekstem o zahasłowanej paczce, podpisana imieniem; bez hasła i PESEL-u', !!ms.szkic && ms.szkic.toRecipients[0].emailAddress.address === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(ms.szkic.subject) && ms.szkic.body.contentType === 'text' && /zahasłowana paczka \(ZIP\)/.test(ms.szkic.body.content) && /Jan Testowy\s*$/.test(ms.szkic.body.content) && !ms.szkic.body.content.includes(HASLO) && !JSON.stringify(ms.szkic).includes('90010112349'), JSON.stringify(ms.szkic).slice(0, 200));
+  const razemMs = ms.kawalki.length ? ms.kawalki[0].razemMs : 0, sklejone = Buffer.concat(ms.kawalki.sort((a, b) => a.od - b.od).map(x => x.bajty));
+  ok('paczka (kilkanaście MB) poszła przez sesję wysyłania: kawałki idą po kolei bez dziur, razem tyle, ile zapowiedziała sesja, bez nagłówka Authorization w wysyłaniu; nazwa pliku i typ ZIP', ms.zalaczniki.length === 0 && !!ms.sesja && ms.sesja.AttachmentItem.size === razemMs && razemMs === sklejone.length && ms.kawalki.length >= 2 && ms.kawalki.every((x, i, w) => i === 0 ? x.od === 0 : x.od === w[i - 1].do + 1) && ms.kawalki[ms.kawalki.length - 1].do + 1 === razemMs && !ms.putZAutoryzacja && /^Dokumenty_.*\.zip$/.test(ms.sesja.AttachmentItem.name) && ms.sesja.AttachmentItem.contentType === 'application/zip', `kawałków: ${ms.kawalki.length}, razem: ${razemMs}`);
+  const zipOut = path.join(tmp, 'z_outlook.zip'); fs.writeFileSync(zipOut, sklejone);
+  const zipOutlookOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipOut, HASLO], { encoding: 'utf8' }).stdout.trim();
+  ok('to, co trafiło do Outlooka, jest tą samą zahasłowaną paczką: otwiera się hasłem administratora, ≥ 7 plików', Number(zipOutlookOk) >= 7, zipOutlookOk);
+  ok('okno logowania przeszło na gotowy szkic (adres Outlooka), status „Wysłane” ustawiony sam, w kroku 5 jest odnośnik „Otwórz szkic” na wypadek zablokowanego przekierowania', /outlook\.office365\.com\/owa\//.test(oknoOk.url()) && (await p.locator('#status').innerText()).includes('Wysłane') && (await p.locator('#podp-wyslij-stan a[href^="https://outlook.office365.com/"]').count()) === 1 && /Kliknij tam „Wyślij”/.test(await stanW()), oknoOk.url());
+  ok('token ani kod autoryzacji nie zostają w pamięci przeglądarki (localStorage, sessionStorage, strona)', !(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.documentElement.outerHTML)).match(/TOKEN-TEST-Outlook|KOD-TEST-Outlook/));
+  await oknoOk.close(); await p.screenshot({ path: tmp + '/7b_outlook_gotowe.png' });
+  // [H5] „Inna poczta” przełącza metodę i jest pamiętana
+  await cofnijIOtworz();
+  await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
+  ok('„Inna poczta” przełącza „Wyślij” na plik .eml (przycisk zmienia się na „Użyj Outlooka”), wybór jest zapamiętany na urządzeniu', (await p.locator('#arkusz .krok-k.k5 [data-akcja="wyslij"][data-metoda="plik"]').count()) === 1 && /Użyj Outlooka/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
+  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
+  ok('przy wyborze „Inna poczta” „Wyślij” nie otwiera żadnego okna logowania — pobiera plik .eml jak dawniej', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml');
+  await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
+  ok('„Użyj Outlooka” wraca do szkicu w Outlooku', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'outlook');
+  ms.wlaczony = false; await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
+  ok('po usunięciu identyfikatora z pliku okno wraca do zwykłego „Wyślij” (plik .eml) bez „Inna poczta”', (await p.locator('[data-akcja="zmien-poczte"]').count()) === 0 && (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1);
+  await p.evaluate(() => localStorage.removeItem('pmt-ui-poczta'));
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  await p.click('#cofnij'); await p.waitForTimeout(600); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900);
+  const pobPoOutlook = await pobierz(wyslijSel2); await p.waitForTimeout(500);      // przywraca stan „Wysłane”, którego oczekują kolejne kroki testu
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  ok('po całym scenariuszu Outlooka stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoOutlook.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+
   /* [G] telefon, na którym udostępnienie ZIP-a się nie udaje (Chrome na Androidzie odrzuca pliki ZIP błędem NotAllowedError): pobrana paczka + wiadomość przez mailto:, a nie błąd bez wyjścia */
   await p.click('#cofnij'); await p.waitForTimeout(600);
   await p.evaluate(() => { const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q); navigator.canShare = () => true; navigator.share = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); });

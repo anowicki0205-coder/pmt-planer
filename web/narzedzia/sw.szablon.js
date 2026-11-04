@@ -49,7 +49,8 @@ self.addEventListener('fetch', e => {
     const c = await caches.open(CACHE);
     const trafienie = await c.match(q, { ignoreSearch: true });
     if (/\/__adres\.json$/.test(u.pathname)) { try { return await fetch(q, { cache: 'no-store' }); } catch (err) { return new Response('{"adres":""}', { status: 200, headers: { 'content-type': 'application/json' } }); } }      // adres komputera w sieci zmienia się: nigdy z pamięci
-    if (/\/(menedzer|sekret|odbiorca|uwagi|adres_aplikacji)\.txt(\.txt)?$/.test(u.pathname)) { try { return await ZSieci(c, q, 8000) } catch (err) {} return trafienie || new Response('', { status: 404 }); }      // pliki ustawień: zawsze najpierw z sieci (zmiana adresu/odbiorcy działa od razu), kopia tylko bez internetu
+    if (/\/ms_powrot\.html$/.test(u.pathname)) return fetch(q, { cache: 'no-store' });      // strona powrotu po logowaniu Microsoft: w adresie jest jednorazowy kod — nigdy do pamięci podręcznej
+    if (/\/(menedzer|sekret|odbiorca|uwagi|adres_aplikacji|poczta_microsoft)\.txt(\.txt)?$/.test(u.pathname)) { try { return await ZSieci(c, q, 8000) } catch (err) {} return trafienie || new Response('', { status: 404 }); }      // pliki ustawień: zawsze najpierw z sieci (zmiana adresu/odbiorcy działa od razu), kopia tylko bez internetu
     if (KOD.test(u.pathname) && !/\/vendor\//.test(u.pathname)) {
       if (trafienie) return trafienie;
       try { return await fetch(q, { cache: 'no-cache' }); } catch (err) { return new Response('Brak połączenia', { status: 503 }); }      // bez zapisu do pamięci: nie dokładamy do niej pliku z innego wydania

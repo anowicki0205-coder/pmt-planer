@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '0ee4cc7ed9cc';
+const WERSJA = '439f640d5a85';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -18,6 +18,8 @@ const PLIKI = [
  "./js/karuzela.js",
  "./js/krypto_js.js",
  "./js/magazyn.js",
+ "./js/ms_powrot.js",
+ "./js/outlook.js",
  "./js/pliki.js",
  "./js/poczta.js",
  "./js/podpis.js",
@@ -63,16 +65,18 @@ const SKROTY = {
  "./ikony/logo-128.webp": "b6d1105a5f46f0b2",
  "./ikony/logo-192.png": "6f1af7c8a362f1aa",
  "./ikony/logo-512.png": "d14d554fd2207fee",
- "./index.html": "49ca7c61c2933501",
+ "./index.html": "f9df28cf8073e85f",
  "./js/aplikacja.js": "807a37daa24d0369",
  "./js/dokument_atrapa.js": "f1f185a9adda8ce6",
  "./js/dostep.js": "a2793ff8c2e3a16e",
  "./js/karuzela.js": "d64507d7e8c41a91",
  "./js/krypto_js.js": "d5adbfd578434c89",
  "./js/magazyn.js": "4b50220968cf07cf",
+ "./js/ms_powrot.js": "e82d612397a0cdf0",
+ "./js/outlook.js": "c15197968890ea84",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "7c02dc2f74cf8d77",
- "./js/podpis.js": "a23ac2e94c312c20",
+ "./js/podpis.js": "46e4fa309fdc15ee",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
@@ -106,7 +110,7 @@ const SKROTY = {
  "./vendor/pyodide/pyodide.mjs": "23213d27e9dacbda",
  "./vendor/pyodide/python_stdlib.zip": "4298b6ee445cb724",
  "./vendor/qr/qrcode.mjs": "86e07bd03bcfd50b",
- "./": "49ca7c61c2933501"
+ "./": "f9df28cf8073e85f"
 };
 /* Poprzednie pamięci z mapą skrótów (zapisaną na końcu udanej instalacji): plik o tym samym skrócie jest identyczny, więc można go skopiować. */
 async function pamieciPoprzednie() {
@@ -153,7 +157,8 @@ self.addEventListener('fetch', e => {
     const c = await caches.open(CACHE);
     const trafienie = await c.match(q, { ignoreSearch: true });
     if (/\/__adres\.json$/.test(u.pathname)) { try { return await fetch(q, { cache: 'no-store' }); } catch (err) { return new Response('{"adres":""}', { status: 200, headers: { 'content-type': 'application/json' } }); } }      // adres komputera w sieci zmienia się: nigdy z pamięci
-    if (/\/(menedzer|sekret|odbiorca|uwagi|adres_aplikacji)\.txt(\.txt)?$/.test(u.pathname)) { try { return await ZSieci(c, q, 8000) } catch (err) {} return trafienie || new Response('', { status: 404 }); }      // pliki ustawień: zawsze najpierw z sieci (zmiana adresu/odbiorcy działa od razu), kopia tylko bez internetu
+    if (/\/ms_powrot\.html$/.test(u.pathname)) return fetch(q, { cache: 'no-store' });      // strona powrotu po logowaniu Microsoft: w adresie jest jednorazowy kod — nigdy do pamięci podręcznej
+    if (/\/(menedzer|sekret|odbiorca|uwagi|adres_aplikacji|poczta_microsoft)\.txt(\.txt)?$/.test(u.pathname)) { try { return await ZSieci(c, q, 8000) } catch (err) {} return trafienie || new Response('', { status: 404 }); }      // pliki ustawień: zawsze najpierw z sieci (zmiana adresu/odbiorcy działa od razu), kopia tylko bez internetu
     if (KOD.test(u.pathname) && !/\/vendor\//.test(u.pathname)) {
       if (trafienie) return trafienie;
       try { return await fetch(q, { cache: 'no-cache' }); } catch (err) { return new Response('Brak połączenia', { status: 503 }); }      // bez zapisu do pamięci: nie dokładamy do niej pliku z innego wydania

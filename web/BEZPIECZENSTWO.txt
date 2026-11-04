@@ -25,7 +25,11 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
   • Hasło: wysyłane do backendu szyfrowanym połączeniem https (NIE jako skrót — wcześniejszy zapis w WDROZENIE.txt był nieprawdziwy i został poprawiony). Serwer liczy z niego skrót
     SHA-256 („PMT|login|hasło”) i porównuje z kolumną „Haslo hash”. Przy stronie na zwykłym http połączenie z Google jest nadal szyfrowane, ale samą stronę może zmienić ktoś w sieci
     (i wstrzyknąć skrypt przechwytujący hasło) — dlatego http wyłącznie w sieci firmowej, nigdy w internecie.
-  • Backend: limity zgadywania (8 prób / 15 min i 25 prób / 6 h na login), limit resetów hasła (5/h na login, 30/h łącznie), limity wpisów do dzienników, sprawdzanie ważności konta.
+  • Backend: limity zgadywania (8 prób / 15 min i 25 prób / 6 h na login; złe podpisy hasłem w pulsie, rejestrze sesji i przy haśle paczki: 150 / 6 h na login —
+    potem podpis nie jest sprawdzany do udanego logowania), limit resetów hasła (5/h na login, 30 nieudanych/h łącznie, okno stałe), limity wpisów do dzienników
+    (osobne przydziały dla zdarzeń po uwierzytelnieniu i odmów na istniejące konta, by zalew nie ukrył prób przejęcia), sprawdzanie ważności konta; odpowiedzi
+    logowania i zmiany hasła nie zdradzają, czy telefon pasuje do loginu; nieistniejące loginy nie zajmują pamięci podręcznej liczników.
+    Aplikacja, której skrótu hasła serwer nie przyjął (hasło zmienione na innym urządzeniu), przestaje nim podpisywać do ponownego logowania.
   • Strona: polityka CSP (index.html) — skrypty tylko z własnej strony, połączenia tylko z własną stroną i z Google Apps Script; atrybuty onerror/onclick i skrypty wstrzyknięte do strony
     są blokowane; brak <base>, wtyczek i wysyłania formularzy; aplikacja nie uruchamia się w cudzej ramce (clickjacking); nagłówek referrer: brak (uwaga: aplikacja osadzona jako ramka w innej stronie, np. zakładka w Teams/intranecie, zostanie ukryta — to celowe; gdyby było potrzebne, trzeba to poluzować). Dane z plików i z serwera są
     zawsze wstawiane jako tekst (test wstrzykiwania kodu: testy/xss_app.js).

@@ -279,7 +279,8 @@ JEŚLI WIDZISZ STARĄ WERSJĘ (np. dawne ustawienia animacji)
 
 LOGOWANIE
   Ten sam backend (Google Apps Script) i te same konta co w programie na komputerze: login 5 cyfr + hasło. Logowanie rusza samo po wpisaniu hasła (bez Enter): hasło znane na urządzeniu od razu, nowe po ok. 1,3 s pauzy w pisaniu. Pierwsze logowanie:
-  numer telefonu z kartoteki zamiast hasła — aplikacja od razu proponuje ustawienie własnego. „Nie pamiętam hasła” resetuje je
+  numer telefonu z kartoteki zamiast hasła — aplikacja od razu proponuje ustawienie własnego. Gdy konto ma już hasło, telefon wpisany zamiast niego daje
+  zwykłe „Nieprawidłowe hasło” (serwer celowo nie mówi, czy numer pasuje do loginu); telefon służy wtedy tylko do „Nie pamiętam hasła”, które resetuje hasło
   telefonem z kartoteki. Zapytania podpisuje sekret z pliku sekret.txt (jedna linia) obok index.html — tak jak nazwisko
   przełożonego w menedzer.txt; oba pliki są na liście ignorowanych i nie wolno ich wrzucać do repozytorium.
   Bez sekret.txt aplikacja działa, ale podpis zapytań znika (backend z PODPIS_OBOWIAZKOWY=true odmówi).

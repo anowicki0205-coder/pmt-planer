@@ -12036,6 +12036,7 @@ try:
     P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Bogdana 2, Płock")
     P.zapisz_ustawienie("ciemny_motyw", False)
     P.zapisz_punkty([{"adres": "Sklep B", "siec": "Lidl", "miasto": "Płock"}])
+    P._geo_cache[P._klucz_geo("ul. Anny 1, 26-600 Radom")] = [51.4, 21.15]; P.zapisz_geo_cache()      # wspólna pamięć geokodowania z adresem domu Anny
     _zip33 = os.path.join(_TMP_HOME, "kopia33.zip")
     _ile33 = P.eksportuj_kopie_zapasowa(_zip33)
     import zipfile as _zf33
@@ -12043,7 +12044,19 @@ try:
         _tresc33 = {n: _z33.read(n).decode("utf-8") for n in _z33.namelist()}
     _razem33 = "\n".join(_tresc33.values())
     sprawdz("kopia zapasowa nie zabiera PESEL-u ani adresu bazy innego konta z tego komputera",
-            "90010112349" not in _razem33 and "ul. Anny 1" not in _razem33, str(sorted(_tresc33)))
+            "90010112349" not in _razem33 and "ul. Anny 1" not in _razem33 and "ul. anny 1" not in _razem33, str(sorted(_tresc33)))
+    sprawdz("kopia zapasowa nie zabiera wspólnej pamięci geokodowania i tras (adresy domów innych kont)",
+            not any(os.path.basename(f) in _tresc33 for f in (P.GEO_CACHE, P.GEO_BRAKI, P.ROAD_CACHE_FILE)), str(sorted(_tresc33)))
+    _zaloguj33("Bogdan  Nowak", "22222")      # imię z arkusza z podwójną spacją
+    _zip33b = os.path.join(_TMP_HOME, "kopia33b.zip"); P.eksportuj_kopie_zapasowa(_zip33b)
+    with _zf33.ZipFile(_zip33b) as _z33b:
+        _razem33b = "\n".join(_z33b.read(n).decode("utf-8") for n in _z33b.namelist())
+    sprawdz("imię konta z podwójną spacją nadal dopasowuje własny profil (kopia ma PESEL właściciela)",
+            "85020212344" in _razem33b and not P._STAN_KOPII["bez_profilu"])
+    _zaloguj33("Zenon Obcy", "44444")
+    _zip33c = os.path.join(_TMP_HOME, "kopia33c.zip"); P.eksportuj_kopie_zapasowa(_zip33c)
+    sprawdz("brak własnego profilu w kopii (inne imię) jest zgłaszany, a nie pomijany po cichu", P._STAN_KOPII["bez_profilu"] is True)
+    _zaloguj33("Bogdan Nowak", "22222")
     sprawdz("kopia zapasowa ma własny profil, własny adres bazy i wspólne ustawienia programu",
             "85020212344" in _razem33 and "ul. Bogdana 2" in _razem33
             and json.loads(_tresc33[os.path.basename(P.USTAWIENIA_STORE)]).get("ciemny_motyw") is False,
@@ -12169,7 +12182,7 @@ try:
             and _zapytania33 and _zapytania33[0].get("zrodlo") == "przeniesienie",
             str((_nowe33[:8], _zle33, _bez_sieci33, _zapytania33[:1])))
     sprawdz("„Przenieś dane” sprawdza hasło na serwerze, gdy lokalny skrót go nie zna",
-            "_skrot_potwierdzony_online(kod, haslo)" in inspect.getsource(P.przenies_dane_do_web))
+            "_skrot_potwierdzony_online(kod, haslo, rodzic)" in inspect.getsource(P.przenies_dane_do_web))
 except Exception as _e33:
     import traceback as _tb33
     _tb33.print_exc()

@@ -2,7 +2,8 @@
 rem Bez opoznionej ekspansji: zjadala znak "!" ze sciezki programu. Napis
 rem "setlocal enabledelayedexpansion" zostaje tu, bo po nim programy 3.2x
 rem rozpoznaja pobrany skrypt - bez niego wracaja do skryptu jednoplikowego.
-setlocal
+rem Jawne wylaczenie: samo setlocal zostawia ekspansje wlaczona z rejestru (DelayedExpansion=1).
+setlocal disabledelayedexpansion
 rem ============================================================
 rem  PMT Planer ??? aktualizacja wersji FOLDEROWEJ
 rem

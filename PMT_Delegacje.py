@@ -77,8 +77,16 @@ from PyQt6.QtGui import (
 # weszły (patrz komentarz na górze pliku).
 try:
     import tempfile as _tmp_rozruch
-    with open(os.path.join(_tmp_rozruch.gettempdir(), "pmt_zyje.flag"), "w") as _f_rozruch:
-        _f_rozruch.write(str(os.getpid()))
+    # updater_folder.bat szuka flagi w %TEMP%, a gettempdir() bierze najpierw TMPDIR (np. narzędzia MSYS):
+    # bez drugiej kopii poprawna nowa wersja byłaby po minucie zabijana i cofana do starej
+    for _kat_rozruch in {_tmp_rozruch.gettempdir(), os.environ.get("TEMP") or "", os.environ.get("TMP") or ""}:
+        if not _kat_rozruch:
+            continue
+        try:
+            with open(os.path.join(_kat_rozruch, "pmt_zyje.flag"), "w") as _f_rozruch:
+                _f_rozruch.write(str(os.getpid()))
+        except Exception:
+            pass
 except Exception:
     pass
 
@@ -461,11 +469,17 @@ def _skrot_zweryfikowany(kod: str, haslo: str) -> str:
     return ""
 
 
-def _skrot_potwierdzony_online(kod: str, haslo: str) -> str:
+_OPIS_POTWIERDZENIA = {"opis": ""}      # odpowiedź serwera z ostatniego potwierdzenia (np. blokada po zbyt wielu próbach)
+
+
+def _skrot_potwierdzony_online(kod: str, haslo: str, rodzic=None) -> str:
     """Skrót AKTUALNEGO hasła, gdy potwierdzi je serwer (akcja „logowanie”); pusty tekst bez sieci
     albo przy złym haśle. Po zmianie albo resecie hasła w aplikacji web ten komputer zna tylko stare
     hasło, a aplikacja odczytuje plik skrótem bieżącego — od wygaszenia programu nie da się już
-    odświeżyć lokalnego skrótu logowaniem."""
+    odświeżyć lokalnego skrótu logowaniem. Na czas zapytania: kursor oczekiwania i wyłączone okno
+    (drugie kliknięcie „Przenieś dane” nie uruchamia przeniesienia drugi raz). Opis odmowy serwera
+    zostaje w _OPIS_POTWIERDZENIA."""
+    _OPIS_POTWIERDZENIA["opis"] = ""
     kod = "".join(ch for ch in str(kod or "") if ch.isdigit())
     haslo = str(haslo or "").strip()           # backend i aplikacja obcinają spacje
     if len(kod) != 5 or not haslo:
@@ -481,10 +495,17 @@ def _skrot_potwierdzony_online(kod: str, haslo: str) -> str:
             wynik["odp"] = json.loads(resp.read().decode("utf-8", errors="ignore"))
 
     wynik = {}
+    kursor = False
     try:
         if QApplication.instance() is None:
             _zapytaj()
         else:                                  # okno nie zastyga na czas zimnego startu Apps Script
+            try:
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor); kursor = True
+                if rodzic is not None:
+                    rodzic.setEnabled(False)
+            except Exception:
+                pass
             w = threading.Thread(target=lambda: _bez_wyjatku(_zapytaj), daemon=True)
             w.start()
             t0 = time.time()
@@ -493,9 +514,19 @@ def _skrot_potwierdzony_online(kod: str, haslo: str) -> str:
                 time.sleep(0.03)
     except Exception:
         return ""
+    finally:
+        try:
+            if kursor:
+                QApplication.restoreOverrideCursor()
+            if rodzic is not None:
+                rodzic.setEnabled(True)
+        except Exception:
+            pass
     odp = wynik.get("odp")
     if isinstance(odp, dict) and odp.get("status") == "ok":
         return _hash_hasla(kod, haslo)
+    if isinstance(odp, dict):
+        _OPIS_POTWIERDZENIA["opis"] = str(odp.get("opis") or "")
     return ""
 
 
@@ -531,14 +562,19 @@ def przenies_dane_do_web(rodzic=None) -> bool:
         if not haslo:
             return False
         kod = "".join(ch for ch in str(wpisany) if ch.isdigit())
-        skrot = _skrot_zweryfikowany(kod, haslo) or _skrot_potwierdzony_online(kod, haslo)
+        skrot = _skrot_zweryfikowany(kod, haslo) or _skrot_potwierdzony_online(kod, haslo, rodzic)
         if skrot:
             break
+        opis_serwera = _OPIS_POTWIERDZENIA.get("opis") or ""
+        blokada = "za duzo" in opis_serwera.lower()
         _okno_pmt(rodzic, "Przenieś dane",
-                  "Nieprawidłowy kod lub hasło. Hasło zmienione w aplikacji sprawdzam na serwerze — "
-                  "potrzebny jest do tego internet."
-                  + (" Spróbuj jeszcze raz." if proba < 2 else " Zbyt wiele prób — zamykam to okno."),
+                  ("Serwer odpowiedział: " + opis_serwera if blokada else
+                   "Nieprawidłowy kod lub hasło. Hasło zmienione w aplikacji sprawdzam na serwerze — "
+                   "potrzebny jest do tego internet.")
+                  + (" Zamykam to okno." if blokada else " Zbyt wiele prób — zamykam to okno." if proba >= 2 else " Spróbuj jeszcze raz."),
                   tylko_ok=True)
+        if blokada:
+            return False
     if not skrot:
         return False
     imie = str(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "") or "")
@@ -5780,14 +5816,15 @@ def _profile_tego_konta(store: dict) -> dict:
     komputerze jednego konta z jednym wpisem — ten wpis. Cudzy PESEL nie
     może trafić do kopii ani nadpisać cudzego wpisu przy odtworzeniu."""
     kod = "".join(ch for ch in str(online_kod_uzytkownika() or "") if ch.isdigit())
-    imiona = {str(online_imie_uzytkownika() or "").strip().lower()}
+    _n = lambda x: " ".join(str(x or "").split()).lower()      # arkusz bywa z podwójną spacją, formularz ją normalizuje
+    imiona = {_n(online_imie_uzytkownika())}
     try:
-        imiona.add(str(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "")).strip().lower())
+        imiona.add(_n(((_wczytaj(PLIK_LOGOWAN, {}) or {}).get(kod) or {}).get("imie", "")))
     except Exception:
         pass
     imiona.discard("")
     wlasne = {k: w for k, w in store.items() if isinstance(w, dict)
-              and str((w.get("profil") or {}).get("imie", "")).strip().lower() in imiona}
+              and _n((w.get("profil") or {}).get("imie", "")) in imiona}
     if not wlasne and len(store) == 1 and kod and _tylko_jedno_konto_na_komputerze(kod):
         wlasne = dict(store)
     return wlasne
@@ -5811,9 +5848,16 @@ def _tylko_tego_konta(klucz: str, dane):
     return dane
 
 
+# Pamięć geokodowania i tras jest wspólna dla komputera i zawiera adresy domowe WSZYSTKICH kont
+# (generowanie zawsze geokoduje adres pracownika) — do kopii nie idzie; program odtworzy ją sam z sieci.
+_MAGAZYNY_POZA_KOPIA = ("geo_cache", "geo_braki", "road_cache")
+_STAN_KOPII = {"bez_profilu": False}      # ostatni eksport: magazyn profili nie był pusty, a własnego wpisu nie znaleziono
+
+
 def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
     """Pakuje wszystkie istniejące magazyny danych do jednego pliku .zip.
     Zwraca liczbę spakowanych plików (0 = nic do zapisania)."""
+    _STAN_KOPII["bez_profilu"] = False
     manifest = {
         "program": "PMT Planer",
         "wersja": WERSJA_PROGRAMU,
@@ -5823,11 +5867,14 @@ def eksportuj_kopie_zapasowa(sciezka_zip: str) -> int:
     ile = 0
     with zipfile.ZipFile(sciezka_zip, "w", zipfile.ZIP_DEFLATED) as z:
         for klucz, sciezka in wszystkie_magazyny().items():
-            if not os.path.exists(sciezka):
+            if not os.path.exists(sciezka) or klucz in _MAGAZYNY_POZA_KOPIA:
                 continue
             if klucz in ("ustawienia", "uzytkownicy"):
-                czesc = _tylko_tego_konta(klucz, _json_z_pliku(sciezka))
+                calosc = _json_z_pliku(sciezka)
+                czesc = _tylko_tego_konta(klucz, calosc)
                 if not czesc:
+                    if klucz == "uzytkownicy" and isinstance(calosc, dict) and calosc:
+                        _STAN_KOPII["bez_profilu"] = True
                     continue
                 z.writestr(os.path.basename(sciezka), json.dumps(czesc, ensure_ascii=False, indent=1))
             else:
@@ -14717,7 +14764,9 @@ class DialogKopiaZapasowa(QDialog):
             if n == 0:
                 self.lbl_status.setText("⚠ Brak danych do zapisania — program jest jeszcze pusty.")
             else:
-                self.lbl_status.setText(f"✓ Zapisano kopię ({n} plików) w:\n{sciezka}")
+                uwaga = ("\n⚠ Twój profil i historia nie trafiły do kopii — imię w programie różni się od imienia konta."
+                         if _STAN_KOPII.get("bez_profilu") else "")
+                self.lbl_status.setText(f"✓ Zapisano kopię ({n} plików) w:\n{sciezka}{uwaga}")
                 self.lbl_status.setStyleSheet(f"color:{self._zie}; font-family:'Segoe UI'; font-size:11px; font-weight:600; background:transparent;")
         except Exception as e:
             self.lbl_status.setText(f"✗ Nie udało się zapisać kopii: {e}")
@@ -16921,7 +16970,7 @@ class DialogPodpis(QDialog):
     # --- wskazanie pliku ręcznie ------------------------------------------
     def _wpis_do_recznego(self, nazwa_pliku: str):
         """Wpis manifestu, do którego pasuje ręcznie wskazany plik."""
-        wpisy = [w for w in self._wpisy() if w.get("status") != "podpisany"]
+        wpisy = [w for w in self._wpisy() if w.get("status") not in ("podpisany", "nieaktualny")]      # nieaktualny = dokument poprzedniej generacji
         if not wpisy:
             return None
         prosta = os.path.splitext(os.path.basename(nazwa_pliku))[0].lower()

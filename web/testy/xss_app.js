@@ -53,7 +53,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
 
   /* zapisany profil z kodem w polach (np. ręcznie zmieniony magazyn): wszystkie ekrany, które go pokazują */
   await p.evaluate(P => { const d = window.__pmtDane.czytaj(); d.profil.imie = P; d.profil.adres = P; window.__pmtDane.zapisz(d); }, PAY);
-  await p.reload(); await p.waitForFunction(() => !document.querySelector('#ladowanie.widoczny') && !document.querySelector('#aplikacja.zamknieta'), null, { timeout: 180000 }).catch(() => {}); await p.waitForTimeout(4000);
+  await p.keyboard.press('F5').catch(() => {}); await p.reload(); await p.waitForFunction(() => !document.querySelector('#ladowanie.widoczny') && !document.querySelector('#aplikacja.zamknieta'), null, { timeout: 180000 }).catch(() => {}); await p.waitForTimeout(4000);
   await czysto('pulpit z profilem pełnym znaczników (nagłówek, powitanie, menu)');
   await p.click('#konto'); await p.waitForTimeout(600); await czysto('menu konta z takim imieniem'); await p.keyboard.press('Escape'); await p.waitForTimeout(300);
   await p.click('#podpisz').catch(() => {}); await p.waitForTimeout(1500); await czysto('okno dokumentów z takim imieniem'); await p.keyboard.press('Escape'); await p.waitForTimeout(500);

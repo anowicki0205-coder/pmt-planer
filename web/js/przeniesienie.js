@@ -34,6 +34,18 @@ export async function odczytaj(tekst, skrot) {
   return { ok: true, kod, dane: oczyscDane(d) };
 }
 
+/** Ten sam plik, gdy program zaszyfrował go hasłem sprzed zmiany albo resetu w aplikacji: klucz z hasła, którym logowano się w programie
+ *  (program liczy skrót z hasła tak, jak je wpisano, aplikacja — bez spacji na brzegach). skrotHasla(kod, haslo) → skrót „PMT|kod|hasło”. */
+export async function odczytajHaslem(tekst, kod, haslo, skrotHasla) {
+  const wpisane = String(haslo ?? '');
+  for (const h of new Set([wpisane, wpisane.trim()])) {
+    if (!h) continue;
+    const w = await odczytaj(tekst, await skrotHasla(kod, h));
+    if (w.ok || w.powod !== 'klucz') return w;
+  }
+  return { ok: false, powod: 'klucz', komunikat: 'To hasło też nie pasuje do pliku. Wpisz hasło, którym logowałeś się w programie, kiedy zapisywał plik.' };
+}
+
 const MAX_MIESIECY = 14, MAX_DNI = 400, MAX_WIZYT_W_DNIU = 60, MAX_ODHACZEN = 5000;
 const liczba = (v, lo, hi, dom = 0) => { const x = Number(v); return Number.isFinite(x) && x >= lo && x <= hi ? Math.round(x * 10000) / 10000 : dom; };
 const wspolrzedna = (v, g) => { if (v === null || v === undefined || v === '') return null; const x = Number(v); return Number.isFinite(x) && Math.abs(x) <= g ? Math.round(x * 1e6) / 1e6 : null; };

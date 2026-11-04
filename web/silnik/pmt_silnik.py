@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:9bb0062cd7bc2207
+# źródło: PMT_Delegacje.py sha256:56c20a17f335abe3
 
 import sys
 
@@ -39,6 +39,8 @@ import tempfile
 import shutil
 
 import hashlib
+
+import hmac
 
 import unicodedata
 
@@ -289,21 +291,34 @@ def online_synchronizuj() -> bool:
     if odp.get("status") not in ("ok", "wygasla"):
         return False           # np. zly_kod — kolejki nie zerujemy
 
+    # „pelne”: false = backend nie rozpoznał podpisu hasłem (np. hasło zmieniono na innym
+    # komputerze) i oddał tylko status i datę ważności — zapamiętanego imienia, rejonu
+    # i nieobecności NIE wolno wtedy nadpisać pustymi, a kolejki nie zerujemy (statystyki
+    # nie zostały zapisane). Starszy backend nie zna pola — wtedy dostajemy komplet.
+    _pelne = odp.get("pelne") is not False
     with _blokada:
-        _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
         st = _wczytaj(PLIK_STATUSU, {})
-        st.update({
-            "kod": kod,
-            "status": odp.get("status"),
-            "imie": odp.get("imie", ""),
-            "rejon": odp.get("rejon", ""),
-            "wazne_do": odp.get("wazne_do", ""),
-            "nieobecnosci": odp.get("nieobecnosci", []),
-            "ostatnia_synchronizacja": datetime.date.today().isoformat(),
-        })
+        if _pelne:
+            _zapisz(PLIK_KOLEJKI, {"uruchomienia": 0, "dokumenty": 0, "minuty": 0})
+            st.update({
+                "kod": kod,
+                "status": odp.get("status"),
+                "imie": odp.get("imie", ""),
+                "rejon": odp.get("rejon", ""),
+                "wazne_do": odp.get("wazne_do", ""),
+                "nieobecnosci": odp.get("nieobecnosci", []),
+                "ostatnia_synchronizacja": datetime.date.today().isoformat(),
+            })
+        else:
+            st.update({
+                "kod": kod,
+                "status": odp.get("status"),
+                "wazne_do": odp.get("wazne_do", ""),
+            })
         _zapisz(PLIK_STATUSU, st)
-    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""), odp.get("imie", ""), z_serwera=True)
-    return True
+    _zapamietaj_waznosc_konta(kod, odp.get("wazne_do", ""),
+                              odp.get("imie", "") if _pelne else st.get("imie", ""), z_serwera=True)
+    return _pelne
 
 def _katalogi_towarzyszace():
     """Wszystkie miejsca, w których może leżeć plik dołożony do programu.
@@ -455,8 +470,35 @@ def _sekret_aplikacji_odczyt() -> str:
     _sekret_aplikacji_dziennik()
     return ""
 
+_SKROTY_SESJI = {}
+
+def _skrot_hasla_lokalny(kod) -> str:
+    """Skrót hasła konta z logowania w TYM procesie (patrz _SKROTY_SESJI); pusty,
+    gdy konto się nie logowało. Samo hasło nigdy nie jest zapisywane."""
+    kod = str(kod or "").strip()
+    if _SKROTY_SESJI.get(kod):
+        return _SKROTY_SESJI[kod]
+    try:
+        # pliki sprzed 3.25.1, których _usun_skroty_z_dysku jeszcze nie przepisała
+        skrot = (_wczytaj(PLIK_LOGOWAN, {}).get(kod, {}) or {}).get("skrot")
+        if skrot:
+            return str(skrot)
+        st = _wczytaj(PLIK_STATUSU, {})
+        if str(st.get("kod", "")) == kod and st.get("skrot"):
+            return str(st["skrot"])
+    except Exception:
+        pass
+    return ""
+
+AKCJE_Z_HASLEM = ("puls", "sesja")
+
 def _podpisz_zadanie(dane: dict) -> dict:
     """Dokłada znacznik czasu, wersję i podpis HMAC-SHA256 do zapytania.
+
+    Dla puls i sesja dokłada też „podpis_hasla”: HMAC-SHA256 TEJ SAMEJ podstawy
+    (kod|akcja|czas), ale kluczem = skrót hasła konta (backend zna go z kolumny
+    „Haslo hash”). Hasło nigdzie nie jedzie; bez poprawnego podpisu backend oddaje
+    w pulsie tylko status i datę ważności, a wpisu sesji nie zapisuje.
 
     Klucz to _sekret_aplikacji(). Bez sekretu pola „podpis" NIE dokłada:
     backend (weryfikujPodpis) porównuje String(d.podpis || '') z HMAC-em,
@@ -478,6 +520,13 @@ def _podpisz_zadanie(dane: dict) -> dict:
                                       hashlib.sha256).hexdigest()
         else:
             dane.pop("podpis", None)
+        dane.pop("podpis_hasla", None)
+        if dane.get("akcja") in AKCJE_Z_HASLEM:
+            klucz_hasla = _skrot_hasla_lokalny(dane.get("kod", ""))
+            if klucz_hasla:
+                dane["podpis_hasla"] = hmac.new(klucz_hasla.encode("utf-8"),
+                                                baza.encode("utf-8"),
+                                                hashlib.sha256).hexdigest()
     except Exception:
         pass
     return dane
@@ -511,7 +560,7 @@ def _zapamietaj_waznosc_konta(kod: str, wazne_do: str, imie: str = "", z_serwera
     except Exception:
         pass
 
-WERSJA_PROGRAMU = "3.24.0"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
+WERSJA_PROGRAMU = "3.25.1"   # JEDYNE źródło numeru: zbuduj.py, wersja_pomocnik.py i CI czytają go stąd;
 
 def modul_pomocniczy(nazwa: str):
     """Leniwy, osłonięty import modułu towarzyszącego (pmt_dokumenty,
@@ -665,6 +714,29 @@ def _wiersz_na_adres(wiersz, mapa: dict) -> tuple:
     else:
         adres = lewa or prawa
     return adres.strip(), siec
+
+def _wiersze_csv(sciezka) -> list:
+    """Wiersze listy sklepów z CSV. Polski Excel zapisuje „CSV (rozdzielany
+    przecinkami)" w cp1250 ze średnikiem, a „Tekst Unicode" w UTF-16 —
+    czytanie wyłącznie jako UTF-8 kończyło się błędem na pierwszej polskiej
+    literze. Separator jak dotąd: z próbki początku pliku."""
+    import csv, io
+    with open(sciezka, "rb") as f:
+        b = f.read()
+    if b[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        tekst = b.decode("utf-16")
+    else:
+        for kodowanie in ("utf-8-sig", "cp1250", "latin-2"):
+            try:
+                tekst = b.decode(kodowanie)
+                break
+            except UnicodeDecodeError:
+                continue
+    probka = tekst[:2048]
+    sep = ";" if probka.count(";") > probka.count(",") else ","
+    if probka.count("\t") > max(probka.count(";"), probka.count(",")):
+        sep = "\t"                 # „Tekst Unicode" z Excela rozdziela tabulatorem
+    return [w for w in csv.reader(io.StringIO(tekst, newline=""), delimiter=sep)]
 
 _geo_cache = {}
 
@@ -1074,11 +1146,6 @@ def stan_zrodla_odleglosci() -> dict:
         "realne": stan in (ZRODLO_DROGI, ZRODLO_PAMIEC),
     }
 
-def etykieta_zrodla_odleglosci() -> str:
-    """Krótka etykieta do interfejsu: „realne drogi" / „drogi z pamięci" /
-    „szacunek"."""
-    return stan_zrodla_odleglosci()["etykieta"]
-
 GOOGLE_KLUCZ_ENV = "PMT_GOOGLE_KLUCZ"
 
 GOOGLE_KLUCZ_ENV_ALT = "GOOGLE_MAPS_API_KEY"
@@ -1312,8 +1379,9 @@ def pobierz_dni_robocze(rok: int, miesiac: int) -> List[datetime.date]:
 
 def czy_niedziela_handlowa(data: datetime.date) -> bool:
     """Niedziele handlowe: ostatnia niedziela stycznia, kwietnia, czerwca
-    i sierpnia, dwie niedziele przed Bożym Narodzeniem oraz niedziela przed
-    Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
+    i sierpnia, niedziele przed Bożym Narodzeniem (dwie, a od 2025 r. trzy
+    przed wolną Wigilią — ta sama nowelizacja z grudnia 2024 r.) oraz niedziela
+    przed Wielkanocą. Zasada z ustawy o ograniczeniu handlu w niedziele —
     gdyby przepisy się zmieniły, wystarczy poprawić tę jedną funkcję."""
     if data.weekday() != 6:
         return False
@@ -1322,10 +1390,11 @@ def czy_niedziela_handlowa(data: datetime.date) -> bool:
                              if datetime.date(data.year, data.month, d).weekday() == 6)
     if data.month in (1, 4, 6, 8) and data.day == ostatnia_niedziela:
         return True
-    if data.month == 12:                          # dwie niedziele przed 24.12
-        przed = [d for d in range(1, 25)
+    if data.month == 12:
+        wolna_wigilia = data.year >= ROK_WIGILII_WOLNEJ
+        przed = [d for d in range(1, 24 if wolna_wigilia else 25)
                  if datetime.date(data.year, 12, d).weekday() == 6]
-        if data.day in przed[-2:]:
+        if data.day in przed[-(3 if wolna_wigilia else 2):]:
             return True
     try:
         wielkanoc = _wielkanoc(data.year)          # niedziela przed Wielkanocą
@@ -1671,13 +1740,15 @@ def planuj_wizyty(punkty: List[PunktWizyty], rok: int, miesiac: int,
         if od_daty:
             dni_robocze = [d for d in dni_robocze if d >= od_daty]
         dni_plan = []
-        aktualna_pozycja = baza
         for data in dni_robocze:
             if not pozostale:
                 break
             dzien = DzienPlanu(data)
             czas = 0.0; km_dnia = 0.0
-            pozycja = aktualna_pozycja
+            # każdy dzień z bazy (jak planuj_cyklicznie): dawniej od ostatniej wizyty
+            # dnia poprzedniego — limit dnia nie obejmował dojazdu z domu, a godziny
+            # w aplikacji (liczone od bazy) wychodziły poza okno, w wieczory po 22:00
+            pozycja = baza
             if postep_cb:
                 zrobione = len(z_pozycja) - len(pozostale)
                 postep_cb(f"Planowanie {cur_mies:02d}.{cur_rok} — {data.strftime('%d.%m')}...",
@@ -1706,7 +1777,6 @@ def planuj_wizyty(punkty: List[PunktWizyty], rok: int, miesiac: int,
             dzien.minuty = round(czas, 0)
             if dzien.wizyty:
                 dni_plan.append(dzien)
-                aktualna_pozycja = dzien.wizyty[-1]
 
         if dni_plan:
             miesiace_plan.append({
@@ -2099,7 +2169,16 @@ h1 {{ color:{tytul_c}; text-align:center; margin-bottom:4px; }}
 
 def waliduj_pesel(pesel: str) -> bool:
     if not re.match(r"^\d{11}$", pesel): return False
-    return (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 == int(pesel[10])
+    if (10 - sum(int(pesel[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10 != int(pesel[10]):
+        return False
+    # Sama suma kontrolna przepuszczała „00000000000" i miesiąc 34. Data urodzenia:
+    # miesiąc +80 dla lat 1800–1899, +0, +20, +40, +60 dla 1900, 2000, 2100, 2200.
+    mm = int(pesel[2:4])
+    try:
+        datetime.date((1900, 2000, 2100, 2200, 1800)[mm // 20] + int(pesel[0:2]), mm % 20, int(pesel[4:6]))
+    except ValueError:
+        return False
+    return True
 
 def _czy_znana_miejscowosc(nazwa: str) -> bool:
     """Czy nazwa występuje w naszej bazie miejscowości? Jeśli tak, adres bez
@@ -2170,6 +2249,29 @@ def _klasyfikuj_adres(nazwa: str) -> str:
     # 4) Wszystko inne (np. z małą literą w środku: "Jana Pawła") — ULICA
     return 'ulica'
 
+def _nazwa_wielka(tekst: str, miejscowosc: bool = False) -> str:
+    """Wielkie litery w nazwie ulicy/miejscowości jak dawne capitalize() każdego
+    słowa, ale bez psucia nazw własnych: liczba rzymska zostaje wielka („Jana
+    Pawła II", nie „Ii"), człon po łączniku wpisany wielką literą zostaje wielki
+    („Bielsko-Biała", „Grota-Roweckiego"), a w nazwie miejscowości przyimek
+    wpisany małą literą zostaje mały („Nakło nad Notecią"). Wpis małymi
+    literami wychodzi tak jak dotąd („3-go Maja", „XXX-lecia")."""
+    wynik = []
+    for i, slowo in enumerate(tekst.split()):
+        if i and miejscowosc and slowo in ("nad", "pod", "przy", "na", "w", "k.", "koło"):
+            wynik.append(slowo)
+            continue
+        czlony = slowo.split("-")
+        for j, c in enumerate(czlony):
+            if len(c) > 1 and re.fullmatch(r"(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})", c, re.IGNORECASE):
+                czlony[j] = c.upper()
+            elif j == 0 or (c[:1].isupper() and czlony[j - 1].isalpha()):
+                czlony[j] = c.capitalize()
+            else:
+                czlony[j] = c.lower()
+        wynik.append("-".join(czlony))
+    return " ".join(wynik)
+
 def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     """wymus_typ: None (auto), 'ulica' lub 'wies' — decyzja użytkownika dla
     adresów niejednoznacznych. Gdy typ jest niejednoznaczny i nie podano
@@ -2195,10 +2297,10 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     prefiks = {"ulica": "ul.", "aleja": "al.", "plac": "pl.",
                "osiedle": "os.", "os.": "os.", "ul.": "ul.",
                "al.": "al.", "pl.": "pl."}.get(prefiks_raw, prefiks_raw)
-    nazwa = ' '.join(w.capitalize() for w in m.group(2).split())   # "Sarnowa Góra" lub "Kowalskiego"
+    nazwa = _nazwa_wielka(m.group(2))                              # "Sarnowa Góra" lub "Kowalskiego"
     numer = m.group(3).strip()
     kod = m.group(4).strip()
-    poczta = ' '.join(w.capitalize() for w in m.group(5).split())  # "Sońsk" / "Warszawa"
+    poczta = _nazwa_wielka(m.group(5), miejscowosc=True)           # "Sońsk" / "Warszawa"
     # Jawny przedrostek to rozstrzygnięcie użytkownika — nie pytamy o typ.
     if prefiks and not wymus_typ:
         wymus_typ = 'ulica'
@@ -2216,6 +2318,9 @@ def waliduj_adres(adres: str, wymus_typ: str = None) -> dict:
     if to_wies:
         # Miejscowością (bazą, startem/metą, celem geocodingu) jest nazwa wsi,
         # a NIE poczta. Poczta to tylko urząd, do którego wieś przynależy.
+        # Nazwa wsi to nazwa miejscowości — zapis jak poczty („Józefów nad Wisłą"),
+        # inaczej jeden dokument miałby ją raz z „Nad", raz z „nad".
+        nazwa = _nazwa_wielka(m.group(2), miejscowosc=True)
         baza_miasto = nazwa
         adres_pdf = f"{nazwa} {numer}, {kod} {poczta}"
         adres_geo = f"{nazwa}, {kod} {poczta}"
@@ -2278,7 +2383,7 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
         _geo_cache[klucz] = _geo_cache[stary]
         return tuple(_geo_cache[klucz])
     if _geo_brak_znany(klucz):
-        return _wspolrzedne_zastepcze(miasto, woj)
+        return _wspolrzedne_zastepcze(miasto, woj, adres_caly)
     odpowiedz_serwera = False
     for zapytanie in _warianty_geo(adres_caly, miasto):
         try:
@@ -2302,22 +2407,45 @@ def pobierz_coords(adres_caly: str, miasto: str, woj: str, zapisz_cache=True) ->
     _geo_pytane.add(klucz)
     if odpowiedz_serwera:
         _zapamietaj_geo_brak(klucz)
-    return _wspolrzedne_zastepcze(miasto, woj)
+    return _wspolrzedne_zastepcze(miasto, woj, adres_caly)
 
-def _wspolrzedne_zastepcze(miasto: str, woj: str) -> Tuple[float, float]:
+def _poczta_z_adresu(adres) -> str:
+    """„Dębowa Wola, 26-660 Jedlińsk" → „Jedlińsk" (człon po kodzie pocztowym)."""
+    m = re.search(r"\d{2}-\d{3}\s+(.+)$", str(adres or "").strip())
+    return m.group(1).strip() if m else ""
+
+def _wspolrzedne_zastepcze(miasto: str, woj: str, adres: str = "") -> Tuple[float, float]:
     """Gdy geokodowanie zawiodło: najpierw miasto z bazy offline programu,
-    dopiero potem stolica województwa. Wcześniej brak internetu (albo
-    adres, którego serwer nie zna) cofał bazę prosto do stolicy — pracownik
-    z Radomia dostawał dokumenty z trasami liczonymi z Warszawy, choć Radom
-    leży w bazie miast programu. Ta sama kolejność, co w podglądzie
+    potem poczta z adresu, dopiero potem stolica województwa. Wcześniej brak
+    internetu (albo adres, którego serwer nie zna) cofał bazę prosto do
+    stolicy — pracownik z Radomia dostawał dokumenty z trasami liczonymi
+    z Warszawy, choć Radom leży w bazie miast programu. Małych wsi w bazie
+    nie ma, ale ich poczta (gmina) zwykle jest: „Dębowa Wola, 26-660
+    Jedlińsk" to Jedlińsk, nie Warszawa. Ta sama kolejność, co w podglądzie
     (nowy_wyglad.wspolrzedne_bazy)."""
-    try:
-        z_bazy = coords_z_miasta(miasto)
-    except Exception:
-        z_bazy = None
-    if z_bazy:
-        return float(z_bazy[0]), float(z_bazy[1])
+    for nazwa in (miasto, _poczta_z_adresu(adres)):
+        try:
+            z_bazy = _miasto_w_woj(nazwa, woj) if nazwa else None
+        except Exception:
+            z_bazy = None
+        if z_bazy:
+            return float(z_bazy[0]), float(z_bazy[1])
     return STOLICE.get(woj, (52.23, 21.01))
+
+def _miasto_w_woj(nazwa: str, woj: str = ""):
+    """Współrzędne miejscowości z bazy offline zgodne z województwem adresu albo None.
+    Indeks miast trzyma jedną parę na nazwę, a kilka nazw gmin powtarza się w dwóch
+    województwach (Stężyca, Pniewy, Olesno): „Paszki Duże, 08-540 Stężyca" (lubelskie)
+    trafiało na Kaszuby, 480 km od domu. Wynik indeksu dalej niż 250 km od stolicy
+    województwa odrzucamy i szukamy tej nazwy wśród gmin tego województwa."""
+    z = coords_z_miasta(nazwa)
+    if z and (woj not in STOLICE or oblicz_dystans(z[0], z[1], *STOLICE[woj]) <= 250):
+        return z
+    klucz = _norm_miasto(nazwa)
+    for m in MIASTA_RAW.get(woj, []):
+        if _norm_miasto(m["n"]) == klucz:
+            return (m["lat"], m["lng"])
+    return None
 
 def zapisz_geo_cache(sciezka=None):
     """Zapisuje pamięć geolokalizacji na dysk (po masowym geokodowaniu).
@@ -2338,6 +2466,7 @@ def zapisz_geo_cache(sciezka=None):
         pass
 
 WYJATKI_WOJEWODZTW = {
+    "08-5": "lubelskie",                                            # Ryki, Dęblin
     "19-3": "warmińsko-mazurskie", "19-4": "warmińsko-mazurskie",   # Ełk, Olecko
     "19-5": "warmińsko-mazurskie",                                  # Gołdap
     "26-3": "łódzkie",                                              # Opoczno, Drzewica
@@ -2346,11 +2475,16 @@ WYJATKI_WOJEWODZTW = {
     "26-8": "mazowieckie", "26-9": "mazowieckie",                   # Białobrzegi, Kozienice
     "27-1": "mazowieckie", "27-3": "mazowieckie",                   # Iłża, Lipsko
     "34-3": "śląskie",                                              # Żywiec
+    "38-3": "małopolskie",                                          # Gorlice, Biecz
+    "47-4": "śląskie",                                              # Racibórz
+    "67-2": "dolnośląskie",                                         # Głogów
     "76-2": "pomorskie",                                            # Słupsk, Ustka
     "77-1": "pomorskie", "77-2": "pomorskie", "77-3": "pomorskie",  # Bytów, Miastko, Człuchów
     "77-4": "wielkopolskie",                                        # Złotów
     "82-3": "warmińsko-mazurskie",                                  # Elbląg, Pasłęk
-    "89-4": "pomorskie", "89-6": "pomorskie",                       # Chojnice, Czersk
+    "89-3": "wielkopolskie",                                        # Wyrzysk, Łobżenica (pow. pilski)
+    "89-6": "pomorskie",                                            # Chojnice, Czersk (89-4 Sępólno to kujawsko-pomorskie)
+    "96-3": "mazowieckie", "96-5": "mazowieckie",                   # Żyrardów, Sochaczew
 }
 
 def rozpoznaj_wojewodztwo(kod: str) -> str:
@@ -3462,7 +3596,10 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         #  wieczorny  — po pracy, między 16:15 a 16:45, tak aby ostatnia
         #               placówka zamknęła się przed 22:00 (patrz limit dnia).
         if TRYB_PRACY == "wieczory":
-            czas_akt = rng.randint(16 * 60 + 15, 16 * 60 + 45)
+            # Pełny dzień (5,5 h) wylosowany po 16:30 wracał po 22:00 — taki dzień
+            # wyjeżdża wcześniej. Losowanie jedno, jak dotąd: reszta dni bez zmian.
+            dl = sum(e.czas_jazdy_minuty + e.czas_w_sklepie for e in dzien.etapy_surowe) + PRZERWA_JEDZENIE_MIN
+            czas_akt = max(16 * 60, min(rng.randint(16 * 60 + 15, 16 * 60 + 45), 22 * 60 - math.ceil(dl)))
         else:
             czas_akt = rng.randint(7 * 60, 8 * 60)
         ile_etapow = len(dzien.etapy_surowe)
@@ -3503,8 +3640,7 @@ def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, 
     text_muted = "#94A3B8" if is_dark else "#475569"
     btn_bg = "linear-gradient(to right, #00F0FF, #0093E9)" if is_dark else "#10B981"
     btn_txt = "#000000" if is_dark else "#FFFFFF"
-    _etykieta_zrodla = etykieta_zrodla_odleglosci()
-    zrodlo_html = ("<p>Odległości: %s</p>" % _etykieta_zrodla) if _etykieta_zrodla else ""
+    zrodlo_html = ""      # źródło odległości (drogi / szacunek) nie jest drukowane na dokumentach ani w raporcie — widzi je tylko okno programu
     
     html_content = f"""
     <!DOCTYPE html>
@@ -3848,12 +3984,8 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     if FPDF_BLAD:
         raise ValueError(_opis_bledu_pdf())
     if stawka is None: stawka = STAWKA_ZA_KM
-    # Skąd wzięły się kilometry — to stoi na dokumencie, bo od tego zależy,
-    # czy podane odległości są realne. Pusta etykieta (stan „brak": ani jeden
-    # odcinek nie był liczony) = dokument o źródle milczy, zamiast zapewniać.
-    if zrodlo is None: zrodlo = stan_zrodla_odleglosci()
-    etykieta_zrodla = str(zrodlo.get("etykieta") or "")
-    zrodlo_txt = ("Odległości: %s" % etykieta_zrodla) if etykieta_zrodla else ""
+    # Skąd wzięły się kilometry (zrodlo) widzi użytkownik w oknie programu i aplikacji — NA DOKUMENCIE
+    # nie ma o tym ani słowa („Odległości: szacunek” itp. na górze delegacji nie może się pojawić).
     os.makedirs(folder, exist_ok=True)
     ms = MIESIACE_PL[miesiac - 1]
     imie_plik = nazwa_do_pliku(pracownik.imie)
@@ -3887,8 +4019,7 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"adres zamieszkania",border=0,align='C'); pdf.cell(95,3,"przełożony",border=0,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'B',8); pdf.cell(95,5,"projekt: Biedronka, Dino, Eurocash, Społem, Stokrotka, Żabka",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_font("Arial",'',7); pdf.cell(95,3,"cel wyjazdu - Projekt",border=0,new_x="LMARGIN",new_y="NEXT",align='C'); pdf.ln(3)
-        pdf.set_font("Arial",'B',10); pdf.cell(120,5,"Rozliczenie kosztów podróży",border=0)
-        pdf.set_font("Arial",'',7); pdf.cell(70,5,zrodlo_txt,border=0,new_x="LMARGIN",new_y="NEXT",align='R')
+        pdf.set_font("Arial",'B',10); pdf.cell(190,5,"Rozliczenie kosztów podróży",border=0,new_x="LMARGIN",new_y="NEXT")
         pdf.set_font("Arial",'B',8); pdf.cell(65,4,"WYJAZD",border=1,align='C'); pdf.cell(65,4,"PRZYJAZD",border=1,align='C')
         y_s = pdf.get_y(); pdf.cell(35,8,"Środki lokomocji",border=1,align='C'); pdf.cell(25,8,"Koszty",border=1,new_x="LMARGIN",new_y="NEXT",align='C')
         pdf.set_y(y_s+4)
@@ -3929,7 +4060,6 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
     pdf.set_font("Arial",'',10); pdf.cell(0,5,"ul. Ptasia 10, 60-319 Poznań",new_x="LMARGIN",new_y="NEXT"); pdf.cell(0,5,nip_krotki,new_x="LMARGIN",new_y="NEXT"); pdf.ln(5)
     pdf.set_font("Arial",'B',12); pdf.cell(0,8,f"Rozliczenie wydatków za miesiąc: {ms} {rok}r.",new_x="LMARGIN",new_y="NEXT"); pdf.ln(2)
     wiersze_naglowka = [("Imię i Nazwisko:",pracownik.imie),("Projekt/Stanowisko:",pracownik.stanowisko),("MENEDŻER:",_menedzer()),("Liczba dokumentów:",str(len(podsumowanie)))]
-    if etykieta_zrodla: wiersze_naglowka.append(("Odległości:", etykieta_zrodla))
     for lbl,val in wiersze_naglowka:
         pdf.set_font("Arial",'B',9); pdf.cell(50,6,lbl,border=0); pdf.set_font("Arial",'',9); pdf.cell(140,6,val,border=0,new_x="LMARGIN",new_y="NEXT")
     pdf.ln(5); pdf.set_font("Arial",'B',9)

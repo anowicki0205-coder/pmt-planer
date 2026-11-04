@@ -21,6 +21,7 @@ const { chromium } = require('playwright'); const { serwer } = require('./wspoln
   ok('poprawny podpis Jana: wszystko na zielono', r.stan === 'ok' && r.rodzaj === 'PAdES' && r.sygnatariusz === 'Jan Testowy', opis(r));
   ok('  …podpis obejmuje cały dokument, skrót się zgadza, kryptografia poprawna, to ten sam dokument', k(r, 'calosc') === 'ok' && k(r, 'skrot') === 'ok' && k(r, 'kryptografia') === 'ok' && k(r, 'dokument') === 'ok');
   ok('  …imię i nazwisko oraz PESEL zgadzają się z dokumentem, jest czas podpisu', k(r, 'osoba') === 'ok' && k(r, 'pesel') === 'ok' && !!r.czas && /Testowe Centrum/.test(r.wystawca), JSON.stringify([r.czas, r.wystawca]));
+  ok('  …wystawca certyfikatu widoczny w szczegółach (informacja, nie ostrzeżenie)', k(r, 'wystawca') === 'info' && /Certyfikat wystawił: Testowe Centrum/.test(r.kontrole.find(x => x.id === 'wystawca').tekst), opis(r));
   r = await oceń('ok_jan.pdf', { imie: 'Testowy Jan' });
   ok('kolejność imienia i nazwiska nie ma znaczenia', k(r, 'osoba') === 'ok');
   r = await oceń('inna_osoba.pdf');
@@ -38,7 +39,43 @@ const { chromium } = require('playwright'); const { serwer } = require('./wspoln
   r = await oceń('dwa_podpisy.pdf');
   ok('dwa podpisy (Jan, potem Anna): znajduje podpis właściwej osoby; wcześniejszy podpis nie musi obejmować całości', r.stan === 'ok' && r.sygnatariusz === 'Jan Testowy' && /Są 2 podpisy/.test(r.kontrole[0].tekst), opis(r));
   r = await oceń('przepisany.pdf');
-  ok('PDF zapisany na nowo przy podpisywaniu: rozpoznany po strumieniach treści', k(r, 'dokument') === 'ok' && r.stan === 'ok', r.kontrole.find(x => x.id === 'dokument').tekst);
+  ok('PDF zapisany na nowo przy podpisywaniu: rozpoznany po strumieniach treści, ale do potwierdzenia (nowych treści w przepisanym pliku nie wykluczę)', k(r, 'dokument') === 'uwaga' && r.stan === 'uwaga' && /zapisano na nowo/.test(r.kontrole.find(x => x.id === 'dokument').tekst), r.kontrole.find(x => x.id === 'dokument').tekst);
+
+  // zmiany zapisane w pliku PRZED podpisem (np. „Zapisz” w Acrobacie, potem gov.pl): skrót i podpis się zgadzają, ale to nie jest wygenerowany dokument
+  const tekst = (r, id) => (r.kontrole.find(x => x.id === id) || {}).tekst || '';
+  r = await oceń('zmieniony_przed_podpisem.pdf');
+  ok('strona zamalowana inną kwotą PRZED podpisem (nowy strumień w /Contents) — odrzucone, choć skrót i podpis się zgadzają', r.stan === 'zle' && k(r, 'dokument') === 'zle' && k(r, 'skrot') === 'ok' && k(r, 'kryptografia') === 'ok' && /Przed podpisaniem zmieniono treść/.test(tekst(r, 'dokument')), opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('podmieniona_tresc_przed_podpisem.pdf');
+  ok('podmieniony strumień treści strony (ten sam numer obiektu) PRZED podpisem — odrzucone', r.stan === 'zle' && k(r, 'dokument') === 'zle', opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('adnotacja_przed_podpisem.pdf');
+  ok('dopisany tekst (adnotacja FreeText) PRZED podpisem — odrzucone', r.stan === 'zle' && k(r, 'dokument') === 'zle' && /adnotację/.test(tekst(r, 'dokument')), opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('adnotacja_w_strumieniu_obiektow.pdf');
+  ok('adnotacja schowana w skompresowanym strumieniu obiektów (/ObjStm, jak zapisuje Acrobat) — rozpakowana i odrzucona', r.stan === 'zle' && k(r, 'dokument') === 'zle' && /adnotację/.test(tekst(r, 'dokument')), opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('strumien_obiektow_bez_zmian.pdf');
+  ok('aktualizacja w strumieniu obiektów bez zmian treści (tylko /Info) — nadal „ten sam dokument”', r.stan === 'ok' && k(r, 'dokument') === 'ok', opis(r));
+  r = await oceń('strona_z_odziedziczonymi_atrybutami.pdf');
+  ok('strona przepisana z odziedziczonym /MediaBox, /CropBox i „/Rotate 0” wpisanymi wprost (iText 5 / OpenPDF) — ta sama strona, „ten sam dokument”', r.stan === 'ok' && k(r, 'dokument') === 'ok', opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('obrocona_strona_przed_podpisem.pdf');
+  ok('  …a strona obrócona o 90° PRZED podpisem nadal jest wykrywana jako zmiana treści', r.stan === 'zle' && k(r, 'dokument') === 'zle' && /zmieniono treść strony/.test(tekst(r, 'dokument')), opis(r) + ' — ' + tekst(r, 'dokument'));
+  r = await oceń('zmiana_miedzy_podpisami.pdf');
+  ok('po podpisie Jana zmieniono treść, a potem Anna podpisała całość — podpis Jana tych zmian nie obejmuje (odrzucone)', r.stan === 'zle' && r.sygnatariusz === 'Jan Testowy' && k(r, 'calosc') === 'zle' && /Po podpisaniu zmieniono treść/.test(tekst(r, 'calosc')), opis(r) + ' — ' + tekst(r, 'calosc'));
+  r = await oceń('dwa_podpisy.pdf');
+  ok('  …a zwykły drugi podpis po podpisie Jana (bez zmian treści) nadal przechodzi', r.stan === 'ok' && k(r, 'calosc') === 'ok', opis(r));
+
+  // certyfikat samopodpisany (np. „cyfrowy identyfikator” z Acrobata) z imieniem i PESEL-em użytkownika
+  r = await oceń('samopodpisany.pdf');
+  ok('certyfikat samopodpisany: imię i PESEL się zgadzają, ale stan „uwaga” z wyjaśnieniem (to nie jest podpis zaufany ani kwalifikowany)', r.stan === 'uwaga' && k(r, 'osoba') === 'ok' && k(r, 'wystawca') === 'uwaga' && /samopodpisany/.test(tekst(r, 'wystawca')), opis(r));
+  r = await oceń('samopodpisany.xades');
+  ok('  …tak samo w osobnym pliku podpisu XAdES', r.stan === 'uwaga' && k(r, 'kryptografia') === 'ok' && k(r, 'wystawca') === 'uwaga', opis(r));
+  // strona zapisana wcześniej w strumieniu obiektów, którego nie rozpakuję (filtr z predyktorem): jej późniejsza wersja (np. z /Annots podpisu) to „nie wiem”, a nie „dodano stronę”
+  const zt = await p.evaluate(async () => {
+    const m = await import('/js/weryfikacja.js'), t = s => new TextEncoder().encode(s);
+    const przed = '%PDF-1.7\n5 0 obj << /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >> /Length 3 >>\nstream\nabc\nendstream\nendobj\n';
+    const strona = '3 0 obj << /Type /Page /Parent 1 0 R /Contents 4 0 R /Annots [9 0 R] >>\nendobj\n', b = t(przed + strona), od = t(przed).length;
+    const czysty = t('%PDF-1.7\n1 0 obj << /Type /Pages /Kids [] /Count 0 >>\nendobj\n' + strona), od2 = czysty.length - t(strona).length;
+    return [await m.zmianyTresci(b, od, b.length), await m.zmianyTresci(czysty, od2, czysty.length)];
+  });
+  ok('zmiany w PDF-ie: strona ze strumienia obiektów, którego nie rozpakuję — „nie wiem” (uwaga), a nie fałszywe „dodano stronę”; bez takiego strumienia nowa strona jest wykrywana', zt[0].zmiany.length === 0 && zt[0].nieznane === true && JSON.stringify(zt[1].zmiany) === '["dodano stronę"]' && !zt[1].nieznane, JSON.stringify(zt));
   r = await oceń('pole_bez_podpisu.pdf');
   ok('PDF bez podpisu (puste pole) — odrzucony z wyjaśnieniem', r.stan === 'zle' && r.rodzaj === 'brak' && /nie ma podpisu/.test(r.kontrole[0].tekst), r.kontrole[0].tekst);
   r = await oceń('oryg.pdf');

@@ -41,7 +41,9 @@ class BackendMock {
     return { status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do, adres: String(p.adres).trim() };
   }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
-  obsluz(tekst) {
+  /** Jak _json w .gs: każda odpowiedź niesie czas serwera. */
+  obsluz(tekst) { const o = this.obsluzAkcje(tekst); if (o && typeof o === 'object') o.czas_serwera = Math.floor(Date.now() / 1000); return o; }
+  obsluzAkcje(tekst) {
     let d; try { d = JSON.parse(tekst || '{}'); } catch (e) { return { status: 'blad', opis: String(e) }; }
     if (!this.podpisPoprawny(d)) {
       if (this.podpisObowiazkowy) return { status: 'blad', opis: 'odmowa' };
@@ -64,11 +66,10 @@ class BackendMock {
     const telBaza = (u.telefon || '').replace(/\D/g, '');
     const haslem = u.hash && hash(kod, haslo) === u.hash, telefonem = !u.hash && telBaza && tel.length >= 9 && telBaza.slice(-9) === tel.slice(-9);
     if (!haslem && !telefonem) {
-      if (u.hash && telBaza && tel.length >= 9 && telBaza.slice(-9) === tel.slice(-9)) return { status: 'blad', opis: 'To konto ma ustawione haslo — zaloguj sie haslem. Numer telefonu sluzy tylko do zmiany lub resetu hasla.' };
-      return { status: 'blad', opis: u.hash ? 'Nieprawidlowe haslo' : 'Nieprawidlowy numer telefonu' };
+      return { status: 'blad', opis: u.hash ? 'Nieprawidlowe haslo. Jesli go nie pamietasz, uzyj „Nie pamietam hasla” (numer telefonu z kartoteki sluzy do resetu hasla).' : 'Nieprawidlowy numer telefonu' };      // jak .gs: telefon na koncie z hasłem = ten sam komunikat co złe hasło
     }
     this.zapisz(kod, 'logowanie_' + (d.zrodlo || 'www'), haslem ? 'OK (haslo)' : 'OK (telefon)');
-    return { status: 'ok', imie: u.imie };
+    return { status: 'ok', imie: u.imie, przez: haslem ? 'haslo' : 'telefon' };
   }
   puls(d) {
     const kod = String(d.kod || '').trim(); if (!/^\d{5}$/.test(kod)) return { status: 'zly_kod' };
@@ -86,7 +87,7 @@ class BackendMock {
     const telBaza = (u.telefon || '').replace(/\D/g, ''), st = stare.replace(/\D/g, '');
     const telPasuje = telBaza && st.length >= 9 && telBaza.slice(-9) === st.slice(-9);
     const haslem = u.hash && hash(kod, stare) === u.hash, telefonem = !u.hash && telPasuje;
-    if (!haslem && !telefonem) { this.zapisz(kod, 'zmiana_hasla', 'ODRZUCONA'); return { status: 'blad', opis: u.hash ? 'Dotychczasowe haslo nie pasuje' : 'Numer telefonu nie zgadza sie z kartoteka' }; }
+    if (!haslem && !telefonem) { this.zapisz(kod, 'zmiana_hasla', 'ODRZUCONA'); return { status: 'blad', opis: u.hash ? 'Dotychczasowe haslo nie pasuje (jesli go nie pamietasz, uzyj „Nie pamietam hasla” w oknie logowania)' : 'Numer telefonu nie zgadza sie z kartoteka' }; }
     u.hash = hash(kod, nowe); this.zapisz(kod, 'zmiana_hasla', 'OK'); return { status: 'ok' };
   }
   reset(d) {

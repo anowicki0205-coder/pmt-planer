@@ -6,6 +6,8 @@ function serwer(opcje = {}) {
   return new Promise(ok => {
     const s = http.createServer((q, o) => {
       const u = decodeURIComponent(q.url.split('?')[0]);
+      if (opcje.dziennik) opcje.dziennik.push(u);      // opcja dziennik: [] — lista pobranych ścieżek (test service workera)
+      if (opcje.zepsute && opcje.zepsute.includes(u)) { o.writeHead(500); return o.end(); }      // opcja zepsute: ścieżki, których serwer nie oddaje (zerwane pobieranie)
       if (u === '/sekret.txt') { if (!opcje.sekret) { o.writeHead(404); return o.end(); } o.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); return o.end(opcje.sekret + '\n'); }
       if (u === '/odbiorca.txt') { if (!opcje.odbiorca) { o.writeHead(404); return o.end(); } o.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); return o.end('# adres Kierownika regionu\n' + opcje.odbiorca + '\n'); }
       if (u === '/adres_aplikacji.txt' && opcje.adresPubliczny !== undefined) { o.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); return o.end('# stały adres aplikacji\n' + opcje.adresPubliczny + '\n'); }      // opcja adresPubliczny: zawartość adres_aplikacji.txt (bez niej serwer oddaje pusty plik z repozytorium)
@@ -30,7 +32,11 @@ async function otworz({ w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = fal
   await backend.podepnij(ctx);
   if (zalogowany) {                                  // domyślnie: konto 12345 już zalogowane na tym urządzeniu (testy logowania ustawiają zalogowany:false)
     const ziarno = { kod: '12345', ostatni: '12345', konta: { 12345: { imie: 'Jan Testowy', kontakt: Date.now() } }, status: {}, kolejka: { uruchomienia: 0, dokumenty: 0, minuty: 0 } };      // skrótu hasła na dysku już nie ma (sejf)
-    await ctx.addInitScript(z => { try { if (!localStorage.getItem('pmt-web-dostep-v1')) localStorage.setItem('pmt-web-dostep-v1', JSON.stringify(z)); sessionStorage.setItem('pmt-web-sesja-karty', '12345'); sessionStorage.setItem('pmt-web-dek', z.dek); sessionStorage.setItem('pmt-web-skrot', JSON.stringify({ kod: '12345', skrot: z.skrot })); } catch (e) {} }, { ...ziarno, dek: Buffer.from(new Uint8Array(32).map((_, i) => i * 7 + 3)).toString('base64'), skrot: hash('12345', 'haslo123') });      // sessionStorage: zalogowano już na tej karcie (logowanie jest wymagane przy każdym uruchomieniu)
+    await ctx.addInitScript(z => { try {      // zalogowano już na tej karcie: sesja żyje w pamięci strony, a do nowej strony przechodzi tylko przekazaniem przy przeładowaniu (js/dostep.js) — tu każde wejście udaje F5 ze świeżym przekazaniem
+      if (!localStorage.getItem('pmt-web-dostep-v1')) localStorage.setItem('pmt-web-dostep-v1', JSON.stringify(z));
+      sessionStorage.setItem('pmt-web-przekaz', JSON.stringify({ t: Date.now(), karta: '12345', skrot: { kod: '12345', skrot: z.skrot }, imie: '', dek: z.dek }));
+      Object.defineProperty(PerformanceNavigationTiming.prototype, 'type', { configurable: true, get: () => 'reload' });
+    } catch (e) {} }, { ...ziarno, dek: Buffer.from(new Uint8Array(32).map((_, i) => i * 7 + 3)).toString('base64'), skrot: hash('12345', 'haslo123') });
   }
   await ctx.addInitScript(dzien => {      // „dzisiaj” dla aplikacji jest stałe (domyślnie 15.10.2026 → program otwiera się na wrześniu, jak w całym zestawie testów): testy opisują konkretne dni września i nie mogą zależeć od dnia uruchomienia
     const R = Date, przesuniecie = new R(dzien).getTime() - R.now();

@@ -3,7 +3,7 @@
 // zapytania podpisuje HMAC-SHA256 sekretem aplikacji (plik sekret.txt obok aplikacji — NIGDY w kodzie), a bez sieci
 // wolno wejść tylko kontem, które już raz zalogowało się na tym urządzeniu, i tylko przez OFFLINE_DNI od ostatniego kontaktu z serwerem.
 // UWAGA: sekret w paczce webowej to filtr przed botami, nie tajemnica — każdy może go odczytać z przeglądarki (tak samo jak w programie).
-// SKRÓT HASŁA nie leży już na dysku (był szybki do złamania, gdyby ktoś dostał profil przeglądarki): zostaje w sessionStorage karty na czas sesji (do podpisywania pulsu),
+// SKRÓT HASŁA nie leży już na dysku (był szybki do złamania, gdyby ktoś dostał profil przeglądarki): zostaje w pamięci strony na czas sesji (do podpisywania pulsu),
 // a poprawność hasła przy logowaniu bez sieci i autologowaniu sprawdza SEJF (js/sejf.js) — zaszyfrowany klucz danych, wolny PBKDF2.
 import * as sejf from './sejf.js';
 
@@ -64,23 +64,32 @@ export const skrotHasla = (kod, haslo) => sha256Hex(`PMT|${kod}|${haslo}`);
 /* ---------- sekret aplikacji (plik obok index.html; brak = zapytania bez podpisu) ---------- */
 let sekretObietnica = null;
 export function sekret() {
-  return sekretObietnica || (sekretObietnica = (async () => {
+  if (sekretObietnica) return sekretObietnica;
+  let brakPliku = false;
+  const p = sekretObietnica = (async () => {
     try {
-      const r = await fetch('sekret.txt', { cache: 'no-store' }); if (!r.ok) return '';
-      const t = (await r.text()).split(/\r?\n/)[0].trim(); return t && !t.startsWith('<') ? t : '';
+      const r = await fetch('sekret.txt', { cache: 'no-store' }); if (!r.ok) { brakPliku = true; return ''; }
+      const t = (await r.text()).split(/\r?\n/)[0].trim(); if (!(t && !t.startsWith('<'))) brakPliku = true; return brakPliku ? '' : t;
     } catch (e) { return ''; }
-  })());
+  })();
+  // pusty wynik nie zostaje na całe życie strony: po błędzie sieci następne zapytanie pyta od razu (szybki błąd bez sieci), a gdy pliku po prostu nie ma (wdrożenie
+  // lokalne, 404) — dopiero po minucie, żeby nie pobierać go przy każdym zapytaniu (np. tuż przed beaconem przy zamykaniu strony)
+  p.then(t => { if (t) return; const zapomnij = () => { if (sekretObietnica === p) sekretObietnica = null; }; if (brakPliku) setTimeout(zapomnij, 60000); else zapomnij(); });
+  return p;
 }
 export const zapomnijSekret = () => { sekretObietnica = null; };
 /* Puls i rejestr sesji backend przyjmuje w pełni tylko z podpisem KLUCZEM POCHODNYM OD HASŁA: HMAC, którego kluczem jest skrót hasła „PMT|kod|hasło” (ten sam, który serwer
    trzyma w kolumnie „Haslo hash”, a my mamy zapisany po logowaniu). Samo hasło nie jedzie, a znajomość samego 5-cyfrowego kodu nie wystarcza, by dostać imię, rejon i L4 innego pracownika. */
 const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki'];
+/* serwer przyjmuje podpis tylko w oknie 600 s od SWOJEGO czasu: zegar urządzenia przestawiony o kwadrans dawał niezrozumiałe odmowy, więc czas podpisu poprawiamy
+   o różnicę względem czasu serwera z ostatniej odpowiedzi (czas_serwera) */
+let przesuniecie = 0;
 async function podpisz(dane, skrotZ = null) {
-  const czas = String(Math.floor(teraz() / 1000)), s = await sekret();
-  const d = { ...dane, klucz_czas: czas, wersja: WERSJA };
+  const czas = String(Math.floor(teraz() / 1000 + przesuniecie)), s = await sekret();
+  const d = { ...dane, klucz_czas: czas, wersja: WERSJA, klient: 'web' };      // klient: backend nie stosuje do aplikacji web bramki wersji programu (WYMAGANA_WERSJA)
   const baza = `${d.kod || ''}|${d.akcja || ''}|${czas}`;
   if (s) d.podpis = await hmacHex(s, baza); else delete d.podpis;
-  const klucz = AKCJE_Z_HASLEM.includes(d.akcja) ? (skrotZ || skrotSesji(d.kod)) : '';
+  const klucz = AKCJE_Z_HASLEM.includes(d.akcja) && skrotNieaktualny !== d.kod ? (skrotZ || skrotSesji(d.kod)) : '';      // skrót odrzucony przez serwer: bez podpisu (każdy zły podpis zużywa limit prób hasła)
   if (klucz) d.podpis_hasla = await hmacHex(klucz, baza); else delete d.podpis_hasla;
   return d;
 }
@@ -89,7 +98,7 @@ async function podpisz(dane, skrotZ = null) {
     użytkownik go nie widzi i nie wymyśla własnego; po terminie serwer go nie wydaje. → { ok:true, haslo, wazneDo, adres } albo { ok:false, powod, komunikat }. */
 export async function pobierzHasloPaczki() {
   const kod = stan().kod;
-  if (!kod || !skrotSesji(kod)) return { ok: false, powod: 'logowanie', komunikat: 'Wyloguj się i zaloguj ponownie hasłem — wtedy będę mógł pobrać hasło do paczki i wysłać dokumenty.' };
+  if (!kod || !skrotSesji(kod) || skrotNieaktualny === kod) return { ok: false, powod: 'logowanie', komunikat: 'Wyloguj się i zaloguj ponownie hasłem — wtedy będę mógł pobrać hasło do paczki i wysłać dokumenty.' };
   let odp; try { odp = await wyslij({ akcja: 'haslo_paczki', kod }, 20000); } catch (e) { return { ok: false, powod: 'siec', komunikat: 'Brak połączenia z serwerem — nie mogę pobrać hasła do paczki. Spróbuj, gdy będzie internet.' }; }
   const s = odp && odp.status, data = String(odp && odp.wazne_do || '');
   if (s === 'ok') {
@@ -101,6 +110,8 @@ export async function pobierzHasloPaczki() {
   if (s === 'brak') return { ok: false, powod: 'brak', komunikat: 'Wysyłka dokumentów nie jest jeszcze włączona — administrator nie ustawił hasła do paczek, jego terminu ważności albo adresu odbiorcy. Napisz do administratora.' };
   if (s === 'wygaslo') return { ok: false, powod: 'wygaslo', komunikat: `Hasło do paczek wygasło ${data.split('-').reverse().join('.')}. Poczekaj, aż administrator ustawi nowe, i spróbuj ponownie.` };
   if (s === 'wygasla') return { ok: false, powod: 'dostep', komunikat: 'Twój dostęp do aplikacji wygasł — skontaktuj się z administratorem.' };
+  if (s === 'blad') return { ok: false, powod: 'siec', komunikat: `${String(odp.opis || 'Serwer chwilowo nie odpowiada')} — spróbuj ponownie za chwilę.` };      // np. „Serwer zajety” (kolejka) — to nie odmowa konta
+  if (s === 'odmowa') skrotNieaktualny = kod;
   return { ok: false, powod: 'odmowa', komunikat: 'Serwer nie potwierdził Twojego konta. Wyloguj się, zaloguj ponownie hasłem i spróbuj jeszcze raz.' };
 }
 
@@ -112,7 +123,8 @@ const opisBledu = {
   cors: 'Serwer PMT odpowiada, ale przeglądarka nie dopuściła jego odpowiedzi do aplikacji (CORS). To błąd wdrożenia backendu, nie Twojego internetu — napisz do administratora. Program na komputerze działa niezależnie.',
   odpowiedz: 'Serwer odpowiedział w nieoczekiwany sposób. Spróbuj ponownie za chwilę; jeśli błąd wraca, napisz do administratora.',
 };
-export async function wyslij(dane, limit = CZAS_ODPOWIEDZI) {
+export async function wyslij(dane, limit = CZAS_ODPOWIEDZI, ponowka = false) {
+  const uzyte = przesuniecie;      // przesunięcie zegara użyte do TEGO podpisu (równoległa odpowiedź mogła je już poprawić)
   const cialo = JSON.stringify(await podpisz(dane)), ac = new AbortController(), t = setTimeout(() => ac.abort(), limit);
   let tekst;
   try {
@@ -125,8 +137,11 @@ export async function wyslij(dane, limit = CZAS_ODPOWIEDZI) {
     if (await serwerOsiagalny()) throw new BladSieci('cors', opisBledu.cors);
     throw new BladSieci('siec', opisBledu.siec);
   } finally { clearTimeout(t); }
-  try { const o = JSON.parse(tekst); if (o && typeof o === 'object') return o; } catch (e) { /* poniżej */ }
-  throw new BladSieci('odpowiedz', opisBledu.odpowiedz);
+  let o = null; try { o = JSON.parse(tekst); } catch (e) { /* poniżej */ }
+  if (!o || typeof o !== 'object') throw new BladSieci('odpowiedz', opisBledu.odpowiedz);
+  const cs = Number(o.czas_serwera); if (cs > 0) przesuniecie = cs - teraz() / 1000;
+  if (!ponowka && Math.abs(przesuniecie - uzyte) > 300 && (o.opis === 'odmowa' || o.status === 'odmowa' || o.pelne === false)) return wyslij(dane, limit, true);      // odmowa przez zegar urządzenia: raz jeszcze, już z czasem serwera
+  return o;
 }
 async function serwerOsiagalny() {
   const ac = new AbortController(), t = setTimeout(() => ac.abort(), 5000);
@@ -137,25 +152,63 @@ const poZimnymStarcie = async (dane, limit) => { try { return await wyslij(dane,
 export function rozgrzej() { try { fetch(BACKEND, { mode: 'no-cors', cache: 'no-store' }).catch(() => {}); } catch (e) { /* bez sieci */ } }
 
 /* ---------- stan na urządzeniu ---------- */
-const OSOBISTE = ['status', 'imie', 'rejon', 'wazne_do', 'nieobecnosci', 'dokumenty_sesja', 'plany_sesja'];
+const OSOBISTE = ['status', 'imie', 'rejon', 'wazne_do', 'nieobecnosci', 'dokumenty_sesja', 'plany_sesja', 'kod', 'ostatnia_synchronizacja'];      // kod i data synchronizacji z pulsu też: po wylogowaniu i „Usuń dane” loginu nie ma w statusie
 const stan = () => { const d = czytaj(); d.konta = d.konta || {}; d.status = d.status || {}; d.kolejka = d.kolejka || { uruchomienia: 0, dokumenty: 0, minuty: 0 }; return d; };
-/* skrót hasła na czas sesji karty: pamięć + sessionStorage (odświeżenie strony go nie gubi, zamknięcie karty tak) */
-const KLUCZ_SKROTU = 'pmt-web-skrot'; let skrotPamiec = null;
-const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; bezpiecznie(() => sessionStorage.setItem(KLUCZ_SKROTU, JSON.stringify(skrotPamiec))); };
-const skrotSesji = kod => { if (!skrotPamiec) skrotPamiec = bezpiecznie(() => JSON.parse(sessionStorage.getItem(KLUCZ_SKROTU)), null); return skrotPamiec && skrotPamiec.kod === kod ? skrotPamiec.skrot : ''; };
-const zapomnijSkrot = () => { skrotPamiec = null; bezpiecznie(() => sessionStorage.removeItem(KLUCZ_SKROTU)); bezpiecznie(() => sessionStorage.removeItem(KLUCZ_IMIENIA)); };
-/* imię z odpowiedzi logowania: tylko na czas sesji karty (podpowiedź w „Moje dane” przy pierwszym logowaniu); na dysku jawnie go nie trzymamy */
-const KLUCZ_IMIENIA = 'pmt-web-imie'; let imieSesji = '';
-const ustawImie = imie => { imieSesji = String(imie || '').trim(); bezpiecznie(() => sessionStorage.setItem(KLUCZ_IMIENIA, imieSesji)); };
-export const imieZSerwera = () => imieSesji || bezpiecznie(() => sessionStorage.getItem(KLUCZ_IMIENIA) || '', '');
+/* SESJA STRONY: skrót hasła, imię z logowania, znacznik „ta karta jest zalogowana” i klucz danych (sejf) żyją TYLKO w pamięci strony. sessionStorage przeglądarka trzyma
+   na dysku i przywraca razem z kartą (Ctrl+Shift+T, „Kontynuuj tam, gdzie skończyłem”, po awarii) — także karty ZAMKNIĘTEJ. Dlatego wpis dla odświeżenia kładziemy tam
+   wyłącznie przy ZAMIERZONYM przeładowaniu: F5, Ctrl+R / Cmd+R albo przeładowanie przez samą aplikację (przeladuj()). Zamknięcie karty, okna, przejście na inną stronę,
+   przycisk odświeżania w pasku przeglądarki i gest „pociągnij, by odświeżyć” niczego nie zapisują (pokażą logowanie; hasło zapamiętane w przeglądarce loguje od razu).
+   Nowa strona przyjmuje wpis tylko przy przeładowaniu, świeży (do 15 s), i od razu go usuwa. */
+const PRZEKAZ = 'pmt-web-przekaz', WAZNOSC_PRZEKAZU = 15000;
+const przeladowanie = () => bezpiecznie(() => { const n = performance.getEntriesByType('navigation')[0]; return n ? n.type === 'reload' : performance.navigation.type === 1; }, false);
+const przekaz = bezpiecznie(() => {
+  const t = sessionStorage.getItem(PRZEKAZ); for (const k of [PRZEKAZ, 'pmt-web-dek', 'pmt-web-skrot', 'pmt-web-imie', 'pmt-web-sesja-karty']) sessionStorage.removeItem(k);      // także wpisy wersji, która trzymała je tu przez całą sesję
+  const o = t ? JSON.parse(t) : null, wiek = o ? Date.now() - Number(o.t) : -1;
+  return o && wiek >= 0 && wiek < WAZNOSC_PRZEKAZU && przeladowanie() ? o : null;
+}, null) || {};
+let skrotPamiec = przekaz.skrot && przekaz.skrot.kod ? przekaz.skrot : null, imieSesji = String(przekaz.imie || ''), kartaPamiec = String(przekaz.karta || '');
+if (przekaz.dek) bezpiecznie(() => sejf.zapamietajKlucz(sejf.unb64(przekaz.dek)));
+let doPrzeladowania = 0;      // chwila zamierzonego przeładowania (klawisz albo przeladuj()); 0 = żadnego
+if (typeof addEventListener === 'function') addEventListener('keydown', e => { if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && !e.altKey && /^r$/i.test(e.key))) doPrzeladowania = Date.now(); }, true);
+/** Przeładowanie strony bez ponownego logowania (klucz danych przechodzi krótkim wpisem do nowej strony). */
+export const przeladuj = () => { doPrzeladowania = Date.now(); location.reload(); };
+if (typeof addEventListener === 'function') addEventListener('pagehide', e => {
+  const kod = stan().kod, dek = sejf.odczytajKlucz(); if (e.persisted || !kod || kartaPamiec !== kod) return;      // persisted: strona zostaje w pamięci (bfcache), nic nie trzeba przekazywać
+  if (!doPrzeladowania || Date.now() - doPrzeladowania > 10000) return;      // zamknięcie karty / okna, inna strona: klucz nie trafia na dysk
+  bezpiecznie(() => sessionStorage.setItem(PRZEKAZ, JSON.stringify({ t: Date.now(), karta: kartaPamiec, skrot: skrotPamiec, imie: imieSesji, dek: dek ? sejf.b64(dek) : '' })));
+});
+/* Skrót hasła, którego serwer nie przyjął (pelne:false w pulsie, odmowa hasła paczki — np. hasło zmienione na innym urządzeniu): do następnego logowania
+   karta nie podpisuje nim zapytań. Bez tego otwarta karta ze starym hasłem zużywałaby przy każdym pulsie limit złych podpisów konta. */
+let skrotNieaktualny = '';
+const ustawSkrot = (kod, skrot) => { skrotPamiec = { kod, skrot }; skrotNieaktualny = ''; };
+const skrotSesji = kod => skrotPamiec && skrotPamiec.kod === kod ? skrotPamiec.skrot : '';
+const zapomnijSkrot = () => { skrotPamiec = null; imieSesji = ''; };
+/* imię z odpowiedzi logowania: tylko na czas sesji (podpowiedź w „Moje dane” przy pierwszym logowaniu); na dysku jawnie go nie trzymamy */
+const ustawImie = imie => { imieSesji = String(imie || '').trim(); };
+export const imieZSerwera = () => imieSesji;
 export const kodAktywny = () => stan().kod || '';
 export const skrotAktywny = () => skrotSesji(stan().kod || '');      // skrót hasła zalogowanego konta (tylko na czas sesji) — klucz do pliku z danymi z programu (js/przeniesienie.js)
 export const ostatniKod = () => stan().ostatni || '';
 export const status = () => stan().status;
+/* POSTAĆ HASŁA jak na serwerze: backend przycina odstępy, a telefon porównuje po ostatnich 9 cyfrach. Z tej postaci liczymy skrót sesji (= „Haslo hash”) i klucz sejfu —
+   inaczej hasło wklejone ze spacją albo telefon wpisany raz „600 100 200”, raz „600100200” dawały zły podpis hasłem i „obcy” sejf. */
+export const postacHasla = h => String(h || '').trim();
+const postacTelefonu = h => String(h || '').replace(/\D/g, '').slice(-9);
+/** Postaci, którymi mógł być zaszyfrowany sejf: przycięta, telefon (gdy tekst wygląda na numer) i surowy tekst (sejf założony przed ujednoliceniem). */
+const postaciSejfu = h => { const t = postacHasla(h), w = [t]; if (/^\+?[\d\s()-]+$/.test(t) && postacTelefonu(t).length === 9) w.push(postacTelefonu(t)); w.push(String(h || '')); return w; };
+/** Otwiera sejf pierwszą pasującą postacią; inna niż `docelowa` od razu przepisuje sejf na docelową (następne logowanie trafi za pierwszym razem). */
+async function otworzSejfPostacia(kod, postaci, docelowa) {
+  for (const p of [...new Set(postaci)]) {
+    const dek = await sejf.otworzSejf(kod, p); if (!dek) continue;
+    if (docelowa && p !== docelowa) { try { await sejf.przepiszSejf(kod, dek, docelowa); } catch (e) { /* zostaje dawna postać; przepisze się przy następnym logowaniu */ } }
+    return dek;
+  }
+  return null;
+}
 /** Czy to hasło jest znane na tym urządzeniu (autologowanie): konto z sejfem — próba otwarcia sejfu (PBKDF2, ok. 0,3 s); konto sprzed sejfu — dawny skrót. */
 export const czyHasloZnane = async (kod, haslo) => {
-  if (sejf.maSejf(kod)) return !!(await sejf.otworzSejf(kod, haslo));
-  const k = stan().konta[kod]; return !!(k && k.skrot && k.skrot === await skrotHasla(kod, haslo));
+  if (sejf.maSejf(kod)) return !!(await otworzSejfPostacia(kod, postaciSejfu(haslo), null));
+  const k = stan().konta[kod]; return !!(k && k.skrot && (k.skrot === await skrotHasla(kod, postacHasla(haslo)) || k.skrot === await skrotHasla(kod, String(haslo || ''))));
 };
 
 function zapiszKonto(kod, pola) {
@@ -165,7 +218,7 @@ function aktywuj(kod, imie, skrot) {
   const d = stan();
   if (d.kod !== kod) for (const p of OSOBISTE) delete d.status[p];     // nowe konto nie dziedziczy cudzych danych
   const k = d.konta[kod] || {};
-  delete d.status.status; delete d.status.wazne_do; delete k.wazne_do;      // logowanie online = świeży kontakt; ważność odświeży zaraz puls
+  delete d.status.status; delete d.status.wazne_do; delete k.wazne_do;      // logowanie online = świeży kontakt; ważność odświeży zaraz puls (k.zablokowane zdejmie dopiero puls „ok” — samo logowanie nie sprawdza ważności)
   ustawSkrot(kod, skrot); ustawImie(imie); k.kontakt = teraz();      // skrót hasła i imię tylko na czas sesji (imię wraca w wyniku logowania); dawny zapis znika po utworzeniu sejfu (przygotujSejf)
   d.konta[kod] = k; d.kod = kod; d.ostatni = kod; d.status.dokumenty_sesja = 0; d.status.plany_sesja = 0; zapisz(d);
 }
@@ -174,7 +227,7 @@ function aktywuj(kod, imie, skrot) {
 export function ocenaSesji() {
   const d = stan(), kod = d.kod; if (!kod) return { wazna: false, powod: 'brak' };
   const k = d.konta[kod] || {}, st = d.status || {};
-  if (st.status === 'wygasla') return { wazna: false, dni: 0, powod: 'wygasla' };
+  if (st.status === 'wygasla' || k.zablokowane) return { wazna: false, dni: 0, powod: 'wygasla' };
   // zablokowane w arkuszu konto nie może żyć w nieskończoność na danych z pamięci: po OFFLINE_DNI bez kontaktu z serwerem trzeba go odnowić
   if (k.kontakt && (teraz() - k.kontakt) / 86400000 > OFFLINE_DNI) return { wazna: false, dni: 0, powod: 'offline' };
   const wd = String(st.wazne_do || k.wazne_do || '');
@@ -189,16 +242,14 @@ export function ocenaSesji() {
 const offlineDozwolone = k => !k || !k.kontakt || (teraz() - k.kontakt) / 86400000 <= OFFLINE_DNI;
 
 /* ---------- logowanie ---------- */
-/* SESJA KARTY: jak w programie na komputerze, logowanie jest wymagane przy KAŻDYM uruchomieniu (nowa karta, ponowne otwarcie przeglądarki), a nie „na zawsze” po pierwszym razie.
-   Odświeżenie tej samej karty (F5) logowania nie powtarza — znacznik leży w sessionStorage, który ginie z kartą. Hasło znane na urządzeniu loguje potem od razu (autologowanie). */
-const KLUCZ_KARTY = 'pmt-web-sesja-karty';
-const pamiecKarty = (() => { try { sessionStorage.setItem('__p', '1'); sessionStorage.removeItem('__p'); return true; } catch (e) { return false; } })();
-const oznaczKarte = kod => { try { sessionStorage.setItem(KLUCZ_KARTY, kod); } catch (e) { /* bez pamięci karty logowanie nie będzie pamiętane do odświeżenia */ } };
-const odznaczKarte = () => { try { sessionStorage.removeItem(KLUCZ_KARTY); } catch (e) { /* jak wyżej */ } };
-export const sesjaTejKarty = () => { const kod = stan().kod; if (!kod) return false; if (!pamiecKarty) return true; try { return sessionStorage.getItem(KLUCZ_KARTY) === kod; } catch (e) { return true; } };
+/* SESJA KARTY: jak w programie na komputerze, logowanie jest wymagane przy KAŻDYM uruchomieniu (nowa karta, ponowne otwarcie przeglądarki, przywrócona karta), a nie „na zawsze”
+   po pierwszym razie. Odświeżenie tej samej karty (F5) logowania nie powtarza — znacznik przechodzi przez krótkie przekazanie przy przeładowaniu (wyżej). Hasło znane na urządzeniu loguje potem od razu (autologowanie). */
+const oznaczKarte = kod => { kartaPamiec = kod; };
+const odznaczKarte = () => { kartaPamiec = ''; };
+export const sesjaTejKarty = () => { const kod = stan().kod; return !!kod && kartaPamiec === kod; };
 const jestKod = k => /^\d{5}$/.test(k);
 export async function zaloguj(kod, haslo) {
-  kod = String(kod || '').trim(); haslo = String(haslo || '');
+  const wpisane = String(haslo || ''); kod = String(kod || '').trim(); haslo = postacHasla(wpisane);
   if (!jestKod(kod)) return { ok: false, komunikat: 'Login to dokładnie 5 cyfr.' };
   if (haslo.length < 4) return { ok: false, komunikat: 'Podaj hasło (lub numer telefonu).' };
   let odp;
@@ -208,12 +259,13 @@ export async function zaloguj(kod, haslo) {
     // bez sieci: porównanie skrótu z zapisanym przy poprzednim udanym logowaniu tego konta
     const k = stan().konta[kod], skrot = await skrotHasla(kod, haslo);
     // konto z sejfem: hasło sprawdza otwarcie sejfu (zwraca też klucz danych); konto sprzed sejfu: dawny skrót (po zalogowaniu powstanie sejf)
-    const dek = sejf.maSejf(kod) ? await sejf.otworzSejf(kod, haslo) : null, znane = sejf.maSejf(kod) ? !!dek : !!(k && k.skrot === skrot);
+    const dek = sejf.maSejf(kod) ? await otworzSejfPostacia(kod, postaciSejfu(wpisane), null) : null, znane = sejf.maSejf(kod) ? !!dek : !!(k && (k.skrot === skrot || k.skrot === await skrotHasla(kod, wpisane)));
     if (k && znane) {
+      if (k.zablokowane) return { ok: false, komunikat: 'Dostęp do tego konta wygasł — skontaktuj się z administratorem. Po przedłużeniu zaloguj się raz z internetem.' };
       if (!offlineDozwolone(k)) return { ok: false, komunikat: `Minęło ponad ${OFFLINE_DNI} dni od ostatniego kontaktu z serwerem. Połącz się z internetem i zaloguj raz online — potem znów zadziała logowanie bez zasięgu.` };
       const d = stan(); if (d.kod !== kod) for (const p of OSOBISTE) delete d.status[p];
       d.kod = kod; d.ostatni = kod; zapisz(d); oznaczKarte(kod); ustawSkrot(kod, skrot);
-      return { ok: true, imie: '', offline: true, dek };      // imienia nie trzymamy na dysku jawnie (jest w zaszyfrowanym profilu)
+      return { ok: true, imie: '', offline: true, dek, haslo, wpisane };      // imienia nie trzymamy na dysku jawnie (jest w zaszyfrowanym profilu)
     }
     return { ok: false, komunikat: b.message };
   }
@@ -231,7 +283,8 @@ export async function zaloguj(kod, haslo) {
   oznaczKarte(kod);
   zdarzenieSesji('logowanie');
   const cyfry = haslo.replace(/[\s+-]/g, '');
-  return { ok: true, imie: String(odp.imie || ''), telefon: /^\d{9,}$/.test(cyfry) && !(stan().konta[kod] || {}).maHaslo };   // logowanie telefonem = konto bez hasła
+  const telefon = odp.przez ? odp.przez === 'telefon' : /^\d{9,}$/.test(cyfry) && !(stan().konta[kod] || {}).maHaslo;   // logowanie telefonem = konto bez hasła (starszy backend nie mówi „przez”: zgadujemy po treści)
+  return { ok: true, imie: String(odp.imie || ''), telefon, haslo: telefon ? postacTelefonu(haslo) : haslo, wpisane };      // haslo = postać do sejfu (telefon zawsze jako 9 cyfr), wpisane = tekst z pola
 }
 
 export function wyloguj() {
@@ -243,6 +296,7 @@ export function wyloguj() {
 /** Zapomina konto na tym urządzeniu: login, skrót hasła do wejścia bez sieci i ostatni status (bez tego nie da się wejść bez internetu, a okno logowania nie podpowiada loginu). */
 export function zapomnijKonto(kod) {
   const d = stan(); if (d.kod === kod) { zdarzenieSesji('wylogowanie', true); delete d.kod; for (const p of OSOBISTE) delete d.status[p]; odznaczKarte(); }
+  if (d.status.kod === kod) { delete d.status.kod; delete d.status.ostatnia_synchronizacja; }
   delete d.konta[kod]; if (d.ostatni === kod) delete d.ostatni; zapisz(d); zapomnijSkrot(); sejf.zapomnijKlucz(); sejf.usunSejf(kod);
 }
 
@@ -250,20 +304,20 @@ export function zapomnijKonto(kod) {
 export const kluczDanych = () => sejf.odczytajKlucz();
 /** Po zalogowaniu: otwiera sejf konta tym hasłem albo (pierwsze logowanie na tym urządzeniu) zakłada go. Zwraca { stan: 'ok', dek } albo { stan: 'obcy' } — sejf istnieje, ale to hasło go nie otwiera
  *  (hasło zmieniono na innym urządzeniu albo zresetowano). Konto sprzed sejfu traci wtedy dawny zapis skrótu hasła z dysku. */
-export async function przygotujSejf(kod, haslo) {
-  let dek, nowy = false;
-  if (sejf.maSejf(kod)) { dek = await sejf.otworzSejf(kod, haslo); if (!dek) return { stan: 'obcy' }; } else { dek = await sejf.utworzSejf(kod, haslo); nowy = true; }
+export async function przygotujSejf(kod, haslo, wpisane = haslo) {
+  let dek, nowy = false; haslo = postacHasla(haslo);
+  if (sejf.maSejf(kod)) { dek = await otworzSejfPostacia(kod, [haslo, ...postaciSejfu(wpisane)], haslo); if (!dek) return { stan: 'obcy' }; } else { dek = await sejf.utworzSejf(kod, haslo); nowy = true; }
   sejf.zapamietajKlucz(dek);
   const d = stan(), k = d.konta[kod]; if (k) { delete k.skrot; delete k.imie; } for (const f of ['imie', 'rejon', 'nieobecnosci']) delete d.status[f]; zapisz(d);      // sprzątanie po wersji sprzed szyfrowania: skrót hasła, imię, rejon i nieobecności nie leżą już jawnie na dysku
   return { stan: 'ok', dek, nowy };
 }
 /** Sejf zaszyfrowany POPRZEDNIM hasłem: poprzednie hasło odblokowuje go i przepisuje pod bieżące. null = to hasło nie pasuje. */
 export async function odzyskajSejf(kod, stareHaslo, noweHaslo) {
-  const dek = await sejf.otworzSejf(kod, stareHaslo); if (!dek) return null;
-  await sejf.przepiszSejf(kod, dek, noweHaslo); sejf.zapamietajKlucz(dek); return dek;
+  const dek = await otworzSejfPostacia(kod, postaciSejfu(stareHaslo), null); if (!dek) return null;
+  await sejf.przepiszSejf(kod, dek, postacHasla(noweHaslo)); sejf.zapamietajKlucz(dek); return dek;
 }
 /** „Zacznij od nowa”: stary sejf (i dane) znikają, powstaje nowy pod bieżącym hasłem. Dane z urządzenia kasuje wołający (magazyn). */
-export async function nowySejf(kod, haslo) { sejf.usunSejf(kod); const dek = await sejf.utworzSejf(kod, haslo); sejf.zapamietajKlucz(dek); return dek; }
+export async function nowySejf(kod, haslo) { sejf.usunSejf(kod); const dek = await sejf.utworzSejf(kod, postacHasla(haslo)); sejf.zapamietajKlucz(dek); return dek; }
 export const zapamietajKluczDanych = dek => sejf.zapamietajKlucz(dek);
 
 /* ---------- puls i sesja ---------- */
@@ -276,7 +330,10 @@ export function dopiszMinuty() {
 }
 export function uruchomienie() { const d = stan(); d.kolejka.uruchomienia += 1; zapisz(d); startSesji = teraz(); }
 
-export async function puls() {
+/* jeden puls naraz: drugi wołający (logowanie i koniec startu, interwał i powrót karty) dostaje tę samą odpowiedź, inaczej serwer dopisałby tę samą kolejkę przyrostów dwa razy */
+let pulsWToku = null;
+export const puls = () => pulsWToku || (pulsWToku = pulsWlasciwy().finally(() => { pulsWToku = null; }));
+async function pulsWlasciwy() {
   const d0 = stan(), kod = d0.kod; if (!kod) return null;
   dopiszMinuty();
   const q = stan().kolejka;
@@ -288,8 +345,10 @@ export async function puls() {
   if (d.kod !== kod) return null;                                    // w międzyczasie ktoś się wylogował
   d.kolejka = { uruchomienia: Math.max(0, d.kolejka.uruchomienia - q.uruchomienia), dokumenty: Math.max(0, d.kolejka.dokumenty - q.dokumenty), minuty: Math.max(0, d.kolejka.minuty - q.minuty) };
   const pelne = odp.pelne !== false;      // false: serwer nie rozpoznał podpisu hasłem i oddał tylko status i datę — zapamiętanych danych nie nadpisujemy pustymi
+  if (!pelne && skrotSesji(kod)) skrotNieaktualny = kod;      // podpisany, a nieprzyjęty (powtórka z czasem serwera już była w wyslij): dalej bez podpisu hasłem
   Object.assign(d.status, { kod, status: odp.status, wazne_do: odp.wazne_do || '', ostatnia_synchronizacja: dzis() });      // imię, rejon i nieobecności (L4) odpowiedzi nie są zapisywane: aplikacja ich nie używa, a nie ma po co trzymać ich jawnie na dysku
-  const k = d.konta[kod] || {}; k.kontakt = teraz();
+  /* odebrany dostęp zapisujemy przy koncie (poza OSOBISTE), żeby przeżył wylogowanie — bez tego logowanie bez sieci działałoby jeszcze OFFLINE_DNI; blokada nie odnawia też okna pracy bez sieci */
+  const k = d.konta[kod] || {}; if (odp.status === 'ok') { k.kontakt = teraz(); delete k.zablokowane; } else k.zablokowane = true;
   if (odp.wazne_do) k.wazne_do = odp.wazne_do; else delete k.wazne_do;
   d.konta[kod] = k; zapisz(d);
   return odp;

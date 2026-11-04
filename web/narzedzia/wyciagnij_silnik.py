@@ -18,6 +18,7 @@ ROOTY = [
     # generowanie tras i dokumentów
     "generuj_trasy", "generuj_pdfy", "generuj_mape_html", "dni_delegacji_z_planu", "slad_dnia", "PrzerwanoGenerowanie",
     "pobierz_coords", "nazwa_do_pliku", "tekst_stawki", "kilometry_dokumentu", "opis_przejazdow", "uprzatnij_poprzedni_komplet",
+    "zeruj_zrodlo_odleglosci", "stan_zrodla_odleglosci",      # most.py oddaje aplikacji stan źródła odległości (na dokumencie go nie ma, w oknie tak) — nie mogą zależeć od tego, czy PDF go drukuje
     # planer wizyt
     "planuj_wizyty", "planuj_cyklicznie", "przeplanuj_zalegle", "zalegle_wizyty", "cykl_dla_punktu", "generuj_mape_planu_html",
     # walidacje
@@ -26,7 +27,7 @@ ROOTY = [
     "Miasto", "RawEtap", "Etap", "DzienTrasy", "DanePracownika", "PunktWizyty", "DzienPlanu", "MIESIACE_PL",
     "oblicz_dystans", "dystans_drogowy", "coords_z_miasta", "zaladuj_baze",
     # import listy sklepów i planer: odpowiedniki PlanerWizytThread / _wczytaj_pozycje_z_pliku
-    "_dopasuj_kolumny", "_wiersz_na_adres", "NAGLOWKI_KOLUMN", "_klucz_geo", "_geo_cache", "_norm_miasto", "_zbuduj_indeks_miast",
+    "_dopasuj_kolumny", "_wiersz_na_adres", "_wiersze_csv", "NAGLOWKI_KOLUMN", "_klucz_geo", "_geo_cache", "_norm_miasto", "_zbuduj_indeks_miast",
     "zapisz_geo_cache", "_czas_przejazdu_min", "_dyst_prosty", "PLAN_CZAS_WIZYTY_MIN", "PLAN_SREDNIA_PREDKOSC_KMH", "GODZINA_STARTU_WIECZOR",
     "STAWKA_ZA_KM", "MAX_KWOTA_DOKUMENTU", "MAX_KWOTA_DNIA", "MAX_ETAPOW_DOKUMENTU", "MIN_KWOTA",
 ]

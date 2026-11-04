@@ -484,7 +484,7 @@ P._zapisz_logowanie(_kod_o, "Jan Testowy", P._hash_hasla(_kod_o, _haslo_o))
 P._zapamietaj_waznosc_konta(_kod_o, (datetime.date.today() + datetime.timedelta(days=200)).isoformat())
 _hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
 sprawdz("historia urządzenia pamięta ważność konta PER KONTO",
-        bool(_hist.get("wazne_do")) and bool(_hist.get("skrot")), str(_hist))
+        bool(_hist.get("wazne_do")) and bool(_hist.get("weryfikator")), str(_hist))
 P._zapisz_logowanie(_kod_o, "", P._hash_hasla(_kod_o, _haslo_o))
 _hist = P._wczytaj(P.PLIK_LOGOWAN, {}).get(_kod_o, {})
 sprawdz("ponowne logowanie nie kasuje ważności ani imienia w historii",
@@ -1053,24 +1053,166 @@ _yml3b = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encodi
 _poczatek3b = _yml3b.index("OPIS=${OPIS:-")
 _koniec3b = _yml3b.index('echo "--- wersja.txt po zapisie ---"')
 _skrypt3b = _yml3b[_poczatek3b:_koniec3b]
-sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie=",
-        all(("'^%s='" % k) in _skrypt3b and ('"$%s"' % z) in _skrypt3b
-            for k, z in (("min", "MIN"), ("blokada", "BLOKADA"), ("web", "WEB"), ("wygaszenie", "WYGASZENIE"))))
+sprawdz("build.yml: podbicie wersja.txt zachowuje min=, blokada=, web= i wygaszenie= — każde wystąpienie, bez względu na wielkość liter i wcięcie",
+        "grep -iE '^[[:space:]]*(min|blokada|web|wygaszenie)[[:space:]]*='" in _skrypt3b)
 _bash3b = shutil.which("bash")
 if _bash3b:
     import subprocess as _sp3b
-    _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
-    with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
-        _f3b.write(_PLIK3b.replace("3.25.1", "3.24.0").replace("\n", "\r\n").encode("utf-8"))
-    _wynik3b = _sp3b.run([_bash3b, "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b + "\ncat wersja.txt"],
-                         cwd=_kat3b, capture_output=True, timeout=30)
-    _po3b = open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8")
+
+    def _podbij3b(tresc):
+        _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_ci_")
+        try:
+            with open(os.path.join(_kat3b, "wersja.txt"), "wb") as _f3b:
+                _f3b.write(tresc.replace("\n", "\r\n").encode("utf-8"))
+            _w3b = _sp3b.run([_bash3b, "-e", "-c", 'NUMER=3.25.1; OPIS="Nowy opis."\n' + _skrypt3b],
+                             cwd=_kat3b, capture_output=True, timeout=30)
+            return (_w3b.returncode, open(os.path.join(_kat3b, "wersja.txt"), "rb").read().decode("utf-8"),
+                    (_w3b.stdout + _w3b.stderr).decode("utf-8", "replace"))
+        finally:
+            shutil.rmtree(_kat3b, ignore_errors=True)
+
+    def _czytaj3b(tresc):
+        _zeruj_przejscie3b()
+        P._czytaj_wymagania_z_tekstu(tresc)
+        return (P.WERSJA_WYMAGANA, P.TERMIN_BLOKADY, P.ADRES_WEB, P.TERMIN_WYGASZENIA)
+
+    _kod3b, _po3b, _log3b = _podbij3b(_PLIK3b.replace("3.25.1", "3.24.0"))
     _wiersze3b = [l for l in _po3b.replace("\r\n", "\n").split("\n") if l]
     sprawdz("build.yml (uruchomiony w bashu na próbnym pliku): nowy numer i opis, a wiersze min=, blokada=, web=, wygaszenie= zostają, końce wierszy CRLF",
-            _wynik3b.returncode == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
+            _kod3b == 0 and _wiersze3b[:2] == ["3.25.1", "Nowy opis."]
             and _wiersze3b[2:] == ["min=3.24.0", "blokada=2099-12-01", "web=" + _ADRES3b, "wygaszenie=2099-12-20"]
-            and _po3b.count("\r\n") == len(_wiersze3b), repr(_po3b) + _wynik3b.stderr.decode()[:200])
-    shutil.rmtree(_kat3b, ignore_errors=True)
+            and _po3b.count("\r\n") == len(_wiersze3b) and "::warning::" not in _log3b, repr(_po3b) + _log3b[:200])
+    # Program czyta wiersze kluczowe pobłażliwie (strip, lower, ostatnie wygrywa) —
+    # bot musi zostawić wszystko, co program respektuje. Do 3.25.0 brał tylko
+    # pierwsze „^min=”: wcięte wiersze z wyjścia przygotuj_przejscie.py znikały
+    # po cichu, a przy powtórce wracała stara data wygaszenia.
+    _proby3b = {
+        "wcięte jak w wyjściu przygotuj_przejscie.py":
+            "3.24.0\nOpis.\n    min=3.24.0\n    blokada=2099-12-01\n    web=%s\n    wygaszenie=2099-12-20\n" % _ADRES3b,
+        "wielkie litery, spacje wokół „=” i powtórzone web=/wygaszenie=":
+            "3.24.0\nOpis.\nMin = 3.24.0\n\tBLOKADA=2099-12-01  \nweb=%s\nwygaszenie=2099-11-30\nweb=%s\nwygaszenie=2099-12-20\n"
+            % (_ADRES3b, _ADRES3b),
+    }
+    for _nazwa3b, _tresc3b in _proby3b.items():
+        _kod3b, _po3b, _log3b = _podbij3b(_tresc3b)
+        _przed3b, _po_odczyt3b = _czytaj3b(_tresc3b), _czytaj3b(_po3b)
+        sprawdz("build.yml (bash): po podbiciu program czyta min=, blokada=, web= i wygaszenie= tak samo jak przed — " + _nazwa3b,
+                _kod3b == 0 and _po3b.startswith("3.25.1\r\nNowy opis.\r\n")
+                and _przed3b == _po_odczyt3b == ("3.24.0", "2099-12-01", _ADRES3b, "2099-12-20")
+                and (("::warning::" in _log3b and "wygaszenie" in _log3b) == ("powtórzone" in _nazwa3b)),
+                "%r -> %r %s" % (_przed3b, _po_odczyt3b, _log3b[:200]))
+    _zeruj_przejscie3b()
+    # „Re-run failed jobs” po HAMULCU AWARYJNYM (ręczne cofnięcie pierwszej linii
+    # wersja.txt) nie może po cichu wpisać numeru z powrotem
+    # (tylko poza Windows: bash z WSL nie widzi git ani podstawionego gh z PATH Windows;
+    # CI, które zatrzymuje wydanie, biegnie na Linuksie)
+    _git3b = shutil.which("git") if os.name != "nt" else None
+    _a3b, _b3b = _yml3b.index("OBECNA=$(head -n1 wersja.txt"), _yml3b.index("# Program szuka paczki przez releases/latest")
+    _przed_opisem3b = _yml3b[_a3b:_b3b]
+    if _git3b:
+        def _rerun3b(historia, numer):
+            _kat3b = tempfile.mkdtemp(prefix="pmt_wersja_git_")
+            try:
+                _g3b = lambda *a: _sp3b.run([_git3b, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                                             "-C", _kat3b] + list(a), capture_output=True, timeout=30)
+                _g3b("init", "-q")
+                for _tresc3b, _opis_c3b in historia:
+                    with open(os.path.join(_kat3b, "wersja.txt"), "w", encoding="utf-8", newline="\r\n") as _f3b:
+                        _f3b.write(_tresc3b)
+                    _g3b("add", "wersja.txt")
+                    _g3b("commit", "-q", "-m", _opis_c3b)
+                _w3b = _sp3b.run([_bash3b, "-e", "-c", "NUMER=%s\n" % numer + _przed_opisem3b + "\necho DALEJ"],
+                                 cwd=_kat3b, capture_output=True, timeout=30)
+                return _w3b.returncode, _w3b.stdout.decode("utf-8", "replace")
+            finally:
+                shutil.rmtree(_kat3b, ignore_errors=True)
+        _hist3b = [("3.25.0\nStary opis.\nmin=3.25.0\n", "wydanie 3.25.0"),
+                   ("3.25.1\nNowy opis.\nmin=3.25.0\n", "wersja.txt -> 3.25.1 [skip ci]")]
+        _hamulec3b = _rerun3b(_hist3b + [("3.25.0\nNowy opis.\nmin=3.25.0\n", "Update wersja.txt")], "3.25.1")
+        _drugi3b = _rerun3b(_hist3b, "3.25.1")
+        _nowy_nr3b = _rerun3b(_hist3b, "3.25.2")
+        _starszy3b = _rerun3b(_hist3b, "3.24.9")
+        sprawdz("build.yml (bash + git): ponowny przebieg po hamulcu awaryjnym NIE wpisuje numeru z powrotem (::warning::), drugi przebieg nic nie zmienia, nowy numer idzie dalej, starszy nie cofa",
+                _hamulec3b[0] == 0 and "::warning::" in _hamulec3b[1] and "DALEJ" not in _hamulec3b[1]
+                and _drugi3b[0] == 0 and "DALEJ" not in _drugi3b[1] and "::warning::" not in _drugi3b[1]
+                and _nowy_nr3b == (0, "DALEJ\n")
+                and _starszy3b[0] == 0 and "nowszy numer" in _starszy3b[1] and "DALEJ" not in _starszy3b[1],
+                repr((_hamulec3b, _drugi3b, _nowy_nr3b, _starszy3b)))
+    # program pobiera paczkę z releases/latest — numer dla wydania pre-release albo
+    # bez „Latest” to pętla „poprzednia paczka” u wszystkich
+    _c3b = _yml3b.index("# Program szuka paczki przez releases/latest")
+    _latest3b = _yml3b[_c3b:_yml3b.index("OPIS=$(gh release view", _c3b)]
+    if os.name != "nt":
+        _katgh3b = tempfile.mkdtemp(prefix="pmt_wersja_gh_")
+        try:
+            with open(os.path.join(_katgh3b, "gh"), "w", encoding="utf-8", newline="\n") as _f3b:
+                _f3b.write('#!/bin/sh\n[ "$1 $2" = "api repos/wlasciciel/repo/releases/latest" ] || exit 2\n'
+                           '[ -n "$NAJNOWSZE_PROBA" ] || { echo "HTTP 404" >&2; exit 1; }\necho "$NAJNOWSZE_PROBA"\n')
+            os.chmod(os.path.join(_katgh3b, "gh"), 0o755)
+
+            def _latest_proba3b(najnowsze):
+                _env3b = dict(os.environ, PATH=_katgh3b + os.pathsep + os.environ.get("PATH", ""),
+                              NAJNOWSZE_PROBA=najnowsze, GITHUB_REPOSITORY="wlasciciel/repo", TAG="v3.25.1")
+                _w3b = _sp3b.run([_bash3b, "-e", "-c", _latest3b + "\necho DALEJ"], env=_env3b,
+                                 capture_output=True, timeout=30)
+                return _w3b.returncode, _w3b.stdout.decode("utf-8", "replace")
+            _l_ok3b, _l_inne3b, _l_brak3b = _latest_proba3b("v3.25.1"), _latest_proba3b("v3.25.0"), _latest_proba3b("")
+            sprawdz("build.yml (bash): wersja.txt idzie dalej tylko dla wydania „Latest” — pre-release / bez „Latest” / błąd API zatrzymuje podbicie (::error::)",
+                    _l_ok3b == (0, "DALEJ\n")
+                    and _l_inne3b[0] != 0 and "::error::" in _l_inne3b[1] and "DALEJ" not in _l_inne3b[1]
+                    and _l_brak3b[0] != 0 and "::error::" in _l_brak3b[1] and "DALEJ" not in _l_brak3b[1],
+                    repr((_l_ok3b, _l_inne3b, _l_brak3b)))
+        finally:
+            shutil.rmtree(_katgh3b, ignore_errors=True)
+    # kroki „Dołącz do wydania” (zamiast zewnętrznej akcji z tokenem do zapisu): wydanie z tagu bez wydania
+    # dostaje je z „--verify-tag”, paczki idą z --clobber, brak paczek = czerwony job, Windows nie idzie drugi raz
+    def _dolacz_skrypt3b(nr):
+        _i3b = -1
+        for _ in range(nr + 1):
+            _i3b = _yml3b.index("- name: Dołącz do wydania", _i3b + 1)
+        _linie3b = []
+        for _l3b in _yml3b[_yml3b.index("run: |", _i3b):].split("\n")[1:]:
+            if _l3b.strip() and not _l3b.startswith(" " * 10):
+                break
+            _linie3b.append(_l3b[10:])
+        return "\n".join(_linie3b)
+    if os.name != "nt":
+        _katd3b = tempfile.mkdtemp(prefix="pmt_dolacz_gh_")
+        try:
+            with open(os.path.join(_katd3b, "gh"), "w", encoding="utf-8", newline="\n") as _f3b:
+                _f3b.write('#!/bin/sh\necho "$*" >> "$GH_LOG"\n'
+                           'if [ "$1 $2" = "release view" ] && [ -z "$WYDANIE_JEST" ]; then exit 1; fi\nexit 0\n')
+            os.chmod(os.path.join(_katd3b, "gh"), 0o755)
+
+            def _dolacz3b(nr, pliki, jest=True):
+                _kp3b = tempfile.mkdtemp(prefix="pmt_dolacz_")
+                try:
+                    for _p3b in pliki:
+                        open(os.path.join(_kp3b, _p3b), "w").close()
+                    _log3b = os.path.join(_kp3b, "gh.log")
+                    _env3b = dict(os.environ, PATH=_katd3b + os.pathsep + os.environ.get("PATH", ""), GH_LOG=_log3b,
+                                  WYDANIE_JEST="1" if jest else "", TAG="v3.25.1", GH_TOKEN="x", GH_REPO="wlasciciel/repo")
+                    _w3b = _sp3b.run([_bash3b, "-c", _dolacz_skrypt3b(nr)], cwd=_kp3b, env=_env3b, capture_output=True, timeout=30)
+                    _wyw3b = open(_log3b, encoding="utf-8").read().splitlines() if os.path.exists(_log3b) else []
+                    return _w3b.returncode, _wyw3b, _w3b.stdout.decode("utf-8", "replace")
+                finally:
+                    shutil.rmtree(_kp3b, ignore_errors=True)
+            _W3b = "PMT_Planer.Windows.zip"
+            _w_jest3b, _w_brak3b, _w_bez3b = _dolacz3b(0, [_W3b]), _dolacz3b(0, [_W3b], jest=False), _dolacz3b(0, [])
+            sprawdz("build.yml (bash): „Dołącz do wydania” Windows — wydanie jest → upload --clobber; brak wydania → create --verify-tag + upload; brak paczki → ::error::",
+                    _w_jest3b[0] == 0 and _w_jest3b[1] == ["release view v3.25.1", "release upload v3.25.1 %s --clobber" % _W3b]
+                    and _w_brak3b[0] == 0 and len(_w_brak3b[1]) == 3 and _w_brak3b[1][1].startswith("release create v3.25.1 --verify-tag")
+                    and _w_brak3b[1][2] == "release upload v3.25.1 %s --clobber" % _W3b
+                    and _w_bez3b[0] != 0 and "::error::" in _w_bez3b[2] and not _w_bez3b[1],
+                    repr((_w_jest3b, _w_brak3b, _w_bez3b)))
+            _p0, _p1, _p2 = _dolacz3b(1, [_W3b]), _dolacz3b(1, ["PMT_Planer_Linux.zip"]), _dolacz3b(1, [_W3b, "PMT_Planer_Linux.zip", "PMT_Planer_macOS.zip"])
+            sprawdz("build.yml (bash): „Dołącz do wydania” macOS/Linux — 0 paczek → ::error::, jedna → 1 upload, dwie → 2 uploady, Windows nigdy drugi raz",
+                    _p0[0] != 0 and "::error::" in _p0[2] and not _p0[1]
+                    and _p1[0] == 0 and _p1[1] == ["release upload v3.25.1 PMT_Planer_Linux.zip --clobber"]
+                    and _p2[0] == 0 and len(_p2[1]) == 2 and all(x.endswith("--clobber") and _W3b not in x for x in _p2[1]),
+                    repr((_p0, _p1, _p2)))
+        finally:
+            shutil.rmtree(_katd3b, ignore_errors=True)
 
 # ── teksty i okno przy starcie ──
 _zeruj_przejscie3b()
@@ -2011,6 +2153,9 @@ try:
     # Puls nigdy nie sprawdzał hasła: znajomość samego 5-cyfrowego kodu dawała cudze imię, rejon i L4.
     # Teraz program podpisuje puls i sesję HMAC-iem, którego kluczem jest skrót hasła z tego komputera
     # (backend zna ten sam skrót z kolumny „Haslo hash”). Hasło nigdzie nie jedzie.
+    # Od 3.25.1 skrót żyje w pamięci od logowania (_SKROTY_SESJI); tu nowy proces z plikiem
+    # historii zapisanym przez starszą wersję (skrót wprost na dysku).
+    P._SKROTY_SESJI.clear()
     _skrot5 = P._hash_hasla("12345", "haslo123")
     P._zapisz(P.PLIK_LOGOWAN, {"12345": {"imie": "Jan Testowy", "skrot": _skrot5, "ostatnio": "2026-10-28T10:00:00"}})
     _dp5 = P._podpisz_zadanie({"akcja": "puls", "kod": "12345"})
@@ -2786,19 +2931,21 @@ if not SZYBKO:
             abs(sum(x["kwota"] for x in _pods) - sum(d.suma for d in _dni)) <= 0.02,
             "%.2f vs %.2f" % (sum(x["kwota"] for x in _pods), sum(d.suma for d in _dni)))
 
-    # ŹRÓDŁO ODLEGŁOŚCI NA DOKUMENCIE. Testy liczą bez sieci, więc stanem
-    # jest szacunek — i dokument ma to mówić wprost, a nie milczeć.
+    # ŹRÓDŁO ODLEGŁOŚCI NIE STOI NA DOKUMENCIE. Testy liczą bez sieci, więc stanem
+    # jest szacunek — program to wie (okno, komunikat), ale ani delegacja, ani
+    # rozliczenie nie drukują o tym słowa („Odległości: szacunek” na górze
+    # dokumentu nie może się pojawić — decyzja właściciela po testach).
     _stan_pdf = P.stan_zrodla_odleglosci()
-    sprawdz("stan źródła odległości po zbudowaniu tras to szacunek (testy bez sieci)",
+    sprawdz("stan źródła odległości po zbudowaniu tras to szacunek (testy bez sieci) — program go zna",
             _stan_pdf["stan"] == P.ZRODLO_SZACUNEK, str(_stan_pdf))
     _delegacje = [x for x in _pliki if "rozliczenie" not in os.path.basename(x).lower()]
-    _bez_zrodla = [os.path.basename(x) for x in _delegacje
-                   if not _w_pdf(x, "Odległości: szacunek")]
-    sprawdz("każde polecenie wyjazdu odnotowuje źródło odległości",
-            _delegacje and not _bez_zrodla, str(_bez_zrodla))
+    _ze_zrodlem = [os.path.basename(x) for x in _delegacje
+                   if _w_pdf(x, "Odległości") or _w_pdf(x, "szacunek") or _w_pdf(x, "realne drogi")]
+    sprawdz("żadne polecenie wyjazdu nie ma dopisku o źródle odległości (szacunek / drogi)",
+            _delegacje and not _ze_zrodlem, str(_ze_zrodlem))
     _zbiorcze = [x for x in _pliki if "rozliczenie" in os.path.basename(x).lower()]
-    sprawdz("rozliczenie zbiorcze odnotowuje źródło odległości",
-            _zbiorcze and _w_pdf(_zbiorcze[0], "szacunek"),
+    sprawdz("rozliczenie zbiorcze też nie ma dopisku o źródle odległości",
+            _zbiorcze and not (_w_pdf(_zbiorcze[0], "Odległości") or _w_pdf(_zbiorcze[0], "szacunek")),
             str([os.path.basename(x) for x in _zbiorcze]))
 
     # ten sam stan na podglądzie tras
@@ -2806,10 +2953,10 @@ if not SZYBKO:
     P.generuj_mape_html(_dni, _prac, "październik", _rok, _folder_z, True)
     with open(os.path.join(_folder_z, "Trasy_Mapa.html"), encoding="utf-8") as _f:
         _html_z = _f.read()
-    sprawdz("podgląd tras pokazuje stan źródła odległości",
-            "Odległości: szacunek" in _html_z)
+    sprawdz("raport tras (HTML) też nie drukuje źródła odległości",
+            "Odległości" not in _html_z and "szacunek" not in _html_z)
 
-    # z pamięci podręcznej dokument mówi co innego — i mówi prawdę
+    # niezależnie od źródła (też drogi z pamięci) dokument milczy o odległościach
     _stan_udawany = {"stan": P.ZRODLO_PAMIEC, "etykieta": "drogi z pamięci",
                      "odcinki": 5, "realne": True}
     _folder_r = os.path.join(_TMP_HOME, "pdf_realne")
@@ -2817,9 +2964,9 @@ if not SZYBKO:
                    zrodlo=_stan_udawany)
     _pl_r = [x for x in sorted(glob.glob(os.path.join(_folder_r, "*.pdf")))
              if "rozliczenie" not in os.path.basename(x).lower()]
-    sprawdz("przy realnych drogach dokument nie mówi „szacunek”",
-            _pl_r and _w_pdf(_pl_r[0], "Odległości: drogi z pamięci")
-            and not _w_pdf(_pl_r[0], "szacunek"),
+    sprawdz("przy drogach z pamięci dokument też nie ma dopisku („Odległości”, „szacunek”, „drogi z pamięci”)",
+            _pl_r and not _w_pdf(_pl_r[0], "Odległości") and not _w_pdf(_pl_r[0], "szacunek")
+            and not _w_pdf(_pl_r[0], "drogi z pamięci"),
             str([os.path.basename(x) for x in _pl_r]))
 
     # ── KILOMETRY I STAWKA NA DOKUMENCIE ──────────────────────────
@@ -2877,13 +3024,9 @@ if not SZYBKO:
                      if _pdf7.get_string_width(P.opis_przejazdow(w["kwota"], _stawka)) > 140.0 - 2.0]
     _najszerszy7 = max(_pdf7.get_string_width(P.opis_przejazdow(k, s))
                        for k in (986.34, 999.99, 1234.56) for s in (0.60, 0.89, 1.15, 0.8935))
-    _pdf7.set_font("Arial", "", 7)
-    _etykiety7 = max(_pdf7.get_string_width("Odległości: %s" % e) for e in P.ETYKIETY_ZRODLA.values())
     sprawdz("rubryka „(1) Przejazdy” (140 mm) mieści opis z kilometrami i stawką",
             not _za_szerokie7 and _najszerszy7 <= 138.0,
             "%s / najszerszy %.1f mm" % (_za_szerokie7[:2], _najszerszy7))
-    sprawdz("rubryka źródła odległości (70 mm) mieści każdą etykietę",
-            _etykiety7 <= 68.0, "%.1f mm" % _etykiety7)
 
     # ── PUSTY LICZNIK ODCINKÓW: BEZ ZAPEWNIENIA ───────────────────
     # stan_zrodla_odleglosci() przy zerowym liczniku mówiło „realne drogi"
@@ -4060,6 +4203,45 @@ if _PW is not None:
                 _pliki_tylko9 == [] and "bez podpisu: 5" in _tylko9, repr(_tylko9))
     except Exception as _e:
         sprawdz("okno wysyłki pokazuje liczbę dokumentów bez podpisu", False, repr(_e))
+
+    # PDF podpisany na gov.pl ma często nazwę oryginału. Szukanie po samej
+    # nazwie trafiało najpierw na niepodpisany oryginał w folderze wyniku.
+    if _PS is not None:
+        try:
+            _s9n = os.path.join(_S9, "ta_sama_nazwa", "Rozliczenie_Jan_Kowalski_Lipiec_2026r")
+            _s9n_pob = os.path.join(_S9, "ta_sama_nazwa", "Pobrane")
+            os.makedirs(_s9n)
+            os.makedirs(_s9n_pob)
+            _s9n_nazwa = "delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf"
+            with open(os.path.join(_s9n, _s9n_nazwa), "wb") as _f:
+                _f.write(b"%PDF-1.4 NIEPODPISANY\n" + b"x" * 100)
+            _s9n_paczka, _ = _PS.przygotuj_paczke(_s9n)
+            _s9n_man = _PS.sciezka_manifestu(_s9n_paczka)
+            _s9n_od = time.time() - 1
+            with open(os.path.join(_s9n_pob, _s9n_nazwa), "wb") as _f:
+                _f.write(b"%PDF-1.4 PODPISANY PAdES\n" + b"y" * 300)
+            _s9n_wyn = [w for w in _PS.znajdz_podpisane(_s9n_man, [_s9n_pob, _s9n_paczka], _s9n_od)
+                        if w.get("decyzja") == "przyjmij"]
+            _s9n_cel = os.path.join(_s9n_paczka, "Podpisane")
+            os.makedirs(_s9n_cel)
+            for _w in _s9n_wyn:
+                shutil.copy2(_w["sciezka"], os.path.join(_s9n_cel, _s9n_nazwa))
+                _PS.oznacz_podpisany(_s9n_man, _w["plik"], dict(_w, podpisany_plik=_s9n_nazwa))
+            _s9n_z = _PW.zalaczniki(_s9n, tylko_podpisane=True)
+            _s9n_tresci = [open(_p, "rb").read(24) for _p in _s9n_z.pliki]
+            sprawdz("wysyłka „tylko podpisane”: podpisany PDF o nazwie oryginału idzie z Podpisane, nie oryginał",
+                    len(_s9n_wyn) == 1 and len(_s9n_tresci) == 1
+                    and _s9n_tresci[0].startswith(b"%PDF-1.4 PODPISANY")
+                    and _s9n_z.niepodpisane == 0,
+                    str((len(_s9n_wyn), _s9n_tresci, _s9n_z.niepodpisane)))
+            # do Podpisane trafiła kopia bez podpisu (suma oryginału)
+            shutil.copy2(os.path.join(_s9n, _s9n_nazwa), os.path.join(_s9n_cel, _s9n_nazwa))
+            _s9n_z = _PW.zalaczniki(_s9n, tylko_podpisane=True)
+            sprawdz("wysyłka „tylko podpisane”: plik w Podpisane o sumie oryginału nie uchodzi za podpisany",
+                    _s9n_z.pliki == [] and _s9n_z.niepodpisane == 1,
+                    str(([os.path.basename(_p) for _p in _s9n_z.pliki], _s9n_z.niepodpisane)))
+        except Exception as _e:
+            sprawdz("wysyłka „tylko podpisane” przy podpisanym PDF o nazwie oryginału", False, repr(_e))
 
 # ── etykieta wydania a czysty numer wersji ────────────────────────
 # testy_pmt.py robi int() na członach numeru POZA blokiem obsługi wyjątków —
@@ -7604,6 +7786,29 @@ try:
     import wersja_pomocnik as _WP21
     sprawdz("zbuduj.py i wersja_pomocnik.py czytają numer z PMT_Delegacje.py — ten sam",
             _ZB21.wersja_zrodla() == P.WERSJA_PROGRAMU == _WP21.wersja_zrodla(KATALOG))
+    # job „wersja” w build.yml wycina numer sedem — zachłanne „.*” brało OSTATNI
+    # napis w cudzysłowie w wierszu, więc komentarz z cudzysłowem dawał wersja.txt
+    # inny numer niż w paczce
+    _numer21 = [l.strip() for l in open(os.path.join(KATALOG, ".github", "workflows", "build.yml"),
+                                        encoding="utf-8").read().splitlines()
+                if l.strip().startswith("NUMER=$(grep -m1 -E '^WERSJA_PROGRAMU")]
+    sprawdz("build.yml: jeden wiersz wycinający NUMER w jobie „wersja”", len(_numer21) == 1, str(_numer21))
+    _bash21 = shutil.which("bash") if os.name != "nt" else None     # (bash z WSL nie czyta ścieżek Windows)
+    if _bash21 and len(_numer21) == 1:
+        import subprocess as _sp21
+        _wyc21 = []
+        for _zr_wiersz21 in (None, 'WERSJA_PROGRAMU = "3.26.0"   # poprzednio "3.25.1", "x"\r\n'):
+            _plik_n21 = os.path.join(_kat21, "zrodlo_numer.py")
+            if _zr_wiersz21 is None:
+                shutil.copy(os.path.join(KATALOG, "PMT_Delegacje.py"), _plik_n21)
+            else:
+                with open(_plik_n21, "w", encoding="utf-8", newline="") as _f21:
+                    _f21.write("import os\n" + _zr_wiersz21)
+            _r21 = _sp21.run([_bash21, "-c", 'TMP_SRC="$1"\n' + _numer21[0] + '\nprintf %s "$NUMER"', "x", _plik_n21],
+                             capture_output=True, timeout=30)
+            _wyc21.append(_r21.stdout.decode("utf-8", "replace"))
+        sprawdz("build.yml (bash): job „wersja” bierze numer jak zbuduj.py — pierwszy napis w cudzysłowie, nie ostatni z komentarza",
+                _wyc21 == [P.WERSJA_PROGRAMU, "3.26.0"], str(_wyc21))
     _stale21 = []
     for _plik21, _wzor21 in (("START_TUTAJ.txt", "PMT PLANER %s"),
                              ("WYDANIE.txt", "PMT PLANER %s"),
@@ -7635,8 +7840,9 @@ try:
             and "mozesz podac numer telefonu" not in _zh21)
     _rh21 = _gs21.split("function resetHasla(")[1].split("\nfunction ")[0]
     _zd21 = _gs21.split("function _zaDuzoProb(")[1].split("\nfunction ")[0]
-    sprawdz("backend: reset hasła liczy próby w CacheService (na kod i łącznie) i loguje KAŻDĄ próbę",
-            "_zaDuzoProb(" in _rh21 and "CacheService" in _zd21
+    _li21 = _gs21.split("function _licznik(")[1].split("\nfunction ")[0]
+    sprawdz("backend: reset hasła liczy próby w CacheService (na kod i łącznie, okno stałe) i loguje KAŻDĄ próbę",
+            "_zaDuzoProb(" in _rh21 and "_licznik(" in _zd21 and "CacheService" in _li21
             and _rh21.count('_log(ss, kod, "reset_hasla"') >= 5
             and "RESET_PROB_NA_KOD_NA_GODZINE" in _rh21 and "RESET_PROB_LACZNIE_NA_GODZINE" in _rh21)
     sprawdz("backend: puls oddaje tylko nieobecności pytającego i osób, które zastępuje",
@@ -7685,15 +7891,71 @@ try:
     # wersja.txt — inaczej „test" ogłosiłby aktualizację 65 osobom.
     _byml21 = open(os.path.join(KATALOG, ".github", "workflows", "build.yml"), encoding="utf-8").read()
     _tag21 = "startsWith(github.ref, 'refs/tags/')"
-    _win21 = _byml21.split("\n  pozostale:")[0]
-    _poz21 = _byml21.split("\n  pozostale:")[1].split("\n  wersja:")[0]
+    _joby21 = re.split(r"^  ([a-z_]+):[ \t]*$", _byml21.split("\njobs:\n", 1)[1], flags=re.M)
+    _kod21 = {_n21: "\n".join(l for l in _t21.splitlines() if not l.strip().startswith("#"))
+              for _n21, _t21 in zip(_joby21[1::2], _joby21[2::2])}
+    _jobif21 = lambda n: re.search(r"^    if: " + re.escape(_tag21) + "$", _kod21.get(n, ""), re.M) is not None
     sprawdz("budowanie testowe: paczka Windows idzie do Artifacts, a do wydania tylko z tagu",
-            re.search(r"name: Dołącz do wydania\n\s+if: " + re.escape(_tag21), _win21) is not None
+            re.search(r"name: Przekaż paczkę do wydania\n\s+if: " + re.escape(_tag21)
+                      + r"\n\s+uses: actions/upload-artifact@", _kod21.get("windows", "")) is not None
             and re.search(r"name: Paczka testowa[^\n]*\n\s+if: \$\{\{ !" + re.escape(_tag21)
-                          + r" \}\}\n\s+uses: actions/upload-artifact@", _win21) is not None)
+                          + r" \}\}\n\s+uses: actions/upload-artifact@", _kod21.get("windows", "")) is not None
+            and _jobif21("wydanie_windows"), str(sorted(_kod21)))
     sprawdz("budowanie testowe nie buduje macOS/Linux i nie podbija wersja.txt — tylko tag",
-            re.search(r"\n    if: " + re.escape(_tag21) + r"\n", _poz21) is not None
-            and _tag21 in _byml21.split("\n  wersja:")[1].split("steps:")[0])
+            _jobif21("pozostale")
+            and all(_tag21 in _kod21.get(n, "").split("steps:")[0] for n in ("wydanie_pozostale", "wersja")))
+    # Do 3.25.0 contents: write miał CAŁY workflow, a checkout zostawiał token
+    # w .git/config — kod z PyPI (pip install, fontTools ze źródeł) mógł nim
+    # wypchnąć na main updater.bat, który programy pobierają i uruchamiają.
+    _pisza21 = sorted(n for n, t in _kod21.items() if re.search(r"^\s+contents: write\s*$", t, re.M))
+    _pip21 = sorted(n for n, t in _kod21.items() if "pip install" in t)
+    sprawdz("build.yml: workflow ma domyślnie tylko odczyt, contents: write mają wyłącznie joby wydania i wersja",
+            re.search(r"^permissions:\n  contents: read\n", _byml21, re.M) is not None
+            and "contents: write" not in _byml21.split("\njobs:\n")[0]
+            and _pisza21 == ["wersja", "wydanie_pozostale", "wydanie_windows"], str(_pisza21))
+    sprawdz("build.yml: joby instalujące z PyPI nie zostawiają tokenu w .git/config, a joby z zapisem niczego nie instalują",
+            _pip21 == ["pozostale", "windows"]
+            and all(_kod21[n].count("actions/checkout@") == _kod21[n].count("persist-credentials: false") == 1
+                    for n in _pip21)
+            and not any(re.search(r"pip |requirements\.txt|setup-python|zbuduj\.py", _kod21[n]) for n in _pisza21)
+            and all(u.startswith("actions/") for n in _pisza21
+                    for u in re.findall(r"uses: *(\S+)", _kod21[n])), str(_pip21))
+    sprawdz("build.yml: paczki dołącza „gh release upload” (bez zewnętrznej akcji z tokenem), macOS/Linux dopiero po Windows",
+            "softprops/" not in "".join(_kod21.values())
+            and all("gh release upload" in _kod21.get(n, "") for n in ("wydanie_windows", "wydanie_pozostale"))
+            and re.search(r"^    needs: \[wydanie_windows, pozostale\]$", _kod21.get("wydanie_pozostale", ""), re.M)
+            is not None)
+    sprawdz("build.yml: „Cancel workflow” zatrzymuje wydanie — joby wydania i wersja mają !cancelled(), nigdzie always()",
+            "always()" not in "".join(_kod21.values())
+            and all(re.search(r"^    if: \$\{\{ !cancelled\(\) && needs\.wydanie_windows\.result == 'success' && "
+                              + re.escape(_tag21) + r" \}\}$", _kod21.get(n, ""), re.M)
+                    for n in ("wydanie_pozostale", "wersja")))
+    _tyml21 = open(os.path.join(KATALOG, ".github", "workflows", "testy.yml"), encoding="utf-8").read()
+    sprawdz("testy.yml: token tylko do odczytu i bez zapisanych poświadczeń (pip uruchamia kod z PyPI)",
+            re.search(r"^permissions:\n  contents: read\n", _tyml21, re.M) is not None
+            and "persist-credentials: false" in _tyml21 and "contents: write" not in _tyml21)
+    # testy.yml nie startuje dla tagu, a build.yml do 3.25.0 nie czekał na testy —
+    # commit wypchnięty prosto na main szedł do zespołu, zanim testy zdążyły paść
+    sprawdz("build.yml: paczka z tagu powstaje dopiero po zielonych testach (testy.yml przez workflow_call), budowanie ręczne bez zmian",
+            re.search(r"^    uses: \./\.github/workflows/testy\.yml$", _kod21.get("testy", ""), re.M) is not None
+            and _jobif21("testy") and re.search(r"^    needs: testy$", _kod21.get("windows", ""), re.M) is not None
+            and ("if: ${{ !cancelled() && (needs.testy.result == 'success' || !%s) }}" % _tag21) in _kod21.get("windows", "")
+            and re.search(r"^  workflow_call:", _tyml21, re.M) is not None)
+    # filtr „paths” w testy.yml: do 3.25.0 lista plików pomijała moduły z paczki
+    # i build.yml — ich zmiana wypchnięta na main nie uruchamiała testów wcale
+    _wzorce21 = re.findall(r'^      - "([^"]+)"$', _tyml21.split("\n    paths:\n")[1].split("\n  pull_request:")[0], re.M) \
+        if "\n    paths:\n" in _tyml21 else []
+    _rx21 = [re.compile("^" + re.escape(w).replace(r"\*\*", ".*").replace(r"\*", "[^/]*") + "$") for w in _wzorce21]
+    _pilnowane21 = [f.replace(os.sep, "/") for f in _ZB21.WYMAGANE] + [
+        ".github/workflows/build.yml", ".github/workflows/testy.yml", "testy_pmt.py", "zbuduj.py",
+        "wersja_pomocnik.py", "przygotuj_przejscie.py", "wersja.txt", "wersja_exe.txt", "requirements.txt",
+        "PRZEJSCIE_NA_WEB.txt", "WYDANIE.txt", "README.md", "apps_script_POPRAWIONY_v2.gs", ".gitignore",
+        "URUCHOM_PROGRAM.bat", "updater.bat", "updater.sh", "pmt_logo_retro.png", "pmt_logo_retro.ico"]
+    _bez21 = [f for f in _pilnowane21 if not any(r.match(f) for r in _rx21)]
+    _martwe21 = [w for w in _wzorce21 if "*" not in w and not os.path.exists(os.path.join(KATALOG, w))]
+    sprawdz("testy.yml: zmiana każdego modułu z paczki, build.yml i plików sprawdzanych przez testy uruchamia testy (filtr paths), bez martwych wpisów",
+            _wzorce21 and not _bez21 and not _martwe21 and not any(r.match("web/js/app.js") for r in _rx21),
+            "poza filtrem: %s, nie ma: %s" % (_bez21, _martwe21))
     sprawdz("nie ma już ZABEZPIECZENIA_BACKEND.txt (kazał włączyć podpis dla wszystkich — odcinało telefon)",
             not os.path.exists(os.path.join(KATALOG, "ZABEZPIECZENIA_BACKEND.txt"))
             and "ZABEZPIECZENIA_BACKEND" not in open(os.path.join(KATALOG, "PMT_Delegacje.py"),
@@ -8219,12 +8481,13 @@ try:
                 and len({d["dokument"] for d in _dk23}) == 2
                 and _dk23[0]["start"] == "07:00" and _dk23[0]["koniec"] == "09:40",
                 str(_dk23))
-        sprawdz("suma dni = suma kompletu = suma tras co do grosza; km dni sumują się do km z rubryki „Przejazdy”; etykieta źródła z PDF-u",
+        sprawdz("suma dni = suma kompletu = suma tras co do grosza; km dni sumują się do km z rubryki „Przejazdy”; PDF milczy o źródle odległości (dawne dokumenty z dopiskiem nadal się czytają)",
                 abs(sum(d["kwota"] for d in _dk23) - _suma_m1) < 0.005
                 and abs(float(_lk23["kwota"]) - _suma_m1) < 0.005
                 and _lk23["km"] is not None
                 and abs(sum(d["km"] for d in _dk23) - _lk23["km"]) <= 0.1 * len(_dk23)
-                and _lk23["odleglosci"] == "szacunek",
+                and _lk23["odleglosci"] == ""
+                and _PD23._etykieta_odleglosci(["Odległości: szacunek"]) == "szacunek",
                 str((sum(d["kwota"] for d in _dk23), _suma_m1, _lk23)))
         _kwoty_zle = ["Radom", "02.03.2026r", "07:00", "Iłża", "02.03.2026r", "07:40", "samochód osobowy", "10.00",
                       "Suma wydatków", "99.00"]
@@ -8421,7 +8684,7 @@ try:
                 and _okno23.taca.miesiace.aktywny() == _m1
                 and _okno23.taca.l_sciezka.text().startswith("%s %d · " % (P.MIESIACE_PL[_m1[1] - 1], _m1[0]))
                 and _okno23.taca.l_folder.toolTip() == _folder23(*_m1)
-                and _okno23.taca.k_km._opis == "SZACUNEK",
+                and _okno23.taca.k_km._opis == "KILOMETRY",      # dokumenty nie mówią o źródle odległości, więc kafel ma zwykły podpis
                 str((_okno23._taca_widoczna, _okno23._folder_tacy(), len(_okno23.taca.dni),
                      _okno23.taca.k_kwota._cel, _okno23.taca.k_km._cel, _okno23.taca.miesiace.miesiace(),
                      _okno23.taca.l_sciezka.text(), _okno23.taca.k_km._opis)))
@@ -11835,6 +12098,710 @@ except Exception as _e32:
     sprawdz("skala ekranu, powrót jedną wstęgą, tabliczki jak znaki", False, repr(_e32))
     import traceback as _tb32
     _tb32.print_exc()
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("33. Silnik po przeglądzie: plan wizyt, kalendarz, adres, PESEL (program i warstwa web)")
+# Warstwa web (web/silnik/most.py + wyciągnięty silnik) chodzi tu w tym samym procesie: sieć jest odcięta
+# tak samo jak dla programu (ten sam moduł urllib.request), a atrapy serwera podstawiamy i przywracamy.
+_M33 = _S33 = None
+try:
+    sys.path.insert(0, os.path.join(KATALOG, "web", "silnik"))
+    import most as _M33
+    _S33 = _M33.S
+except Exception as _e33:
+    sprawdz("warstwa web (most.py + pmt_silnik.py) daje się zaimportować", False, repr(_e33))
+finally:
+    sys.path.remove(os.path.join(KATALOG, "web", "silnik"))
+
+
+class _Odp33:
+    def __init__(self, tresc):
+        self._tresc = tresc
+    def read(self, *a):
+        return self._tresc
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+if _M33 is not None:
+    # plan wizyt: miejscowość spoza bazy offline NIE dostaje współrzędnych Warszawy (zastępczej stolicy województwa)
+    _poz33 = [{"adres": "Słowackiego 200, 80-298 Rębiechowo", "siec": "Żabka", "miasto": ""},
+              {"adres": "Długa 1, 80-001 Gdańsk", "siec": "Biedronka", "miasto": ""}]
+    _wiz33 = lambda w: [(x["nazwa"], x["lat"], x["lng"]) for m in w["miesiace"] for d in m["dni"] for x in d["wizyty"]]
+    try:
+        _S33._geo_cache.clear(); _S33._geo_pytane.clear(); _S33._geo_braki = {}
+        sprawdz("plan wizyt: Rębiechowa nie ma w bazie offline (warunek testu)", _S33.coords_z_miasta("Rębiechowo") is None)
+        for _siec33 in (False, True):
+            _w33 = _M33.plan_generuj({"pozycje": _poz33, "siec": _siec33, "adres_bazy": "Długa 5, 80-001 Gdańsk",
+                                      "rok": 2026, "miesiac": 12, "od_daty": "2026-12-01"})
+            sprawdz("plan wizyt (%s): sklep z miejscowości spoza bazy trafia do „bez lokalizacji”, a nie do Warszawy"
+                    % ("offline" if not _siec33 else "sieć pada"),
+                    _w33["bez_pozycji"] == ["Żabka — Rębiechowo"] and _w33["ile_bez_pozycji"] == 1
+                    and _wiz33(_w33) == [("Biedronka — Gdańsk", 54.35, 18.65)], str((_w33["bez_pozycji"], _wiz33(_w33))))
+        sprawdz("plan wizyt: nieudane geokodowanie nie zostawia Warszawy w indeksie miast na resztę sesji",
+                _S33._zbuduj_indeks_miast().get(_S33._norm_miasto("Rębiechowo")) is None)
+        sprawdz("plan wizyt: punkt startowy spoza bazy bez odpowiedzi serwera = brak bazy (środek trasy), nie Warszawa",
+                _M33._baza_planu("Słowackiego 200, 80-298 Rębiechowo") is None)
+        _url33 = _S33.urllib.request.urlopen
+        _S33.urllib.request.urlopen = lambda *a, **k: _Odp33(b'[{"lat": "54.3800", "lon": "18.5000"}]')
+        try:
+            _S33._geo_pytane.clear()
+            _w33 = _M33.plan_generuj({"pozycje": _poz33, "siec": True, "adres_bazy": "Długa 5, 80-001 Gdańsk",
+                                      "rok": 2026, "miesiac": 12, "od_daty": "2026-12-01"})
+            sprawdz("plan wizyt: gdy serwer zna miejscowość, sklep dostaje JEGO współrzędne",
+                    ("Żabka — Rębiechowo", 54.38, 18.5) in _wiz33(_w33) and not _w33["bez_pozycji"], str(_wiz33(_w33)))
+        finally:
+            _S33.urllib.request.urlopen = _url33
+            _S33._zbuduj_indeks_miast().pop(_S33._norm_miasto("Rębiechowo"), None)
+            _S33._geo_cache.clear(); _S33._geo_pytane.clear()
+    except Exception as _e33:
+        sprawdz("plan wizyt bez fikcyjnej Warszawy", False, repr(_e33))
+        import traceback as _tb33
+        _tb33.print_exc()
+
+# to samo w programie na komputerze (PlanerWizytThread.run wołany wprost, bez wątku)
+try:
+    P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = {}
+    _plan33 = []
+    _t33 = P.PlanerWizytThread([{"adres": "Słowackiego 200, 80-298 Rębiechowo", "siec": "Żabka", "miasto": ""},
+                                {"adres": "Długa 1, 80-001 Gdańsk", "siec": "Biedronka", "miasto": ""}],
+                               2026, 12, False, adres_bazy="Słowackiego 7, 80-298 Rębiechowo")
+    _t33.sukces.connect(_plan33.append)
+    _t33.blad.connect(_plan33.append)
+    _t33.run()
+    _p33 = _plan33[0] if _plan33 else {}
+    _wp33 = [(w.nazwa, w.lat, w.lng) for d in (_p33.get("dni") or []) for w in d.wizyty] if isinstance(_p33, dict) else _p33
+    sprawdz("program: plan wizyt nie przenosi sklepu ani bazy spoza bazy offline do Warszawy",
+            isinstance(_p33, dict) and [w.nazwa for w in _p33.get("bez_pozycji", [])] == ["Żabka — Rębiechowo"]
+            and _wp33 == [("Biedronka — Gdańsk", 54.35, 18.65)]
+            and P._zbuduj_indeks_miast().get(P._norm_miasto("Rębiechowo")) is None, str(_wp33))
+except Exception as _e33:
+    sprawdz("program: plan wizyt bez fikcyjnej Warszawy", False, repr(_e33))
+finally:
+    P._geo_cache.clear(); P._geo_pytane.clear(); P._geo_braki = None
+
+# sieć wraca po awarii: każde generowanie pyta OSRM i geokodowanie od nowa (worker karty żyje dniami, nie minuty)
+if _M33 is not None:
+    _stan33 = []
+    _zap33 = lambda *a, **k: _stan33.append((_S33._osrm_dostepny, _S33._google_dostepny, set(_S33._geo_pytane)))
+    _org33 = (_S33.pobierz_coords, _S33.generuj_trasy, _S33._menedzer, _S33.planuj_wizyty)
+    try:
+        _S33._osrm_dostepny = _S33._google_dostepny = False; _S33._geo_pytane.add("dluga 5, 26-600 radom")
+        _S33.pobierz_coords = lambda *a, **k: (_zap33(), (51.40, 21.15))[1]
+        _S33.generuj_trasy = lambda *a, **k: []
+        _S33._menedzer = lambda: "Jan Przełożony"
+        try:
+            _M33.generuj({"imie": "Jan Test", "pesel": "90010112349", "adres": "Długa 5, 26-600 Radom", "kwota": 500,
+                          "rok": 2026, "miesiac": 11, "tryb": "tydzien"})
+        except ValueError:
+            pass            # generuj_trasy-atrapa nie układa dni — chodzi tylko o stan sieci przed geokodowaniem bazy
+        _S33._osrm_dostepny = False; _S33._geo_pytane.add("dluga 5, 26-600 radom")
+        _S33.planuj_wizyty = lambda *a, **k: (_zap33(), {"miesiace": []})[1]
+        _M33.plan_generuj({"pozycje": [{"adres": "Długa 1, 26-600 Radom", "siec": "Żabka", "miasto": ""}], "siec": True,
+                           "adres_bazy": "", "rok": 2026, "miesiac": 12})
+        sprawdz("web: po awarii sieci kolejne generowanie i plan wizyt pytają OSRM i geokodowanie od nowa",
+                _stan33 == [(None, None, set()), (None, None, set())], str(_stan33))
+    except Exception as _e33:
+        sprawdz("web: ponowna próba sieci po awarii", False, repr(_e33))
+    finally:
+        _S33.pobierz_coords, _S33.generuj_trasy, _S33._menedzer, _S33.planuj_wizyty = _org33
+        _S33._osrm_dostepny = _S33._google_dostepny = None; _S33._geo_pytane.clear()
+
+_org33 = (P.pobierz_coords, P.log_error)
+try:
+    _stan33 = []
+    P.log_error = lambda *a: None       # atrapa rzuca celowo — bez logs/error.log obok programu
+    P._osrm_dostepny = P._google_dostepny = False; P._geo_pytane.add("dluga 5, 26-600 radom")
+    def _pc33(*a, **k):
+        _stan33.append((P._osrm_dostepny, P._google_dostepny, set(P._geo_pytane)))
+        raise RuntimeError("atrapa: dalej nie idziemy")
+    P.pobierz_coords = _pc33
+    _g33 = P.GeneratorThread({"adres_caly": "Długa 5, 26-600 Radom", "baza_miasto": "Radom", "woj": "mazowieckie"})
+    _g33.run()
+    sprawdz("program: po awarii sieci kolejne generowanie pyta OSRM i geokodowanie od nowa",
+            _stan33 == [(None, None, set())], str(_stan33))
+except Exception as _e33:
+    sprawdz("program: ponowna próba sieci po awarii", False, repr(_e33))
+finally:
+    P.pobierz_coords, P.log_error = _org33
+    P._osrm_dostepny = P._google_dostepny = None; P._geo_pytane.clear()
+
+# baza na wsi spoza bazy offline, bez sieci: poczta (gmina) z adresu zamiast stolicy województwa;
+# gdy i poczty nie ma w bazie — web odmawia generowania zamiast liczyć kilometry np. z Krakowa
+try:
+    P._geo_cache.pop(P._klucz_geo("Dębowa Wola, 26-660 Jedlińsk"), None)
+    sprawdz("bez sieci baza we wsi spoza bazy miast = jej poczta (Dębowa Wola → Jedlińsk), nie Warszawa",
+            P.coords_z_miasta("Dębowa Wola") is None and tuple(P.pobierz_coords("Dębowa Wola, 26-660 Jedlińsk", "Dębowa Wola",
+                                                                            "mazowieckie", zapisz_cache=False)) == (51.52, 21.11))
+    sprawdz("bez sieci poczta spoza bazy miast — jak dotąd stolica województwa (Frydrychowice → Kraków)",
+            tuple(P.pobierz_coords("Zielona 3, 34-108 Frydrychowice", "Frydrychowice", "małopolskie",
+                                   zapisz_cache=False)) == tuple(P.STOLICE["małopolskie"]))
+    P._geo_cache.pop(P._klucz_geo("Paszki Duże, 08-540 Stężyca"), None)
+    _st33 = tuple(P.pobierz_coords("Paszki Duże, 08-540 Stężyca", "Paszki Duże", "lubelskie", zapisz_cache=False))
+    sprawdz("bez sieci poczta o nazwie z dwóch województw — gmina z właściwego (Stężyca lubelska, nie kaszubska)",
+            P.oblicz_dystans(_st33[0], _st33[1], *P.STOLICE["lubelskie"]) < 150, str(_st33))
+    _jw33 = P.waliduj_adres("Józefów nad Wisłą 5, 24-340 Józefów nad Wisłą", "wies")
+    sprawdz("adres wiejski: nazwa wsi zapisana jak poczta (jeden zapis na dokumencie: „nad”, nie „Nad”)",
+            _jw33["adres_caly"] == "Józefów nad Wisłą 5, 24-340 Józefów nad Wisłą" and _jw33["baza_miasto"] == "Józefów nad Wisłą",
+            str((_jw33["adres_caly"], _jw33["baza_miasto"])))
+    import nowy_wyglad as _NW33
+    sprawdz("podgląd programu bierze bazę w tej samej kolejności (wieś → poczta → stolica)",
+            tuple(_NW33.wspolrzedne_bazy("Dębowa Wola", "Dębowa Wola, 26-660 Jedlińsk", "mazowieckie")) == (51.52, 21.11))
+except Exception as _e33:
+    sprawdz("baza we wsi bez sieci", False, repr(_e33))
+finally:
+    P._geo_pytane.clear()
+
+if _M33 is not None:
+    _baza33, _bl33 = [], []
+    _org33 = (_S33.generuj_trasy, _S33._menedzer)
+    try:
+        _S33._geo_cache.clear(); _S33._geo_braki = {}
+        _S33.generuj_trasy = lambda kw, bm, lat, lng, *a, **k: (_baza33.append((bm, lat, lng)), [])[1]
+        _S33._menedzer = lambda: "Jan Przełożony"
+        for _adr33 in ("Dębowa Wola 12, 26-660 Jedlińsk", "Zielona 3, 34-108 Frydrychowice"):
+            try:
+                _M33.generuj({"imie": "Jan Test", "pesel": "90010112349", "adres": _adr33, "wymus_typ": "wies" if "Dębowa" in _adr33 else "ulica",
+                              "kwota": 500, "rok": 2026, "miesiac": 11, "tryb": "tydzien"})
+            except ValueError as _e33:
+                _bl33.append(str(_e33))
+        sprawdz("web bez sieci: baza we wsi spoza bazy miast liczona z jej poczty (Jedlińsk), nie z Warszawy",
+                _baza33 == [("Dębowa Wola", 51.52, 21.11)], str(_baza33))
+        sprawdz("web bez sieci: adres, którego położenia nie da się ustalić, zatrzymuje generowanie czytelnym komunikatem (bez fikcyjnej bazy w stolicy)",
+                len(_bl33) == 2 and "ANI JEDNEGO" in _bl33[0] and "Nie udało się ustalić, gdzie leży adres" in _bl33[1]
+                and "Frydrychowice" in _bl33[1], str(_bl33))
+    except Exception as _e33:
+        sprawdz("web: baza we wsi bez sieci", False, repr(_e33))
+    finally:
+        _S33.generuj_trasy, _S33._menedzer = _org33
+        _S33._geo_pytane.clear(); _S33._geo_braki = None
+
+# plan wizyt: każdy dzień zaczyna się w bazie — limit dnia obejmuje dojazd z domu, a godziny w aplikacji mieszczą się w oknie
+if _M33 is not None:
+    try:
+        import random as _rnd33
+        _r33 = _rnd33.Random(7)
+        _pkt33 = [_S33.PunktWizyty("Sklep %d" % _i, "Sklep %d" % _i, lat=50.87 + _r33.uniform(-0.12, 0.12),
+                                   lng=20.63 + _r33.uniform(-0.18, 0.18), miasto="Kielce") for _i in range(60)]
+        _baza33 = _S33.PunktWizyty("Baza (start)", "Radom", lat=51.40, lng=21.15, miasto="Radom")
+        _S33.ustaw_tryb_pracy("wieczory")
+        _M33.USTAWIENIA_WEB["plan_godziny"] = 5.5
+        _pl33 = _S33.planuj_wizyty(_pkt33, 2026, 12, baza=_baza33, offline=True)
+        _cw33 = _S33.ustawienia_planowania()["czas_wizyty"]
+        _konce33 = []
+        for _d33 in _pl33["dni"]:
+            _g33 = _M33._godziny_dnia(_d33, _baza33, "wieczory")[-1]
+            _konce33.append(int(_g33[:2]) * 60 + int(_g33[3:]) + _cw33)
+        _dojazd33 = [round(_S33._dyst_prosty(_baza33, _d33.wizyty[0]), 1) for _d33 in _pl33["dni"]]
+        sprawdz("plan wizyt (wieczory 16:30–22:00, sklepy ok. 70 km od bazy): żaden dzień nie kończy się po 22:00",
+                len(_pl33["dni"]) > 3 and max(_konce33) <= 22 * 60, str([("%02d:%02d" % divmod(int(_k), 60)) for _k in _konce33]))
+        sprawdz("plan wizyt: km każdego dnia obejmują dojazd z bazy do pierwszej wizyty",
+                all(_d33.km >= _dj - 0.1 for _d33, _dj in zip(_pl33["dni"], _dojazd33)), str([(_d33.km, _dj) for _d33, _dj in zip(_pl33["dni"], _dojazd33)][:5]))
+        _plp33 = P.planuj_wizyty([P.PunktWizyty(_p.nazwa, _p.adres, lat=_p.lat, lng=_p.lng, miasto=_p.miasto) for _p in _pkt33], 2026, 12,
+                                 baza=P.PunktWizyty("Baza (start)", "Radom", lat=51.40, lng=21.15, miasto="Radom"), offline=True)
+        sprawdz("program: plan wizyt zaczyna każdy dzień w bazie (ten sam rachunek co web)",
+                [[_w.nazwa for _w in _d.wizyty] for _d in _plp33["dni"]][:3] != [] and
+                all(_d.km >= P._dyst_prosty(P.PunktWizyty("b", "", lat=51.40, lng=21.15), _d.wizyty[0]) - 0.1 for _d in _plp33["dni"]))
+    except Exception as _e33:
+        sprawdz("plan wizyt: dzień z bazy", False, repr(_e33))
+        import traceback as _tb33
+        _tb33.print_exc()
+    finally:
+        _M33.USTAWIENIA_WEB.pop("plan_godziny", None)
+        _S33.ustaw_tryb_pracy("tydzien")
+
+# import listy sklepów z CSV zapisanego przez polski Excel: cp1250 (domyślny „CSV”), UTF-8 z BOM, UTF-16 („Tekst Unicode”)
+_kat33 = tempfile.mkdtemp(prefix="pmt_csv33_")
+try:
+    _tresc33 = "Miasto;Ulica;Sieć\r\nŁódź;Piotrkowska 1;Żabka\r\nGdańsk;Długa 2;Biedronka\r\n"
+    _pliki33 = {}
+    for _nazwa33, _bajty33 in (("cp1250.csv", _tresc33.encode("cp1250")), ("utf8.csv", _tresc33.encode("utf-8-sig")),
+                               ("utf16.csv", _tresc33.replace(";", "\t").encode("utf-16"))):
+        _pliki33[_nazwa33] = os.path.join(_kat33, _nazwa33)
+        with open(_pliki33[_nazwa33], "wb") as _f33:
+            _f33.write(_bajty33)
+    _ocz33 = [["Miasto", "Ulica", "Sieć"], ["Łódź", "Piotrkowska 1", "Żabka"], ["Gdańsk", "Długa 2", "Biedronka"]]
+    sprawdz("program: CSV z polskiego Excela (cp1250, UTF-8 z BOM, UTF-16) wczytuje się z polskimi literami",
+            all(P._wiersze_csv(_s) == _ocz33 for _s in _pliki33.values()), str([P._wiersze_csv(_s)[:2] for _s in _pliki33.values()]))
+    if _M33 is not None:
+        _wyn33 = [_M33.plan_wczytaj({"sciezka": _s}) for _s in _pliki33.values()]
+        sprawdz("web: plan_wczytaj przyjmuje CSV w cp1250 / UTF-8 / UTF-16 (dawniej: błąd 'utf-8' codec can't decode)",
+                all(_w.get("ok") and _w["pozycje"] == [{"adres": "ul. Piotrkowska 1, Łódź", "siec": "Żabka", "miasto": "Łódź"},
+                                                       {"adres": "ul. Długa 2, Gdańsk", "siec": "Biedronka", "miasto": "Gdańsk"}]
+                    for _w in _wyn33), str(_wyn33[0]))
+except Exception as _e33:
+    sprawdz("import CSV w kodowaniach Excela", False, repr(_e33))
+finally:
+    shutil.rmtree(_kat33, ignore_errors=True)
+
+# grudzień: od 2025 r. (wolna Wigilia) trzy niedziele handlowe przed 24.12; wcześniej dwie
+try:
+    _gr33 = lambda M, r: [d for d in range(1, 32) if M.czy_niedziela_handlowa(datetime.date(r, 12, d))]
+    _ocz_gr33 = {2024: [15, 22], 2025: [7, 14, 21], 2026: [6, 13, 20], 2028: [3, 10, 17]}
+    sprawdz("grudniowe niedziele handlowe: 2024 — dwie, od 2025 — trzy przed wolną Wigilią (2028: Wigilia w niedzielę nie jest handlowa)",
+            all(_gr33(P, _r) == _o for _r, _o in _ocz_gr33.items()), str({_r: _gr33(P, _r) for _r in _ocz_gr33}))
+    if _S33 is not None:
+        _S33.ustaw_tryb_pracy("wieczory")
+        _ndz33 = [d.day for d in _S33.pobierz_dni_robocze(2026, 12) if d.weekday() == 6]
+        _S33.ustaw_tryb_pracy("tydzien")
+        sprawdz("web, tryb wieczorny: grudzień 2026 ma robocze niedziele 6, 13 i 20.12",
+                all(_gr33(_S33, _r) == _o for _r, _o in _ocz_gr33.items()) and _ndz33 == [6, 13, 20], str(_ndz33))
+except Exception as _e33:
+    sprawdz("grudniowe niedziele handlowe", False, repr(_e33))
+
+# województwo po kodzie: pogranicza, które dwie pierwsze cyfry przypisywały sąsiadowi
+_kody33 = {"08-500": "lubelskie", "08-530": "lubelskie", "08-400": "mazowieckie",         # Ryki, Dęblin / Garwolin
+           "38-300": "małopolskie", "38-340": "małopolskie", "38-400": "podkarpackie",    # Gorlice, Biecz / Krosno
+           "47-400": "śląskie", "47-200": "opolskie", "67-200": "dolnośląskie", "67-100": "lubuskie",
+           "89-400": "kujawsko-pomorskie", "89-300": "wielkopolskie", "89-500": "kujawsko-pomorskie",
+           "89-600": "pomorskie", "96-300": "mazowieckie", "96-500": "mazowieckie", "96-100": "łódzkie"}
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _zle33 = [(k, _M.rozpoznaj_wojewodztwo(k)) for k, w in _kody33.items() if _M.rozpoznaj_wojewodztwo(k) != w]
+    sprawdz("%s: kody z pogranicza (Ryki, Gorlice, Racibórz, Głogów, Sępólno, Wyrzysk, Żyrardów, Sochaczew) w swoich województwach"
+            % ("program" if _M is P else "web"), not _zle33, str(_zle33))
+
+# adres na dokumencie: capitalize() nie psuje członów po łączniku ani liczb rzymskich; wpis małymi literami jak dotąd
+_adr33 = {"ul. Jana Pawła II 12, 43-300 Bielsko-Biała": ("ul. Jana Pawła II 12, 43-300 Bielsko-Biała", "Bielsko-Biała"),
+          "Grota-Roweckiego 5/3, 26-110 Skarżysko-Kamienna": ("Grota-Roweckiego 5/3, 26-110 Skarżysko-Kamienna", "Skarżysko-Kamienna"),
+          "al. Jana III Sobieskiego 3, 47-200 Kędzierzyn-Koźle": ("al. Jana III Sobieskiego 3, 47-200 Kędzierzyn-Koźle", "Kędzierzyn-Koźle"),
+          "ul. Kwiatowa 5, 89-100 Nakło nad Notecią": ("ul. Kwiatowa 5, 89-100 Nakło nad Notecią", "Nakło nad Notecią"),
+          "UL. LIPOWA 3, 26-600 RADOM": ("ul. Lipowa 3, 26-600 Radom", "Radom"),
+          # dotychczasowe wyniki bez zmian
+          "ul. 3-go Maja 5, 26-600 Radom": ("ul. 3-go Maja 5, 26-600 Radom", "Radom"),
+          "ul. 1000-lecia 3, 26-600 radom": ("ul. 1000-lecia 3, 26-600 Radom", "Radom"),
+          "ul. cyryla i metodego 4, 00-001 warszawa": ("ul. Cyryla I Metodego 4, 00-001 Warszawa", "Warszawa"),
+          "ul. Lilii 2, 26-600 Radom": ("ul. Lilii 2, 26-600 Radom", "Radom"),
+          "ul. Pod Lipami 3, 26-600 Radom": ("ul. Pod Lipami 3, 26-600 Radom", "Radom"),
+          "bielsko-biała 5, 43-300 bielsko-biała": ("Bielsko-biała 5, 43-300 Bielsko-biała", "Bielsko-biała")}
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _zle33 = [(k, (_a["adres_caly"], _a["baza_miasto"])) for k, w in _adr33.items()
+              for _a in [_M.waliduj_adres(k)] if (_a["adres_caly"], _a["baza_miasto"]) != w]
+    sprawdz("%s: adres na dokumencie — „Bielsko-Biała”, „Jana Pawła II”, „Nakło nad Notecią”; wpis małymi literami jak dotąd"
+            % ("program" if _M is P else "web"), not _zle33, str(_zle33))
+
+# PESEL: poza sumą kontrolną także data urodzenia — ale ŻADEN prawdziwy numer (1800–2299, 29.02 w latach przestępnych) nie odpada
+def _z_kontrolna33(p10):
+    return p10 + str((10 - sum(int(p10[i]) * w for i, w in enumerate([1, 3, 7, 9, 1, 3, 7, 9, 1, 3])) % 10) % 10)
+def _pesel33(rok, mies, dzien, seria="0001"):
+    return _z_kontrolna33("%02d%02d%02d%s" % (rok % 100, mies + {18: 80, 19: 0, 20: 20, 21: 40, 22: 60}[rok // 100], dzien, seria))
+_dobre33, _d33 = [], datetime.date(1800, 1, 1)
+while _d33 <= datetime.date(2299, 12, 31):
+    _dobre33.append(_pesel33(_d33.year, _d33.month, _d33.day, "%04d" % (_d33.toordinal() % 10000)))
+    _d33 += datetime.timedelta(days=1)
+_zle33 = [_pesel33(1999, 2, 29), _pesel33(1900, 2, 29), _pesel33(2100, 2, 29), _pesel33(1990, 4, 31), _pesel33(1990, 1, 32),
+          _pesel33(1990, 1, 0), "00000000000", "12345678903"]
+_zle33 += [_z_kontrolna33("90%02d010000" % _mm) for _mm in (0, 13, 20, 33, 40, 53, 60, 73, 80, 93, 99)]   # miesiące poza 01–12 (+20/+40/+60/+80)
+for _M in (P, _S33):
+    if _M is None:
+        continue
+    _odrzucone33 = [p for p in _dobre33 if not _M.waliduj_pesel(p)]
+    _przepuszczone33 = [p for p in _zle33 if _M.waliduj_pesel(p)]
+    sprawdz("%s: PESEL z niemożliwą datą odpada (00000000000, miesiąc 34, 29.02.1999), a każdy z lat 1800–2299 przechodzi (90010112349 też)"
+            % ("program" if _M is P else "web"),
+            not _odrzucone33 and not _przepuszczone33 and _M.waliduj_pesel("90010112349") and len(_dobre33) > 182000,
+            str((_odrzucone33[:3], _przepuszczone33[:3])))
+_node33 = shutil.which("node")
+if _node33:
+    try:
+        _js33 = open(os.path.join(KATALOG, "web", "js", "aplikacja.js"), encoding="utf-8").read()
+        _i33 = _js33.index("const peselPoprawny = p => {")
+        _skr33 = os.path.join(_TMP_HOME, "pesel33.js")
+        with open(_skr33, "w", encoding="utf-8") as _f:
+            _f.write(_js33[_i33:_js33.index("\n};", _i33) + 3] + "\nconst d = JSON.parse(require('fs').readFileSync(0, 'utf8'));\n"
+                     "process.stdout.write(JSON.stringify({dobre: d.dobre.filter(p => !peselPoprawny(p)), zle: d.zle.filter(p => peselPoprawny(p))}));\n")
+        import subprocess as _sp33
+        _w33 = json.loads(_sp33.run([_node33, _skr33], input=json.dumps({"dobre": _dobre33 + ["9001011234 9"], "zle": _zle33}),
+                                    capture_output=True, text=True, timeout=120).stdout)
+        sprawdz("aplikacja (peselPoprawny w formularzu) ocenia PESEL tak samo jak silnik — wszystkie daty 1800–2299 i daty niemożliwe",
+                _w33 == {"dobre": [], "zle": []}, str(_w33)[:300])
+    except Exception as _e33:
+        sprawdz("peselPoprawny w aplikacji zgodny z silnikiem", False, repr(_e33))
+else:
+    print("  (pominięte: brak node — zgodność peselPoprawny z silnikiem sprawdza się tylko z node)")
+
+# tryb wieczorny: wyjazd 16:15–16:45, ale powrót na dokumencie nie po 22:00 (pełny dzień wyjeżdża wcześniej)
+try:
+    P.ustaw_tryb_pracy("wieczory")
+    _dni33 = P.pobierz_dni_robocze(2026, 10)
+    _godz33 = []
+    for _kw33 in (2500.0, 3500.0):
+        _w33 = P.generuj_trasy(_kw33, "Poznań", 52.41, 16.93, "wielkopolskie", _dni33, "90010112349", 1.15)
+        _godz33 += [(d.data.isoformat(), d.etapy[0].godz_wyj, d.etapy[-1].godz_przyj) for d in _w33]
+    sprawdz("wieczory (Poznań, X 2026, 2500 i 3500 zł): żaden powrót po 22:00, wyjazdy między 16:00 a 16:45",
+            _godz33 and all("16:00" <= w <= "16:45" and "16:00" < p <= "22:00" for _, w, p in _godz33),
+            str([g for g in _godz33 if not ("16:00" <= g[1] <= "16:45" and "16:00" < g[2] <= "22:00")]))
+except Exception as _e33:
+    sprawdz("wieczory: powrót przed 22:00", False, repr(_e33))
+finally:
+    P.ustaw_tryb_pracy("tydzien")
+
+# ── koniec sekcji 33 ──
+
+# ══════════════════════════════════════════════════════════════════
+sekcja("34. Program przed wygaszeniem: dziennik błędów, aktualizacja, dane kont")
+
+# log_error woła się w blokach except (także w QThread.run). Wyjątek z niej
+# w PyQt6 to abort całego programu zamiast komunikatu o błędzie.
+_s34_log = P.LOG_FILE
+try:
+    _s34_zly = os.path.join(_TMP_HOME, "s34_plik_zamiast_folderu")
+    open(_s34_zly, "w").close()
+    P.LOG_FILE = os.path.join(_s34_zly, "logs", "error.log")
+    _s34_rzucil = None
+    try:
+        raise ValueError("s34 zamierzony błąd")
+    except ValueError as _e34:
+        try:
+            P.log_error(_e34)
+        except Exception as _x34:
+            _s34_rzucil = repr(_x34)
+    _s34_zapas = os.path.join(_TMP_HOME, ".pmt_logs", "error.log")
+    _s34_tresc = open(_s34_zapas, encoding="utf-8").read() if os.path.isfile(_s34_zapas) else ""
+    sprawdz("log_error w niezapisywalnym folderze programu nie rzuca, a wpis trafia do katalogu użytkownika",
+            _s34_rzucil is None and "s34 zamierzony błąd" in _s34_tresc,
+            str((_s34_rzucil, _s34_tresc[-80:])))
+finally:
+    P.LOG_FILE = _s34_log
+
+# updater_folder.bat: sukces tylko po fladze życia. Proces wiszący na oknie
+# błędu bootloadera też „żyje”, a uznanie go za sukces kasowało kopię
+# poprzedniej wersji.
+with open(os.path.join(KATALOG, "updater_folder.bat"), "rb") as _f34:
+    _bat34 = _f34.read().decode("ascii", errors="replace").replace("\r\n", "\n")
+_kod34 = "\n".join(l for l in _bat34.split("\n") if not l.strip().lower().startswith("rem"))
+_petla34 = re.search(r"for /l %%i in \(1,1,(\d+)\) do \(\n\s*ping -n 2 127\.0\.0\.1 >nul\n\s*if exist \"%FLAGA%\"",
+                     _kod34)
+_porazka34 = _kod34.split(":porazka", 1)[-1]
+sprawdz("updater_folder.bat: żywy proces bez flagi nie jest sukcesem, flagi czeka się do ok. minuty",
+        "ZYWY" not in _kod34 and "uznaje sukces" not in _kod34
+        and bool(_petla34) and int(_petla34.group(1)) >= 45,
+        repr(_petla34.group(0) if _petla34 else None))
+sprawdz("updater_folder.bat: przy porażce najpierw zamyka wiszący proces, potem przywraca kopię",
+        'taskkill /f /im "%NAZWA_EXE%"' in _porazka34
+        and _porazka34.index("taskkill") < _porazka34.index('xcopy "%KOPIA%"'))
+sprawdz("updater_folder.bat: bez opóźnionej ekspansji („!” w ścieżce programu przeżywa)",
+        "enabledelayedexpansion" not in _kod34.lower() and "!" not in _kod34)
+# programy 3.2x przyjmują pobrany skrypt tylko z tym napisem (inaczej
+# wracają do wbudowanego skryptu dla pojedynczego pliku)
+sprawdz("updater_folder.bat nadal przechodzi sprawdzenie, którym programy 3.2x rozpoznają skrypt",
+        "setlocal enabledelayedexpansion" in _bat34 and len(_bat34) < 20000
+        and "setlocal enabledelayedexpansion" in inspect.getsource(P.przygotuj_skrypt_aktualizacji))
+
+# Paczki macOS i Linux to FOLDER (PMT_Planer + _internal). updater.sh przyjmował
+# tylko plik: program się zamykał, a skrypt kończył się „Brak pobranego pliku”.
+import subprocess as _sp34
+_bash34 = shutil.which("bash")
+if _bash34 and os.name != "nt":
+    sprawdz("updater.sh ma poprawną składnię (bash -n)",
+            _sp34.run([_bash34, "-n", os.path.join(KATALOG, "updater.sh")]).returncode == 0)
+
+    def _updater34(nowa_pisze_flage):
+        baza = tempfile.mkdtemp(prefix="pmt_upd34_")
+        tmp = os.path.join(baza, "tmp")
+        stary = os.path.join(baza, "app", "PMT_Planer")
+        nowy = os.path.join(baza, "pobrane", "PMT_Planer")
+        for k in (tmp, os.path.join(stary, "_internal"), os.path.join(nowy, "_internal")):
+            os.makedirs(k)
+        for katalog, wersja, tresc in (
+                (stary, "stara", 'echo stara > "$TMPDIR/stara_ruszyla"\n'),
+                (nowy, "nowa", 'echo $$ > "$TMPDIR/pmt_zyje.flag"\n' if nowa_pisze_flage else "exit 3\n")):
+            with open(os.path.join(katalog, "PMT_Planer"), "w") as f:
+                f.write("#!/bin/bash\n" + tresc)
+            os.chmod(os.path.join(katalog, "PMT_Planer"), 0o755)
+            with open(os.path.join(katalog, "_internal", "lib.txt"), "w") as f:
+                f.write(wersja)
+        # te same kroki, krótsze przerwy (sleep 25 czeka na Gatekeepera)
+        with open(os.path.join(KATALOG, "updater.sh"), encoding="utf-8") as f:
+            skrypt = re.sub(r"sleep \d+", "sleep 0.1", f.read())
+        sciezka = os.path.join(baza, "upd.sh")
+        with open(sciezka, "w", encoding="utf-8") as f:
+            f.write(skrypt)
+        kod = _sp34.run([_bash34, sciezka, nowy, os.path.join(stary, "PMT_Planer"), "999999"],
+                        env=dict(os.environ, TMPDIR=tmp), timeout=120).returncode
+        for _ in range(30):              # przywrócona wersja startuje w tle
+            if nowa_pisze_flage or os.path.exists(os.path.join(tmp, "stara_ruszyla")):
+                break
+            time.sleep(0.1)
+        with open(os.path.join(stary, "_internal", "lib.txt")) as f:
+            lib = f.read()
+        wynik = (kod, lib, os.path.isdir(stary + ".poprzednia"), os.path.exists(nowy),
+                 os.path.exists(os.path.join(tmp, "stara_ruszyla")))
+        shutil.rmtree(baza, ignore_errors=True)
+        return wynik
+
+    try:
+        _u34 = _updater34(True)
+        sprawdz("updater.sh: nowa wersja jako FOLDER podmienia cały folder programu i sprząta kopię",
+                _u34[:4] == (0, "nowa", False, False), str(_u34))
+        _u34 = _updater34(False)
+        sprawdz("updater.sh: folder bez flagi życia wraca do poprzedniej wersji i ją uruchamia",
+                _u34[0] == 1 and _u34[1] == "stara" and _u34[2] is False and _u34[4], str(_u34))
+    except Exception as _e34:
+        sprawdz("updater.sh podmienia wersję folderową", False, repr(_e34))
+
+# Wbudowane skrypty zapasowe (gdy nie da się pobrać skryptu z GitHuba) umieją
+# tylko pojedynczy plik. Dla folderu: błąd PRZED zamknięciem programu.
+_s34_folder = tempfile.mkdtemp(prefix="pmt_nowa34_")
+os.makedirs(os.path.join(_s34_folder, "_internal"))
+open(os.path.join(_s34_folder, "PMT_Planer.exe"), "w").close()
+_s34_win = P.CZY_WINDOWS
+_s34_pobierz = P.pobierz_tekst_url
+P.pobierz_tekst_url = lambda *_a, **_k: ""
+_s34_wyniki = []
+try:
+    for _w34 in (True, False):
+        P.CZY_WINDOWS = _w34
+        try:
+            P.przygotuj_skrypt_aktualizacji(_s34_folder, os.path.join(_TMP_HOME, "PMT_Planer.exe"), 1)
+            _s34_wyniki.append("bez błędu")
+        except RuntimeError as _e34:
+            _s34_wyniki.append(str(_e34))
+finally:
+    P.CZY_WINDOWS = _s34_win
+    P.pobierz_tekst_url = _s34_pobierz
+    shutil.rmtree(_s34_folder, ignore_errors=True)
+sprawdz("bez skryptu z GitHuba paczka folderowa kończy się czytelnym błędem (Windows i macOS/Linux), nie zamknięciem programu",
+        len(_s34_wyniki) == 2 and all("skryptu aktualizacji" in _t for _t in _s34_wyniki),
+        str(_s34_wyniki))
+sprawdz("okno aktualizacji pokazuje błąd instalacji zamiast znikać (obowiązkowa aktualizacja)",
+        "self._blad(" in inspect.getsource(P.OknoAktualizacji._pobrano))
+
+# Kopia zapasowa: wspólne pliki komputera (.pmt_uzytkownicy.json z PESEL-ami
+# wszystkich, .pmt_ustawienia.json z adresami baz) szły do ZIP-a w całości,
+# a odtworzenie nadpisywało je w całości — znikały dane innych kont.
+def _dom34():
+    for w in glob.glob(os.path.join(_TMP_HOME, ".pmt_*")):
+        try:
+            os.remove(w)
+        except Exception:
+            pass
+    P._ustawienia_reset()
+    P._resetuj_pamiec_kont()
+
+
+def _zaloguj34(imie, kod):
+    P.online_zapisz_kod(kod)
+    P._zapisz(P.PLIK_STATUSU, dict(P._wczytaj(P.PLIK_STATUSU, {}), kod=kod, imie=imie))
+    P.ustaw_uzytkownika_planu(imie, kod)
+
+
+try:
+    _dom34()
+    _zaloguj34("Anna Kowalska", "11111")
+    P.zapisz_profil("Anna Kowalska", "90010112349", "ul. Anny 1, Radom", "Merchandiser", 0)
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Anny 1, Radom")
+    _zaloguj34("Bogdan Nowak", "22222")
+    P.zapisz_profil("Bogdan Nowak", "85020212344", "ul. Bogdana 2, Płock", "Merchandiser", 1)
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Bogdana 2, Płock")
+    P.zapisz_ustawienie("ciemny_motyw", False)
+    P.zapisz_punkty([{"adres": "Sklep B", "siec": "Lidl", "miasto": "Płock"}])
+    P._geo_cache[P._klucz_geo("ul. Anny 1, 26-600 Radom")] = [51.4, 21.15]; P.zapisz_geo_cache()      # wspólna pamięć geokodowania z adresem domu Anny
+    _zip34 = os.path.join(_TMP_HOME, "kopia34.zip")
+    _ile34 = P.eksportuj_kopie_zapasowa(_zip34)
+    import zipfile as _zf34
+    with _zf34.ZipFile(_zip34) as _z34:
+        _tresc34 = {n: _z34.read(n).decode("utf-8") for n in _z34.namelist()}
+    _razem34 = "\n".join(_tresc34.values())
+    sprawdz("kopia zapasowa nie zabiera PESEL-u ani adresu bazy innego konta z tego komputera",
+            "90010112349" not in _razem34 and "ul. Anny 1" not in _razem34 and "ul. anny 1" not in _razem34, str(sorted(_tresc34)))
+    sprawdz("kopia zapasowa nie zabiera wspólnej pamięci geokodowania i tras (adresy domów innych kont)",
+            not any(os.path.basename(f) in _tresc34 for f in (P.GEO_CACHE, P.GEO_BRAKI, P.ROAD_CACHE_FILE)), str(sorted(_tresc34)))
+    _zaloguj34("Bogdan  Nowak", "22222")      # imię z arkusza z podwójną spacją
+    _zip33b = os.path.join(_TMP_HOME, "kopia33b.zip"); P.eksportuj_kopie_zapasowa(_zip33b)
+    with _zf34.ZipFile(_zip33b) as _z33b:
+        _razem33b = "\n".join(_z33b.read(n).decode("utf-8") for n in _z33b.namelist())
+    sprawdz("imię konta z podwójną spacją nadal dopasowuje własny profil (kopia ma PESEL właściciela)",
+            "85020212344" in _razem33b and not P._STAN_KOPII["bez_profilu"])
+    _zaloguj34("Zenon Obcy", "44444")
+    _zip33c = os.path.join(_TMP_HOME, "kopia33c.zip"); P.eksportuj_kopie_zapasowa(_zip33c)
+    sprawdz("brak własnego profilu w kopii (inne imię) jest zgłaszany, a nie pomijany po cichu", P._STAN_KOPII["bez_profilu"] is True)
+    _zaloguj34("Bogdan Nowak", "22222")
+    sprawdz("kopia zapasowa ma własny profil, własny adres bazy i wspólne ustawienia programu",
+            "85020212344" in _razem34 and "ul. Bogdana 2" in _razem34
+            and json.loads(_tresc34[os.path.basename(P.USTAWIENIA_STORE)]).get("ciemny_motyw") is False,
+            str((_ile34, sorted(_tresc34))))
+    # po kopii: Anna zmienia adres, dochodzi trzecie konto; Bogdan odtwarza swoją kopię
+    _zaloguj34("Anna Kowalska", "11111")
+    P.zapisz_ustawienie_osobiste("adres_bazy", "ul. Anny 5, Radom")
+    _zaloguj34("Celina Wiśniewska", "33333")
+    P.zapisz_profil("Celina Wiśniewska", "92030312345", "ul. Celiny 3, Kielce", "Merchandiser", 0)
+    _zaloguj34("Bogdan Nowak", "22222")
+    P.zapisz_ustawienie_osobiste("adres_bazy", "zmieniony po kopii")
+    P.przywroc_z_kopii(_zip34)
+    P._ustawienia_reset()
+    _po34 = (P.ustawienie_osobiste("adres_bazy"), bool(P.szukaj_profilu_po_nazwisku("Bogdan Nowak")))
+    _zaloguj34("Anna Kowalska", "11111")
+    _anna34 = (P.ustawienie_osobiste("adres_bazy"), bool(P.szukaj_profilu_po_nazwisku("Anna Kowalska")),
+               bool(P.szukaj_profilu_po_nazwisku("Celina Wiśniewska")))
+    sprawdz("odtworzenie kopii przywraca dane tego konta",
+            _po34 == ("ul. Bogdana 2, Płock", True), str(_po34))
+    sprawdz("odtworzenie kopii nie kasuje ani nie cofa danych innych kont",
+            _anna34 == ("ul. Anny 5, Radom", True, True), str(_anna34))
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("kopia zapasowa tylko z danymi zalogowanego konta", False, repr(_e34))
+finally:
+    _dom34()
+
+# Skrót hasła SHA-256("PMT|kod|hasło") jest kluczem podpisu hasłem (puls, sesja,
+# hasło paczki) — leżał jawnie w ~/.pmt_logowania.json każdego konta i zostawał
+# po wylogowaniu. Teraz: w pamięci procesu, a na dysku weryfikator PBKDF2.
+try:
+    _dom34()
+    P._SKROTY_SESJI.clear()
+    _skr34 = P._hash_hasla("11111", "Haslo Anny 1")
+    P._zapisz_status_po_logowaniu("11111", _skr34, "Anna Kowalska")
+    P._zapisz_logowanie("11111", "Anna Kowalska", _skr34)
+    _dysk34 = open(P.PLIK_LOGOWAN, encoding="utf-8").read() + open(P.PLIK_STATUSU, encoding="utf-8").read()
+    sprawdz("po logowaniu skrót hasła nie leży na dysku (historia logowań ma weryfikator PBKDF2)",
+            _skr34 not in _dysk34
+            and str((P._wczytaj(P.PLIK_LOGOWAN, {}).get("11111") or {}).get("weryfikator", "")).startswith("pbkdf2_sha256$"),
+            _dysk34[:200])
+    sprawdz("w trakcie sesji puls dalej niesie podpis hasłem",
+            "podpis_hasla" in P._podpisz_zadanie({"akcja": "puls", "kod": "11111"}))
+    _ur34 = P.urllib.request.urlopen
+    P.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("bez sieci (test)"))
+    try:
+        P._SKROTY_SESJI.clear()                      # nowy start programu
+        _off34 = (P.online_zaloguj("11111", "Haslo Anny 1")[0], P.online_zaloguj("11111", "Haslo Anny 2")[0],
+                  P._haslo_znane_lokalnie("11111", "Haslo Anny 1"), P._haslo_znane_lokalnie("11111", "Haslo Anny 2"))
+    finally:
+        P.urllib.request.urlopen = _ur34
+    sprawdz("logowanie bez sieci i autologowanie działają na weryfikatorze (złe hasło nie wchodzi)",
+            _off34 == (True, False, True, False), str(_off34))
+    P.online_wyloguj()
+    sprawdz("po wylogowaniu nie ma czym podpisać pulsu tego konta",
+            "podpis_hasla" not in P._podpisz_zadanie({"akcja": "puls", "kod": "11111"})
+            and P._skrot_hasla_lokalny("11111") == "")
+    # pliki sprzed 3.25.1: skrót wprost w historii logowań i w statusie
+    _skr33b = P._hash_hasla("22222", "Haslo Bogdana")
+    P._zapisz(P.PLIK_LOGOWAN, {"22222": {"imie": "Bogdan Nowak", "skrot": _skr33b,
+                                         "ostatnio": "2026-10-28T10:00:00"}})
+    P._zapisz(P.PLIK_STATUSU, {"kod": "22222", "skrot": _skr33b})
+    P._usun_skroty_z_dysku()
+    _dysk34 = open(P.PLIK_LOGOWAN, encoding="utf-8").read() + open(P.PLIK_STATUSU, encoding="utf-8").read()
+    sprawdz("start programu zdejmuje z dysku skróty zapisane przez starsze wersje, a hasło dalej się zgadza",
+            _skr33b not in _dysk34 and P._haslo_znane_lokalnie("22222", "Haslo Bogdana")
+            and P._skrot_zweryfikowany("22222", "Haslo Bogdana") == _skr33b
+            and P._skrot_zweryfikowany("22222", "Haslo Bogdan") == "", _dysk34[:200])
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("skrót hasła tylko w pamięci, na dysku weryfikator", False, repr(_e34))
+finally:
+    P._SKROTY_SESJI.clear()
+    _dom34()
+
+# „Przenieś dane” po zmianie albo resecie hasła w aplikacji web: ten komputer zna tylko stare hasło,
+# a aplikacja odczytuje plik skrótem bieżącego. Nowe hasło potwierdza serwer (akcja „logowanie”).
+class _Odp34:
+    def __init__(self, dane):
+        self._d = json.dumps(dane).encode("utf-8")
+    def read(self):
+        return self._d
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
+_zapytania34 = []
+
+
+def _serwer34(req, *a, **k):
+    d = json.loads(req.data.decode("utf-8"))
+    _zapytania34.append(d)
+    if d.get("akcja") == "logowanie" and d.get("kod") == "11111" and d.get("haslo") == "Nowe haslo z webu":
+        return _Odp34({"status": "ok", "imie": "Anna Kowalska", "przez": "haslo"})
+    return _Odp34({"status": "blad", "opis": "Nieprawidlowe haslo"})
+
+
+try:
+    _dom34()
+    P._SKROTY_SESJI.clear()
+    P._zapisz(P.PLIK_LOGOWAN, {"11111": {"imie": "Anna Kowalska",
+                                         "weryfikator": P._weryfikator_skrotu(P._hash_hasla("11111", "Stare haslo")),
+                                         "ostatnio": "2026-10-28T10:00:00"}})
+    _ur34 = P.urllib.request.urlopen
+    P.urllib.request.urlopen = _serwer34
+    try:
+        _nowe34 = P._skrot_potwierdzony_online("11111", " Nowe haslo z webu ")
+        _zle34 = P._skrot_potwierdzony_online("11111", "Zle haslo")
+    finally:
+        P.urllib.request.urlopen = _ur34
+    P.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("bez sieci (test)"))
+    try:
+        _bez_sieci34 = P._skrot_potwierdzony_online("11111", "Nowe haslo z webu")
+    finally:
+        P.urllib.request.urlopen = _ur34
+    sprawdz("„Przenieś dane”: hasło zmienione w aplikacji potwierdza serwer i plik dostaje klucz bieżącego hasła",
+            P._skrot_zweryfikowany("11111", "Nowe haslo z webu") == ""
+            and _nowe34 == P._hash_hasla("11111", "Nowe haslo z webu") and _zle34 == "" and _bez_sieci34 == ""
+            and _zapytania34 and _zapytania34[0].get("zrodlo") == "przeniesienie",
+            str((_nowe34[:8], _zle34, _bez_sieci34, _zapytania34[:1])))
+    sprawdz("„Przenieś dane” sprawdza hasło na serwerze, gdy lokalny skrót go nie zna",
+            "_skrot_potwierdzony_online(kod, haslo, rodzic)" in inspect.getsource(P.przenies_dane_do_web))
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("„Przenieś dane” po zmianie hasła w aplikacji", False, repr(_e34))
+finally:
+    P._SKROTY_SESJI.clear()
+    _dom34()
+
+# Ręczne „Wskaż plik”: niepodpisana kopia z Do_podpisu (suma oryginału) nie może zostać
+# „podpisana”, a plik o obcej nazwie nie może trafić z automatu do pierwszego dokumentu.
+try:
+    from PyQt6.QtWidgets import QApplication as _QA34, QInputDialog as _QID34
+    import pmt_podpis as _PS34
+    _app34 = _QA34.instance() or _QA34(sys.argv)
+    _f34 = tempfile.mkdtemp(prefix="pmt_wskaz34_")
+    _wyn34 = os.path.join(_f34, "Rozliczenie_Jan_Kowalski_Lipiec_2026r")
+    os.makedirs(_wyn34)
+    for _n34 in ("delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf", "delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf"):
+        with open(os.path.join(_wyn34, _n34), "wb") as _f:
+            _f.write(b"%PDF-1.4 " + _n34.encode() + b" bez podpisu")
+    _skan34 = os.path.join(_f34, "IMG_0045.pdf")
+    with open(_skan34, "wb") as _f:
+        _f.write(b"%PDF-1.4 skan z podpisem odrecznym")
+    _dlg34 = P.DialogPodpis(None, folder=_wyn34)
+    _dlg34.paczka, _ = _PS34.przygotuj_paczke(_wyn34)
+    _dlg34.manifest = _PS34.sciezka_manifestu(_dlg34.paczka)
+    _wybor34 = []
+    _stary_fd34, _stary_id34 = P.QFileDialog.getOpenFileName, _QID34.getItem
+    _QID34.getItem = staticmethod(lambda *a, **k: _wybor34.pop(0) if _wybor34 else ("", False))
+    try:
+        def _wskaz34(sciezka):
+            P.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (sciezka, ""))
+            _dlg34._wskaz_plik()
+            return {w["plik"]: w.get("status") for w in _dlg34._wpisy()}
+        _st_kopia34 = _wskaz34(os.path.join(_dlg34.paczka, "delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf"))
+        _st_anul34 = _wskaz34(_skan34)                       # pytanie o dokument: „Anuluj”
+        _wybor34.append(("delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf", True))
+        _st_skan34 = _wskaz34(_skan34)
+    finally:
+        P.QFileDialog.getOpenFileName, _QID34.getItem = _stary_fd34, _stary_id34
+        _dlg34.zatrzymaj_zegar() if hasattr(_dlg34, "zatrzymaj_zegar") else None
+        _dlg34.deleteLater()
+    sprawdz("„Wskaż plik”: niepodpisana kopia z Do_podpisu nie dostaje statusu „podpisany”",
+            set(_st_kopia34.values()) == {"do_podpisu"}, str(_st_kopia34))
+    sprawdz("„Wskaż plik”: plik o obcej nazwie — pytanie, który to dokument (anulowanie niczego nie oznacza)",
+            set(_st_anul34.values()) == {"do_podpisu"}
+            and _st_skan34.get("delegacja_02_Jan_Kowalski_Lipiec_2026r.pdf") == "podpisany"
+            and _st_skan34.get("delegacja_01_Jan_Kowalski_Lipiec_2026r.pdf") == "do_podpisu",
+            str((_st_anul34, _st_skan34)))
+    shutil.rmtree(_f34, ignore_errors=True)
+except Exception as _e34:
+    import traceback as _tb34
+    _tb34.print_exc()
+    sprawdz("„Wskaż plik” sprawdza sumę i pyta o dokument", False, repr(_e34))
 
 # ══════════════════════════════════════════════════════════════════
 _bledy = [w for w in WYNIKI if not w[0]]

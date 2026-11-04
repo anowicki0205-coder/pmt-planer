@@ -6,8 +6,10 @@ const KORZEN = new URL('../', import.meta.url);
 const adres = s => new URL(s, KORZEN).href;
 let py = null, start = null;
 
+/* vendor/ (Pyodide, koła) nie zmienia się między wdrożeniami — z pamięci HTTP bez pytania; pliki silnika i czcionki rewalidujemy (304), inaczej na wdrożeniu bez SW (http)
+   nowy aplikacja.js dostawałby stary most.py / pmt_silnik.py z pamięci przeglądarki */
 async function pobierz(s, opcjonalnie = false) {
-  const r = await fetch(adres(s), { cache: 'force-cache' });
+  const r = await fetch(adres(s), { cache: s.startsWith('vendor/') ? 'force-cache' : 'no-cache' });
   if (!r.ok) { if (opcjonalnie) return null; throw new Error('Nie można pobrać ' + s + ' (' + r.status + ')'); }
   return new Uint8Array(await r.arrayBuffer());
 }
@@ -40,7 +42,9 @@ async function wczytajMenedzera(wymus) {
   } catch (e) { stanMenedzera.blad = String(e && e.message || e); }
   return false;
 }
-const syncfs = (z) => new Promise((ok, err) => py.FS.syncfs(z, e => e ? err(e) : ok()));
+/* PAMIĘĆ SILNIKA (współrzędne adresów — także domu — i trasy) nie leży już jawnie w IndexedDB (dawniej IDBFS „/home/pyodide”): /home/pyodide jest tylko w pamięci workera,
+   a aplikacja zapisuje te pliki w zaszyfrowanym magazynie konta (eksportPamieci → magazyn, magazyn → importPamieci przy starcie). */
+const PLIKI_PAMIECI = ['.pmt_geo_cache.json', '.pmt_geo_braki.json', '.pmt_road_cache.json'];
 
 async function uruchom(meldunek) {
   meldunek('Uruchamianie silnika…', 0.05);
@@ -53,9 +57,7 @@ async function uruchom(meldunek) {
   py.FS.mkdirTree('/usr/share/fonts/truetype/liberation');
   for (const f of ['LiberationSans-Regular.ttf', 'LiberationSans-Bold.ttf'])
     py.FS.writeFile('/usr/share/fonts/truetype/liberation/' + f, await pobierz('silnik/fonty/' + f));
-  // pamięć podręczna silnika (drogi, współrzędne) przeżywa odświeżenie strony
   py.FS.mkdirTree('/home/pyodide');
-  try { py.FS.mount(py.FS.filesystems.IDBFS, {}, '/home/pyodide'); await syncfs(true); } catch (e) { /* bez trwałego dysku też działa */ }
   // opcjonalne pliki obok aplikacji (jak obok programu na komputerze); brak pliku = brak wpisu (ponowna próba przy generowaniu)
   await wczytajMenedzera(true);
   meldunek('Silnik delegacji…', 0.75);
@@ -90,7 +92,7 @@ const METODY = {
     return w;
   },
   async adres(a) { return wolaj('api_adres', a); },
-  /** Kasuje pliki pamięci silnika zapisane na urządzeniu (trasy i współrzędne, liczniki, kopia menedzer.txt): są wspólne dla wszystkich kont tej przeglądarki, więc czyścimy je przy zmianie konta, wylogowaniu i „Usuń dane”. */
+  /** Kasuje pamięć silnika w workerze (trasy i współrzędne, liczniki, kopia menedzer.txt) — przy zmianie konta, wylogowaniu i „Usuń dane”. */
   async czysc() {
     await py.runPythonAsync(`
 import os, glob, sys
@@ -99,9 +101,22 @@ for _f in glob.glob(os.path.join(_d, ".pmt_*")) + [os.path.join(_d, "menedzer.tx
     try: os.remove(_f)
     except OSError: pass
 _m = sys.modules.get("pmt_silnik")
-if _m is not None and hasattr(_m, "_road_cache"): _m._road_cache.clear()
+if _m is not None:
+    _m._road_cache.clear(); _m._geo_cache.clear(); _m._geo_braki = None; _m._geo_pytane.clear()
+    _m._osrm_dostepny = None; _m._google_dostepny = None; _m._INDEKS_MIAST = None      # także miejscowości dogeokodowane przez plan poprzedniego konta
 `);
-    try { await syncfs(false); } catch (e) { /* bez trwałego dysku nie ma czego kasować */ }
+    return {};
+  },
+  /** Pliki pamięci silnika do zapisania w zaszyfrowanym magazynie konta. */
+  async eksportPamieci() {
+    const pliki = [];
+    for (const n of PLIKI_PAMIECI) { try { if (py.FS.analyzePath('/home/pyodide/' + n).exists) pliki.push({ nazwa: n, bajty: py.FS.readFile('/home/pyodide/' + n) }); } catch (e) { /* pominięty plik */ } }
+    return { pliki };
+  },
+  /** Pamięć silnika odczytana z magazynu konta: pliki wracają do /home/pyodide, a silnik wczytuje je od nowa. */
+  async importPamieci(a) {
+    for (const p of (a && a.pliki) || []) if (PLIKI_PAMIECI.includes(p.nazwa)) py.FS.writeFile('/home/pyodide/' + p.nazwa, p.bajty);
+    await py.runPythonAsync('import pmt_silnik as _S\n_S._wczytaj_geo_cache(); _S._wczytaj_road_cache(); _S._geo_braki = None');
     return {};
   },
   async siec(a) { py.globals.set('_S', !!a.wlaczona); await py.runPythonAsync('boot.ustaw_siec(_S)'); return {}; },
@@ -113,15 +128,12 @@ if _m is not None and hasattr(_m, "_road_cache"): _m._road_cache.clear()
   async planGeneruj(a, postep) {
     a.siec = a.siec !== false;
     await wczytajMenedzera(false);
-    const w = await wolaj('plan_generuj', a, postep);
-    try { await syncfs(false); } catch (e) { /* cache nie zapisany */ }
-    return w;
+    return wolaj('plan_generuj', a, postep);
   },
   async planZProgramu(a) { return wolaj('plan_z_programu', a); },
   async generuj(a, postep) {
     await wczytajMenedzera(false);
     const w = await wolaj('generuj', a, postep);
-    try { await syncfs(false); } catch (e) { /* cache nie zapisany — trudno */ }
     const pdf = w.pliki.map(n => ({ nazwa: n, bajty: py.FS.readFile(w.folder + '/' + n) }));
     return { wynik: w, pdf };
   },

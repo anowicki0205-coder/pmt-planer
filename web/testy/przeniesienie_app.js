@@ -34,6 +34,14 @@ print(P.zaszyfruj(json.loads(sys.stdin.read()), sys.argv[2], P.hash_hasla(sys.ar
   }
   ok('po odrzuceniach formularz jest nietknięty (puste PESEL i adres)', (await p.inputValue('#d-pesel')) === '' && (await p.inputValue('#d-adres')) === '');
 
+  /* ---- hasło zmienione w aplikacji po zapisaniu pliku w programie: plik ma klucz z hasła z programu ---- */
+  await p.setInputFiles('#plik-program', innyHaslo); await czekajInfo(/inne konto albo inne hasło/);
+  ok('plik z innym hasłem: pole na hasło z programu (po zmianie hasła w aplikacji)', await p.locator('#przenos-haslo').isVisible() && /zmieniłeś hasło w aplikacji/.test(await info()), (await info()).slice(0, 160));
+  await p.fill('#przenos-haslo', 'zle-haslo'); await p.click('#przenos-odczytaj'); await czekajInfo(/też nie pasuje/);
+  ok('złe hasło z programu: odmowa, formularz nietknięty', (await p.locator('#przenos-info.zle').count()) === 1 && (await p.inputValue('#d-pesel')) === '' && await p.locator('#przenos-haslo').isVisible());
+  await p.fill('#przenos-haslo', 'cos-innego'); await p.press('#przenos-haslo', 'Enter'); await czekajInfo(/Wczytano/);
+  ok('hasło z programu otwiera plik: formularz wypełniony, pole hasła znika', (await p.inputValue('#d-pesel')) === '90010112349' && !(await p.locator('#przenos-haslo').isVisible()) && (await p.locator('#przenos-info.ok').count()) === 1, (await info()).slice(0, 120));
+
   /* ---- dobry plik ---- */
   await p.setInputFiles('#plik-program', dobry); await czekajInfo(/Wczytano/);
   ok('dobry plik: komunikat „Wczytano” z liczbą sklepów i prośbą o sprawdzenie', /Wczytano:.*3 sklepów.*Zapisz/s.test(await info()) && (await p.locator('#przenos-info.ok').count()) === 1, (await info()).slice(0, 160));

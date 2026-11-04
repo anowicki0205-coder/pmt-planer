@@ -26,6 +26,8 @@
   const dR = A.daneRozliczenia(wynik, { ...ctx, miesiac: 'wrzesień', rok: 2026 });
   ok('rozliczenie: wiersz na każde polecenie, suma wszystkich', dR.wiersze.length === 2 && dR.wiersze[0].dokument === 'delegacja 01 Jan Testowy' && dR.suma === '1604.65', JSON.stringify(dR.wiersze[1]) + ' ' + dR.suma);
 
+  const hR = A.atrapaHtml(dR, { stan: 'czeka' });
+  ok('atrapa (delegacja i rozliczenie) nie ma dopisku o źródle odległości („Odległości”, „szacunek”), choć wynik silnika je niesie', !/Odległości|szacunek/.test(A.atrapaHtml(d1, { stan: 'czeka' }) + hR) && !('zrodlo' in d1) && !('zrodlo' in dR));
   const h1 = A.atrapaHtml(d1, { stan: 'czeka', maks: 6 }), t1 = sam(h1);
   ok('miniatura: firma usługowa, imię i nazwisko, adres, przełożony, kwota', /PMT SERVICES SP\. Z O\.O\. SP\. K\./.test(t1) && t1.includes('Jan Testowy') && t1.includes('ul. Testowa 1') && t1.includes('Kierownik Testowy') && t1.includes('805.70'));
   ok('miniatura: PESEL zasłonięty, pełnego numeru nie ma w kodzie', !h1.includes('90010112349') && h1.includes('349'));

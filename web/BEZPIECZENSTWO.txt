@@ -25,7 +25,11 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
   • Hasło: wysyłane do backendu szyfrowanym połączeniem https (NIE jako skrót — wcześniejszy zapis w WDROZENIE.txt był nieprawdziwy i został poprawiony). Serwer liczy z niego skrót
     SHA-256 („PMT|login|hasło”) i porównuje z kolumną „Haslo hash”. Przy stronie na zwykłym http połączenie z Google jest nadal szyfrowane, ale samą stronę może zmienić ktoś w sieci
     (i wstrzyknąć skrypt przechwytujący hasło) — dlatego http wyłącznie w sieci firmowej, nigdy w internecie.
-  • Backend: limity zgadywania (8 prób / 15 min i 25 prób / 6 h na login), limit resetów hasła (5/h na login, 30/h łącznie), limity wpisów do dzienników, sprawdzanie ważności konta.
+  • Backend: limity zgadywania (8 prób / 15 min i 25 prób / 6 h na login; złe podpisy hasłem w pulsie, rejestrze sesji i przy haśle paczki: 150 / 6 h na login —
+    potem podpis nie jest sprawdzany do udanego logowania), limit resetów hasła (5/h na login, 30 nieudanych/h łącznie, okno stałe), limity wpisów do dzienników
+    (osobne przydziały dla zdarzeń po uwierzytelnieniu i odmów na istniejące konta, by zalew nie ukrył prób przejęcia), sprawdzanie ważności konta; odpowiedzi
+    logowania i zmiany hasła nie zdradzają, czy telefon pasuje do loginu; nieistniejące loginy nie zajmują pamięci podręcznej liczników.
+    Aplikacja, której skrótu hasła serwer nie przyjął (hasło zmienione na innym urządzeniu), przestaje nim podpisywać do ponownego logowania.
   • Strona: polityka CSP (index.html) — skrypty tylko z własnej strony, połączenia tylko z własną stroną i z Google Apps Script; atrybuty onerror/onclick i skrypty wstrzyknięte do strony
     są blokowane; brak <base>, wtyczek i wysyłania formularzy; aplikacja nie uruchamia się w cudzej ramce (clickjacking); nagłówek referrer: brak (uwaga: aplikacja osadzona jako ramka w innej stronie, np. zakładka w Teams/intranecie, zostanie ukryta — to celowe; gdyby było potrzebne, trzeba to poluzować). Dane z plików i z serwera są
     zawsze wstawiane jako tekst (test wstrzykiwania kodu: testy/xss_app.js).
@@ -38,13 +42,19 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
     (IndexedDB, koperta „PMT1…”). Szyfr: AES-256-CTR z nowym losowym wektorem przy każdym zapisie + podpis HMAC-SHA256: zmieniony choćby jeden bajt = odczyt odrzucony.
   • Sam klucz danych leży na dysku tylko zaszyfrowany kluczem z hasła (PBKDF2-HMAC-SHA256, 600 000 iteracji, losowa sól). Hasła ani jego skrótu NA DYSKU NIE MA (dawniej był szybki do złamania
     skrót) — poprawność hasła przy logowaniu bez sieci i autologowaniu sprawdza otwarcie sejfu. Kradzież profilu przeglądarki nie daje więc ani PESEL-u, ani szybkiego łamania hasła.
-  • Po zalogowaniu klucz danych i skrót hasła (do podpisu pulsu) są tylko w sessionStorage karty — giną z kartą. Wylogowanie i „Usuń dane z urządzenia” usuwają je od razu.
+  • Po zalogowaniu klucz danych i skrót hasła (do podpisu pulsu) są TYLKO W PAMIĘCI strony (nie w localStorage ani sessionStorage — tę przeglądarka zapisuje na dysk i przywraca z kartą,
+    także zamkniętą). Wyjątek: zamierzone odświeżenie (F5, Ctrl+R / Cmd+R albo przycisk „Spróbuj ponownie” w aplikacji) kładzie je w sessionStorage na chwilę przeładowania; nowa strona
+    przyjmuje wpis tylko przy przeładowaniu i tylko świeży (do 15 s), po czym go usuwa. Zamknięcie karty lub okna, przejście na inną stronę, przycisk odświeżania w pasku przeglądarki
+    i gest „pociągnij, by odświeżyć” niczego nie zapisują — pokażą logowanie (hasło zapamiętane w przeglądarce loguje od razu). Wylogowanie i „Usuń dane z urządzenia” czyszczą wszystko.
+  • Pamięć silnika (współrzędne adresów, w tym domu, i trasy) też jest w zaszyfrowanym magazynie konta (pliki „__silnik/…”), a w samym silniku tylko w pamięci — dawna jawna baza
+    IndexedDB „/home/pyodide” jest kasowana. Przy zmianie konta, wylogowaniu (także wymuszonym: wygasły dostęp, 45 dni bez kontaktu) i „Usuń dane” silnik zapomina ją całą.
   • Zmiana hasła w aplikacji przepisuje tylko zaszyfrowany klucz — dane zostają. Hasło zmienione na innym urządzeniu albo zresetowane („Nie pamiętam hasła”): dane z TEGO urządzenia są
     zaszyfrowane starym hasłem, więc aplikacja pyta o poprzednie hasło albo pozwala usunąć dane i zacząć od nowa (dokumenty wygenerujesz ponownie po wpisaniu danych).
     ZAPOMNIANE HASŁO = utrata danych lokalnych z tego urządzenia (nie ma tylnych drzwi — gdyby były, szyfrowanie nic by nie dawało).
   • Dane sprzed szyfrowania (jawny JSON, surowe PDF-y, dawny skrót hasła) są przy pierwszym logowaniu zaszyfrowane / usuwane automatycznie.
   • Uszkodzone lub zmienione dane (podpis się nie zgadza): aplikacja mówi o tym wprost i oferuje usunięcie — nie nadpisuje ich po cichu.
   • Nadal jawne na dysku (świadomie, bez PESEL-u i adresu): login, data ważności i czas ostatniego kontaktu (potrzebne przed zalogowaniem), motyw i ustawienia wyglądu, znacznik wycieczki.
+    „Usuń dane z urządzenia” kasuje także login (również ten zapisany przy synchronizacji).
     Imię z odpowiedzi serwera, rejon i nieobecności nie są już zapisywane na dysku (aplikacja ich nie używa).
   • Czego szyfrowanie NIE załatwia: szkodnika działającego w tej samej przeglądarce, gdy użytkownik jest zalogowany (klucz jest wtedy w pamięci karty), ani słabego hasła (sól i 600 000 iteracji
     spowalniają zgadywanie, ale hasło „123456” dalej padnie szybko).
@@ -73,14 +83,17 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
      Zostaje drobiazg: login istnieje albo nie (puls i logowanie to zdradzają) — limit prób na login ogranicza wyliczanie haseł, nie kodów.
   B. [NAPRAWIONE] Dane na urządzeniu były NIESZYFROWANE — zob. punkt 2b.
   C. [ŚREDNIE] Skrót hasła w ARKUSZU (SHA-256, sól = 5-cyfrowy login) jest szybki do łamania, jeśli ktoś dostanie arkusz. Apps Script nie ma bcrypt/PBKDF2, a ten sam skrót służy teraz za klucz
-     podpisu pulsu. (Na urządzeniach skrótu hasła już nie ma — zob. 2b; program na komputerze nadal trzyma go lokalnie.)
+     podpisu pulsu. (Na urządzeniach skrótu hasła już nie ma — zob. 2b; program na komputerze od 3.25.1 też nie: na dysku ma tylko weryfikator
+     PBKDF2-SHA256 z losową solą, a skrót do podpisu pulsu trzyma w pamięci procesu.)
      Obrona: arkusz dostępny tylko dla administratora, hasła min. 6 znaków (zalecaj dłuższe), limity prób na backendzie.
   D. [NISKIE] Blokada konta może być użyta złośliwie: znający cudzy login może go zablokować na 15 min–6 h (zgadując hasło). Odblokowuje „Nie pamiętam hasła” albo upływ czasu.
   E. [NISKIE] Zapytania do backendu podpisuje jawny sekret (zob. pkt 1) — podpis obejmuje login, akcję i czas, nie całą treść; zapytanie można odtworzyć w ciągu 10 minut.
      Chroni to szyfrowanie https, a nie sam podpis.
   F. Strona na http (bez https): brak service workera i instalacji, a przy tym możliwość podmiany strony w sieci — używać wyłącznie w zamkniętej sieci firmowej.
   G. [ŚWIADOMIE NIE ZMIENIAM] Program na komputerze (PMT_Delegacje.py) trzyma dane NIEZASZYFROWANE: profil z PESEL-em, plan, punkty, dziennik wizyt i adres bazy leżą jawnie w katalogu
-     domowym (pliki .pmt_*), a obok nich skrót hasła, który wystarcza do podpisania pulsu cudzym kontem. Szyfrowania tam nie dodaję, bo program ma zostać zastąpiony wersją web.
+     domowym (pliki .pmt_*). Od 3.25.1 nie ma tam już skrótu hasła (stare pola „skrot” są przepisywane na weryfikator PBKDF2 przy starcie i wylogowaniu), a kopia zapasowa
+     zabiera ze wspólnych plików komputera tylko dane zalogowanego konta, bez wspólnej pamięci geokodowania i tras (w niej są adresy domów wszystkich kont); kopia NIE jest
+     szyfrowana. Szyfrowania danych programu nie dodaję, bo program ma zostać zastąpiony wersją web.
      Do czasu wycofania: komputer z programem powinien mieć własne konto systemowe i blokadę ekranu; po przejściu na wersję web usuń z komputerów pliki ~/.pmt_* (po wyeksportowaniu danych).
 
 5. CO ZROBIĆ PO TEJ AKTUALIZACJI (kolejność)

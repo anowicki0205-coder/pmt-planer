@@ -15,9 +15,12 @@ for kat, dirs, nazwy in os.walk(R):
         if any(fnmatch.fnmatch(r, w) for w in DOZWOLONE): pliki.append(r)
 pliki = sorted(pliki)
 h = hashlib.sha256()
+skroty = {}      # skrót każdego pliku: nowy service worker kopiuje niezmienione pliki z poprzedniej pamięci zamiast pobierać całość (ok. 15 MB) od nowa
 for r in pliki:
-    h.update(r.encode()); h.update(open(os.path.join(R, r), 'rb').read())
+    b = open(os.path.join(R, r), 'rb').read()
+    h.update(r.encode()); h.update(b); skroty['./' + r] = hashlib.sha256(b).hexdigest()[:16]
+if './index.html' in skroty: skroty['./'] = skroty['./index.html']
 szablon = open(os.path.join(R, 'narzedzia/sw.szablon.js'), encoding='utf-8').read()
 lista = ['./'] + ['./' + r for r in pliki]
-open(os.path.join(R, 'sw.js'), 'w', encoding='utf-8').write(szablon.replace('__WERSJA__', h.hexdigest()[:12]).replace('__LISTA__', json.dumps(lista, ensure_ascii=False, indent=1)))
+open(os.path.join(R, 'sw.js'), 'w', encoding='utf-8').write(szablon.replace('__WERSJA__', h.hexdigest()[:12]).replace('__LISTA__', json.dumps(lista, ensure_ascii=False, indent=1)).replace('__SKROTY__', json.dumps(skroty, ensure_ascii=False, indent=1)))
 print('sw.js:', len(lista), 'plików, wersja', h.hexdigest()[:12], '| rozmiar danych', sum(os.path.getsize(os.path.join(R, r)) for r in pliki) // 1024, 'KB')

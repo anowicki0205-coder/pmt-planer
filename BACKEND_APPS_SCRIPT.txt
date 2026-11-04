@@ -102,7 +102,45 @@ TWARDE ODCIĘCIE STARYCH WERSJI PO STRONIE SERWERA (opcjonalne)
     · var MINIMALNA_WERSJA = "3.16.0";   (w funkcji logowania)
     · var WYMAGANA_WERSJA = '';          (blok bezpieczeństwa)
   Podnoś je dopiero, gdy w arkuszu (kolumna „Wersja") wszyscy mają już
-  nową wersję.
+  nową wersję. Bramki dotyczą tylko PROGRAMU na komputerze: aplikacja web
+  (od wersji z polem klient: "web") jest z nich zwolniona, a w kolumnie
+  „Wersja" ma dopisek „web" (np. „web 3.24.0") — przy podnoszeniu progu patrz
+  tylko na wiersze bez tego dopisku. WYMAGANA_WERSJA włączaj dopiero, gdy
+  wdrożona jest nowa aplikacja web (starsza paczka web bez pola klient byłaby
+  odcinana).
+
+───────────────────────────────────────────────────────────────────────
+ZMIANY W SKRYPCIE PRZY 3.25.1 (WYMAGAJĄ WDROŻENIA NOWEJ WERSJI SKRYPTU)
+───────────────────────────────────────────────────────────────────────
+  Wklej nowy apps_script_POPRAWIONY_v2.gs (przenieś swoje ustawienia ze starej
+  kopii: sekrety, WYMAGANA_WERSJA, PODPIS_OBOWIAZKOWY), potem Wdróż → Zarządzaj
+  wdrożeniami → ołówek → Wersja: Nowa → Wdróż. Lista zmian jest też w nagłówku
+  pliku. W skrócie:
+  · Złe podpisy hasłem (puls, sesja, hasło paczki): najwyżej 150 na kod w 6 h —
+    dalej podpis nie jest sprawdzany (puls bez danych, hasło paczki „odmowa”),
+    aż minie okno albo konto zaloguje się hasłem. Wpis w Log „podpis_hasla
+    ZABLOKOWANY” = zgadywanie hasła albo urządzenie ze starym hasłem.
+  · Ochrona przed formułami także przy wartościach zapisywanych z powrotem.
+  · Reset hasła: limit w stałym oknie (odrzucone próby nie przedłużają blokady),
+    licznik łączny liczy tylko nieudane próby. Celowe zablokowanie resetu
+    JEDNEGO kodu nadal kosztuje 5 nieudanych zapytań na godzinę.
+  · Nowa funkcja odblokujKonta() — tylko z edytora (lista funkcji u góry → ▶
+    Uruchom): zdejmuje wszystkie liczniki prób (logowanie, podpisy hasłem,
+    reset). Nie da się jej wywołać przez adres /exec.
+  · Dzienniki: zdarzenia po uwierzytelnieniu i odmowy na istniejące konta mają
+    własne przydziały, a odmowy możliwe bez hasła — najwyżej 20 wpisów na
+    zdarzenie na godzinę; nieistniejące kody nie zajmują pamięci podręcznej
+    (wspólny licznik i jeden wpis „zgadywanie kodów”).
+  · Logowanie i zmiana hasła nie zdradzają, czy podany telefon należy do kodu
+    (na koncie z hasłem telefon w polu hasła = „Nieprawidlowe haslo…”).
+  · Serwer zajęty (kolejka > 20 s) → odpowiedź „Serwer zajety”, zamiast pracy
+    bez blokady.
+  · Daty w arkuszu: data albo tekst RRRR-MM-DD / DD.MM.RRRR; nieczytelna data
+    = jak pusta komórka, z wpisem „nieczytelna_data” w Log.
+  · Hasło paczki: tylko tekst albo liczba całkowita. W ISTNIEJĄCYM arkuszu ustaw
+    komórkę B wiersza haslo_paczki na Format → Liczba → Zwykły tekst i wpisz
+    hasło ponownie (nową komórkę skrypt formatuje sam). Data/ułamek w tej
+    komórce = „brak” i wpis „haslo_paczki_blad” w Log.
 
 ───────────────────────────────────────────────────────────────────────
 ZMIANY W SKRYPCIE OD 3.22.0 (już w pliku, nic do zrobienia ręcznie)

@@ -22,7 +22,8 @@ const { otworz } = require('./wspolne'); const path = require('path');
   const wiersze = await p.locator('#przystanki .przystanek').count(); ok('kafel „Dziś" pokazuje wizyty z planu', wiersze >= 3, String(wiersze));
   ok('godziny szacunkowe rosnąco', await p.evaluate(() => { const g = [...document.querySelectorAll('#przystanki .p-godz')].map(e => e.textContent.trim()); return g.length > 1 && g.every(x => /^\d\d:\d\d$/.test(x)) && g.every((x, i) => i === 0 || x >= g[i - 1]); }));
   ok('następny sklep ma przycisk Nawiguj', (await p.locator('#nawiguj').count()) === 1);
-  ok('meta kafla: wizyty, km i liczba sklepów', /wizy/.test(await p.locator('#d-meta').innerText()) && (MOB || (/km/.test(await p.locator('#d-meta').innerText()) && /20 sklepów/.test(await p.locator('#d-meta').textContent()))), await p.locator('#d-meta').innerText());
+  /* 19 z 20: Józefowa nie ma w bazie offline, a test odcina geokodowanie — sklep idzie do „bez lokalizacji” (dawniej dostawał współrzędne Warszawy) */
+  ok('meta kafla: wizyty, km i liczba sklepów', /wizy/.test(await p.locator('#d-meta').innerText()) && (MOB || (/km/.test(await p.locator('#d-meta').innerText()) && /19 sklepów/.test(await p.locator('#d-meta').textContent()))), await p.locator('#d-meta').innerText());
   await p.screenshot({ path: wyj + '/2_dzis.png' });
   const pierwszy = (await p.locator('#przystanki .p-nazwa').first().innerText());
   await p.click('#przystanki .p-znak >> nth=0', { force: true });
@@ -80,6 +81,7 @@ const { otworz } = require('./wspolne'); const path = require('path');
   await p.screenshot({ path: wyj + '/4_fanfary.png' });
   await p.click('#plan-btn'); await p.waitForSelector('#plan-usun'); await p.waitForTimeout(600); await p.screenshot({ path: wyj + '/3_plan_istniejacy.png' });
   ok('arkusz planu pokazuje stan istniejącego planu', /Plan ułożony/.test(await p.locator('#plan-stan').innerText()), (await p.locator('#plan-stan').innerText()).slice(0, 90));
+  ok('sklep spoza bazy offline bez sieci jest wymieniony jako „bez lokalizacji” (nie trafia do Warszawy)', /Bez lokalizacji[^]*Józefów/.test(await p.locator('#plan-stan').innerText()), (await p.locator('#plan-stan').innerText()).slice(0, 160));
   console.log('  błędy konsoli:', JSON.stringify(t.bledy.slice(0, 6))); if (t.bledy.length) kod = 1;
   await t.zamknij(); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.message); process.exit(2); });

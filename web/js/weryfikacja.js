@@ -1,9 +1,9 @@
 // PMT Planer (web) — sprawdzanie podpisów elektronicznych po stronie przeglądarki (nic nie opuszcza urządzenia).
 //   • PAdES: podpis wbudowany w PDF (/ByteRange + /Contents, CMS/PKCS#7),
 //   • XAdES: osobny plik podpisu obok dokumentu (.xades / .xml).
-// Sprawdzamy: czy podpis jest, czy obejmuje CAŁY plik, czy plik nie został zmieniony po podpisaniu (skrót), czy sam podpis jest matematycznie poprawny (klucz z certyfikatu),
+// Sprawdzamy: czy podpis jest, czy obejmuje CAŁY plik, czy plik nie został zmieniony po podpisaniu (skrót) ani przed nim (zmiany dopisane do pliku), czy sam podpis jest matematycznie poprawny (klucz z certyfikatu),
 // kto podpisał (imię i nazwisko, PESEL, jeśli certyfikat go zawiera) i kiedy. NIE sprawdzamy zaufania do urzędu certyfikacji (łańcucha do certyfikatu głównego) — to robi
-// urzędowy walidator; aplikacja pokazuje wystawcę certyfikatu, żeby można to ocenić. Czyste funkcje (bez interfejsu), działają w przeglądarce i w Node 22.
+// urzędowy walidator; aplikacja pokazuje wystawcę certyfikatu, żeby można to ocenić, a certyfikat samopodpisany oznacza do potwierdzenia. Czyste funkcje (bez interfejsu), działają w przeglądarce i w Node 22.
 
 import { zawieraOryginal } from './pliki.js';
 import { kryptoJs } from './krypto_js.js';
@@ -61,20 +61,24 @@ export function certyfikat(b) {
   let i = 0; if (p[0].tag === 0xa0) i = 1;           // wersja
   const serial = p[i], wystawca = p[i + 2], waznosc = p[i + 3], podmiot = p[i + 4], spki = p[i + 5];
   const [od, doo] = dzieci(b, waznosc);
-  return { serial: surowe(b, serial), wystawcaSurowy: surowe(b, wystawca), spki: surowe(b, spki), spkiWezly: dzieci(b, spki),
-    podmiot: nazwaDer(b, podmiot), wystawca: nazwaDer(b, wystawca), od: czasDer(b, od), do: czasDer(b, doo), bajty: b, ski: skiZRozszerzen(b, p.slice(i + 6)) };
+  return { serial: surowe(b, serial), wystawcaSurowy: surowe(b, wystawca), podmiotSurowy: surowe(b, podmiot), spki: surowe(b, spki), spkiWezly: dzieci(b, spki),
+    podmiot: nazwaDer(b, podmiot), wystawca: nazwaDer(b, wystawca), od: czasDer(b, od), do: czasDer(b, doo), bajty: b, ski: kluczZRozszerzen(b, p.slice(i + 6), '2.5.29.14'), aki: kluczZRozszerzen(b, p.slice(i + 6), '2.5.29.35') };
 }
-function skiZRozszerzen(b, reszta) {
+/** Identyfikator klucza z rozszerzeń certyfikatu: własny (SKI, 2.5.29.14) albo klucza wystawcy (AKI, 2.5.29.35: SEQUENCE { [0] keyIdentifier }). */
+function kluczZRozszerzen(b, reszta, szukany) {
   try {
     const rozsz = reszta.find(x => x.tag === 0xa3); if (!rozsz) return null;
     for (const e of dzieci(b, dzieci(b, rozsz)[0])) {
-      const [o, ...pozost] = dzieci(b, e); if (oid(b, o) !== '2.5.29.14') continue;
-      const oct = pozost[pozost.length - 1], wew = tlv(b, oct.start); return tresc(b, wew);
+      const [o, ...pozost] = dzieci(b, e); if (oid(b, o) !== szukany) continue;
+      const oct = pozost[pozost.length - 1], wew = tlv(b, oct.start); if (szukany === '2.5.29.14') return tresc(b, wew);
+      const id = dzieci(b, wew).find(x => x.tag === 0x80); return id ? tresc(b, id) : null;
     }
-  } catch (e) { /* bez SKI */ }
+  } catch (e) { /* bez identyfikatora klucza */ }
   return null;
 }
 const rowne = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+/** Certyfikat wystawiony sam sobie (np. „cyfrowy identyfikator” utworzony w Acrobacie): wystawca = podmiot albo klucz wystawcy = własny klucz. Łańcucha zaufania nie sprawdzamy, ale taki certyfikat na pewno nie jest zaufany ani kwalifikowany. */
+const samopodpisany = c => rowne(c.wystawcaSurowy, c.podmiotSurowy) || !!(c.aki && c.ski && rowne(c.aki, c.ski));
 /** Rodzaj klucza publicznego z certyfikatu: { oid (RSA albo EC), krzywa (OID krzywej dla EC) }. */
 function rodzajKlucza(c) { const [o, par] = dzieci(c.bajty, c.spkiWezly[0]); return { oid: oid(c.bajty, o), krzywa: par ? oid(c.bajty, par) : '' }; }
 
@@ -184,7 +188,7 @@ export async function sprawdzPades(bajty, p) {
   const w = { rodzaj: 'PAdES', calosc: p.calosc, skrot: null, podpis: null, powody: [], czas: null, podmiot: {}, wystawca: {}, od: null, do: null };
   let c;
   try { c = cms(p.cms); } catch (e) { w.powody.push('nie umiem odczytać podpisu: ' + e.message); w.blad = true; return w; }
-  if (c.cert) { w.podmiot = c.cert.podmiot; w.wystawca = c.cert.wystawca; w.od = c.cert.od; w.do = c.cert.do; }
+  if (c.cert) { w.podmiot = c.cert.podmiot; w.wystawca = c.cert.wystawca; w.od = c.cert.od; w.do = c.cert.do; w.samopodpisany = samopodpisany(c.cert); }
   w.czas = c.czas;
   const [a, b, cc, d] = p.zakres, dane = polacz(bajty.subarray(a, a + b), bajty.subarray(cc, cc + d));
   if (!c.skrot) { w.powody.push('nieobsługiwany algorytm skrótu'); return w; }
@@ -251,7 +255,7 @@ export async function sprawdzXades(tekstXml, oryginal) {
   const sig = doc.getElementsByTagNameNS(NS_DS, 'Signature')[0]; if (!sig) { w.powody.push('w pliku nie ma podpisu XML'); w.blad = true; return w; }
   const si = pierwszyEl(sig, 'SignedInfo'), certB64 = pierwszyEl(sig, 'X509Certificate');
   let cert = null; if (certB64) { try { cert = certyfikat(base64(certB64.textContent)); } catch (e) { w.powody.push('nie umiem odczytać certyfikatu: ' + e.message); } }
-  if (cert) { w.podmiot = cert.podmiot; w.wystawca = cert.wystawca; w.od = cert.od; w.do = cert.do; }
+  if (cert) { w.podmiot = cert.podmiot; w.wystawca = cert.wystawca; w.od = cert.od; w.do = cert.do; w.samopodpisany = samopodpisany(cert); }
   const t = (doc.getElementsByTagNameNS('*', 'SigningTime')[0] || {}).textContent; if (t) w.czas = new Date(t.trim());
   // czy podpis dotyczy TEGO dokumentu: skrót któregokolwiek odwołania zgadza się ze skrótem oryginału
   if (oryginal && si) {
@@ -308,6 +312,71 @@ export function zawieraStrumienie(podpisany, oryginal) {
   return kawalki.every(k => p.includes(k));
 }
 
+/* ---------------------------------- zmiany dopisane do PDF-u (czy podpisano niezmieniony dokument) ---------------------------------- */
+// Podpis obejmuje to, co jest w pliku w chwili podpisywania — także zmiany zapisane przyrostowo PRZED podpisem (np. „Zapisz” w Acrobacie po dopisaniu tekstu, potem podpis na gov.pl),
+// więc skrót się zgadza, choć to już nie jest wygenerowany dokument. Dlatego przeglądam obiekty dopisane za oryginałem: podpis dokłada swoje (słownik i pole podpisu, /Annots strony,
+// katalog, formularz, /Info, metadane, dane do weryfikacji), ale nie zmienia treści ani układu stron, nie dodaje adnotacji ani pól formularza i nie podmienia strumieni, czcionek ani zasobów.
+const STRONA = /\/Type\s*\/Page(?![\w.])/, STRONY = /\/Type\s*\/Pages(?![\w.])/, KATALOG = /\/Type\s*\/Catalog(?![\w.])/;
+const ADNOTACJE = /\/Subtype\s*\/(Text|FreeText|Line|Square|Circle|Polygon|PolyLine|Highlight|Underline|Squiggly|StrikeOut|Stamp|Caret|Ink|FileAttachment|Sound|Movie|Screen|Redact|Watermark|RichMedia|3D)(?![\w.])/;
+/** Wartość klucza słownika PDF do porównań (odwołanie, tablica albo liczba): „[4 0 R]” = „4 0 R”, „595.280” = „595.28”; brak klucza = ''. */
+function wartoscPdf(sl, klucz) {
+  const m = sl.match(new RegExp('/' + klucz + '(?![\\w.])\\s*(\\[[^\\]]*\\]|\\d+\\s+\\d+\\s+R|[-+]?[\\d.]+)'));
+  return m ? m[1].replace(/[[\]]/g, ' ').trim().split(/\s+/).map(x => isNaN(x) ? x : String(Number(x))).join(' ') : '';
+}
+/** Obiekty ze skompresowanego strumienia obiektów (/ObjStm — tak zapisuje m.in. Acrobat) albo null, gdy nie umiem go rozpakować. */
+async function zObjStm(bajty, sl, od, doo) {
+  try {
+    if (!/\/FlateDecode/.test(sl) || /\/DecodeParms/.test(sl) || typeof DecompressionStream !== 'function') return null;
+    if (bajty[od] === 13) od++; if (bajty[od] === 10) od++;
+    const dl = sl.match(/\/Length\s+(\d+)(\s+\d+\s+R)?/); let koniec = dl && !dl[2] ? od + Number(dl[1]) : doo;
+    if (!(dl && !dl[2])) { if (bajty[koniec - 1] === 10) koniec--; if (bajty[koniec - 1] === 13) koniec--; }      // bez długości: bez znaku końca wiersza przed „endstream”
+    const t = latin1(new Uint8Array(await new Response(new Blob([bajty.subarray(od, koniec)]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer()));
+    const n = Number((sl.match(/\/N\s+(\d+)/) || [])[1]), pierwszy = Number((sl.match(/\/First\s+(\d+)/) || [])[1]), nag = t.slice(0, pierwszy).trim().split(/\s+/).map(Number);
+    if (!n || !(pierwszy > 0) || nag.length < 2 * n || nag.some(isNaN)) return null;
+    return Array.from({ length: n }, (_, j) => ({ nr: String(nag[2 * j]), sl: t.slice(pierwszy + nag[2 * j + 1], j + 1 < n ? pierwszy + nag[2 * j + 3] : t.length), strumien: false }));
+  } catch (e) { return null; }
+}
+/** Obiekty PDF-u w kolejności zapisu: { obiekty: [{ nr, sl (słownik), strumien }], nieznane (był strumień obiektów, którego nie umiem rozpakować) }. */
+async function obiektyPdf(bajty) {
+  const t = latin1(bajty), re = /(\d+)\s+\d+\s+obj\b/g, obiekty = []; let m, nieznane = false;
+  while ((m = re.exec(t))) {
+    const p = re.lastIndex, sz = /stream|endobj/g; sz.lastIndex = p; const x = sz.exec(t);
+    if (!x || x[0] === 'endobj') { obiekty.push({ nr: m[1], sl: t.slice(p, x ? x.index : t.length), strumien: false }); if (x) re.lastIndex = x.index + 6; continue; }
+    const sl = t.slice(p, x.index), k = t.indexOf('endstream', x.index), koniec = k < 0 ? t.length : k; re.lastIndex = koniec;
+    obiekty.push({ nr: m[1], sl, strumien: true });
+    if (/\/Type\s*\/ObjStm(?![\w.])/.test(sl)) { const w = await zObjStm(bajty, sl, x.index + 6, koniec); if (w) obiekty.push(...w); else nieznane = true; }
+  }
+  return { obiekty, nieznane };
+}
+/** Co zmieniono w PDF-ie w bajtach [od, doo) względem pliku sprzed nich (bajty [0, od)): { zmiany: [opis], nieznane }. */
+export async function zmianyTresci(bajty, od, doo) {
+  const przed = await obiektyPdf(bajty.subarray(0, od)), po = await obiektyPdf(bajty.subarray(od, doo)), stan = new Map();
+  for (const o of przed.obiekty) stan.set(o.nr, o);      // ostatnia wersja każdego obiektu
+  const info = new Set([...latin1(bajty.subarray(0, od)).matchAll(/\/Info\s+(\d+)\s+\d+\s+R/g)].map(x => x[1]));
+  const zasoby = new Set([...stan.values()].filter(o => STRONA.test(o.sl)).map(o => wartoscPdf(o.sl, 'Resources').split(' ')[0]));
+  const chroniony = o => !!o && ((o.strumien && !/\/Type\s*\/(Metadata|XRef|ObjStm)(?![\w.])/.test(o.sl)) || /\/Type\s*\/(Font|FontDescriptor|XObject|ExtGState|Pattern|Shading)(?![\w.])/.test(o.sl) || zasoby.has(o.nr));
+  const katalog = [...stan.values()].filter(o => KATALOG.test(o.sl)).pop(), zmiany = new Set(); let nieznane = po.nieznane;
+  const nowe = new Map(po.obiekty.map(o => [o.nr, o])), PUSTE = new Map();
+  // Wartość, która naprawdę obowiązuje: MediaBox, CropBox, Resources i Rotate dziedziczą się po /Parent, a brak to Rotate 0 i CropBox = MediaBox. Narzędzia do podpisu
+  // (np. iText 5 / OpenPDF) przepisują stronę z odziedziczonymi wartościami wpisanymi wprost albo z „/Rotate 0” — to ta sama strona, a nie zmieniona treść.
+  const dziedzicz = (sl, k, gdzie, n = 0) => {
+    const w = wartoscPdf(sl, k); if (w || k === 'Contents' || k === 'Kids') return w;
+    const r = wartoscPdf(sl, 'Parent').split(' ')[0], rodzic = r && n < 32 ? gdzie.get(r) || stan.get(r) : null;
+    return rodzic ? dziedzicz(rodzic.sl, k, gdzie, n + 1) : '';
+  };
+  const efekt = (sl, k, gdzie) => dziedzicz(sl, k, gdzie) || (k === 'Rotate' ? '0' : k === 'CropBox' ? dziedzicz(sl, 'MediaBox', gdzie) : '');
+  for (const o of po.obiekty) {
+    const st = stan.get(o.nr), rozne = (...klucze) => klucze.some(k => efekt(o.sl, k, nowe) !== efekt(st.sl, k, PUSTE));
+    if (STRONA.test(o.sl)) { if (!st && przed.nieznane) nieznane = true; else if (!st || !STRONA.test(st.sl)) zmiany.add('dodano stronę'); else if (rozne('Contents', 'Resources', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono treść strony'); }      // strona z nierozpakowanego strumienia obiektów to nie nowa strona
+    else if (STRONY.test(o.sl)) { if (st && rozne('Kids', 'MediaBox', 'CropBox', 'Rotate')) zmiany.add('zmieniono układ stron'); }
+    else if (KATALOG.test(o.sl)) { if (katalog && wartoscPdf(o.sl, 'Pages') !== wartoscPdf(katalog.sl, 'Pages')) zmiany.add('zmieniono układ stron'); }
+    else if (chroniony(st) && !info.has(o.nr)) zmiany.add('podmieniono treść, czcionkę albo zasoby strony');
+    if (ADNOTACJE.test(o.sl)) zmiany.add('dodano adnotację albo tekst');
+    if (/\/FT\s*\/(Tx|Ch|Btn)(?![\w.])/.test(o.sl)) zmiany.add('dodano pole formularza');
+  }
+  return { zmiany: [...zmiany], nieznane };
+}
+
 /* ---------------------------------- kompletna ocena podpisanego pliku ---------------------------------- */
 const dwa = n => String(n).padStart(2, '0');
 export const czasPl = d => d ? `${dwa(d.getDate())}.${dwa(d.getMonth() + 1)}.${d.getFullYear()} ${dwa(d.getHours())}:${dwa(d.getMinutes())}` : '';
@@ -316,7 +385,7 @@ function stanOgolny(kontrole) { return kontrole.some(k => k.stan === 'zle') ? 'z
 
 /**
  * Ocena jednego podpisanego pliku. Wejście: { bajty (PDF z podpisem) albo xades: tekst XML + oryginal (PDF), oryginal: Uint8Array, imie, pesel }.
- * Wynik: { rodzaj: 'PAdES'|'XAdES'|'brak', kontrole: [{ id, stan: 'ok'|'zle'|'uwaga', tekst }], stan, sygnatariusz, czas, wystawca }.
+ * Wynik: { rodzaj: 'PAdES'|'XAdES'|'brak', kontrole: [{ id, stan: 'ok'|'zle'|'uwaga'|'info', tekst }], stan, sygnatariusz, czas, wystawca }.
  */
 export async function ocenPodpisElektroniczny({ bajty, xades, oryginal, imie, pesel }) {
   const kontrole = [], dodaj = (id, stan, tekst) => kontrole.push({ id, stan, tekst });
@@ -335,11 +404,22 @@ export async function ocenPodpisElektroniczny({ bajty, xades, oryginal, imie, pe
     rodzaj = 'PAdES'; for (const p of sy) podpisy.push(await sprawdzPades(bajty, p));
     dodaj('podpis', 'ok', podpisy.length === 1 ? 'Jest podpis elektroniczny' : `Są ${podpisy.length} podpisy elektroniczne`);
     if (podpisy.some(p => p.blad)) dodaj('podpis', 'zle', podpisy.find(p => p.blad).powody[0]);
-    if (sy.some(p => p.calosc)) dodaj('calosc', 'ok', 'Podpis obejmuje cały dokument');
+    // przy kilku podpisach liczy się zakres podpisu tej osoby: co zmieniono przed nim (kontrola „dokument”) i co dopisano za nim, zanim ktoś podpisał całość (kontrola „całość”)
+    const koniec = p => p.zakres[2] + p.zakres[3], wlasny = sy[podpisy.findIndex(p => czyTaOsoba(imie, pesel, p.podmiot).osoba === true)], opis = z => z.zmiany.join(', ');
+    if (wlasny && !wlasny.calosc && sy.some(p => p.calosc)) {
+      const z = await zmianyTresci(bajty, koniec(wlasny), bajty.length);
+      if (z.zmiany.length) dodaj('calosc', 'zle', `Po podpisaniu zmieniono treść dokumentu (${opis(z)}), a potem podpisał go ktoś jeszcze — podpis nie obejmuje tych zmian`);
+      else if (z.nieznane) dodaj('calosc', 'uwaga', 'Po podpisaniu plik zapisano jeszcze raz w sposób, którego nie umiem przejrzeć — sprawdź, czy treść się nie zmieniła');
+      else dodaj('calosc', 'ok', 'Podpis obejmuje cały dokument (późniejsze podpisy niczego w nim nie zmieniły)');
+    } else if (sy.some(p => p.calosc)) dodaj('calosc', 'ok', 'Podpis obejmuje cały dokument');
     else dodaj('calosc', 'zle', 'Po podpisaniu do pliku dopisano dane — podpis nie obejmuje całego dokumentu');
     if (oryginal) {
-      if (zawieraOryginal(bajty, oryginal)) dodaj('dokument', 'ok', 'To ten sam dokument, który wygenerowałem (treść bez zmian)');
-      else if (zawieraStrumienie(bajty, oryginal)) dodaj('dokument', 'ok', 'To ten sam dokument (plik zapisano na nowo przy podpisywaniu, treść bez zmian)');
+      if (zawieraOryginal(bajty, oryginal)) {
+        const z = await zmianyTresci(bajty, oryginal.length, wlasny ? koniec(wlasny) : Math.max(...sy.map(koniec)));
+        if (z.zmiany.length) dodaj('dokument', 'zle', `Przed podpisaniem zmieniono treść dokumentu (${opis(z)}) — podpisz na gov.pl niezmieniony plik pobrany z aplikacji`);
+        else if (z.nieznane) dodaj('dokument', 'uwaga', 'To ten sam dokument, ale przed podpisaniem plik zapisano w sposób, którego nie umiem przejrzeć — sprawdź, czy treść się nie zmieniła');
+        else dodaj('dokument', 'ok', 'To ten sam dokument, który wygenerowałem (treść bez zmian)');
+      } else if (zawieraStrumienie(bajty, oryginal)) dodaj('dokument', 'uwaga', 'To chyba ten sam dokument, ale plik zapisano na nowo przy podpisywaniu — nie potwierdzę, że treść się nie zmieniła; obejrzyj go i potwierdź');      // stare strumienie są w pliku, ale mogło dojść coś nowego
       else dodaj('dokument', 'uwaga', 'Nie mogę potwierdzić, że to ten sam dokument, który wygenerowałem — sprawdź, czy to właściwy plik');
     }
     const zle = podpisy.filter(p => p.skrot === false);
@@ -368,6 +448,9 @@ export async function ocenPodpisElektroniczny({ bajty, xades, oryginal, imie, pe
   if (wazny && wazny.czas && wazny.od && wazny.do) {
     if (wazny.czas < wazny.od || wazny.czas > wazny.do) dodaj('termin', 'uwaga', `Podpis złożono poza okresem ważności certyfikatu (${czasPl(wazny.czas)})`);
   }
+  const wyst = wazny ? pierwszy(wazny.wystawca, 'CN') || pierwszy(wazny.wystawca, 'O') : '';
+  if (wazny && wazny.samopodpisany) dodaj('wystawca', 'uwaga', 'Certyfikat wystawił sobie sam podpisujący (certyfikat samopodpisany) — to nie jest podpis zaufany ani kwalifikowany. Podpisz na gov.pl albo potwierdź, jeśli odbiorca przyjmuje taki podpis');
+  else if (wyst) dodaj('wystawca', 'info', `Certyfikat wystawił: ${wyst}`);
   if (!czas && wazny) czas = wazny.czas;
   if (czas) dodaj('czas', 'ok', `Podpisano: ${czasPl(czas)}`);
   return { rodzaj, kontrole, stan: stanOgolny(kontrole), sygnatariusz, czas, wystawca };

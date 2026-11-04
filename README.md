@@ -54,7 +54,7 @@
 | Aktualizacje | `wersja.txt` (numer, `min=`, `blokada=`), `updater*.bat/.sh` | program czyta je z gałęzi main |
 | Backend | `apps_script_POPRAWIONY_v2.gs` | Arkusz Google → Rozszerzenia → Apps Script |
 | Budowanie | `zbuduj.py`, `.github/workflows/build.yml`, `requirements.txt` | GitHub Actions (tag `vX.Y.Z`) albo komputer |
-| Testy | `testy_pmt.py`, `.github/workflows/testy.yml` | GitHub Actions przy każdej zmianie |
+| Testy | `testy_pmt.py`, `.github/workflows/testy.yml` | GitHub Actions przy każdej zmianie i przed każdym wydaniem z tagu (paczka powstaje tylko po zielonych testach) |
 
 Backend obsługuje pięć akcji programu: `logowanie`, `puls`, `sesja`,
 `zmien_haslo`, `reset_hasla`. Wdrożenie i wydanie: `WYDANIE.txt`.

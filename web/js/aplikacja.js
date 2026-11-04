@@ -276,6 +276,7 @@ const DK = ['pn', 'wt', 'śr', 'cz', 'pt', 'sb', 'nd'];
 let LIMIT_DZIEN = 587.19, LIMIT_POL = 986.34, MIN_KWOTA = 50;   // nadpisywane stałymi z silnika (stale())
 const ik = (id, kl = 'ik') => `<svg class="${kl}" aria-hidden="true"><use href="#${id}"/></svg>`;
 const silnik = new Silnik();
+if (window.__testy) window.__pmtSilnik = silnik;      // tylko dla testów (strona z ustawionym window.__testy): pamięć silnika w workerze
 let PROFIL = null;           // dane pracownika z urządzenia
 let M = null;                // aktywny miesiąc (patrz zbudujModel)
 let wybrany = 0;             // wybrany dzień miesiąca (1..N) albo 0
@@ -437,6 +438,7 @@ function budujKalendarz() {
   let h = '';
   for (let i = 0; i < off; i++) h += '<div class="dz pusty" aria-hidden="true"></div>';
   const nazwaM = MIES_D[M.mies - 1];
+  siatka.setAttribute('aria-label', `Dni ${nazwaM} ${M.rok} — poziom cieczy: kwota dnia wobec limitu ${fmt(LIMIT_DZIEN)} zł`);
   for (let d = 1, k = 0; d <= N; d++, k++) {
     const t = typDnia(d), wd = dzienTyg(d), tr = M.trasy[d];
     if (t === 'trasa') {
@@ -580,7 +582,7 @@ function mapkaSVG(tr) {
   const cx = (Math.min(...Q.map(q => q[0])) + Math.max(...Q.map(q => q[0]))) / 2;
   let pk = '';
   for (let i = 0; i < N; i++) {
-    const [x, y] = Q[i], lewo = x < cx, nazwa = pt[i].m;
+    const [x, y] = Q[i], lewo = x < cx, nazwa = bezZnacznikow(pt[i].m);      // nazwy miejscowości (także z adresu użytkownika) idą do innerHTML
     const poz = `x="${(x + (lewo ? -6 : 6)).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${lewo ? 'end' : 'start'}" dominant-baseline="central"`;
     const et = `<text class="tr-et-halo" ${poz} aria-hidden="true">${nazwa}</text><text class="tr-et" ${poz}>${nazwa}</text>`;
     pk += i === 0
@@ -596,13 +598,13 @@ function podrozHTML(odc, op, tr) {
   let h = '';
   odc.forEach((o, i) => {
     const nast = odc[i + 1];
-    const nazwa = o.dom ? 'Dom' : o.m;
+    const nazwa = o.dom ? 'Dom' : bezZnacznikow(o.m);
     const czasT = o.dom ? (i === 0 ? o.odj : o.przyj) : `${o.przyj}–${o.odj}`;
     const wezel = o.dom ? `<span class="pr-wezel">${ik('i-dom')}</span>` : `<span class="pr-wezel"><span class="pr-nr">${i}</span></span>`;
     const sw = nast ? ((sz(i) / 2 + sz(i + 1) / 2) / sz(i) * 100).toFixed(1) + '%' : '0%';
     const wy = nast ? `<span class="pr-odc"><i></i></span><span class="pr-km wy num"><b>${fmt(nast.km, 1)} km</b><span>${fmt(nast.zl)} zł</span></span>` : '';
     const we = o.km != null ? `<span class="pr-km we num"><b>${fmt(o.km, 1)} km</b><span>${fmt(o.zl)} zł</span></span>` : '<span class="pr-km we num"><span>start</span></span>';
-    h += `<li class="pr${o.dom ? ' dom' : ''}" style="--s:${i};--sw:${sw}" title="${o.dom ? o.m : o.m}"><span class="pr-nazwa">${nazwa}</span><span class="pr-czas num">${czasT}</span>` +
+    h += `<li class="pr${o.dom ? ' dom' : ''}" style="--s:${i};--sw:${sw}" title="${bezZnacznikow(o.m)}"><span class="pr-nazwa">${nazwa}</span><span class="pr-czas num">${czasT}</span>` +
       `<span class="pr-os">${wezel}${wy}</span>${we}</li>`;
   });
   return `<ol class="podroz rysuj" style="--op:${op}ms;grid-template-columns:.6fr repeat(${odc.length - 2},minmax(0,1fr)) .6fr" aria-label="Trasa: ${odc.length - 2} miejscowości i powrót; ${odc.length - 1} odcinków, ${fmt(tr.km, 1)} km, ${fmt(tr.suma)} zł">${h}<span class="pr-kometa" aria-hidden="true"></span></ol>`;
@@ -627,7 +629,7 @@ function tabelaHTML(odc, tr) {
   for (const o of odc) {
     const znak = o.dom ? `<i class="dom">${ik('i-dom')}</i>` : `<i>${++nr}</i>`;
     const km = o.km != null ? `<span class="kmp"><i style="--p:${(o.km / maxKm).toFixed(3)}" aria-hidden="true"></i>${fmt(o.km, 1)}</span>` : '';
-    w += `<tr><td class="s">${o.przyj}</td><td><span class="m">${znak}${o.m}</span></td><td class="odj">${o.odj}</td><td class="r s">${km}</td><td class="r">${o.zl != null ? fmt(o.zl) : ''}</td></tr>`;
+    w += `<tr><td class="s">${o.przyj}</td><td><span class="m">${znak}${bezZnacznikow(o.m)}</span></td><td class="odj">${o.odj}</td><td class="r s">${km}</td><td class="r">${o.zl != null ? fmt(o.zl) : ''}</td></tr>`;
   }
   return `<div class="tabela-w"><table class="odcinki"><thead><tr><th>Przyj.</th><th>Miejscowość</th><th class="odj">Odj.</th><th class="r">km</th><th class="r">zł</th></tr></thead><tbody>${w}</tbody>` +
     `<tfoot><tr><td colspan="2" class="s">Razem · ${odc.length - 1} odcinków</td><td class="odj"></td><td class="r">${fmt(tr.km, 1)}</td><td class="r">${fmt(tr.suma)}</td></tr></tfoot></table></div>`;
@@ -758,8 +760,10 @@ function zbudujPlanDzis() {
 /* pusty stan „Dziś”: bezszelestna zapowiedź listy — trzy wiersze wjeżdżają jeden po drugim, pierwszy zostaje odhaczony (bez żadnych zmyślonych danych) */
 const DUCH_LISTY = '<div class="duch-lista" aria-hidden="true">' + [0, 1, 2].map(i => `<i style="--s:${i}"><span class="dl-znak"></span><span class="dl-pasek"></span><span class="dl-godz"></span></i>`).join('') + '</div>';
 const sklepowWPlanie = () => { const z = new Set(); if (PLAN) for (const m of PLAN.miesiace) for (const d of m.dni) for (const w of d.wizyty) z.add(w.adres); return z.size; };
+let dataRysowania = '';      // dzień, dla którego narysowano kafel „Dziś” (aplikacja na telefonie wraca z tła bez przeładowania, także następnego dnia)
+const nowyDzien = () => { if (isoDzis() === dataRysowania) return false; rysujDzis(); return true; };
 function rysujDzis() {
-  zbudujPlanDzis();
+  dataRysowania = isoDzis(); zbudujPlanDzis();
   const lista = $('#przystanki'), plan = $('#d-plan'), os = $('#d-os');
   const dataTxt = PLAN_DATA ? (() => { const t = new Date(PLAN_DATA + 'T12:00:00'); return `${DK[(t.getDay() + 6) % 7]} ${dwa(t.getDate())}.${dwa(t.getMonth() + 1)}`; })() : '';
   { const bl = $('#kD .blask'); if (bl) bl.dataset.d = String(PLAN_DATA ? Number(PLAN_DATA.slice(8, 10)) : new Date().getDate()); }
@@ -1485,9 +1489,11 @@ const arkTlo = $('#arkusz-tlo'), arkTresc = $('#arkusz-tresc');
 let arkuszKoniec = 0;
 function otworzArkusz(html, poZamknieciu, opcje) {
   clearTimeout(arkuszKoniec); arkTlo.classList.remove('zamyka');
-  fokusPrzed = doc.activeElement; arkuszPoZamknieciu = poZamknieciu || null;
+  if (!arkTresc.contains(doc.activeElement)) fokusPrzed = doc.activeElement;      // okno otwierane z okna: fokus wraca potem tam, skąd otwarto pierwsze (stara treść zaraz zniknie)
+  arkuszPoZamknieciu = poZamknieciu || null;
   $('#arkusz').classList.toggle('szeroki', !!(opcje && opcje.szeroki));
   arkTresc.innerHTML = html; arkTlo.classList.add('otwarty'); arkuszOtwarty = true; root.classList.toggle('okno', !dostepBlokada);      // pulpit pod otwartym oknem blaknie i się rozmywa (poza oknem logowania)
+  app.inert = true;      // aria-modal: Tab i czytnik ekranu nie wychodzą z okna do pulpitu pod spodem
   $('#arkusz').scrollTop = 0;
   const pierwsze = $('[data-pierwsze]', arkTresc) || $('input,select,button', arkTresc); pierwsze && pierwsze.focus({ preventScroll: true });
   dodajPodpowiedzi(arkTresc);
@@ -1503,16 +1509,16 @@ function zmienArkusz(html) {
 let dostepBlokada = false;      // okno logowania nie zamyka się Esc, tłem ani krzyżykiem
 function zamknijArkusz() {
   if (!arkuszOtwarty || dostepBlokada) return;
-  arkuszOtwarty = false; root.classList.remove('okno');
+  arkuszOtwarty = false; root.classList.remove('okno'); app.inert = !!RUCH.zewn;      // paleta albo wycieczka same trzymają pulpit nieaktywny
   if (spokoj) { arkTlo.classList.remove('otwarty'); arkTresc.innerHTML = ''; }
   else { arkTlo.classList.add('zamyka'); arkuszKoniec = setTimeout(() => { arkTlo.classList.remove('otwarty', 'zamyka'); arkTresc.innerHTML = ''; }, 200); }
   const f = arkuszPoZamknieciu; arkuszPoZamknieciu = null; f && f();
-  fokusPrzed && fokusPrzed.focus && fokusPrzed.focus({ preventScroll: true });
+  fokusPrzed && fokusPrzed.isConnected && fokusPrzed.focus && fokusPrzed.focus({ preventScroll: true });
 }
 arkTlo.addEventListener('click', e => { if (e.target === arkTlo) zamknijArkusz(); });
 arkTresc.addEventListener('click', e => { if (e.target.closest('[data-zamknij]')) zamknijArkusz(); });
 const naglowekArkusza = (tytul) => `<div class="ark-gora"><h2 id="ark-tyt">${tytul}</h2><button type="button" class="ark-zam" data-zamknij aria-label="Zamknij">${ik('i-zamknij')}</button></div>`;
-const bezZnacznikow = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function bezZnacznikow(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }      // deklaracja (nie const): używają jej też funkcje rysujące trasę dnia, zapisane wyżej
 
 /** Plan wizyt z programu na komputerze: silnik dolicza sumy, punkt startowy i godziny, plan trafia do magazynu konta (kafel Dziś ma od razu wizyty),
     odhaczone w programie wizyty zostają odhaczone. Zwraca liczbę dni planu (0 = nie udało się; wtedy zostaje sama lista sklepów). */
@@ -1527,12 +1533,17 @@ async function wgrajPlanZProgramu(plan, odhaczenia, sklepy) {
   return dni;
 }
 /* ====================== Moje dane ====================== */
-const peselPoprawny = p => { p = String(p).replace(/\s/g, ''); if (!/^\d{11}$/.test(p)) return false; const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]; let s = 0; for (let i = 0; i < 10; i++) s += w[i] * +p[i]; return (10 - s % 10) % 10 === +p[10]; };
+const peselPoprawny = p => {
+  p = String(p).replace(/\s/g, ''); if (!/^\d{11}$/.test(p)) return false; const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3]; let s = 0; for (let i = 0; i < 10; i++) s += w[i] * +p[i];
+  if ((10 - s % 10) % 10 !== +p[10]) return false;
+  const mm = +p.slice(2, 4), r = [1900, 2000, 2100, 2200, 1800][Math.floor(mm / 20)] + +p.slice(0, 2), m = mm % 20, d = +p.slice(4, 6), dt = new Date(Date.UTC(r, m - 1, d));      // data urodzenia jak waliduj_pesel w silniku (miesiąc +80/+0/+20/+40/+60)
+  return m >= 1 && d >= 1 && dt.getUTCFullYear() === r && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+};
 function otworzMojeDane(pierwsze) {
   const p = PROFIL || { imie: dostep.imieZSerwera(), pesel: '', adres: '', stanowisko: 'merchandiser', silnik_powyzej_900: true, tryb: 'tydzien' };
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Zacznijmy od Twoich danych' : 'Moje dane')}
     <p class="ark-opis">Imię i PESEL zostają tylko na tym urządzeniu (trafiają na dokumenty). Sam adres wysyłam do mapy OpenStreetMap, żeby policzyć kilometry.</p>
-    <div class="przenos"><label class="przycisk" id="przenos-etykieta">Wczytaj dane z programu na komputerze<input type="file" id="plik-program" accept=".pmtdane,.json,application/json" hidden></label><small id="przenos-info" aria-live="polite">Pracowałeś w programie na komputerze? Wskaż plik z danymi, który zapisał (PMT_dane_do_aplikacji.pmtdane) — nie musisz niczego wpisywać od nowa.</small></div>
+    <div class="przenos"><label class="przycisk" id="przenos-etykieta">Wczytaj dane z programu na komputerze<input type="file" id="plik-program" accept=".pmtdane,.json,application/json" hidden></label><small id="przenos-info" aria-live="polite">Pracowałeś w programie na komputerze? Wskaż plik z danymi, który zapisał (PMT_dane_do_aplikacji.pmtdane) — nie musisz niczego wpisywać od nowa.</small><div class="przenos-stare" id="przenos-stare" hidden><label class="pole"><span>Hasło z programu na komputerze</span><input id="przenos-haslo" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label><button type="button" class="przycisk" id="przenos-odczytaj">Odczytaj plik</button></div></div>
     <form id="form-dane" class="ark-pola" novalidate autocomplete="off">
       <label class="pole pelne"><span>Imię i nazwisko</span><input id="d-imie" data-pierwsze value="${bezZnacznikow(p.imie)}" autocomplete="name" required><small></small></label>
       <label class="pole"><span>PESEL</span><input id="d-pesel" inputmode="numeric" maxlength="11" value="${bezZnacznikow(p.pesel)}" autocomplete="off" required><small></small></label>
@@ -1566,15 +1577,35 @@ function otworzMojeDane(pierwsze) {
   /* dane z programu na komputerze: plik jest zaszyfrowany kodem i hasłem tego konta; wypełniamy formularz (nic nie zapisuje się samo — sprawdzasz i klikasz „Zapisz”), a lista sklepów czeka w oknie „Plan” */
   let silnikZPliku = null, sklepyZPliku = null, planZPliku = null, odhaczeniaZPliku = {};
   const infoPrzenos = (html, klasa = '') => { const i = $('#przenos-info', arkTresc); if (i) { i.innerHTML = html; i.className = klasa; } };
+  /* hasło zmienione albo zresetowane w aplikacji po zapisaniu pliku w programie: plik ma klucz z hasła, którym logowano się w programie */
+  const stare = $('#przenos-stare', arkTresc), poleStare = $('#przenos-haslo', arkTresc); let plikStarym = null;
   const wczytajZProgramu = async plik => {
+    stare.hidden = true; plikStarym = null;
     infoPrzenos('Odczytuję plik…');
     let tekst = ''; try { tekst = await plik.text(); } catch (e) { return infoPrzenos('Nie udało się otworzyć pliku.', 'zle'); }
     const kodPliku = przen.kodZPliku(tekst);
     if (kodPliku === null) return infoPrzenos('To nie jest plik z danymi z programu PMT (PMT_dane_do_aplikacji.pmtdane).', 'zle');
     if (kodPliku !== dostep.kodAktywny()) return infoPrzenos(`Ten plik jest z konta ${bezZnacznikow(kodPliku)}, a jesteś zalogowany jako ${bezZnacznikow(dostep.kodAktywny())}. Wyloguj się i zaloguj kodem z pliku.`, 'zle');
     const w = await przen.odczytaj(tekst, dostep.skrotAktywny());
+    if (!w.ok && w.powod === 'klucz' && dostep.skrotAktywny()) {
+      plikStarym = { tekst, kod: kodPliku }; poleStare.value = ''; stare.hidden = false;
+      return infoPrzenos(`${bezZnacznikow(w.komunikat)} Jeśli po zapisaniu pliku zmieniłeś hasło w aplikacji, wpisz niżej hasło, którym logowałeś się w programie.`, 'zle');
+    }
     if (!w.ok) return infoPrzenos(bezZnacznikow(w.komunikat), 'zle');
-    const d = w.dane, czesci = [];
+    pokazZPliku(w.dane);
+  };
+  const odczytajStarym = async () => {
+    if (!plikStarym || !poleStare.value) return poleStare.focus();
+    const { tekst, kod } = plikStarym; infoPrzenos('Odczytuję plik…');
+    const w = await przen.odczytajHaslem(tekst, kod, poleStare.value, dostep.skrotHasla);
+    poleStare.value = '';
+    if (!w.ok) { poleStare.focus(); return infoPrzenos(bezZnacznikow(w.komunikat), 'zle'); }
+    stare.hidden = true; plikStarym = null; pokazZPliku(w.dane);
+  };
+  $('#przenos-odczytaj', arkTresc).addEventListener('click', odczytajStarym);
+  poleStare.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); odczytajStarym(); } });
+  const pokazZPliku = d => {
+    const czesci = [];
     if (d.profil) {
       $('#d-imie', arkTresc).value = d.profil.imie; $('#d-pesel', arkTresc).value = d.profil.pesel; $('#d-stan', arkTresc).value = d.profil.stanowisko; $('#d-adres', arkTresc).value = d.profil.adres;
       silnikZPliku = d.profil.silnik_powyzej_900; wybor = null; sprawdzAdres(); czesci.push('imię, PESEL, adres i stanowisko');
@@ -1599,11 +1630,13 @@ function otworzMojeDane(pierwsze) {
       blokTypu.hidden = false; opisTypu.textContent = `„${adr.nazwa_do_pytania}” — to nazwa ulicy czy miejscowości? Wybierz, żebym wiedział, skąd liczyć trasy.`; opisTypu.classList.add('zle'); potrzasnij(blokTypu); ok = false;
     }
     if (!ok) return;
-    PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? p.silnik_powyzej_900 ?? true, tryb: trybDom(p), tryb_wybrany: !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
+    const zModelu = !PROFIL && M && !M.demo && M.stan === 'plan' ? M : null;      // pierwsze Moje dane: tryb i auto wybrane już na pulpicie (np. po przykładzie, przed „Generuj”) zostają
+    PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? (zModelu ? zModelu.silnik : p.silnik_powyzej_900) ?? true,
+      tryb: zModelu ? zModelu.tryb : trybDom(p), tryb_wybrany: zModelu ? zModelu.tryb !== 'tydzien' || !!p.tryb_wybrany : !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
     magProfil.zapisz(PROFIL);
     if (sklepyZPliku && sklepyZPliku.length) magUst.ustaw('sklepy-z-programu', { pozycje: sklepyZPliku, zapisano: new Date().toISOString() });      // czeka w oknie „Plan wizyt”, aż ułożysz plan
     let planDni = 0; if (planZPliku) { try { planDni = await wgrajPlanZProgramu(planZPliku, odhaczeniaZPliku, sklepyZPliku); } catch (err) { planDni = 0; } }      // gotowy plan z programu: kafel Dziś od razu ma wizyty
-    if (M && M.stan === 'plan') { M.silnik = PROFIL.silnik_powyzej_900; M.tryb = trybDom(PROFIL); }
+    if (M && M.stan === 'plan' && silnikZPliku != null) M.silnik = PROFIL.silnik_powyzej_900;      // auto z pliku programu; bez pliku pulpit zostaje przy swoim wyborze
     zamknijArkusz(); odswiezProfilWNaglowku(); if (M && M.demo) await wyjdzZPrzykladu(true); else await przeladujMiesiac(M.rok, M.mies, true);
     if (planDni) rysujDzis();
     pokazToast(planDni ? `Zapisano Twoje dane. Plan wizyt z programu (${planDni} ${planDni === 1 ? 'dzień' : 'dni'}) jest już w kaflu Dziś.` : sklepyZPliku && sklepyZPliku.length ? `Zapisano Twoje dane. Lista ${sklepyZPliku.length} sklepów z programu jest gotowa — ułóż z niej plan.` : 'Zapisano Twoje dane'); sygnal('profil');
@@ -1683,6 +1716,9 @@ async function odswiezParametry() {
 
 /* ====================== generowanie: prawdziwy silnik ====================== */
 let generowanie = false;
+/** Na czas generowania miesiąc stoi w miejscu: strzałki i okno roku są wyłączone (wynik zapisuje się pod miesiąc, dla którego go liczymy). */
+const nawigacjaMiesiecy = on => { for (const s of ['#m-wstecz', '#m-dalej', '#m-nazwa']) $(s).disabled = !on; };
+function koniecGenerowania() { generowanie = false; nawigacjaMiesiecy(true); btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy'); }
 /** Pytanie z programu na komputerze: „X” — to nazwa ulicy czy miejscowości? Zwraca 'ulica', 'wies' albo null (zamknięto bez wyboru). */
 function zapytajOTypAdresu(nazwa) {
   return new Promise(res => {
@@ -1735,12 +1771,15 @@ function arkuszBrakuMenedzera(d) {
   const b = $('#menedzer-ponow', arkTresc); b && b.addEventListener('click', () => { zamknijArkusz(); setTimeout(generuj, 250); });
 }
 async function generuj() {
-  if (generowanie) { silnik.przerwij(); return; }
+  if (generowanie) { silnik.przerwij(); wczytajPamiecSilnika(); return; }      // nowy worker zaczyna z pustą pamięcią: współrzędne domu i trasy wracają z zaszyfrowanego magazynu
   if (M && M.demo) { zacznijOdSwoich(); return; }      // dane pokazowe nigdy nie wchodzą w liczenie delegacji
   if (!PROFIL) { otworzMojeDane(true); return; }
+  if (!M || M.stan !== 'plan') return;      // wygenerowany miesiąc zmienia się tylko przez „od nowa” (kasuje też podpisane)
+  const rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies), tenSam = () => M && !M.demo && M.rok === rok && M.mies === mies;      // M może się zmienić w trakcie (strzałki, okno roku, spóźniona odpowiedź silnika): zapis idzie zawsze pod miesiąc, dla którego liczymy
   M.kwota = parsujKwote($('#kwota-in').value);
   const par = parametrySilnika();
   let pr; try { pr = await silnik.przygotuj(par); } catch (e) { pokazToast('Silnik nie odpowiada — spróbuj ponownie'); return; }
+  if (!tenSam()) return;
   if (!pr.ok && pr.powod === 'brak menedzer.txt') { arkuszBrakuMenedzera(pr.szczegoly || {}); return; }
   if (!pr.ok) {
     const opisy = { 'brak menedzer.txt': 'Brakuje pliku menedzer.txt obok aplikacji (nazwisko przełożonego na dokumentach).', 'PESEL': 'PESEL jest niepoprawny — popraw go w Moich danych.', 'adres': 'Adres jest niepoprawny — popraw go w Moich danych.', 'brak dni': 'Ten miesiąc nie ma dni roboczych przy tych ustawieniach.' };
@@ -1751,10 +1790,11 @@ async function generuj() {
     PROFIL.typ_adresu = typ; magProfil.zapisz(PROFIL); par.wymus_typ = typ;
     try { pr = await silnik.przygotuj(par); } catch (e) { pokazToast('Silnik nie odpowiada — spróbuj ponownie'); return; }
     if (!pr.ok) { pokazToast('Nie można generować: ' + pr.powod); return; }
+    if (!tenSam()) return;
   }
   if (!(await arkuszPotwierdzenia(pr))) return;            // użytkownik sprawdza dane, zanim cokolwiek powstanie
-  magUst.ustaw('kwota-' + magMiesiace.klucz(M.rok, M.mies), M.kwota);
-  generowanie = true; btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
+  magUst.ustaw('kwota-' + kl, par.kwota);
+  generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
   btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35);
   const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
   wid && wid.start();
@@ -1762,27 +1802,35 @@ async function generuj() {
   try {
     w = await silnik.generuj(par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
-    wid && wid.przerwij();
-    generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
+    wid && wid.przerwij(); koniecGenerowania();
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {
       otworzArkusz(`${naglowekArkusza('Nie udało się wygenerować')}<p class="ark-opis">${bezZnacznikow(e.message)}</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
     }
     odswiezHero(); await odswiezParametry(); return;
   }
   const rec = { params: par, wynik: w.wynik, podpisane: [], wyslane: false, utworzono: new Date().toISOString() };
-  magMiesiace.zapisz(M.rok, M.mies, rec);
-  dostep.policzDokumenty(w.pdf.length);
-  await magPliki.usunMiesiac(magMiesiace.klucz(M.rok, M.mies) + '/');
-  for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(M.rok, M.mies, p.nazwa), p.bajty);
+  try {
+    await magPliki.usunMiesiac(kl + '/');
+    for (const p of w.pdf) await magPliki.zapisz(nazwaKlucza(rok, mies, p.nazwa), p.bajty);
+    magMiesiace.zapisz(rok, mies, rec);      // rekord na końcu: bez kompletu plików miesiąc nie może wyglądać na wygenerowany
+    if (!(magMiesiace.daj(rok, mies) || {}).wynik) throw new Error('brak miejsca w pamięci przeglądarki');      // pełny localStorage nie zgłasza błędu przy zapisie
+  } catch (e) {
+    wid && wid.przerwij(); koniecGenerowania(); magPliki.usunMiesiac(kl + '/').catch(() => {});
+    otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">${e && e.name === 'QuotaExceededError' ? 'Na urządzeniu zabrakło miejsca na dokumenty.' : `Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}).`} Zwolnij miejsce w pamięci przeglądarki i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
+    odswiezHero(); await odswiezParametry(); return;
+  }
+  magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
-  if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
-  else await zegar(450);
-  generowanie = false; btn.classList.remove('zbiera'); btn.removeAttribute('aria-busy');
-  M = zbudujModel(M.rok, M.mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
+  try {
+    if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
+    else await zegar(450);
+  } finally { koniecGenerowania(); }
+  if (!tenSam()) { odswiezHero(); pokazToast(`Gotowe: dokumenty za ${MIES[mies - 1]} ${rok} są zapisane`); return; }
+  M = zbudujModel(rok, mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
   zorza && zorza.flara(1); kurtyna && kurtyna.swieto();
   pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}`);
-  if (w.wynik.zrodlo && w.wynik.zrodlo.etykieta && /szacunek/i.test(w.wynik.zrodlo.etykieta)) setTimeout(() => pokazToast('Kilometry z szacunku — bez internetu nie sprawdzę dróg. Dokument to zaznacza.'), 3300);
+  if (w.wynik.zrodlo && w.wynik.zrodlo.etykieta && /szacunek/i.test(w.wynik.zrodlo.etykieta)) setTimeout(() => pokazToast('Kilometry z szacunku — bez internetu nie sprawdzę dróg. Jeśli to ma być dokładne, wygeneruj od nowa z internetem.'), 3300);
 }
 /** Dni robocze miesiąca z silnika. Przy chwilowym błędzie (np. silnik jeszcze się rozgrzewa) próbuje jeszcze dwa razy, zamiast po cichu pokazać miesiąc bez dni roboczych. */
 async function dniRoboczeZSilnika(rok, mies, trybWym) {
@@ -1811,9 +1859,12 @@ function wizytaUstaw(data, adres, ok, godz) {
 }
 function opuscPrzyklad() { if (!M || !M.demo) return; root.classList.remove('przyklad'); PLAN = magPlan.wczytaj(); WIZYTY_DEMO = {}; const b = $('#pokaz-przyklad'); if (b) b.hidden = false; }
 async function pokazPrzyklad() {
-  const pr = await wczytajPrzyklad(); if (!pr) return false;
+  if (generowanie) return false;
+  const pr = await wczytajPrzyklad(); if (!pr || generowanie) return false;
+  const nr = ++nrLadowania; celLadowania = null;
   const { rok, mies, params, wynik } = pr.miesiac;
   const r0 = await dniRoboczeZSilnika(rok, mies, params.tryb);
+  if (nr !== nrLadowania || generowanie) return false;
   M = zbudujModel(rok, mies, { params, wynik, podpisane: [], wyslane: false }, r0.dni.map(s => Number(s.slice(8))));
   M.demo = true; PLAN = pr.plan; WIZYTY_DEMO = {}; root.classList.add('przyklad'); const b = $('#pokaz-przyklad'); if (b) b.hidden = true;
   wybrany = M.dniT[0] || 0; odswiezWszystko(); return true;
@@ -1829,34 +1880,54 @@ function fokusujKwote() {
   w.value = M.kwota ? fmt(M.kwota).replace(/\s/g, '') : '';      // pole w fokusie nie jest odświeżane w tle, więc wartość ustawiamy tu
   w.focus({ preventScroll: true }); try { w.select(); } catch (e) {}
 }
-async function przeladujMiesiac(rok, mies, cicho, fokusKwoty) {
+let nrLadowania = 0, celLadowania = null;      // wczytania miesiąca mogą się wyprzedzać (odpowiedzi silnika, ponowienia): liczy się ostatnie, a strzałki liczą od miesiąca, który się właśnie wczytuje
+/** ust = { tryb, silnik }: ustawienia miesiąca bez rekordu, gdy nie przechodzą z bieżącego modelu („od nowa” przywraca te, z którymi go wygenerowano). */
+async function przeladujMiesiac(rok, mies, cicho, fokusKwoty, ust) {
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }      // wynik generowania zapisuje się pod miesiąc, który jest na ekranie
   opuscPrzyklad();
-  const r0 = await dniRoboczeZSilnika(rok, mies);
-  const rec = magMiesiace.daj(rok, mies);
+  const nr = ++nrLadowania; celLadowania = { rok, mies };
+  const teraz = M && !M.demo && M.rok === rok && M.mies === mies && M.stan === 'plan' ? M : null;      // ten sam miesiąc przed generowaniem: dni robocze dla trybu z pulpitu (także bez Moich danych)
+  if (!ust && !teraz && !magMiesiace.daj(rok, mies)) ust = magUst.daj('ust-' + magMiesiace.klucz(rok, mies), null);      // miesiąc „od nowa”: wraca z trybem i autem, z którymi go wygenerowano, także po wizycie w innym miesiącu
+  const r0 = await dniRoboczeZSilnika(rok, mies, (ust && ust.tryb) || (teraz && teraz.tryb));
+  if (nr !== nrLadowania) return;
+  celLadowania = null; if (generowanie) return;
+  const rec = magMiesiace.daj(rok, mies), kl = magMiesiace.klucz(rok, mies);
   const robocze = r0.dni.map(s => Number(s.slice(8)));
-  const pred = M && M.rok === rok && M.mies === mies ? M : null;
+  const pred = M && M.rok === rok && M.mies === mies && M.stan === 'plan' ? M : null;
   M = zbudujModel(rok, mies, rec, robocze);
-  if (!rec) { M.kwota = magUst.daj('kwota-' + magMiesiace.klucz(rok, mies), 0); if (pred && pred.stan === 'plan') { M.tryb = pred.tryb; M.silnik = pred.silnik; M.wolne = pred.wolne; for (const d of M.robocze0) if (!M.wolne.has(d)) M.robocze.add(d); } }
+  if (!rec) {
+    const z = pred || ust; M.kwota = magUst.daj('kwota-' + kl, 0);
+    if (z && z.tryb) M.tryb = z.tryb; if (z && z.silnik != null) M.silnik = z.silnik;
+    M.wolne = new Set(pred ? pred.wolne : (magUst.daj('wolne-' + kl, null) || []).map(Number).filter(d => M.robocze0.has(d)));      // dni wolne zaznaczone przed generowaniem pamiętamy na urządzeniu, jak kwotę
+    M.robocze = new Set([...M.robocze0].filter(d => !M.wolne.has(d)));
+  }
   wybrany = M.stan === 'gotowe' ? (M.trasy[wybrany] ? wybrany : M.dniT[0]) : 0;
   const odswiez = () => { odswiezWszystko(); if (fokusKwoty && M.stan === 'plan') fokusujKwote(); };
   if (cicho) odswiez(); else przejscie(odswiez, () => { kurtyna && kurtyna.wybierz(wybrany); });
 }
 async function przelaczTryb(tryb) {
-  if (M.stan !== 'plan' || M.tryb === tryb) return; M.tryb = tryb;
+  if (M.stan !== 'plan' || M.tryb === tryb) return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }      // dni robocze przelicza przeladujMiesiac, a ten w trakcie generowania odmawia (tryb rozjechałby się z kalendarzem)
+  M.tryb = tryb;
   if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; magProfil.zapisz(PROFIL); }
-  M.wolne = new Set(); await przeladujMiesiac(M.rok, M.mies, true);
+  zapiszUstMiesiaca(); M.wolne = new Set(); zapiszWolne(); await przeladujMiesiac(M.rok, M.mies, true);
 }
+const zapiszWolne = () => magUst.ustaw('wolne-' + magMiesiace.klucz(M.rok, M.mies), M.wolne.size ? [...M.wolne].sort((a, b) => a - b) : null);
+/** Miesiąc z zapamiętanymi ustawieniami („od nowa”, zmiana trybu po wygenerowaniu) trzyma bieżący wybór — bez wpisu miesiąc idzie za profilem (po udanym generowaniu wpis znika). */
+const zapiszUstMiesiaca = () => { if (!M || M.demo) return; const k = 'ust-' + magMiesiace.klucz(M.rok, M.mies); if (magUst.daj(k, null) || !PROFIL) magUst.ustaw(k, { tryb: M.tryb, silnik: M.silnik }); };      // bez Moich danych wybór nie ma gdzie trwać poza miesiącem
 async function przelaczWolne(d) {
   if (M.stan !== 'plan') return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }
   if (M.wolne.has(d)) M.wolne.delete(d); else M.wolne.add(d);
-  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x)));
+  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); zapiszWolne();
   tytulKalendarza(); budujKalendarz(); odswiezHero(); await odswiezParametry();
 }
 /** Wiele dni naraz (przeciąganie po kalendarzu): wolne = true oznacza dni jako wolne, false przywraca je do pracy. */
 async function ustawWolne(dni, wolne) {
   if (!M || M.stan !== 'plan') return;
+  if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; }
   for (const d of dni) { if (!M.robocze0.has(d)) continue; if (wolne) M.wolne.add(d); else M.wolne.delete(d); }
-  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x)));
+  M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); zapiszWolne();
   tytulKalendarza(); budujKalendarz(); odswiezHero(); await odswiezParametry();
 }
 
@@ -1912,8 +1983,8 @@ async function arkuszPlan() {
         tryb: trybDom(PROFIL), siec: navigator.onLine, od_daty: isoDzis() }, (t, v) => { tekst.textContent = t; pasek.style.setProperty('--p', Math.round(Math.max(3, v * 100)) + '%'); zorza && zorza.flara(.08); });
       w.pozycje = POZYCJE_PLANU; w.zapisano = new Date().toISOString();
       if (!w.suma_wizyt) { tekst.innerHTML = '<span style="color:var(--a-burs)">Nie udało się ułożyć ani jednej wizyty. Sprawdź, czy lista zawiera miejscowości.</span>'; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); return; }
-      magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
-      pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach`);
+      magPlan.zapisz(w); PLAN = w; magUst.ustaw('sklepy-z-programu', null); dostep.policzPlan(); zapiszPamiecSilnika(); zamknijArkusz(); przejscie(() => rysujDzis(), null, 'dzis'); zorza && zorza.flara(.8);
+      pokazToast(`Plan gotowy: ${w.suma_wizyt} ${wizyt(w.suma_wizyt)} w ${w.miesiace.reduce((a, m) => a + m.dni.length, 0)} dniach${w.ile_bez_pozycji ? ` · bez lokalizacji: ${w.ile_bez_pozycji}` : ''}`);
     } catch (err) { tekst.innerHTML = `<span style="color:var(--a-blad)">${bezZnacznikow(err.message)}</span>`; ulozBtn.disabled = false; pasek.classList.remove('widoczny'); }
   });
 }
@@ -1933,11 +2004,24 @@ const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
-/** Pamięć silnika (trasy, współrzędne, liczniki) leży w IndexedDB wspólnej dla wszystkich kont tej przeglądarki: czyścimy ją przy wylogowaniu i przy zmianie konta,
- *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. Najwyżej 4 s czekania — brak silnika nie blokuje wylogowania. */
-async function czyscSilnik() {
-  try { await Promise.race([silnik.start().then(() => silnik.czysc()), zegar(4000)]); } catch (e) { /* silnik nie wstał: nie ma czego czyścić */ }
+/** Pamięć silnika żyje tylko w workerze (jej trwała kopia jest w zaszyfrowanym magazynie konta). Przy zmianie konta czyścimy ją w workerze (najwyżej 4 s — brak silnika nie blokuje startu),
+ *  a przed przeładowaniem (wylogowanie, „Usuń dane”) worker i tak ginie: zamykamy go i kasujemy jeszcze dawną, jawną bazę IDBFS wersji sprzed szyfrowania pamięci silnika,
+ *  żeby kolejna osoba na tym komputerze nie zobaczyła śladów cudzych adresów. */
+async function czyscSilnik(przedPrzeladowaniem) {
+  if (przedPrzeladowaniem) {
+    try { silnik.w.terminate(); } catch (e) { /* worker już nie żyje */ }      // zamknięty worker nie blokuje usunięcia bazy
+    await new Promise(ok => { setTimeout(ok, 2000); try { const q = indexedDB.deleteDatabase('/home/pyodide'); q.onsuccess = q.onerror = () => ok(); } catch (e) { ok(); } });
+  } else {
+    const limit = new Promise(r => setTimeout(r, 4000));      // prawdziwe 4 s: zegar() w trybie spokojnym to 0 ms
+    try { await Promise.race([silnik.start().then(() => silnik.czysc()), limit]); } catch (e) { /* silnik nie wstał: nie ma czego czyścić */ }
+  }
   try { localStorage.removeItem('pmt-silnik-wlasciciel'); } catch (e) { /* bez pamięci */ }
+}
+/* Pamięć silnika (współrzędne adresów, także domu, i trasy) leży w ZASZYFROWANYM magazynie konta, nie jawnie w bazie silnika: zapis po generowaniu, odczyt przy starcie. */
+const PAMIEC_SILNIKA = ['.pmt_geo_cache.json', '.pmt_geo_braki.json', '.pmt_road_cache.json'];
+async function zapiszPamiecSilnika() { try { const { pliki } = await silnik.eksportPamieci(); for (const p of pliki) await magPliki.zapisz('__silnik/' + p.nazwa, p.bajty); } catch (e) { /* bez zapisu silnik zapyta sieć jeszcze raz */ } }
+async function wczytajPamiecSilnika() {
+  try { const pliki = []; for (const n of PAMIEC_SILNIKA) { const b = await magPliki.daj('__silnik/' + n); if (b) pliki.push({ nazwa: n, bajty: b }); } if (pliki.length) await silnik.importPamieci(pliki); } catch (e) { /* zaczyna od pustej pamięci */ }
 }
 /** „Usuń dane z tego urządzenia”: profil z PESEL-em, miesiące, plan, wygenerowane PDF-y, ślady silnika i zapamiętane konto. Na serwerze nic nie ma — dane są tylko tu. */
 function arkuszUsunDane() {
@@ -1947,7 +2031,7 @@ function arkuszUsunDane() {
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw dane</button><button type="button" class="przycisk" id="usun-dane-tak">Usuń wszystko</button></div>`);
   $('#usun-dane-tak', arkTresc).addEventListener('click', async e => {
     e.currentTarget.disabled = true; e.currentTarget.textContent = 'Usuwam…';
-    await magUsunKonto(); dostep.zapomnijKonto(kod); await czyscSilnik(); location.reload();
+    await magUsunKonto(); dostep.zapomnijKonto(kod); await czyscSilnik(true); location.reload();
   });
 }
 /** Dokumenty powstają dla jednej, konkretnej kwoty, więc jej zmiana = wygenerowanie od nowa. zKwoty: otwarte kliknięciem w dużą kwotę (kursor od razu w polu kwoty). */
@@ -1958,11 +2042,11 @@ function arkuszOdNowa(zKwoty) {
     <p class="ark-opis">${zKwoty ? `Dokumenty za <b>${mn}</b> powstały dla kwoty <b>${fmt(M.suma)} zł</b>. Żeby ją zmienić, usunę je` : `Usunę dokumenty za <b>${mn}</b>`}${pod ? ` razem z <b>${pod} wgranymi podpisami</b>` : ''}. ${zKwoty ? 'Wpiszesz nową kwotę i wygenerujesz je ponownie; dni wolne zostawię.' : 'Kwotę i dni wolne zostawię, żebyś mógł je poprawić.'}</p>
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw jak jest</button><button type="button" class="przycisk" id="od-nowa-tak">${zKwoty ? 'Usuń i wpisz nową kwotę' : 'Usuń i zacznij od nowa'}</button></div>`);
   $('#od-nowa-tak', arkTresc).addEventListener('click', async () => {
-    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies;
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(magMiesiace.klucz(rok, mies) + '/');
-    magUst.ustaw('kwota-' + magMiesiace.klucz(rok, mies), par.kwota || 0);
-    zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty);
-    if (par.wolne && par.wolne.length) { M.wolne = new Set(par.wolne); M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); odswiezWszystko(); if (zKwoty) fokusujKwote(); }
+    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies);
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, par.wolne && par.wolne.length ? par.wolne : null);
+    const ust = { tryb: par.tryb || M.tryb, silnik: par.silnik_powyzej_900 != null ? !!par.silnik_powyzej_900 : M.silnik }; magUst.ustaw('ust-' + kl, ust);
+    zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty, ust);      // tryb i auto miesiąca, nie te, które profil ma teraz (zmienia się przy każdym przełączeniu w innym miesiącu)
     pokazToast(zKwoty ? 'Usunięto dokumenty — wpisz nową kwotę i wygeneruj ponownie' : 'Usunięto dokumenty — ustaw dane i wygeneruj ponownie');
   });
 }
@@ -1987,12 +2071,12 @@ function arkuszUstawienia() {
   $$('[data-u-tryb]', arkTresc).forEach(b => b.addEventListener('click', () => { tryb = b.dataset.uTryb; odswiez(); }));
   $$('[data-u-silnik]', arkTresc).forEach(b => b.addEventListener('click', () => { silnik = b.dataset.uSilnik === '1'; odswiez(); }));
   $('#ust-tak', arkTresc).addEventListener('click', async () => {
-    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, zmianaTrybu = tryb !== stary.tryb;
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(magMiesiace.klucz(rok, mies) + '/');
-    magUst.ustaw('kwota-' + magMiesiace.klucz(rok, mies), par.kwota || 0);
+    const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, zmianaTrybu = tryb !== stary.tryb, kl = magMiesiace.klucz(rok, mies);
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, !zmianaTrybu && par.wolne && par.wolne.length ? par.wolne : null);
     if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; PROFIL.silnik_powyzej_900 = silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); }
-    zamknijArkusz(); await przeladujMiesiac(rok, mies, true, false);
-    if (!zmianaTrybu && par.wolne && par.wolne.length) { M.wolne = new Set(par.wolne); M.robocze = new Set([...M.robocze0].filter(x => !M.wolne.has(x))); odswiezWszystko(); }
+    magUst.ustaw('ust-' + kl, { tryb, silnik });
+    zamknijArkusz(); await przeladujMiesiac(rok, mies, true, false, { tryb, silnik });
     pokazToast('Ustawienia zmienione — sprawdź kwotę i wygeneruj dokumenty ponownie');
   });
 }
@@ -2013,7 +2097,7 @@ let toastNr = 0;
 async function pokazToast(t) {
   const el = $('#toast'), nr = ++toastNr;
   $('#toast-tekst').textContent = t; el.classList.add('widoczny');
-  await zegar(2800);
+  await new Promise(r => setTimeout(r, 2800));      // nie zegar(): w trybie spokojnym ten liczy 0 ms i komunikat znikałby, zanim się narysuje
   if (nr === toastNr) el.classList.remove('widoczny');
 }
 function ustawZakladke(t, animuj = true) {
@@ -2088,7 +2172,7 @@ function zdarzenia() {
   kwotaKlik.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); kliknietoKwote(); } });
   $('#parametry').addEventListener('click', e => {
     const t = e.target.closest('[data-tryb]'); if (t) { przelaczTryb(t.dataset.tryb); return; }
-    const s = e.target.closest('[data-silnik]'); if (s && M.stan === 'plan') { M.silnik = s.dataset.silnik === '1'; if (PROFIL) { PROFIL.silnik_powyzej_900 = M.silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); } odswiezParametry(); }
+    const s = e.target.closest('[data-silnik]'); if (s && M.stan === 'plan') { if (generowanie) { pokazToast('Poczekaj, aż skończę generować dokumenty'); return; } M.silnik = s.dataset.silnik === '1'; if (PROFIL) { PROFIL.silnik_powyzej_900 = M.silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); } zapiszUstMiesiaca(); odswiezParametry(); }
   });
   let tK = 0;
   const wej = $('#kwota-in');
@@ -2099,6 +2183,7 @@ function zdarzenia() {
   $('#przystanki').addEventListener('click', e => {
     if (e.target.closest('#plan-otworz')) { arkuszPlan(); return; }
     const nav = e.target.closest('.nawiguj');
+    if ((nav || e.target.closest('.p-znak')) && nowyDzien()) return;      // lista sprzed północy: najpierw dzisiejsze wizyty, odhaczenie nie trafi do wczoraj
     if (nav) {
       const i = Number(nav.dataset.i), on = nawigacja !== i; nawigacja = on ? i : -1;
       nav.classList.toggle('prowadzi', on); nav.setAttribute('aria-pressed', String(on)); $('span', nav).textContent = on ? 'Prowadzę' : 'Nawiguj';
@@ -2129,7 +2214,7 @@ function zdarzenia() {
   $('#wyloguj').addEventListener('click', () => { zamknijDymki(null); wylogujICzysc(); });
   $$('.przel [data-motyw]').forEach(b => b.addEventListener('click', () => { ustawMotyw(b.dataset.motyw, b); zegar(700).then(() => zamknijDymki(null)); }));
   $('#motyw').addEventListener('click', e => ustawMotyw(motywTeraz() === 'light' ? 'dark' : 'light', e.currentTarget));
-  const zmienMiesiac = k => { let r = M.rok, m = M.mies + k; if (m < 1) { m = 12; r--; } if (m > 12) { m = 1; r++; } przeladujMiesiac(r, m); };
+  const zmienMiesiac = k => { const z = celLadowania || M; let r = z.rok, m = z.mies + k; if (m < 1) { m = 12; r--; } if (m > 12) { m = 1; r++; } przeladujMiesiac(r, m); };
   $('#m-wstecz').addEventListener('click', () => zmienMiesiac(-1));
   $('#m-nazwa').addEventListener('click', () => arkuszRok(M.rok));
   $('#m-dalej').addEventListener('click', () => zmienMiesiac(1));
@@ -2186,17 +2271,17 @@ function ekranLogowania(wstep, kodStart) {
         <div class="dz-linki"><button type="button" class="dz-link" id="dz-reset">Nie pamiętam hasła</button></div>
         <p class="dz-pod">Pierwsze logowanie? Jako hasło wpisz numer telefonu z kartoteki — potem ustawisz własne. Logowanie rusza samo po wpisaniu hasła.</p>`);
       const kodEl = $('#dz-kod', arkTresc), hasloEl = $('#dz-haslo', arkTresc), ok = $('#dz-ok', arkTresc);
-      let wToku = false, zegarAuto = 0;
+      let wToku = false, zegarAuto = 0, zegarZnanego = 0, autoNieznane = 0;
       const sprawdz = () => { ok.disabled = wToku || !(/^\d{5}$/.test(kodEl.value) && hasloEl.value.length >= 4); };
       /* odmowy, które trzeba pokazać zawsze, także po próbie automatycznej (sieć, blokada, wygaśnięcie…); zwykłe „złe hasło” po automacie to tylko łagodna podpowiedź */
       const wazny = t => /sieć|sieci|internet|serwer|wersj|zablok|certyf|połącz|wygas|dni od|aktualiz|czasie|vpn|cors|ustawione haslo/i.test(t || '');
       const zaloguj = async (auto = false) => {
         if (wToku || !doc.contains(hasloEl)) return; const k = kodEl.value.trim(), h = hasloEl.value; if (!/^\d{5}$/.test(k) || h.length < 4) return;
-        proby.add(k + '|' + h); wToku = true; clearTimeout(zegarAuto); dzInfo('');
+        proby.add(k + '|' + h); wToku = true; clearTimeout(zegarAuto); clearTimeout(zegarZnanego); dzInfo('');
         const koniec = oczekiwanie(ok, 'Sprawdzam…'); if (!auto) kodEl.disabled = hasloEl.disabled = true;   // przy automacie pole hasła zostaje aktywne: żaden znak nie ginie
         let w; try { w = await dostep.zaloguj(k, h); } catch (e) { w = { ok: false, komunikat: 'Nie udało się zalogować: ' + e.message }; }
         koniec(); wToku = false; kodEl.disabled = hasloEl.disabled = false; sprawdz();
-        if (w.ok) { rozwiaz({ ...w, kod: k, haslo: h }); return; }
+        if (w.ok) { rozwiaz({ haslo: h, ...w, kod: k }); return; }      // w.haslo = postać hasła jak na serwerze (przycięta, telefon jako 9 cyfr) — nią zakładamy i otwieramy sejf
         if (auto && (kodEl.value.trim() !== k || hasloEl.value !== h)) { probuj('tekst'); return; }    // odpowiedź dotyczy starego tekstu — pisano dalej
         if (auto && !wazny(w.komunikat)) { dzInfo('Dokończ wpisywanie hasła albo naciśnij Enter.'); return; }
         dzInfo(w.komunikat, 'zle'); hasloEl.focus(); if (!auto) hasloEl.select();
@@ -2205,13 +2290,16 @@ function ekranLogowania(wstep, kodStart) {
       const probuj = async zrodlo => {
         if (wToku || !doc.contains(hasloEl)) return; const k = kodEl.value.trim(), h = hasloEl.value;
         if (!/^\d{5}$/.test(k) || h.length < 5 || proby.has(k + '|' + h)) return;
-        const znane = await dostep.czyHasloZnane(k, h);
-        if (zrodlo === 'tekst' && !znane) return;
+        // „tekst”: hasło znane na urządzeniu (PBKDF2) loguje od razu. „zegar” (pauza 1,3 s): bez PBKDF2 — znane hasło zalogowało już „tekst” (z Web Crypto), a po http liczenie
+        // w wątku strony tylko by ją zamroziło. Wtedy idzie do serwera, więc najwyżej raz na ekran logowania i nie z wyraźnie niedokończonym tekstem: zła próba zjada limit prób.
+        if (zrodlo === 'tekst') { if (!(await dostep.czyHasloZnane(k, h))) return; }
+        else { if (autoNieznane >= 1 || h.length < 6 || (/^[\d\s+-]+$/.test(h) && h.replace(/\D/g, '').length < 9)) return; autoNieznane++; }
         if (kodEl.value.trim() !== k || hasloEl.value !== h) return;
         zaloguj(true);
       };
-      kodEl.addEventListener('input', () => { kodEl.value = kodEl.value.replace(/\D/g, '').slice(0, 5); sprawdz(); if (kodEl.value.length === 5 && !hasloEl.value) hasloEl.focus(); else if (kodEl.value.length === 5) probuj('tekst'); });
-      hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); probuj('tekst'); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
+      kodEl.addEventListener('input', () => { kodEl.value = kodEl.value.replace(/\D/g, '').slice(0, 5); sprawdz(); if (kodEl.value.length === 5 && !hasloEl.value) hasloEl.focus(); else if (kodEl.value.length === 5 && globalThis.crypto && crypto.subtle) probuj('tekst'); });
+      /* sprawdzenie „znanego” hasła to PBKDF2 (600 tys. iteracji): po krótkiej pauzie, nie przy każdym znaku; bez Web Crypto (strona po http) liczy się w wątku strony, więc tylko po 1,3 s i Enter */
+      hasloEl.addEventListener('input', () => { sprawdz(); clearTimeout(zegarAuto); clearTimeout(zegarZnanego); if (globalThis.crypto && crypto.subtle) zegarZnanego = setTimeout(() => probuj('tekst'), 450); zegarAuto = setTimeout(() => probuj('zegar'), 1300); });
       $('#dz-form', arkTresc).addEventListener('submit', e => { e.preventDefault(); zaloguj(false); });
       $('#dz-reset', arkTresc).addEventListener('click', () => widokResetu(kodEl.value));
       if (haslo) hasloEl.value = haslo; sprawdz();
@@ -2255,23 +2343,35 @@ function arkuszOdzyskaniaSejfu(kod, noweHaslo) {
   return new Promise(rozwiaz => {
     dostepBlokada = true; arkTlo.classList.add('dostep');
     const koniec = dek => { dostepBlokada = false; arkTlo.classList.remove('dostep'); zamknijArkusz(); rozwiaz({ stan: 'ok', dek }); };
-    otworzArkusz(`${znakDostepu('Dane z tego urządzenia', 'są zaszyfrowane poprzednim hasłem')}
-      <p class="ark-opis">Hasło tego konta zostało zmienione (albo zresetowane), a Twoje dane na tym urządzeniu — PESEL, plan, dokumenty — są zaszyfrowane hasłem, które obowiązywało wcześniej. Wpisz je, żeby je odblokować. Jeśli go nie pamiętasz, usuń dane z tego urządzenia i zacznij od nowa: dokumenty wygenerujesz ponownie.</p>
-      <form id="sj-form" class="dz-pola" novalidate>
-        ${poleHasla('sj-stare', 'Poprzednie hasło', 'current-password').replace('<input ', '<input data-pierwsze ')}
+    const formularz = pierwszy => {
+      (pierwszy ? otworzArkusz : zmienArkusz)(`${znakDostepu('Dane z tego urządzenia', 'są zaszyfrowane poprzednim hasłem')}
+        <p class="ark-opis">Hasło tego konta zostało zmienione (albo zresetowane), a Twoje dane na tym urządzeniu — PESEL, plan, dokumenty — są zaszyfrowane hasłem, które obowiązywało wcześniej. Wpisz je, żeby je odblokować. Jeśli go nie pamiętasz, usuń dane z tego urządzenia i zacznij od nowa: dokumenty wygenerujesz ponownie.</p>
+        <form id="sj-form" class="dz-pola" novalidate>
+          ${poleHasla('sj-stare', 'Poprzednie hasło', 'current-password').replace('<input ', '<input data-pierwsze ')}
+          <p class="dz-info" id="dz-info" role="status" aria-live="polite"></p>
+          <div class="ark-dol"><button type="button" class="przycisk" id="sj-usun">Usuń dane i zacznij od nowa</button><button type="submit" class="przycisk glowny" id="sj-ok">Odblokuj</button></div>
+        </form>`);
+      $('#sj-form', arkTresc).addEventListener('submit', async e => {
+        e.preventDefault(); const stare = $('#sj-stare', arkTresc).value; if (!stare) return;
+        const k = oczekiwanie($('#sj-ok', arkTresc), 'Sprawdzam…'); dzInfo('');
+        let dek = null; try { dek = await dostep.odzyskajSejf(kod, stare, noweHaslo); } catch (err) { dek = null; }
+        k(); if (dek) { koniec(dek); return; } dzInfo('To hasło nie pasuje do zaszyfrowanych danych.', 'zle');
+      });
+      $('#sj-usun', arkTresc).addEventListener('click', potwierdzUsuniecie);
+    };
+    /* drugi krok jak w „Usuń dane z urządzenia”: przycisk stoi tuż obok „Odblokuj”, a usunięcia (także podpisanych dokumentów) nie da się cofnąć */
+    const potwierdzUsuniecie = () => {
+      zmienArkusz(`${znakDostepu('Usunąć dane z tego urządzenia?', 'tego nie da się cofnąć')}
+        <p class="ark-opis">Usunę stąd <b>wszystko, co zapisałeś w aplikacji</b>: imię, PESEL i adres, miesiące, plan wizyt oraz wygenerowane i <b>podpisane dokumenty</b>. Jeśli pamiętasz poprzednie hasło, wróć i odblokuj nim dane.</p>
         <p class="dz-info" id="dz-info" role="status" aria-live="polite"></p>
-        <div class="ark-dol"><button type="button" class="przycisk" id="sj-usun">Usuń dane i zacznij od nowa</button><button type="submit" class="przycisk glowny" id="sj-ok">Odblokuj</button></div>
-      </form>`);
-    $('#sj-form', arkTresc).addEventListener('submit', async e => {
-      e.preventDefault(); const stare = $('#sj-stare', arkTresc).value; if (!stare) return;
-      const k = oczekiwanie($('#sj-ok', arkTresc), 'Sprawdzam…'); dzInfo('');
-      let dek = null; try { dek = await dostep.odzyskajSejf(kod, stare, noweHaslo); } catch (err) { dek = null; }
-      k(); if (dek) { koniec(dek); return; } dzInfo('To hasło nie pasuje do zaszyfrowanych danych.', 'zle');
-    });
-    $('#sj-usun', arkTresc).addEventListener('click', async () => {
-      const k = oczekiwanie($('#sj-usun', arkTresc), 'Usuwam…');
-      try { await magUsunKonto(); const dek = await dostep.nowySejf(kod, noweHaslo); koniec(dek); } catch (err) { k(); dzInfo('Nie udało się usunąć danych: ' + err.message, 'zle'); }
-    });
+        <div class="ark-dol"><button type="button" class="przycisk glowny" id="sj-wroc" data-pierwsze>Wróć do hasła</button><button type="button" class="przycisk" id="sj-usun-tak">Usuń wszystko</button></div>`);      // „Wróć” w miejscu klikniętego „Usuń dane…”: podwójne kliknięcie nie trafi w „Usuń wszystko”
+      $('#sj-wroc', arkTresc).addEventListener('click', () => formularz(false));
+      $('#sj-usun-tak', arkTresc).addEventListener('click', async e => { if (e.detail > 1) return;
+        const k = oczekiwanie($('#sj-usun-tak', arkTresc), 'Usuwam…');
+        try { await magUsunKonto(); const dek = await dostep.nowySejf(kod, noweHaslo); koniec(dek); } catch (err) { k(); dzInfo('Nie udało się usunąć danych: ' + err.message, 'zle'); }
+      });
+    };
+    formularz(true);
   });
 }
 /** Zaszyfrowane dane konta nie przechodzą kontroli podpisu (uszkodzone albo zmienione): pokazujemy to wprost i pozwalamy je usunąć. Okno nie zamyka się Esc ani tłem. */
@@ -2284,8 +2384,8 @@ function arkuszUszkodzonychDanych() {
     $('#uszk-usun', arkTresc).addEventListener('click', () => { magWyczysc(); dostepBlokada = false; arkTlo.classList.remove('dostep'); zamknijArkusz(); rozwiaz(); });
   });
 }
-/** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z sessionStorage), przeładowanie. */
-async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(); location.reload(); }
+/** Wylogowanie: koniec sesji, czyszczenie pamięci silnika i klucza danych (zniknie z pamięci strony), przeładowanie. */
+async function wylogujICzysc() { dostep.wyloguj(); await czyscSilnik(true); location.reload(); }
 /* zmiana hasła z menu konta albo „ustaw własne” po pierwszym logowaniu telefonem (wtedy stare = telefon, wpisany przed chwilą) */
 function arkuszZmianyHasla(pierwsze, telefon, poZamknieciu) {
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Ustaw własne hasło' : 'Zmiana hasła')}
@@ -2309,9 +2409,9 @@ function arkuszZmianyHasla(pierwsze, telefon, poZamknieciu) {
   });
 }
 const komunikatBlokady = s => s.powod === 'offline' ? `Minęło ponad ${dostep.OFFLINE_DNI} dni od ostatniego kontaktu z serwerem. Połącz się z internetem i zaloguj się ponownie.` : 'Dostęp do konta wygasł. Skontaktuj się z administratorem — po przedłużeniu zaloguj się ponownie.';
-function zablokujDostep(komunikat) {
+async function zablokujDostep(komunikat) {
   try { sessionStorage.setItem('pmt-dostep-komunikat', komunikat); } catch (e) { /* bez pamięci karty komunikat po prostu nie wróci */ }
-  dostep.wyloguj(); location.reload();
+  dostep.wyloguj(); await czyscSilnik(true); location.reload();      // jak przy „Wyloguj”: pamięć silnika nie zostaje po wymuszonym wylogowaniu
 }
 let ostatniPuls = 0;
 async function sprawdzDostep() {
@@ -2338,6 +2438,7 @@ async function start() {
   let postepStartu = ['Uruchamianie…', .03], pokazLadowanie = false;
   const silnikGotowy = silnik.start((t, v) => { postepStartu = [t, v]; if (pokazLadowanie) ladowanie(true, t, v); });
   silnikGotowy.catch(() => {});                                   // błąd silnika obsługujemy po zalogowaniu
+  try { indexedDB.deleteDatabase('/home/pyodide'); } catch (e) { /* bez IndexedDB nie ma czego kasować */ }      // dawna, JAWNA pamięć silnika (IDBFS) — teraz jest w zaszyfrowanym magazynie konta
   dostep.rozgrzej();
   let kom = ''; try { kom = sessionStorage.getItem('pmt-dostep-komunikat') || ''; sessionStorage.removeItem('pmt-dostep-komunikat'); } catch (e) { /* bez pamięci karty */ }
   let sesja = null, ocena = dostep.ocenaSesji();
@@ -2345,10 +2446,10 @@ async function start() {
   if (!(dostep.kodAktywny() && ocena.wazna && dostep.sesjaTejKarty() && dostep.kluczDanych())) sesja = await zalogujSie(kom || (ocena.powod === 'offline' || ocena.powod === 'wygasla' ? komunikatBlokady(ocena) : ''));      // logowanie przy każdym uruchomieniu (nowa karta), jak w programie na komputerze
   const kodKonta = dostep.kodAktywny() || (sesja && sesja.kod);
   ustawKonto(kodKonta); dostep.uruchomienie();
-  /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty bierze klucz z sessionStorage; po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
+  /* SEJF: dane konta (PESEL, adres, miesiące, plan, PDF-y) są zaszyfrowane kluczem, który odblokowuje hasło. Odświeżenie karty (F5) dostaje klucz z krótkiego przekazania przy przeładowaniu (js/dostep.js); po logowaniu otwieramy (albo zakładamy) sejf tym hasłem. */
   let dek = sesja ? (sesja.dek || null) : dostep.kluczDanych();
   if (!dek && sesja) {
-    let s = await dostep.przygotujSejf(kodKonta, sesja.haslo);
+    let s = await dostep.przygotujSejf(kodKonta, sesja.haslo, sesja.wpisane);
     if (s.stan === 'obcy') s = await arkuszOdzyskaniaSejfu(kodKonta, sesja.haslo);
     dek = s.dek;
   }
@@ -2361,10 +2462,11 @@ async function start() {
     await silnikGotowy;
     if ((() => { try { return localStorage.getItem('pmt-silnik-wlasciciel'); } catch (e) { return null; } })() !== kodKonta) await czyscSilnik();      // pamięć silnika należała do innego konta (albo do nikogo)
     try { localStorage.setItem('pmt-silnik-wlasciciel', kodKonta); } catch (e) { /* bez pamięci */ }
+    if (dek) await wczytajPamiecSilnika();
     const st = await silnik.stale(); LIMIT_DZIEN = st.limit_dnia; LIMIT_POL = st.limit_dokumentu; MIN_KWOTA = st.min_kwota;
   } catch (e) {
     $('#lad-tekst').innerHTML = `Nie udało się uruchomić silnika delegacji.<br><small>${bezZnacznikow(e.message)}</small><br><br><button class="przycisk" type="button" id="lad-ponow">Spróbuj ponownie</button>`;
-    $('#lad-ponow').addEventListener('click', () => location.reload());
+    $('#lad-ponow').addEventListener('click', () => dostep.przeladuj());
     return;
   }
   /* start na miesiącu, który minął (jak w programie): w październiku — wrzesień */
@@ -2410,9 +2512,9 @@ async function start() {
   if (PROFIL && PROFIL.imie) setTimeout(() => pokazToast(`${powitanie()}, ${PROFIL.imie.split(' ')[0]}`), 1800);
   const potem = () => { if (!PROFIL && !(M && M.demo)) otworzMojeDane(true); };
   if (sesja && sesja.telefon) arkuszZmianyHasla(true, sesja.haslo, potem); else potem();
-  sprawdzDostep(); setInterval(sprawdzDostep, dostep.PULS_CO_MIN * 60000);
+  sprawdzDostep(); setInterval(sprawdzDostep, dostep.PULS_CO_MIN * 60000); setInterval(nowyDzien, 60000); addEventListener('focus', nowyDzien);
   setTimeout(ostrzezGrafike, 3500);
-  doc.addEventListener('visibilitychange', () => { if (!doc.hidden && Date.now() - ostatniPuls > 5 * 60000) sprawdzDostep(); });
+  doc.addEventListener('visibilitychange', () => { if (doc.hidden) return; nowyDzien(); if (Date.now() - ostatniPuls > 5 * 60000) sprawdzDostep(); });
   addEventListener('pagehide', e => { if (!e.persisted) { dostep.dopiszMinuty(); dostep.zdarzenieSesji('zamkniecie', true); } });
   /* dane żyją w przeglądarce: prosimy o trwały magazyn, żeby system nie sprzątał ich przy braku miejsca */
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { /* bez tej funkcji dane działają jak zwykle */ }

@@ -1,5 +1,5 @@
 // Szyfrowanie danych na urządzeniu (PESEL, adres, miesiące, plan, PDF-y) w prawdziwym przepływie z logowaniem (atrapa backendu):
-// na dysku nie ma jawnego PESEL-u, adresu ani PDF-ów, ani skrótu hasła; odświeżenie karty nie pyta o hasło, nowa karta tak; autologowanie i logowanie bez sieci otwierają sejf;
+// na dysku nie ma jawnego PESEL-u, adresu ani PDF-ów, ani skrótu hasła, a klucz danych nie leży w sessionStorage; odświeżenie karty nie pyta o hasło, nowa i przywrócona karta tak; autologowanie i logowanie bez sieci otwierają sejf;
 // zmiana hasła zachowuje dane; hasło zmienione gdzie indziej → okno odzyskiwania (poprzednie hasło albo usunięcie); dane sprzed szyfrowania są migrowane; uszkodzone dane nie są nadpisywane.
 // NODE_PATH=/opt/node22/lib/node_modules node szyfrowanie_app.js
 const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
@@ -30,14 +30,19 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   ok('skrótu hasła nie ma na dysku (ani w danych dostępu, ani nigdzie w localStorage)', !/skrot/.test(d.ls['pmt-web-dostep-v1'] || '') && !wszystkieLs.includes(hash('12345', 'haslo123')));
   ok('sejf konta jest na dysku i nie zawiera hasła ani klucza jawnie', !!d.ls['pmt-web-sejf:12345'] && !d.ls['pmt-web-sejf:12345'].includes('haslo123'));
   ok('PDF-y w IndexedDB są zaszyfrowane (koperta PMT1, brak nagłówka %PDF i PESEL-u w treści)', d.pdf && d.pdf.length >= 6 && d.pdf.every(b => b[0] === 0x50 && b[1] === 0x4d && b[2] === 0x54 && b[3] === 0x31 && !Buffer.from(b).toString('latin1').includes('%PDF') && !Buffer.from(b).toString('latin1').includes(PESEL)), d.pdf ? d.pdf.length + ' plików' : 'brak');
-  ok('klucz danych jest tylko w sessionStorage karty (ginie z kartą)', !!d.ss['pmt-web-dek'] && !wszystkieLs.includes(d.ss['pmt-web-dek']));
+  ok('klucz danych i skrót hasła nie leżą w czasie sesji ani w localStorage, ani w sessionStorage (przeglądarka zapisuje ją na dysk i przywraca z kartą)', Object.keys(d.ss).filter(k => /^pmt-web-(dek|skrot|imie|sesja-karty|przekaz)$/.test(k)).length === 0 && !Object.values(d.ss).join('\n').includes(hash('12345', 'haslo123').slice(0, 40)), JSON.stringify(Object.keys(d.ss)));
   /* ---- 2. odświeżenie i nowa karta ---- */
-  await p.reload(); await czekajApp(p); await p.waitForTimeout(2500);
+  await p.reload(); await p.waitForSelector('#dz-form', { state: 'attached', timeout: 120000 }); await p.waitForTimeout(800);      // przycisk odświeżania w pasku / zamknięcie karty: bez F5 ani Ctrl+R
+  ok('przeładowanie bez F5 / Ctrl+R (przycisk w pasku, zamknięcie karty) nie zostawia klucza w sessionStorage i pyta o logowanie', (await p.locator('#dz-kod').count()) === 1 && !(await p.evaluate(() => sessionStorage.getItem('pmt-web-przekaz'))));
+  await zaloguj(p); await p.waitForTimeout(1500);
+  await p.keyboard.press('F5').catch(() => {}); await p.reload(); await czekajApp(p); await p.waitForTimeout(2500);      // F5 (klawisz trafia do strony; samo przeładowanie robi tu Playwright)
   ok('odświeżenie karty nie pyta o hasło, a dane są odczytane (imię w nagłówku, miesiąc wygenerowany)', (await p.locator('#dz-form').count()) === 0 && (await p.locator('#imie-pasek').innerText()) === IMIE && /Wygenerowane/.test(await p.locator('#status').innerText()));
   const pdfOk = await p.evaluate(async () => { const d = window.__pmtDane.czytaj(); return Object.keys(d.miesiace || {}).length; });
   ok('po odświeżeniu pliki PDF da się otworzyć z szyfrowanego magazynu (okno dokumentów)', await (async () => { await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); const w = await p.evaluate(async () => { const el = document.querySelector('[data-akcja="otworz"]'); return !!el; }); await p.keyboard.press('Escape'); await p.waitForTimeout(500); return w && pdfOk >= 1; })());
+  ok('po odświeżeniu przekazanie zniknęło z sessionStorage (było tam tylko na czas przeładowania)', !(await p.evaluate(() => sessionStorage.getItem('pmt-web-przekaz'))));
+  ok('wejście w tej samej karcie, które nie jest odświeżeniem (jak przywrócona karta), pyta o logowanie', await (async () => { const q = await nowaKarta(); await zaloguj(q); await q.goto(t.adres + '/?inna=1'); await q.waitForSelector('#dz-form', { state: 'attached', timeout: 120000 }); await q.waitForTimeout(800); const w = (await q.locator('#dz-kod').count()) === 1 && !(await q.evaluate(() => sessionStorage.getItem('pmt-web-przekaz'))); await q.close(); return w; })());
   const k2 = await nowaKarta(); await k2.waitForSelector('#dz-form', { state: 'attached', timeout: 120000 }); await k2.waitForTimeout(800);
-  ok('nowa karta pyta o logowanie i nie zna klucza danych', (await k2.locator('#dz-kod').count()) === 1 && !(await k2.evaluate(() => sessionStorage.getItem('pmt-web-dek'))));
+  ok('nowa karta pyta o logowanie i nie zna klucza danych', (await k2.locator('#dz-kod').count()) === 1 && !(await k2.evaluate(() => sessionStorage.getItem('pmt-web-dek') || sessionStorage.getItem('pmt-web-przekaz'))));
   /* ---- 3. autologowanie przez sejf (hasło znane na urządzeniu) ---- */
   await k2.fill('#dz-kod', '12345'); await k2.fill('#dz-haslo', 'haslo123'); await czekajApp(k2); await k2.waitForTimeout(2500);
   ok('autologowanie po wpisaniu hasła otwiera sejf, a dane są na miejscu', (await k2.locator('#imie-pasek').innerText()) === IMIE);
@@ -74,7 +79,12 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   /* reset hasła na serwerze + usunięcie danych („nie pamiętam”) */
   B.uzytkownicy['12345'].hash = hash('12345', 'jeszczeInne5');
   const k8 = await nowaKarta(); await zaloguj(k8, 'jeszczeInne5', false); await k8.waitForSelector('#sj-form', { timeout: 120000 });
-  await k8.click('#sj-usun'); await czekajApp(k8); await k8.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });
+  const zaszyfrowane = (await dysk(k8)).ls['pmt-web-v1:12345'] || '';
+  await k8.click('#sj-usun'); await k8.waitForSelector('#sj-usun-tak'); const ostrz = await k8.locator('#arkusz-tresc').innerText();
+  ok('„Usuń dane i zacznij od nowa” najpierw pyta (nie da się cofnąć, także podpisane dokumenty) i jeszcze niczego nie usuwa', /nie da się cofnąć/.test(ostrz) && /podpisane dokumenty/.test(ostrz) && zaszyfrowane !== '' && ((await dysk(k8)).ls['pmt-web-v1:12345'] || '') === zaszyfrowane);
+  await k8.click('#sj-wroc'); await k8.waitForSelector('#sj-form');
+  ok('„Wróć do hasła” wraca do formularza poprzedniego hasła (z działającym „Odblokuj”)', (await k8.locator('#sj-stare').count()) === 1 && (await k8.locator('#sj-ok').count()) === 1);
+  await k8.click('#sj-usun'); await k8.click('#sj-usun-tak'); await czekajApp(k8); await k8.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });
   d = await dysk(k8);
   ok('„Usuń dane i zacznij od nowa”: stare dane znikają (puste „Moje dane”), a na dysku nie ma jawnych danych', (await k8.inputValue('#d-pesel')) === '' && !Object.values(d.ls).join('\n').includes(PESEL));
   await k8.close();
@@ -85,7 +95,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   const k10 = await nowaKarta(); await zaloguj(k10, 'jeszczeInne5', false); await k10.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 120000 });
   await k10.fill('#d-imie', IMIE); await k10.fill('#d-pesel', PESEL); await k10.fill('#d-adres', `ul. ${ADRES}, 00-001 Warszawa`); await k10.click('#zapisz-dane'); await k10.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await k10.waitForTimeout(2500);
   await k10.evaluate(() => { const k = 'pmt-web-v1:12345'; const v = localStorage.getItem(k); const i = Math.floor(v.length / 2); localStorage.setItem(k, v.slice(0, i) + (v[i] === 'A' ? 'B' : 'A') + v.slice(i + 1)); });
-  await k10.reload(); await k10.waitForSelector('#uszk-usun', { timeout: 180000 }).catch(() => {});
+  await k10.keyboard.press('F5').catch(() => {}); await k10.reload(); await k10.waitForSelector('#uszk-usun', { timeout: 180000 }).catch(() => {});      // F5: ta sama sesja, klucz przechodzi do nowej strony
   ok('zmieniony szyfrogram jest wykryty: aplikacja pokazuje „Dane na tym urządzeniu są uszkodzone” zamiast ich nadpisać', (await k10.locator('#uszk-usun').count()) === 1);
   ok('okna z uszkodzonymi danymi nie da się zamknąć Esc, a sejf i pliki zostają', await (async () => { await k10.keyboard.press('Escape'); await k10.waitForTimeout(400); return (await k10.locator('#uszk-usun').count()) === 1 && !!(await k10.evaluate(() => localStorage.getItem('pmt-web-sejf:12345'))); })());
   await k10.click('#uszk-usun'); await czekajApp(k10); await k10.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });

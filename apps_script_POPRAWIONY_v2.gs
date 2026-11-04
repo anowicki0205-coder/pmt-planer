@@ -36,6 +36,33 @@
  *  Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż,
  *  inaczej pod adresem /exec dalej działa stara wersja.
  *
+ *  ── ZMIANY PRZY WYDANIU 3.25.1 — POPRAWKI PO PRZEGLĄDZIE (wdróż TERAZ) ──
+ *  Program na komputerze i aplikacja webowa działają bez zmian (web z tej
+ *  paczki wysyła klient: "web" — punkt 6).
+ *  1. PODPIS HASŁEM Z LIMITEM. Puls, sesja i hasło paczki mówiły, czy podpis
+ *     kluczem z hasła pasuje, bez żadnego licznika — można było zgadywać hasło
+ *     z pominięciem limitu logowania. Teraz 150 złych podpisów na kod w 6 h =
+ *     podpis nie jest sprawdzany (puls bez danych, hasło paczki „odmowa”), aż
+ *     minie okno albo konto zaloguje się hasłem. Wpis w Log: „podpis_hasla”.
+ *  2. FORMUŁY: puls z pustym polem „system”/„wersja” zapisywał z powrotem
+ *     wartość z arkusza bez apostrofu (stawała się formułą). Naprawione.
+ *  3. RESET HASŁA: limit w stałym oknie (odrzucone próby nie przedłużają
+ *     blokady), licznik łączny liczy tylko nieudane próby. Nowa funkcja
+ *     odblokujKonta() — uruchom ją ręcznie w edytorze, gdy ktoś jest
+ *     zablokowany limitem prób i nie może czekać.
+ *  4. DZIENNIKI: zdarzenia po udanym uwierzytelnieniu (logowanie, zmiana
+ *     i reset hasła, hasło paczki, Sesje) mają osobny przydział wpisów;
+ *     odmowy bez hasła (zły kod, zły podpis, błąd serwera) — jeden wpis na
+ *     godzinę. Bez blokady skryptu (kolejka > 20 s) odpowiedź „Serwer zajety”.
+ *  5. Logowanie i zmiana hasła nie zdradzają już, że podany telefon należy
+ *     do kodu (konto z hasłem: zawsze „Nieprawidlowe haslo…”).
+ *  6. WYMAGANA_WERSJA nie odcina aplikacji web; w kolumnie „Wersja” web
+ *     ma dopisek „web” (np. „web 3.24.0”).
+ *  7. Arkusz: hasło paczki w komórce innej niż tekst/liczba całkowita (data,
+ *     ułamek) = „brak” + wpis w Log; daty wpisane tekstem DD.MM.RRRR czytane
+ *     jako dzień.miesiąc (dotąd 10.11 dawało 11 października). Komórkę hasła
+ *     paczki ustaw na Format → Liczba → Zwykły tekst i wpisz hasło ponownie.
+ *
  *  ── ZMIANY PRZY WYDANIU 3.25.0 — AUDYT BEZPIECZEŃSTWA (wdróż TERAZ) ──
  *  Wszystko poniżej obowiązuje od razu po wdrożeniu nowej wersji skryptu
  *  (Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa), program na
@@ -279,8 +306,19 @@ var WYMAGAJ_HASLA_W_PULSIE = true;
 // Nieudane logowania/zmiany hasła na jeden kod: krótkie okno i długie okno.
 var LOGOWANIE_NIEUDANYCH_KROTKO = 8;     var LOGOWANIE_OKNO_KROTKIE = 900;      // 8 prób na 15 minut
 var LOGOWANIE_NIEUDANYCH_DLUGO  = 25;    var LOGOWANIE_OKNO_DLUGIE  = 21600;    // 25 prób na 6 godzin (maks. TTL CacheService)
+// Złe podpisy hasłem (puls, sesja, haslo_paczki) na jeden kod. Klucz podpisu to skrót „PMT|kod|hasło”, który każdy policzy
+// dla dowolnego kandydata, a odpowiedź (pelne, odmowa) mówi, czy trafił — bez limitu to zgadywanie hasła z pominięciem
+// limitu logowania. Osobny licznik, nie lg:*: urządzenie ze starym hasłem (zmienionym gdzie indziej) pulsuje — program co 15 minut,
+// aplikacja web także przy powrocie do karty (do ok. 72 razy na 6 godzin na kartę; od tej wersji po pierwszym „pelne: false”
+// przestaje podpisywać hasłem) — i nie może przez to odciąć urządzenia z aktualnym hasłem ani blokować logowania.
+// 150 na 6 godzin to nadal setki razy mniej niż zgadywanie bez limitu. Udane logowanie licznik zeruje.
+var PODPIS_HASLA_ZLYCH = 150;            var PODPIS_HASLA_OKNO = 21600;
 // Ile wpisów na godzinę wolno dopisać do dzienników (Log, Sesje).
 var WPISOW_NA_GODZINE = 3000;
+// Wpisy po udanym uwierzytelnieniu (logowanie, zmiana i reset hasła, wydanie hasła paczki, rejestr sesji) mają osobny przydział:
+// zalew zapytań bez hasła (zły kod, brak podpisu) nie może ukryć tych zdarzeń. Każdy kod ma w nim własną część, więc i jedno
+// konto go nie wyczerpie; po wyczerpaniu wpis idzie jeszcze ze wspólnej puli.
+var WAZNYCH_NA_GODZINE = 1000;           var WAZNYCH_NA_KOD = 60;
 
 /* Napis od klienta -> bezpieczna wartość komórki: bez znaków sterujących,
    przycięty, a gdy zaczyna się od = + - @ — z apostrofem (tekst, nie formuła). */
@@ -295,6 +333,12 @@ function _tekst(v, maks) {
 function _liczba(v, maks) {
   var n = Math.round(Number(v));
   return isFinite(n) ? Math.max(0, Math.min(maks, n)) : 0;
+}
+/* Wersja do kolumn „Wersja” (Uzytkownicy, Sesje): aplikacja web z dopiskiem — jej numer to wersja silnika, nie programu,
+   więc bez dopisku jej użytkownicy wyglądaliby na maruderów ze starym programem. */
+function _wersjaKlienta(dane) {
+  var w = _tekst(dane.wersja, 20);
+  return w && dane.klient === "web" ? _tekst("web " + w, 20) : w;
 }
 function _kodPoprawny(kod) { return /^\d{5}$/.test(String(kod)); }
 
@@ -319,21 +363,35 @@ function _nieudanaProba(kod) {
   _licznik("lg:k:" + kod, LOGOWANIE_OKNO_KROTKIE, true);
   _licznik("lg:d:" + kod, LOGOWANIE_OKNO_DLUGIE, true);
 }
-function _wyczyscProby(kod) {
-  var pam = CacheService.getScriptCache(); pam.remove("lg:k:" + kod); pam.remove("lg:d:" + kod);
+/* Próba na NIEISTNIEJĄCY kod: jeden wspólny licznik zamiast klucza na każdy kod. Licznik na nieistniejący kod niczego nie chroni,
+   a 100 000 możliwych kodów pozwalałoby zapełnić CacheService (ok. 1000 pozycji; przy przepełnieniu wypadają pozycje najbliżej
+   wygaśnięcia, także liczniki prób prawdziwych kont). Zgadywanie kodów zostawia ślad w Log po przekroczeniu progu. */
+var NIEZNANYCH_KODOW_NA_GODZINE = 50;
+function _nieznanyKod(ss, zdarzenie) {
+  if (_licznik("lg:nieznany", 3600, true) === NIEZNANYCH_KODOW_NA_GODZINE)
+    _log(ss, "?", zdarzenie, NIEZNANYCH_KODOW_NA_GODZINE + " prob na nieistniejace kody w godzine (zgadywanie kodow?)");
 }
+function _wyczyscProby(kod) {
+  var pam = CacheService.getScriptCache(); pam.remove("lg:k:" + kod); pam.remove("lg:d:" + kod); pam.remove("ph:" + kod);
+}
+var KOMUNIKAT_ZLE_HASLO = "Nieprawidlowe haslo. Jesli go nie pamietasz, uzyj „Nie pamietam hasla” (numer telefonu z kartoteki sluzy do resetu hasla).";
 var KOMUNIKAT_BLOKADY = "Za duzo nieudanych prob — konto zablokowane na pewien czas (do kilku godzin). " +
                         "Mozesz odblokowac je od razu przez „Nie pamietam hasla” (numer telefonu) albo napisac do administratora.";
 
-/* Limit wpisów do dzienników na godzinę: po przekroczeniu wpisy są pomijane. */
-function _wolnoDopisac() {
+/* Limit wpisów do dzienników na godzinę: po przekroczeniu wpisy są pomijane. kodWazny = wpis po uwierzytelnieniu tego kodu. */
+function _wolnoDopisac(kodWazny, pula) {
+  var p = "wpisy:" + (pula || "wazne");      // „wazne” i „konto” mają osobne przydziały (odmowy na istniejące konta nie wypierają zdarzeń po uwierzytelnieniu)
+  if (kodWazny && _licznik(p + ":" + kodWazny, 3600, true) <= WAZNYCH_NA_KOD
+      && _licznik(p, 3600, true) <= WAZNYCH_NA_GODZINE) return true;
   return _licznik("wpisy:godz", 3600, true) <= WPISOW_NA_GODZINE;
 }
 
 /* Uwierzytelnienie HASŁEM dla puls/sesja: podpis HMAC-SHA256 kluczem = skrót hasła
    (hashBaza z kolumny „Haslo hash”). Konto bez hasła (jeszcze go nie ustawiło) nie ma
    klucza, więc nie przechodzi — musi najpierw ustawić hasło, czego i tak wymaga program.
-   Znacznik czasu ten sam co w podpisie aplikacji (okno 10 minut). */
+   Znacznik czasu ten sam co w podpisie aplikacji (okno 10 minut).
+   Każdy zły podpis liczy się jak próba hasła (PODPIS_HASLA_ZLYCH): po przekroczeniu limitu podpis nie jest już
+   sprawdzany wcale (także dobry), aż minie okno albo konto zaloguje się hasłem. */
 function _podpisHaslaOk(dane, hashBaza) {
   try {
     if (!hashBaza) return false;
@@ -341,9 +399,15 @@ function _podpisHaslaOk(dane, hashBaza) {
     if (!czas || Math.abs(Date.now() / 1000 - czas) > 600) return false;
     var podany = String(dane.podpis_hasla || "");
     if (!podany) return false;
+    var kod = String(dane.kod || "").trim(), klucz = "ph:" + kod;
+    if (_licznik(klucz, PODPIS_HASLA_OKNO, false) >= PODPIS_HASLA_ZLYCH) return false;
     var baza = String(dane.kod || "") + "|" + String(dane.akcja || "") + "|" + czas;
     var sig = Utilities.computeHmacSha256Signature(baza, String(hashBaza));
-    return _pmtHex(sig) === podany;
+    if (_pmtHex(sig) === podany) return true;
+    if (_licznik(klucz, PODPIS_HASLA_OKNO, true) === PODPIS_HASLA_ZLYCH)
+      _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "podpis_hasla",
+           "ZABLOKOWANY (" + PODPIS_HASLA_ZLYCH + " zlych podpisow haslem w 6 h) — puls bez danych i bez hasla paczki do udanego logowania", "wazne");
+    return false;
   } catch (e) { return false; }
 }
 function _czyUwierzytelniony(dane, hashBaza) {
@@ -404,6 +468,8 @@ function doGet(e) {
 }
 
 function _json(obiekt) {
+  // czas serwera w każdej odpowiedzi (także w odmowie): klient z przestawionym zegarem poprawia nim czas podpisu (okno 600 s)
+  if (obiekt && typeof obiekt === "object" && !Array.isArray(obiekt)) obiekt.czas_serwera = Math.floor(Date.now() / 1000);
   return ContentService.createTextOutput(JSON.stringify(obiekt))
                        .setMimeType(ContentService.MimeType.JSON);
 }
@@ -452,14 +518,15 @@ function obsluzPuls(dane) {
 
   // Puls bez podpisu hasłem nie zmienia niczego w arkuszu — ktoś znający sam
   // kod nie podrobi aktywności ani nie zafałszuje statystyk.
+  // Przy pustym polu zostaje dotychczasowa wartość — też przez _tekst(): arkusz oddaje zapisany „'=…” już bez apostrofu.
   if (pelne) {
     sh.getRange(nr, 5, 1, 6).setValues([[teraz,
-        _tekst(dane.wersja, 20) || w[5], _tekst(dane.system, 30) || w[6],
+        _wersjaKlienta(dane) || _tekst(w[5], 20), _tekst(dane.system, 30) || _tekst(w[6], 30),
         uruchomien, dokumentow, minut]]);
   }
 
   // Status sesji
-  var wazne = w[3] instanceof Date ? w[3] : (w[3] ? new Date(w[3]) : null);
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
   var aktywna = !!(wazne && wazne >= dzis);
 
@@ -509,9 +576,17 @@ function _nieobecnosci(ss, kod) {
   return wynik;
 }
 
-function _log(ss, kod, zdarzenie, szczegoly) {
+/* rodzaj: "wazne" — zdarzenie po udanym uwierzytelnieniu (osobny przydział, zob. WAZNYCH_NA_GODZINE);
+           "konto" — odmowa dotycząca ISTNIEJĄCEGO konta (zły telefon przy resecie, odrzucona zmiana hasła): ślad próby
+                     przejęcia; własny przydział jak „wazne” (te same limity, osobne liczniki; i tak ogranicza ją limit prób na kod);
+           "raz"   — zdarzenie, które każdy wywoła bez hasła (zły format kodu, zły podpis, błąd serwera, przekroczony limit):
+                     najwyżej RAZ_NA_GODZINE wpisów danego zdarzenia na godzinę — licznik na zdarzenie, nie na kod (kodów jest
+                     100 000, więc liczniki na kod zapełniałyby pamięć podręczną i nie chroniłyby dziennika). */
+var RAZ_NA_GODZINE = 20;
+function _log(ss, kod, zdarzenie, szczegoly, rodzaj) {
   try {
-    if (!_wolnoDopisac()) return;                       // limit wpisów na godzinę
+    if (rodzaj === "raz" && _licznik("wpis:" + zdarzenie, 3600, true) > RAZ_NA_GODZINE) return;
+    if (!_wolnoDopisac(rodzaj === "wazne" || rodzaj === "konto" ? String(kod) : "", rodzaj)) return;      // limit wpisów na godzinę
     _zakladka(ss, ZAKLADKA_LOG, []).appendRow([new Date(), _tekst(kod, 12), _tekst(zdarzenie, 40),
                                                _tekst(szczegoly, 200)]);
   } catch (e) {}
@@ -528,7 +603,8 @@ var MINIMALNA_WERSJA = "3.16.0";
 /* --- rozdzielacz akcji -------------------------------------------- */
 function doPost(e) {
   var blokada = LockService.getScriptLock();
-  blokada.tryLock(20000);
+  // Bez blokady liczniki prób i statystyki ścigałyby się z równoległym wywołaniem — lepiej odmówić (klient ponowi).
+  if (!blokada.tryLock(20000)) return _json({ status: "blad", opis: "Serwer zajety — sprobuj ponownie za chwile" });
   try {
     var tresc = e && e.postData && e.postData.contents ? String(e.postData.contents) : "{}";
     if (tresc.length > 20000) return _json({ status: "blad", opis: "Zapytanie za duze" });
@@ -552,12 +628,13 @@ function doPost(e) {
       if (_wersjaCoNajmniej(dane.wersja, WERSJA_Z_SEKRETEM)) {
         _log(SpreadsheetApp.getActiveSpreadsheet(), String(dane.kod || "?"),
              "podpis_zly", "wersja " + String(dane.wersja || "?") + ", akcja "
-             + String(dane.akcja) + " — sekret w paczce rozni sie od SEKRETY_PMT");
+             + String(dane.akcja) + " — sekret w paczce rozni sie od SEKRETY_PMT", "raz");
       }
     }
-    // Kontrola wersji (WYMAGANA_WERSJA, domyślnie wyłączona).
+    // Kontrola wersji (WYMAGANA_WERSJA, domyślnie wyłączona) dotyczy programu na komputerze. Aplikacja web wysyła
+    // stały numer wersji silnika (3.24.0) i klient: "web" — bramka odcięłaby ją razem ze starymi programami.
     if (AKCJE_PODPISANE.indexOf(String(dane.akcja)) >= 0
-        && wersjaZaStara(dane.wersja)) {
+        && dane.klient !== "web" && wersjaZaStara(dane.wersja)) {
       return _json({ status: "blad",
         opis: "Ta wersja programu nie jest juz obslugiwana. Pobierz nowa wersje." });
     }
@@ -575,7 +652,7 @@ function doPost(e) {
     }
   } catch (err) {
     // Treść wyjątku może zdradzać nazwy zakładek i szczegóły skryptu — klient dostaje ogólny komunikat.
-    try { _log(SpreadsheetApp.getActiveSpreadsheet(), "?", "blad_serwera", String(err)); } catch (x) {}
+    try { _log(SpreadsheetApp.getActiveSpreadsheet(), "?", "blad_serwera", String(err), "raz"); } catch (x) {}
     return _json({ status: "blad", opis: "Blad serwera — sprobuj ponownie" });
   } finally {
     blokada.releaseLock();
@@ -598,7 +675,7 @@ function logowanie(dane) {
   var wersjaKlienta = String(dane.wersja || "").trim();
   if (dane.zrodlo === "program" && wersjaKlienta && !_wersjaWystarczajaca(wersjaKlienta)) {
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_odrzucone",
-         "za stara wersja " + wersjaKlienta);
+         "za stara wersja " + wersjaKlienta, "raz");
     return { status: "blad",
              opis: "Ta wersja programu (" + wersjaKlienta + ") nie jest juz obslugiwana. " +
                    "Pobierz aktualna wersje ze strony wydania." };
@@ -606,7 +683,7 @@ function logowanie(dane) {
   var haslo = String(dane.haslo || dane.telefon || "").trim();
   if (!haslo) return { status: "blad", opis: "Podaj haslo albo numer telefonu" };
   if (_logowanieZablokowane(kod)) {
-    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_odrzucone", "za duzo nieudanych prob");
+    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_odrzucone", "za duzo nieudanych prob", "raz");
     return { status: "blad", opis: KOMUNIKAT_BLOKADY };
   }
   var tel = haslo.replace(/\D/g, "");        // to samo pole moze byc telefonem
@@ -628,21 +705,19 @@ function logowanie(dane) {
       if (!hashBaza && !telBaza)
         return { status: "blad",
                  opis: "To konto nie ma telefonu w bazie — administrator musi go uzupelnic" };
-      if (hashBaza && telBaza && tel.length >= 9 &&
-          telBaza.slice(-9) === tel.slice(-9))
-        return { status: "blad",
-                 opis: "To konto ma ustawione haslo — zaloguj sie haslem. " +
-                       "Numer telefonu sluzy tylko do zmiany lub resetu hasla." };
+      // Konto z hasłem: ten sam komunikat dla telefonu z kartoteki i dla złego hasła — inna odpowiedź
+      // potwierdzałaby, że podany numer należy do tego kodu.
       return { status: "blad",
-               opis: hashBaza ? "Nieprawidlowe haslo" : "Nieprawidlowy numer telefonu" };
+               opis: hashBaza ? KOMUNIKAT_ZLE_HASLO : "Nieprawidlowy numer telefonu" };
     }
     var zrodlo = _tekst(dane.zrodlo || "www", 20);
     _wyczyscProby(kod);
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "logowanie_" + zrodlo,
-         "OK" + (haslem ? " (haslo)" : " (telefon)"));
-    return { status: "ok", imie: String(w[i][1] || "") };
+         "OK" + (haslem ? " (haslo)" : " (telefon)"), "wazne");
+    // "przez": klient zakłada sejf danych tą samą postacią hasła co serwer (telefon = ostatnie 9 cyfr)
+    return { status: "ok", imie: String(w[i][1] || ""), przez: haslem ? "haslo" : "telefon" };
   }
-  _nieudanaProba(kod);       // zgadywanie kodów liczy się tak samo jak zgadywanie haseł
+  _nieznanyKod(SpreadsheetApp.getActiveSpreadsheet(), "logowanie_odrzucone");      // zgadywanie kodów: wspólny licznik (zob. _nieznanyKod)
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
 }
 
@@ -663,7 +738,7 @@ function zmienHaslo(dane) {
   if (nowe.length < 6) return { status: "blad", opis: "Nowe haslo: min. 6 znakow" };
   if (nowe.length > 200) return { status: "blad", opis: "Nowe haslo jest za dlugie" };
   if (_logowanieZablokowane(kod)) {
-    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla", "ODRZUCONA (za duzo nieudanych prob)");
+    _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla", "ODRZUCONA (za duzo nieudanych prob)", "raz");
     return { status: "blad", opis: KOMUNIKAT_BLOKADY };
   }
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ZAKLADKA_UZYTKOWNICY);
@@ -688,21 +763,19 @@ function zmienHaslo(dane) {
       var powod = hashBaza ? (telPasuje ? "telefon zamiast hasla" : "zle haslo")
                            : "zly telefon";
       _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla",
-           "ODRZUCONA (" + powod + ")");
+           "ODRZUCONA (" + powod + ")", "konto");
+      // jak w logowanie(): odpowiedź nie mówi, czy podany numer pasuje do kodu (powód zostaje tylko w Log)
       return { status: "blad", opis: hashBaza
-               ? (telPasuje
-                  ? "To konto ma ustawione haslo — podaj dotychczasowe haslo " +
-                    "albo uzyj „Nie pamietam hasla” w oknie logowania"
-                  : "Dotychczasowe haslo nie pasuje")
+               ? "Dotychczasowe haslo nie pasuje (jesli go nie pamietasz, uzyj „Nie pamietam hasla” w oknie logowania)"
                : "Numer telefonu nie zgadza sie z kartoteka" };
     }
     sh.getRange(i + 2, 14).setValue(_hash(kod, nowe));
     _wyczyscProby(kod);
     _log(SpreadsheetApp.getActiveSpreadsheet(), kod, "zmiana_hasla",
-         "OK (" + (haslem ? "haslem" : "telefonem") + ")");
+         "OK (" + (haslem ? "haslem" : "telefonem") + ")", "wazne");
     return { status: "ok" };
   }
-  _nieudanaProba(kod);
+  _nieznanyKod(SpreadsheetApp.getActiveSpreadsheet(), "zmiana_hasla");
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
 }
 
@@ -724,19 +797,55 @@ function _ustawieniaPaczki(ss) {
   var klucze = {};
   var w = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues() : [];
   for (var i = 0; i < w.length; i++) klucze[String(w[i][0]).trim()] = true;
-  if (!klucze[USTAWIENIE_HASLO_PACZKI]) sh.appendRow([USTAWIENIE_HASLO_PACZKI, "",
-    "Haslo, ktorym aplikacja zahaslowuje paczke z dokumentami (min. 8 znakow; nie zaczynaj od = + - @). Odbiorca poczty dostaje je od Ciebie. Zostaw puste, by wylaczyc wysylke."]);
+  if (!klucze[USTAWIENIE_HASLO_PACZKI]) {
+    sh.appendRow([USTAWIENIE_HASLO_PACZKI, "",
+      "Haslo, ktorym aplikacja zahaslowuje paczke z dokumentami (min. 8 znakow; nie zaczynaj od = + - @). Odbiorca poczty dostaje je od Ciebie. Zostaw puste, by wylaczyc wysylke."]);
+    // komórka hasła jako zwykły tekst: inaczej arkusz zamienia „0012345678” w liczbę 12345678, a „15.01.2027” w datę
+    sh.getRange(sh.getLastRow(), 2).setNumberFormat("@");
+  }
   if (!klucze[USTAWIENIE_HASLO_PACZKI_DO]) sh.appendRow([USTAWIENIE_HASLO_PACZKI_DO, "",
     "Ostatni dzien waznosci hasla, np. 2026-12-31 (po tej dacie aplikacja nie wysle paczki, dopoki nie wpiszesz nowego hasla i nowej daty)."]);
   if (!klucze[USTAWIENIE_ADRES_ODBIORCY]) sh.appendRow([USTAWIENIE_ADRES_ODBIORCY, "",
     "Adres e-mail, na ktory aplikacja przygotowuje wiadomosc z zahaslowana paczka dokumentow (odbiorca czyta paczki od wszystkich uzytkownikow jednym haslem)."]);
   return sh;
 }
+/* Data z komórki: data (arkusz rozpoznał wpis) albo tekst. Tekst „RRRR-MM-DD” i polski „DD.MM.RRRR” czytamy wprost —
+   new Date() czyta „10.11.2026” jako 11 października, a „31.12.2026” jako złą datę (błąd serwera przy każdym pulsie);
+   inne postacie tekstu jak dotąd przez new Date(). Nieczytelna (także liczba) = null, czyli jak pusta komórka. */
+function _data(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]") return isNaN(v.getTime()) ? null : v;
+  if (typeof v !== "string") return null;
+  var s = v.trim(), m, r, mc, dz;
+  if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))) { r = +m[1]; mc = +m[2]; dz = +m[3]; }
+  else if ((m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(s))) { r = +m[3]; mc = +m[2]; dz = +m[1]; }
+  else {
+    var d0 = s ? new Date(s) : null;
+    return d0 && !isNaN(d0.getTime()) && d0.getFullYear() >= 2000 && d0.getFullYear() <= 2200 ? d0 : null;
+  }
+  var d = new Date(r, mc - 1, dz, 12);      // w południe: ten sam dzień w Europe/Warsaw przy każdej strefie czasowej skryptu
+  return d.getFullYear() === r && d.getMonth() === mc - 1 && d.getDate() === dz ? d : null;
+}
+/* _data() z wpisem w Log, gdy komórka nie jest pusta, a daty nie da się odczytać (administrator widzi, co poprawić). */
+function _dataKomorki(ss, kod, pole, v) {
+  var d = _data(v);
+  if (!d && String(v === null || v === undefined ? "" : v).trim())
+    _log(ss, kod, "nieczytelna_data", pole + ": " + String(v).slice(0, 40) + " — wpisz date jako RRRR-MM-DD albo DD.MM.RRRR", "raz");
+  return d;
+}
 function _dataIso(v) {
-  var d = v instanceof Date ? v : (v ? new Date(v) : null);
-  if (!d || isNaN(d.getTime())) return "";
+  var d = _data(v);
+  if (!d) return "";
   var p = function (n) { return ("0" + n).slice(-2); };
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+/* Hasło paczki z komórki: tekst albo liczba całkowita (arkusz zamienia wpisane same cyfry na liczbę). Data, wartość logiczna,
+   ułamek albo liczba bez pełnej precyzji to już nie to, co wpisał administrator (np. „1234,5678” → „1234.5678”, data →
+   „Fri Jan 15 2027…”), a paczki zaszyfrowanej takim hasłem odbiorca nie otworzy — wtedy hasła nie wydajemy („brak”). */
+function _hasloZKomorki(ss, v) {
+  if (v === null || v === undefined || typeof v === "string") return String(v || "").trim();
+  if (typeof v === "number" && Number.isSafeInteger(v) && v >= 0) return String(v);
+  _log(ss, "Ustawienia", "haslo_paczki_blad", "komorka hasla w zakladce Ustawienia nie jest tekstem — ustaw jej format Zwykly tekst i wpisz haslo ponownie", "raz");
+  return "";
 }
 function hasloPaczki(dane) {
   var kod = String(dane.kod || "").trim();
@@ -747,25 +856,25 @@ function hasloPaczki(dane) {
   for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
   // Hasło wydajemy tylko istniejącemu kontu, które potwierdziło się podpisem swojego hasła (nie samym kodem) i ma ważną sesję.
   if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
-    _log(ss, kod, "haslo_paczki_odmowa", "brak podpisu hasla albo nieznany kod");
+    _log(ss, kod, "haslo_paczki_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
     return { status: "odmowa" };
   }
-  var wazne = w[3] instanceof Date ? w[3] : (w[3] ? new Date(w[3]) : null);
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
   if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
   var sU = _ustawieniaPaczki(ss), u = sU.getLastRow() > 1 ? sU.getRange(2, 1, sU.getLastRow() - 1, 2).getValues() : [];
   var haslo = "", doDaty = "", adres = "";
   for (var j = 0; j < u.length; j++) {
     var k = String(u[j][0]).trim();
-    if (k === USTAWIENIE_HASLO_PACZKI) haslo = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
-    else if (k === USTAWIENIE_HASLO_PACZKI_DO) doDaty = _dataIso(u[j][1]);
+    if (k === USTAWIENIE_HASLO_PACZKI) haslo = _hasloZKomorki(ss, u[j][1]);
+    else if (k === USTAWIENIE_HASLO_PACZKI_DO) { _dataKomorki(ss, "Ustawienia", USTAWIENIE_HASLO_PACZKI_DO, u[j][1]); doDaty = _dataIso(u[j][1]); }
     else if (k === USTAWIENIE_ADRES_ODBIORCY) adres = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
   }
   // Wysyłka jest włączona dopiero, gdy wpisane są wszystkie trzy rzeczy: hasło, termin jego ważności i poprawny adres odbiorcy.
   if (!haslo || !doDaty || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { status: "brak" };
   var ostatni = new Date(doDaty + "T00:00:00");
   if (ostatni < dzis) return { status: "wygaslo", wazne_do: doDaty };      // po terminie hasła nie wydajemy
-  _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty);
+  _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty, "wazne");
   return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres };
 }
 
@@ -784,7 +893,7 @@ function zapiszSesje(dane) {
   }
   // Wpis tylko dla istniejącego konta, z podpisem hasłem i w granicach limitu —
   // inaczej rejestr sesji dałoby się zasypać (albo sfałszować) wpisami z dowolnym tekstem.
-  if (!znaleziony || !_czyUwierzytelniony(dane, hashBaza) || !_wolnoDopisac()) return { status: "ok" };
+  if (!znaleziony || !_czyUwierzytelniony(dane, hashBaza) || !_wolnoDopisac(kod)) return { status: "ok" };
   var nazwy = { logowanie: "zalogowanie", wylogowanie: "wylogowanie",
                 zamkniecie: "zamkniecie programu" };
   _zakladka(ss, ZAKLADKA_SESJE,
@@ -794,7 +903,7 @@ function zapiszSesje(dane) {
                 nazwy[String(dane.rodzaj)] || _tekst(dane.rodzaj || "?", 30),
                 _liczba(dane.minuty, 1440) || "",
                 _liczba(dane.dokumenty, 10000) || "", _liczba(dane.plany, 10000) || "",
-                _tekst(dane.wersja, 20)]);
+                _wersjaKlienta(dane)]);
   return { status: "ok" };
 }
 
@@ -806,19 +915,33 @@ function zapiszSesje(dane) {
 /*  dalo sie zgadywac. Liczymy w CacheService: na KOD (cel ataku) i LACZNIE */
 /*  (Apps Script nie zdradza adresu wywolujacego — licznik laczny zastepuje */
 /*  licznik „na adres"). Kazda proba, takze odrzucona, idzie do dziennika.  */
+/*  Licznik laczny liczy tylko NIEUDANE proby (zly telefon, nieznany kod):  */
+/*  chroni przed przeszukiwaniem kodow znanym numerem, a udane resety       */
+/*  innych osob go nie zuzywaja.                                            */
 var RESET_PROB_NA_KOD_NA_GODZINE     = 5;
 var RESET_PROB_LACZNIE_NA_GODZINE    = 30;
 var RESET_OKNO_SEKUND                = 3600;
 
-/* Zlicza probe pod kluczem i mowi, czy limit juz przekroczony. Licznik zyje
-   RESET_OKNO_SEKUND od OSTATNIEJ proby (kazda proba odnawia okno), wiec
-   ponawianie w kolko nie skraca blokady. doPost trzyma ScriptLock, wiec
-   odczyt-zapis licznika nie sciga sie z innym wywolaniem. */
-function _zaDuzoProb(klucz, limit) {
-  var pam = CacheService.getScriptCache();
-  var ile = (Number(pam.get(klucz)) || 0) + 1;
-  pam.put(klucz, String(ile), RESET_OKNO_SEKUND);
-  return ile > limit;
+/* Czy limit prob pod kluczem jest juz wyczerpany. Okno STALE (_licznik): kolejne
+   proby go nie odnawiaja, a odrzucone nie sa doliczane — dawniej kazda proba
+   odnawiala godzine, wiec jedno zapytanie na godzine blokowalo reset na zawsze. */
+function _zaDuzoProb(klucz, limit) { return _licznik(klucz, RESET_OKNO_SEKUND, false) >= limit; }
+function _policzProbe(klucz) { _licznik(klucz, RESET_OKNO_SEKUND, true); }
+
+/* ODBLOKOWANIE KONT — uruchamiasz RĘCZNIE w edytorze (wybierz „odblokujKonta” z listy u góry → ▶ Uruchom), gdy ktoś
+   jest zablokowany limitem prób (logowanie, podpisy hasłem, reset hasła) i nie może czekać do końca okna (do 6 godzin).
+   Liczniki żyją w pamięci podręcznej skryptu, nie w arkuszu, więc wyczyszczenie „Haslo hash” ich nie zdejmuje.
+   Zdejmuje liczniki wszystkich kont z zakładki Uzytkownicy; nie da się tego wywołać przez adres /exec. */
+function odblokujKonta() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
+  var w = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues() : [];
+  var klucze = ["reset:wszyscy"], kont = 0, pam = CacheService.getScriptCache();
+  for (var i = 0; i < w.length; i++) {
+    var kod = String(w[i][0]).trim();
+    if (_kodPoprawny(kod)) { klucze.push("lg:k:" + kod, "lg:d:" + kod, "ph:" + kod, "reset:" + kod); kont++; }
+  }
+  for (var j = 0; j < klucze.length; j += 100) pam.removeAll(klucze.slice(j, j + 100));
+  _log(ss, "admin", "odblokowanie", "zdjete liczniki prob: " + kont + " kont", "wazne");
 }
 
 function resetHasla(dane) {
@@ -826,13 +949,13 @@ function resetHasla(dane) {
   var kod = String(dane.kod || "").trim();
   var tel = String(dane.telefon || "").replace(/\D/g, "");
   if (!_kodPoprawny(kod)) {
-    _log(ss, kod, "reset_hasla", "ODRZUCONA (zly format kodu)");
+    _log(ss, kod, "reset_hasla", "ODRZUCONA (zly format kodu)", "raz");
     return { status: "blad", opis: "Kod musi miec 5 cyfr" };
   }
-  var kluczKodu = "reset:" + kod;
-  if (_zaDuzoProb("reset:wszyscy", RESET_PROB_LACZNIE_NA_GODZINE) ||
-      _zaDuzoProb(kluczKodu, RESET_PROB_NA_KOD_NA_GODZINE)) {
-    _log(ss, kod, "reset_hasla", "ODRZUCONA (za duzo prob)");
+  var kluczKodu = "reset:" + kod, kluczLaczny = "reset:wszyscy";
+  if (_zaDuzoProb(kluczKodu, RESET_PROB_NA_KOD_NA_GODZINE) ||
+      _zaDuzoProb(kluczLaczny, RESET_PROB_LACZNIE_NA_GODZINE)) {
+    _log(ss, kod, "reset_hasla", "ODRZUCONA (za duzo prob)", "raz");
     return { status: "blad", opis: "Za duzo prob resetu — sprobuj za godzine" };
   }
   var sh = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
@@ -843,22 +966,26 @@ function resetHasla(dane) {
   var w = sh.getRange(2, 1, sh.getLastRow() - 1, 14).getValues();
   for (var i = 0; i < w.length; i++) {
     if (String(w[i][0]).trim() !== kod) continue;
+    _policzProbe(kluczKodu);      // licznik na kod dopiero dla istniejącego konta (nieznane kody liczy licznik łączny — bez klucza na każdy z 100 000 kodów)
     var telBaza = String(w[i][12] || "").replace(/\D/g, "");
     if (!telBaza) {
-      _log(ss, kod, "reset_hasla", "ODRZUCONA (konto bez telefonu)");
+      _policzProbe(kluczLaczny);
+      _log(ss, kod, "reset_hasla", "ODRZUCONA (konto bez telefonu)", "konto");
       return { status: "blad", opis: "Konto nie ma telefonu w kartotece — zglos sie do administratora" };
     }
     if (tel.length < 9 || telBaza.slice(-9) !== tel.slice(-9)) {
-      _log(ss, kod, "reset_hasla", "ODRZUCONA (zly telefon)");
+      _policzProbe(kluczLaczny);
+      _log(ss, kod, "reset_hasla", "ODRZUCONA (zly telefon)", "konto");
       return { status: "blad", opis: "Numer telefonu nie zgadza sie z kartoteka" };
     }
     sh.getRange(i + 2, 14).setValue("");     // kasujemy hash hasla
     _wyczyscProby(kod);                       // telefon z kartoteki potwierdził tożsamość — odblokowujemy logowanie
-    _log(ss, kod, "reset_hasla", "OK");
+    _log(ss, kod, "reset_hasla", "OK", "wazne");
     return { status: "ok",
              opis: "Haslo skasowane. Zaloguj sie numerem telefonu i ustaw nowe haslo." };
   }
-  _log(ss, kod, "reset_hasla", "ODRZUCONA (nieznany kod)");
+  _policzProbe(kluczLaczny);
+  _log(ss, kod, "reset_hasla", "ODRZUCONA (nieznany kod)", "raz");
   return { status: "blad", opis: "Nie znaleziono takiego kodu" };
 }
 

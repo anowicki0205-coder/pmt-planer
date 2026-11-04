@@ -12,13 +12,13 @@ JAK URUCHOMIĆ NA KOMPUTERZE
      macOS / Linux: ./uruchom_lokalnie.sh, potem http://localhost:8080/index.html
   Wymaga Pythona 3 (masz go z programu). Najlepiej Chrome albo Edge (pełne „ciekłe szkło”); Safari i Firefox działają ze zwykłym rozmyciem.
   Pierwsze uruchomienie pobiera silnik (kilkanaście MB, ok. 8 s), kolejne są szybsze, a po pierwszym razie aplikacja działa także
-  bez internetu (wtedy kilometry z szacunku, a dokument to zaznacza).
+  bez internetu (wtedy kilometry z szacunku — aplikacja mówi o tym w komunikacie po generowaniu; na samym dokumencie nie ma żadnego dopisku o źródle odległości).
   TELEFON: komputer i telefon w tej samej sieci Wi-Fi → na telefonie wpisz http://<adres komputera>:8080/index.html (adres: ipconfig / ifconfig).
   Po zwykłym http działa logowanie i cała aplikacja, ale bez instalacji jako aplikacja i bez pracy offline — to wymaga https (po wdrożeniu).
 
 JEDNA PEŁNA WERSJA
   CZASOWO (test płynności, decyzja właściciela): ANIMACJE SĄ WYŁĄCZONE dla wszystkich. Wygląd zostaje ten sam, ale nic się nie rusza: zorza w tle jest narysowana raz (nieruchomo), nie ma
-  ruchu za kursorem (połysk krawędzi, przechylanie kafli, pył gwiezdny, magnetyczne przyciski, chlupot probówek, lupa w kalendarzu), ciągłych animacji (poświaty, pulsowanie, „oddychanie” przycisków,
+  ruchu za kursorem (połysk krawędzi, przechylanie kafli, pył gwiezdny, magnetyczne przyciski, lupa w kalendarzu), ciągłych animacji (poświaty, pulsowanie, „oddychanie” przycisków,
   demo w pustych stanach), przejść między miesiącami i dniami, staczania cyfr kwoty, konfetti i fanfar (zamiast fanfar — krótka informacja „Cały dzień zrobiony”). Okna otwierają się i zamykają od razu.
   Zostaje wszystko, co robi aplikacja (generowanie, podpisy, trasy, plan, odhaczanie); zostają też krótkie przejścia po najechaniu myszą (zmiana koloru przycisku) i ▶ w trasie dnia (uruchamiasz je sam).
   W spoczynku aplikacja nie żąda już ani jednej klatki animacji (test testy/spokoj_app.js). Jak sprawdzić płynność u siebie: dopisz do adresu  ?diag  (liczba klatek/s, nazwa karty, wersja).
@@ -39,7 +39,7 @@ JEDNA PEŁNA WERSJA
   Trasa dnia: przycisk ▶ odtwarza dzień — pojazd jedzie po mapie, na osi tyka zegar, minięte przystanki się zapalają, a kwota dnia rośnie od zera do sumy.
     Samo przesuwanie kursora po osi podróży (w widoku rozwiniętym także po osi czasu) przewija dzień jak film; kliknięcie w mapę też włącza ▶.
   Pusty stan: zamiast pustki widać „ducha” trasy i puste probówki, więc od razu wiadomo, co tu będzie.
-  Dokumenty: bąbelki w probówkach i chlupot cieczy, gdy przesuniesz kursor po probówkach. Kontrola: najechanie na punkt pokazuje, czego dotyczy (np. najdroższy dzień).
+  Dokumenty: ciecz w probówkach napełnia się do swojego poziomu, a w cieczy idą bąbelki (probówki się nie kołyszą). Kontrola: najechanie na punkt pokazuje, czego dotyczy (np. najdroższy dzień).
   Paleta poleceń: Ctrl+K (Mac: Cmd+K) albo „/” albo lupa w nagłówku (na telefonie: menu konta → „Szukaj poleceń”). Wpisz „luty”, „14” (dzień), „3200” (kwota), „motyw”, „podpisz”…
   Wycieczka: przy pierwszym uruchomieniu (na przykładowym miesiącu; kto ma już dane — po zapisaniu Moich danych) kilkanaście krótkich kroków z reflektorem; Esc pomija. Wróci z palety: „Pokaż wycieczkę po aplikacji”.
   Telefon: przesunięcie palcem w bok zmienia zakładkę (Dziś ⇄ Miesiąc ⇄ Dokumenty).
@@ -65,17 +65,19 @@ OKNO „DOKUMENTY DO PODPISU”: PIĘĆ KROKÓW
 
 WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
   Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) zielony przycisk „Przenieś dane” pyta o WŁASNY kod i hasło
-  (programem nie da się pobrać cudzych danych: nie ma listy kont, a kod i hasło są sprawdzane ze skrótem zapisanym na komputerze) i zapisuje plik PMT_dane_do_aplikacji.pmtdane: imię, PESEL, adres,
+  (programem nie da się pobrać cudzych danych: nie ma listy kont, a kod i hasło są sprawdzane z tym, co zapamiętał komputer; hasło zmienione albo zresetowane już w aplikacji
+  program sprawdza na serwerze — wtedy potrzebny jest internet; wpisz hasło, którym logujesz się TERAZ do aplikacji) i zapisuje plik PMT_dane_do_aplikacji.pmtdane: imię, PESEL, adres,
   stanowisko, pojemność silnika, lista sklepów, plan wizyt i odhaczone wizyty (dni od 31 dni wstecz) — zaszyfrowane kodem i hasłem konta. W aplikacji, po zalogowaniu tym samym kodem i hasłem:
   Moje dane → „Wczytaj dane z programu na komputerze” → wskaż plik. Formularz wypełnia się sam, sprawdzasz i klikasz „Zapisz”: plan wizyt trafia do kafla Dziś (wizyty odhaczone w programie są
   odhaczone), a gdy plik miał tylko listę sklepów, otwiera się okno „Plan” z gotową listą (zostaje „Ułóż plan”). Historia miesięcy i wygenerowane wcześniej trasy się nie przenoszą (wygenerowane
-  dokumenty zostają na dysku). Plik innego konta, zrobiony innym hasłem albo zmieniony jest odrzucany z komunikatem. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla
+  dokumenty zostają na dysku). Plik innego konta albo zmieniony jest odrzucany z komunikatem; plik zrobiony starszym hasłem (sprzed zmiany w aplikacji) otworzysz, wpisując
+  to hasło w polu „Hasło z programu na komputerze”. Po wczytaniu plik warto usunąć. Wczytywanie listy sklepów z Excela zostaje dla
   nowych użytkowników. Kod: js/przeniesienie.js (odczyt i oczyszczanie), silnik/most.py plan_z_programu (sumy i godziny), pmt_przeniesienie.py w programie (zapis); testy: przeniesienie_test.js
   (Python↔JS, plan, odhaczenia) i przeniesienie_app.js (przepływ w przeglądarce, kafel Dziś).
 
 ŻYCIE KALENDARZA I FIOLEK (RUCH TYLKO TAM)
   Aplikacja jest w „trybie spokojnym” (po teście płynności), ale w dwóch kaflach „coś się dzieje”: w KALENDARZU dni z trasą lekko się unoszą, oddychają światłem i co kilka sekund przebiega po nich
-  błysk (każdy dzień w innej fazie), a wybrany dzień pulsuje (fala i pierścień); w FIOLKACH dokumentów ciecz się kołysze (pochylona powierzchnia), fiolki delikatnie się bujają, połysk faluje, bąbelki
+  błysk (każdy dzień w innej fazie), a wybrany dzień pulsuje (fala i pierścień); w FIOLKACH dokumentów ciecz napełnia się do swojego poziomu (każda fiolka po kolei, przy każdym narysowaniu fiolek), fiolki się NIE kołyszą, połysk faluje, bąbelki
   idą w górę. Ruch to wyłącznie przesunięcia i przezroczystość (lekkie dla karty graficznej), kilkanaście drobnych animacji; dni bez trasy, wolne i cała reszta aplikacji stoją.
   Gdy w systemie jest włączone „Ogranicz ruch” (Windows: Ustawienia → Ułatwienia dostępu → Efekty wizualne → Efekty animacji), nic się nie rusza.
   Wyłączenie: w js/aplikacja.js zmień `const zycie = !window.__bezZycia;` na `const zycie = false;` (klasa html.zyje znika, wszystko staje). Kod animacji: koniec css/aplikacja.css („ŻYCIE”).
@@ -279,12 +281,15 @@ JEŚLI WIDZISZ STARĄ WERSJĘ (np. dawne ustawienia animacji)
 
 LOGOWANIE
   Ten sam backend (Google Apps Script) i te same konta co w programie na komputerze: login 5 cyfr + hasło. Logowanie rusza samo po wpisaniu hasła (bez Enter): hasło znane na urządzeniu od razu, nowe po ok. 1,3 s pauzy w pisaniu. Pierwsze logowanie:
-  numer telefonu z kartoteki zamiast hasła — aplikacja od razu proponuje ustawienie własnego. „Nie pamiętam hasła” resetuje je
+  numer telefonu z kartoteki zamiast hasła — aplikacja od razu proponuje ustawienie własnego. Gdy konto ma już hasło, telefon wpisany zamiast niego daje
+  zwykłe „Nieprawidłowe hasło” (serwer celowo nie mówi, czy numer pasuje do loginu); telefon służy wtedy tylko do „Nie pamiętam hasła”, które resetuje hasło
   telefonem z kartoteki. Zapytania podpisuje sekret z pliku sekret.txt (jedna linia) obok index.html — tak jak nazwisko
   przełożonego w menedzer.txt; oba pliki są na liście ignorowanych i nie wolno ich wrzucać do repozytorium.
   Bez sekret.txt aplikacja działa, ale podpis zapytań znika (backend z PODPIS_OBOWIAZKOWY=true odmówi).
   Logowanie jest wymagane przy KAŻDYM uruchomieniu, tak jak w programie na komputerze: nowa karta, ponowne otwarcie przeglądarki albo okna po zamknięciu — okno logowania pojawia się zawsze i podpowiada ostatni
-  login (w Edge, Firefoksie i Chrome tak samo). Odświeżenie TEJ SAMEJ karty (F5) logowania nie powtarza. Hasło znane na tym urządzeniu loguje od razu po wpisaniu (bez Enter); dane (profil, PESEL, plan, dokumenty) zostają
+  login (w Edge, Firefoksie i Chrome tak samo). Odświeżenie TEJ SAMEJ karty klawiszem F5 (albo Ctrl+R) logowania nie powtarza; przycisk odświeżania w pasku przeglądarki i „pociągnij, by odświeżyć” na telefonie
+  pokażą logowanie (celowo: klucz do danych nie trafia wtedy na dysk). Hasło znane na tym urządzeniu loguje od razu po wpisaniu (bez Enter); nowe hasło — po chwili przerwy w pisaniu, ale
+  automatycznie tylko raz (kolejne próby: Enter), żeby niedokończone hasło nie zjadało limitu prób na serwerze; dane (profil, PESEL, plan, dokumenty) zostają
   na urządzeniu, osobno dla każdego konta. „Wyloguj” (menu konta) zamyka też sesję tej karty.
   WAŻNOŚĆ DOSTĘPU sprawdzam od razu po poprawnym haśle (a nie dopiero po wejściu do aplikacji): jeśli kolumna „Ważne do” w arkuszu Użytkownicy jest PUSTA albo zawiera datę z przeszłości, konto jest dla programu wygasłe
   (tak samo jak w programie na komputerze) — okno logowania mówi to wprost („ważny był do …” albo „kolumna Ważne do jest pusta”), zamiast wpuścić na kilka sekund i cofnąć na ekran logowania.
@@ -298,8 +303,10 @@ LOGOWANIE
   znaczy: serwer odpowiada, ale przeglądarka blokuje odpowiedź — wdrożenie Apps Script musi mieć dostęp „Każdy”.
 
 PLAN WIZYT (kafel „Dziś")
-  Przycisk „Plan" → wczytaj listę sklepów (.xlsx albo .csv; kolumny: kod, miasto, ulica, numer, sieć) → wybierz układ
-  (zwykły albo cykliczny) → plan zapisuje się na urządzeniu. Dziś pokazuje wizyty z godzinami szacunkowymi, odhaczanie
+  Przycisk „Plan" → wczytaj listę sklepów (.xlsx albo .csv — także CSV zapisany przez polskiego Excela, Windows-1250 albo „Tekst Unicode”;
+  kolumny: kod, miasto, ulica, numer, sieć) → wybierz układ (zwykły albo cykliczny) → plan zapisuje się na urządzeniu. Każdy dzień planu zaczyna się
+  w domu (kilometry i czas obejmują dojazd). Sklep z miejscowości, której nie zna ani baza offline, ani serwer map (np. bez internetu), trafia do
+  „bez lokalizacji” (komunikat z liczbą) zamiast dostać współrzędne Warszawy. Dziś pokazuje wizyty z godzinami szacunkowymi, odhaczanie
   i „Nawiguj" (otwiera Mapy Google). Lista sklepów nie opuszcza urządzenia.
   Każda wizyta odhaczana jest OSOBNO (także gdy ten sam adres wystąpi w planie kilka razy tego dnia). Gdy odhaczysz wszystkie wizyty dnia, pojawia się baner „Gratulacje! Dzień zrobiony” (także w trybie spokojnym;
   konfetti i zorza tylko przy włączonych animacjach).

@@ -39,7 +39,7 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
 - [x] wdrożenie na GitHub Pages: .github/workflows/web-pages.yml (tylko ręczny start — Actions → Run workflow, po scaleniu do głównej gałęzi; sekrety PMT_SEKRET i PMT_MENEDZER z sekretów repo)
 - [x] JEDNA PEŁNA WERSJA wizualna (decyzja właściciela: bez wyboru trybów animacji; ruch zawsze włączony; zorza dwuprzebiegowa z wygładzaniem bikubicznym — bez pikselozy)
 - [x] ŻYWY INTERFEJS (js/zywe.js, sygnały „pmt:*” z aplikacji): suwak kwoty, podgląd cieczy w dniach, lupa i fala w kalendarzu, malowanie dni wolnych,
-      teatr trasy (▶, pojazd, przewijanie osi), duchy w pustych stanach, bąbelki i chlupot probówek, podpowiedzi w Kontroli, paleta poleceń (Ctrl+K),
+      teatr trasy (▶, pojazd, przewijanie osi), duchy w pustych stanach, bąbelki w probówkach, podpowiedzi w Kontroli, paleta poleceń (Ctrl+K),
       wycieczka po aplikacji, przesuwanie zakładek na telefonie, akcenty kolorystyczne kafli. Test: testy/zywe_app.js
 - [x] service worker: kod aplikacji (strona, skrypty, style) zawsze z sieci, gdy jest internet (kopia z pamięci tylko offline) — koniec ze starą wersją po aktualizacji
 - [x] kwota wpisywana (suwak wyłączony stałą SUWAK_KWOTY) + arkusz „Sprawdź, zanim wygeneruję” przed generowaniem; testy używają pomocnika generuj() z testy/wspolne.js
@@ -193,3 +193,49 @@ Wygląd: makieta w ../scratchpad .../proto/i/final (Ciekłe szkło: bento + zorz
       wyniku; podpis „rysuje się”, zły dokument drży, pieczęć „Wysłano” opada; klik w probówkę prowadzi do jej dokumentu. Ruch dla wszystkich (html.zyje, animacje „zycie-…” z !important przebijają tryb spokojny),
       wyjątek: „Ogranicz ruch” w systemie. Pliki: js/widowisko.js, podpis.js, dokument_atrapa.js, aplikacja.css; testy: widowisko_app.js (+ karty3d_app, podpis_offline_app także z ZYCIE=tak).
       Odrzucone przez właściciela: miesiąc jako pierścień dni (nie robimy).
+
+## Pełny przegląd (listopad 2026): błędy, bezpieczeństwo, dane osobowe
+Przegląd w obszarach (aplikacja web, podpisy, dostęp i sejf, backend, silnik, CI, program, bezpieczeństwo), każde zgłoszenie sprawdzone przez osobnego weryfikatora
+(ok. 110 zgłoszeń, większość potwierdzona), poprawki w pakietach z recenzją diffu. Część web — zrobiona:
+- [x] APLIKACJA: zmiana miesiąca w trakcie generowania nie przenosi dokumentów (miesiąc zapamiętany przed pierwszym await, strzałki wyłączone); komunikaty widoczne w trybie spokojnym;
+      okna trzymają fokus (pulpit pod spodem inert); tryb i auto wybrane przed „Moimi danymi” zostają; „Wieczory” bez profilu liczą soboty; dni wolne, tryb i auto miesiąca bez rekordu
+      pamiętane na urządzeniu jak kwota ('wolne-RRRR-MM', 'ust-RRRR-MM'; „od nowa” i zmiana trybu po wygenerowaniu nie wracają do profilu po wizycie w innym miesiącu); w trakcie
+      generowania tryb, auto i dni wolne zablokowane; „Dziś” po północy; błąd zapisu (pełna pamięć) nie zostawia „generowania” ani połowy plików; nazwy miejscowości jako tekst;
+      szybkie strzałki liczą od wczytywanego miesiąca; okno odzyskiwania sejfu pyta przed usunięciem (bezpieczny przycisk w miejscu tego, który otwiera ostrzeżenie).
+- [x] PODPISY: zmiany zapisane w PDF-ie PRZED podpisem (strona zamalowana, adnotacja, podmieniony strumień, też w /ObjStm) → odrzucone; atrybuty strony porównywane z dziedziczeniem
+      (iText/OpenPDF wpisują odziedziczony MediaBox i „/Rotate 0” — to nie zmiana); certyfikat samopodpisany → „uwaga”; ponowny skan zastępuje pliki tylko dokumentu jednostronicowego;
+      wznowienie przerwanego sprawdzania; Android bez udostępniania ZIP-ów: pobranie + odnośnik „Otwórz wiadomość”.
+- [x] DOSTĘP I SEJF: klucz danych i skrót hasła tylko w pamięci strony; do sessionStorage trafiają wyłącznie przy ZAMIERZONYM odświeżeniu (F5, Ctrl+R, przeładowanie przez aplikację),
+      nie przy zamknięciu karty (sessionStorage leży na dysku); pamięć silnika (współrzędne domu, trasy) w zaszyfrowanym magazynie konta zamiast jawnej bazy IDBFS (kasowanej);
+      blokada konta przeżywa wylogowanie; normalizacja hasła (spacje, telefon); czas serwera koryguje zegar urządzenia; autologowanie bez PBKDF2 po pauzie i najwyżej jedna automatyczna
+      próba nieznanego hasła (limit prób na serwerze); niepodzielna instalacja service workera; „Usuń dane” kasuje też login ze statusu; wymuszone wylogowanie czyści silnik.
+- Testy: naprawy_aplikacja_app.js (nowy), weryfikacja_test.js (+ nowe pliki w dane/podpisy), karuzela_test.js, dostep_test.js, sw_instalacja_app.js, szyfrowanie_app.js, logowanie_app.js,
+  dane_na_urzadzeniu_app.js, podpis_offline_app.js, przeplyw_app.js, xss_app.js, widowisko_app.js, zywe_app.js — wszystkie przechodzą. Testy odświeżające stronę bez gotowej sesji udają F5.
+Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją i poprawkami po niej):
+- [x] BACKEND (apps_script_POPRAWIONY_v2.gs, WYMAGA WDROŻENIA NOWEJ WERSJI SKRYPTU): złe podpisy hasłem (puls, sesja, hasło paczki) 150 / 6 h na kod — koniec wyroczni do zgadywania
+      hasła; ochrona przed formułami także przy wartościach zapisywanych z powrotem; reset hasła w stałym oknie + odblokujKonta() z edytora; dzienniki z osobnymi przydziałami
+      (zdarzenia po uwierzytelnieniu, odmowy na istniejące konta) i najwyżej 20 wpisów odmów bez hasła na zdarzenie na godzinę; nieistniejące kody bez kluczy w CacheService;
+      logowanie i zmiana hasła nie zdradzają, czy telefon pasuje do kodu; „Serwer zajety” zamiast pracy bez blokady; daty tekstowe DD.MM.RRRR / RRRR-MM-DD; hasło paczki tylko
+      z tekstu/liczby całkowitej; aplikacja web (pole klient: "web") zwolniona z bramki wersji programu. Web: po „pelne: false” karta nie podpisuje odrzuconym skrótem.
+- [x] SILNIK (PMT_Delegacje.py → ponowny wyciąg web/silnik/pmt_silnik.py; zgodność program ↔ web potwierdzona): plan wizyt — miejscowości spoza bazy offline do „bez lokalizacji”
+      (nie Warszawa), każdy dzień od domu; jedna awaria sieci nie wyłącza OSRM/geokodowania do końca życia workera; baza bez sieci = miejscowość lub poczta zgodna z województwem
+      (nie stolica; web bez żadnej pozycji odmawia generowania); CSV z polskiego Excela (cp1250, UTF-16); grudzień od 2025 — trzy niedziele handlowe; województwa dla kodów
+      z pogranicza; adres: „Bielsko-Biała”, „Jana Pawła II”, „Nakło nad Notecią”; PESEL — także data urodzenia; wieczory — powrót najpóźniej o 22:00.
+      Do decyzji (pominięte): „maks.” kwoty miesiąca zawyżony względem tego, co silnik rozpisze; kwoty < ok. 300 zł czasem niedobite (zgłaszane).
+- [x] PROGRAM (do niewydanej 3.25.1): „Tylko podpisane” nie dołącza niepodpisanego oryginału (tylko Podpisane + kontrola sumy); kopia zapasowa tylko z danymi tego konta, bez wspólnej
+      pamięci adresów, odtworzenie nie kasuje innych kont; skrót hasła tylko w pamięci (na dysku weryfikator PBKDF2); log_error bez abortu; updater_folder.bat — sukces tylko po fladze,
+      wiszący proces zamykany przed przywróceniem kopii, „!” w ścieżce; updater.sh — paczki folderowe macOS/Linux; „Przenieś dane” po zmianie hasła w webie (serwer potwierdza
+      bieżące hasło; w webie pole „Hasło z programu na komputerze” dla pliku ze starszym hasłem); „Wskaż plik” odrzuca niepodpisaną kopię i pyta o dokument.
+      Do decyzji (pominięte): sprzątanie PESEL-i z ~/.pmt_uzytkownicy.json po przeniesieniu; panel „Ustawienia” widoczny dla każdego zalogowanego; „&” w ścieżce programu.
+      UWAGA: poprawione updater_folder.bat / updater.sh programy pobierają z gałęzi main — działają dopiero po scaleniu do main.
+- [x] CI: domyślnie contents: read, zapis tylko w jobach wydania bez pip; bez zewnętrznej akcji z tokenem (gh release); wydanie z tagu dopiero po zielonych testach (testy.yml
+      przez workflow_call); wersja.txt zachowuje min=/blokada=/web=/wygaszenie=, nie rusza po anulowaniu, ponowne uruchomienie nie odkręca hamulca, podbicie tylko dla wydania
+      „Latest”; filtr ścieżek testów obejmuje wszystkie moduły paczki. Do zrobienia przez właściciela: przypięcie akcji do SHA (+ ewentualnie dependabot), opcjonalnie
+      Settings → Actions → „Read repository contents” jako domyślne uprawnienie.
+- [x] UWAGI WŁAŚCICIELA PO TEŚCIE (4.11): (1) NA DOKUMENCIE (delegacja, rozliczenie, raport tras HTML) nie ma już dopisku o źródle odległości („Odległości: szacunek / realne drogi / drogi z pamięci”) —
+      program i aplikacja nadal wiedzą, skąd są kilometry (okno programu, komunikat po generowaniu w aplikacji „Kilometry z szacunku…”), ale dokument milczy; układ strony bez zmian (ta sama wysokość nagłówka).
+      Tacka programu dla miesiąca z dysku pokazuje wtedy zwykłe „KILOMETRY” (dawne PDF-y z dopiskiem nadal się czytają). Atrapa dokumentu w aplikacji też bez dopisku. wyciagnij_silnik.py ma teraz w korzeniach
+      stan_zrodla_odleglosci i zeruj_zrodlo_odleglosci (most.py ich używa, a PDF już ich nie wciąga). (2) FIOLKI SIĘ NIE KOŁYSZĄ: zniknęło bujanie probówki, chlupot powierzchni cieczy i chlupot za kursorem;
+      zamiast tego ciecz napełnia się od dołu do swojego poziomu (animacja „zycie-napelnij”, każda fiolka po kolei, przy każdym narysowaniu fiolek) i idzie więcej, wyraźniejszych bąbelków (8 na fiolkę).
+      Przy okazji naprawiony błąd: rejestracja `@property --sw` (liczba, dla chlupotu) zerowała szerokość łączników na osi podróży (.pr-odc, .pr-km) i wyłączała poświatę fali przy zmianie motywu —
+      `--sw` ma w pliku trzy znaczenia, więc nie wolno go rejestrować (komentarz w CSS). Testy: zycie_app.js (napełnianie sprawdzane na wybranych klatkach animacji), zywe_app.js, atrapa_test.js, testy_pmt.py.

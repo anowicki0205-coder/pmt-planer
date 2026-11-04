@@ -3,7 +3,7 @@
 const { otworz } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
 (async () => {
   const B = new BackendMock(); const t = await otworz({ w: 1440, h: 900, zalogowany: false, backend: B }); const p = t.p; let kod = 0;
-  const przeladuj = async () => { for (let i = 0; i < 4; i++) { try { await p.reload(); return; } catch (e) { if (!/ERR_ABORTED|detached/.test(String(e.message))) throw e; await p.waitForLoadState('load').catch(() => {}); await p.waitForTimeout(600); } } await p.reload(); };      // reload przerwany inną trwającą nawigacją (obciążona maszyna) powtarzamy po jej zakończeniu
+  const przeladuj = async () => { for (let i = 0; i < 4; i++) { try { await p.evaluate(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'F5' }))).catch(() => {}); await p.reload(); return; } catch (e) { if (!/ERR_ABORTED|detached/.test(String(e.message))) throw e; await p.waitForLoadState('load').catch(() => {}); await p.waitForTimeout(600); } } await p.reload(); };      // reload przerwany inną trwającą nawigacją (obciążona maszyna) powtarzamy po jej zakończeniu
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const wyj = '/tmp/logowanie_zrzuty'; require('fs').mkdirSync(wyj, { recursive: true });
   const info = () => p.locator('#dz-info').innerText();
@@ -22,8 +22,8 @@ const { otworz } = require('./wspolne'); const { BackendMock, hash } = require('
 
   await wpisz('12345', 'zlehaslo'); let i = await czekajInfo(/Nieprawidlowe/);
   ok('złe hasło: komunikat z serwera', /Nieprawidlowe haslo/.test(i), i);
-  await p.fill('#dz-haslo', '600100200'); await p.keyboard.press('Enter'); i = await czekajInfo(/ustawione haslo/);
-  ok('konto z hasłem nie wpuszcza telefonem', /ustawione haslo/.test(i), i.slice(0, 80));
+  await p.fill('#dz-haslo', '600100200'); await p.keyboard.press('Enter'); await p.waitForFunction(() => !document.querySelector('#dz-haslo').disabled, null, { timeout: 60000, polling: 150 }); i = await czekajInfo(/Nieprawidlowe haslo/);
+  ok('konto z hasłem nie wpuszcza telefonem — i nie zdradza, że numer pasuje (ten sam komunikat co złe hasło)', /Nieprawidlowe haslo/.test(i) && !/ustawione haslo/.test(i), i.slice(0, 80));
   ok('żadnej sesji po nieudanym logowaniu', !(await stanDostepu()).kod);
 
   await p.click('#dz-reset'); await p.waitForSelector('#dr-form'); await p.waitForTimeout(500);

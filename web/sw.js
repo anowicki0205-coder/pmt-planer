@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'ca50a7d8257d';
+const WERSJA = '5a92a42918c8';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -55,10 +55,80 @@ const PLIKI = [
  "./vendor/pyodide/python_stdlib.zip",
  "./vendor/qr/qrcode.mjs"
 ];
+const SKROTY = {
+ "./css/aplikacja.css": "f46eadd89299537d",
+ "./ikony/ikona-180.png": "18889881dd7c13bd",
+ "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
+ "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
+ "./ikony/logo-128.webp": "b6d1105a5f46f0b2",
+ "./ikony/logo-192.png": "6f1af7c8a362f1aa",
+ "./ikony/logo-512.png": "d14d554fd2207fee",
+ "./index.html": "49ca7c61c2933501",
+ "./js/aplikacja.js": "807a37daa24d0369",
+ "./js/dokument_atrapa.js": "f1f185a9adda8ce6",
+ "./js/dostep.js": "a2793ff8c2e3a16e",
+ "./js/karuzela.js": "d64507d7e8c41a91",
+ "./js/krypto_js.js": "6bc597542ce41d13",
+ "./js/magazyn.js": "4b50220968cf07cf",
+ "./js/pliki.js": "631ce377322eca94",
+ "./js/poczta.js": "7c02dc2f74cf8d77",
+ "./js/podpis.js": "e0fa7b4771d320ad",
+ "./js/podpis_reczny.js": "0edb49491ca0bb87",
+ "./js/pomoc.js": "14a7187c8781a211",
+ "./js/przeniesienie.js": "6a373490ec3038b5",
+ "./js/sejf.js": "c9969d31c10a7ed6",
+ "./js/silnik.js": "f359a47bf81defe4",
+ "./js/silnik.worker.js": "8ad1cac7450048f3",
+ "./js/weryfikacja.js": "fb510bf785970556",
+ "./js/widowisko.js": "26feba6053e71f65",
+ "./js/zipaes.js": "7214b972dfd20d7b",
+ "./js/zywe.js": "3dfa03378a1e5d82",
+ "./manifest.webmanifest": "6ee157d9cfb7b428",
+ "./przyklad/miesiac.json": "7173034fc27f02be",
+ "./przyklad/plan.json": "b580a14be501ec3b",
+ "./silnik/boot.py": "3016d346355bb8ed",
+ "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
+ "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
+ "./silnik/most.py": "36f09af5d8c9f09a",
+ "./silnik/pmt_silnik.py": "a0f0b50324f8ad45",
+ "./silnik/sieci_cel.txt": "31135fd9d9200248",
+ "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",
+ "./vendor/czcionki/geist-latin-wght-normal.woff2": "19f9c92546aa300c",
+ "./vendor/paczki/defusedxml-0.7.1-py2.py3-none-any.whl": "a352e7e428770286",
+ "./vendor/paczki/et_xmlfile-2.0.0-py3-none-any.whl": "7a91720bc7568435",
+ "./vendor/paczki/fonttools-4.56.0-py3-none-any.whl": "1088182f68c303b5",
+ "./vendor/paczki/fpdf2-2.8.9-py3-none-any.whl": "6e1d94af6d631195",
+ "./vendor/paczki/openpyxl-3.1.5-py2.py3-none-any.whl": "5282c12b107bffee",
+ "./vendor/paczki/pillow-11.3.0-cp313-cp313-pyodide_2025_0_wasm32.whl": "7e1168616481f685",
+ "./vendor/pyodide/pyodide-lock.json": "3256ffc76388de0e",
+ "./vendor/pyodide/pyodide.asm.js": "1263f02b5b26099b",
+ "./vendor/pyodide/pyodide.asm.wasm": "e2f4ee75b325e35e",
+ "./vendor/pyodide/pyodide.mjs": "23213d27e9dacbda",
+ "./vendor/pyodide/python_stdlib.zip": "4298b6ee445cb724",
+ "./vendor/qr/qrcode.mjs": "86e07bd03bcfd50b",
+ "./": "49ca7c61c2933501"
+};
+/* Poprzednie pamięci z mapą skrótów (zapisaną na końcu udanej instalacji): plik o tym samym skrócie jest identyczny, więc można go skopiować. */
+async function pamieciPoprzednie() {
+  const w = [];
+  for (const k of await caches.keys()) {
+    if (!k.startsWith('pmt-web-') || k === CACHE) continue;
+    const c = await caches.open(k), r = await c.match('./__skroty.json');
+    if (r) { try { w.push({ c, skroty: await r.json() }); } catch (err) { /* uszkodzona mapa: tej pamięci nie używamy */ } }
+  }
+  return w;
+}
+/* Instalacja jest NIEPODZIELNA: nowa wersja trafia do pamięci cała albo wcale. Brak któregoś pliku przerywa instalację — poprzedni service worker zostaje
+   z kompletem (dawniej błąd był połykany, a aktywacja kasowała starą pamięć, więc bez zasięgu silnik nie wstawał). Niezmienione pliki są kopiowane ze starej pamięci. */
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
-    const c = await caches.open(CACHE);
-    await Promise.all(PLIKI.map(async u => { try { await c.add(new Request(u, { cache: 'reload' })); } catch (err) { /* brak pojedynczego pliku nie blokuje instalacji */ } }));
+    const c = await caches.open(CACHE), stare = await pamieciPoprzednie();
+    await Promise.all(PLIKI.map(async u => {
+      for (const s of stare) if (SKROTY[u] && s.skroty[u] === SKROTY[u]) { const r = await s.c.match(u); if (r) { await c.put(u, r); return; } }
+      await c.add(new Request(u, { cache: 'reload' }));
+    }));
+    try { await c.add(new Request('./sekret.txt', { cache: 'reload' })); } catch (err) { /* plik dokłada dopiero wdrożenie (web-pages.yml); bez niego zapytania idą bez podpisu */ }
+    await c.put('./__skroty.json', new Response(JSON.stringify(SKROTY), { headers: { 'content-type': 'application/json' } }));
     self.skipWaiting();
   })());
 });
@@ -68,8 +138,9 @@ self.addEventListener('activate', e => {
     await self.clients.claim();
   })());
 });
-/* Kod aplikacji (strona, skrypty, style, silnik) pobieramy NAJPIERW z sieci — dzięki temu po aktualizacji od razu widać nową wersję, a bez internetu działa kopia z pamięci.
-   Duże, rzadko zmieniane pliki (silnik Pythona w przeglądarce, czcionki, ikony) idą z pamięci od razu. */
+/* Kod aplikacji (strona, skrypty, style, silnik) idzie z pamięci TEJ wersji: wszystkie moduły pochodzą z jednego wydania. Dawniej każdy plik szedł najpierw z sieci
+   z limitem 4 s, więc na wolnym łączu po wdrożeniu mieszały się nowe i stare moduły (SyntaxError przy imporcie). Nową wersję przynosi w całości nowy service worker
+   (wersja zmienia się z każdym plikiem), a aplikacja prosi wtedy o odświeżenie. Sieć tylko, gdy pliku w pamięci nie ma. */
 const KOD = /\/(index\.html|manifest\.webmanifest|css\/[^/]+|js\/[^/]+|silnik\/[^/]+\.py)?$/;
 async function ZSieci(c, q, limitMs) {
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), limitMs);
@@ -84,8 +155,8 @@ self.addEventListener('fetch', e => {
     if (/\/__adres\.json$/.test(u.pathname)) { try { return await fetch(q, { cache: 'no-store' }); } catch (err) { return new Response('{"adres":""}', { status: 200, headers: { 'content-type': 'application/json' } }); } }      // adres komputera w sieci zmienia się: nigdy z pamięci
     if (/\/(menedzer|sekret|odbiorca|uwagi|adres_aplikacji)\.txt(\.txt)?$/.test(u.pathname)) { try { return await ZSieci(c, q, 8000) } catch (err) {} return trafienie || new Response('', { status: 404 }); }      // pliki ustawień: zawsze najpierw z sieci (zmiana adresu/odbiorcy działa od razu), kopia tylko bez internetu
     if (KOD.test(u.pathname) && !/\/vendor\//.test(u.pathname)) {
-      try { const r = await ZSieci(c, q, trafienie ? 4000 : 20000); if (r.ok || !trafienie) return r; } catch (err) { /* bez sieci albo za wolno: kopia z pamięci */ }
-      return trafienie || new Response('Brak połączenia', { status: 503 });
+      if (trafienie) return trafienie;
+      try { return await fetch(q, { cache: 'no-cache' }); } catch (err) { return new Response('Brak połączenia', { status: 503 }); }      // bez zapisu do pamięci: nie dokładamy do niej pliku z innego wydania
     }
     if (trafienie) return trafienie;
     try { const r = await fetch(q); if (r.ok) c.put(q, r.clone()); return r; } catch (err) { return new Response('Brak połączenia', { status: 503 }); }

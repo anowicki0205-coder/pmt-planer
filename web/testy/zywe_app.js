@@ -104,8 +104,8 @@ const chce = e => !ETAP || ETAP === e;
       ok('probówki mają bąbelki', await p.locator('#fiolki .f-ciecz .babel').count() >= 12, String(await p.locator('#fiolki .f-ciecz .babel').count()));
       const fb = await p.locator('#fiolki').boundingBox();
       await p.mouse.move(fb.x + 10, fb.y + fb.height * .5); await p.mouse.move(fb.x + fb.width - 10, fb.y + fb.height * .5, { steps: 6 }); await p.waitForTimeout(120);
-      { const kolysze = await p.evaluate(() => [...document.querySelectorAll('.fiolka')].some(f => f.style.rotate)), spokojnie = await p.evaluate(() => document.documentElement.classList.contains('spokojne'));
-        ok(spokojnie ? 'chlupot (tryb spokojny): probówki nie kołyszą się za kursorem' : 'chlupot: ruch kursora po probówkach je kołysze', spokojnie ? !kolysze : kolysze); }
+      { const kolysze = await p.evaluate(() => [...document.querySelectorAll('.fiolka')].some(f => f.style.rotate || f.style.getPropertyValue('--sl'))), spokojnie = await p.evaluate(() => document.documentElement.classList.contains('spokojne'));
+        ok(`probówki nie kołyszą się za kursorem (${spokojnie ? 'tryb spokojny' : 'pełny ruch'}) — kołysanie zlikwidowane`, !kolysze); }
       const sklep = await p.locator('#siatka .dz.trasa').count();
       ok('po generowaniu kalendarz ma dni z trasą (bez podglądu cieczy)', sklep >= 10 && await p.locator('#siatka .dz.przelacz').count() === 0);
       await p.hover('#ko-lista li >> nth=1'); await p.waitForTimeout(300);

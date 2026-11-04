@@ -1,4 +1,4 @@
-// „Życie” kalendarza i fiolek dokumentów (prośba właściciela: wybrane dni pulsują, ciecz w fiolkach się kołysze, „coś się dzieje”): lekki, ciągły ruch CSS tylko w tych dwóch kaflach,
+// „Życie” kalendarza i fiolek dokumentów (prośba właściciela: wybrane dni pulsują, fiolki się napełniają i bąbelkują — NIE kołyszą się, „coś się dzieje”): lekki ruch CSS tylko w tych dwóch kaflach,
 // mimo trybu spokojnego dla reszty aplikacji; znika przy „Ogranicz ruch” w systemie; nie wychodzi poza kafle i nie psuje klikania.
 // NODE_PATH=/opt/node22/lib/node_modules node zycie_app.js
 const { otworz } = require('./wspolne');
@@ -26,16 +26,20 @@ const animacje = p => p.evaluate(() => document.getAnimations().filter(a => a.pl
   ok('dni bez trasy i wolne stoją (kreskowane kontury się nie ruszają)', (await p.evaluate(() => [...document.querySelectorAll('#siatka .dz:not(.trasa)')].filter(e => e.getAnimations().length).length)) === 0);
   const faz = await p.evaluate(() => [...document.querySelectorAll('#siatka .dz.trasa')].map(e => Math.round(e.getAnimations()[0].effect.getComputedTiming().progress * 100)));
   ok('dni są w różnych fazach (nie poruszają się jednym ciałem)', new Set(faz).size > Math.min(3, dniT - 1), faz.join(','));
-  const sw = async () => p.evaluate(() => getComputedStyle(document.querySelector('.fiolki .f-ciecz')).clipPath);
-
-  /* ---- fiolki ---- */
+  /* ---- fiolki: napełniają się, w cieczy idą bąbelki, NIE kołyszą się (uwaga właściciela po testach) ---- */
   const fiolek = await p.locator('#fiolki .fiolka').count();
-  ok(`w każdej z ${fiolek} fiolek ciecz się chlupie, fiolka buja, połysk faluje`, ile('zycie-chlup') === fiolek && ile('zycie-kolys') === fiolek && ile('zycie-polysk') === fiolek, `chlup=${ile('zycie-chlup')} kolys=${ile('zycie-kolys')} polysk=${ile('zycie-polysk')}`);
+  ok(`w każdej z ${fiolek} fiolek połysk faluje, a bąbelków jest co najmniej 8 na fiolkę`, ile('zycie-polysk') === fiolek && (await p.locator('#fiolki .f-ciecz .babel').count()) >= fiolek * 8, `polysk=${ile('zycie-polysk')} bąbelków=${await p.locator('#fiolki .f-ciecz .babel').count()}`);
   ok('bąbelki się unoszą', ile('zycie-babel') >= fiolek, 'bąbelków: ' + ile('zycie-babel'));
-  const c1 = await sw(); await p.waitForTimeout(900); const c2 = await sw(); await p.waitForTimeout(900); const c3 = await sw();
-  ok('powierzchnia cieczy naprawdę zmienia nachylenie w czasie', new Set([c1, c2, c3]).size === 3, [c1, c2, c3].join(' | '));
-  const wychyl = await p.evaluate(() => { const o = []; for (let i = 0; i < 12; i++) o.push(Math.abs(parseFloat(getComputedStyle(document.querySelector('.fiolki .f-rurka')).rotate) || 0)); return Math.max(...o); });
-  ok('kołysanie fiolki jest subtelne (poniżej 1,5°)', wychyl <= 1.5, wychyl + '°');
+  ok('fiolki się NIE kołyszą: brak animacji chlupu i bujania, probówka nie jest obrócona, powierzchnia cieczy równa', ile('zycie-chlup') === 0 && ile('zycie-kolys') === 0
+    && await p.evaluate(() => { const r = getComputedStyle(document.querySelector('.fiolki .f-rurka')), c = getComputedStyle(document.querySelector('.fiolki .f-ciecz')); return r.rotate === 'none' && c.clipPath === 'none'; }));
+  await p.evaluate(() => { const b = document.querySelector('#fiolki'); b.innerHTML = b.innerHTML; });      // fiolki rysują się od nowa (jak po zmianie miesiąca) i napełniają się
+  // animację ustawiamy na wybranych klatkach (pauza + currentTime), więc wynik nie zależy od tego, jak szybko headless Chromium produkuje klatki
+  const wCieczy = ms => p.evaluate(ms => [...document.querySelectorAll('#fiolki .f-ciecz')].map(c => { const a = c.getAnimations().find(x => x.animationName === 'zycie-napelnij'); if (a) { a.pause(); a.currentTime = ms; } return Math.round(c.getBoundingClientRect().height * 10) / 10; }), ms);
+  const oczekiwane = await p.evaluate(() => [...document.querySelectorAll('#fiolki .fiolka')].map(f => Math.round((f.querySelector('.f-rurka').getBoundingClientRect().height - 6) * parseFloat(getComputedStyle(f).getPropertyValue('--p')) * 10) / 10));
+  const h0 = await wCieczy(0), h1 = await wCieczy(400), h2 = await wCieczy(1000), h3 = await wCieczy(3400);
+  ok('ciecz napełnia się od dołu: na starcie pusta, potem rośnie, na końcu dokładnie na swoim poziomie', h0[0] === 0 && h1[0] > 0 && h1[0] < h2[0] && h2[0] < h3[0] && h3.every((h, i) => Math.abs(h - oczekiwane[i]) <= 1.5), JSON.stringify({ h0: h0[0], h1: h1[0], h2: h2[0], h3: h3[0], oczekiwane: oczekiwane[0] }));
+  ok('fiolki napełniają się po kolei (każda kolejna startuje później), rozliczenie też do pełna', h1[0] > h1[3] && h1[3] >= h1[h1.length - 1] && Math.abs(h3[h3.length - 1] - oczekiwane[oczekiwane.length - 1]) <= 1.5, JSON.stringify(h1));
+  await p.evaluate(() => document.querySelectorAll('#fiolki .f-ciecz').forEach(c => c.getAnimations().forEach(a => a.finish())));
 
   /* ---- ruch nie psuje układu ani klikania ---- */
   const wKaflu = () => p.evaluate(() => { const g = document.querySelector('#siatka').getBoundingClientRect(); return [...document.querySelectorAll('#siatka .dz.trasa')].filter(e => { const r = e.getBoundingClientRect(); return r.left < g.left - 4 || r.right > g.right + 4 || r.top < g.top - 8 || r.bottom > g.bottom + 8; }).length; });

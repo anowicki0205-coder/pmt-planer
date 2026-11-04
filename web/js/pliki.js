@@ -125,19 +125,24 @@ export function normalizujNazwe(nazwa) {
   while (ROZSZERZENIA.test(s)) s = s.replace(ROZSZERZENIA, '');
   return s.replace(/[^a-z0-9]+/g, ' ').replace(/\b(podpisany|podpisane|signed|sig|xades|skan|scan|kopia|copy)\b/g, ' ').replace(/\s+/g, ' ').trim();
 }
-/** Czy podpisany PDF zawiera oryginał: podpis PAdES dopisuje dane na końcu, więc początek i koniec oryginału leżą w tych samych miejscach. */
+/** Czy podpisany PDF zawiera oryginał: podpis PAdES tylko dopisuje dane na końcu, więc cały oryginał leży bajt w bajt na początku pliku (cudzy plik odpada już na pierwszych bajtach). */
 export function zawieraOryginal(podpisany, oryginal) {
   if (!podpisany || !oryginal || podpisany.length < oryginal.length || oryginal.length < 64) return false;
-  const n = Math.min(oryginal.length, 4096); for (let i = 0; i < n; i++) if (podpisany[i] !== oryginal[i]) return false;
-  const k = Math.min(oryginal.length, 1024); for (let i = oryginal.length - k; i < oryginal.length; i++) if (podpisany[i] !== oryginal[i]) return false;
+  for (let i = 0; i < oryginal.length; i++) if (podpisany[i] !== oryginal[i]) return false;
   return true;
 }
 const naturalnie = (a, b) => a.name.localeCompare(b.name, 'pl', { numeric: true, sensitivity: 'base' });
+const MIESIACE = 'sty|lut|mar|kwi|maj|cze|lip|sie|wrz|paz|lis|gru|jan|feb|apr|may|jun|jul|aug|sep|oct|nov|dec';
+/** Liczby z nazwy, które mogą być numerem dokumentu: bez dat, godzin i dopisków aplikacji skanujących („Adobe Scan 2 lis 2026 (1)_str01”, „Skan 02.11.2026 10_15”, „IMG_20261102”) —
+    inaczej dzień miesiąca z nazwy skanu kierowałby wszystkie skany z tego dnia do jednego polecenia. */
+const liczbyWNazwie = nazwa => normalizujNazwe(String(nazwa).replace(/\(\d+\)/g, ' '))
+  .replace(/\b\d{1,2} \d{1,2} \d{2,4}\b/g, ' ').replace(/\b\d{4} \d{1,2} \d{1,2}\b/g, ' ').replace(new RegExp(`\\b\\d{1,2} (${MIESIACE})[a-z]* \\d{2,4}\\b`, 'g'), ' ')
+  .replace(new RegExp(`\\b(${MIESIACE})[a-z]* \\d{1,2} \\d{4}\\b`, 'g'), ' ').replace(/\b\d{6,}\b|\bstr ?\d+\b/g, ' ').match(/\b\d{1,2}\b/g) || [];
 
 /**
  * Do którego dokumentu należy każdy wgrany plik. dokumenty: [{ i, nazwa, tytul, wolny, bajty?: () => Promise<Uint8Array>, xades?: (tekst) => Promise<boolean> }] (wolny = jeszcze bez podpisu).
- * Kolejność prób: zawartość (PDF z podpisem zawiera oryginał, plik .xades zawiera jego skrót) → nazwa pliku (nazwa dokumentu, „Polecenie 3”, „Rozliczenie”, pojedyncza cyfra) → kolejność wgrania.
- * Zwraca [{ plik, i (numer dokumentu lub null), jak: 'tresc' | 'nazwa' | 'kolejnosc' | null }].
+ * Kolejność prób: zawartość (PDF z podpisem zawiera oryginał, plik .xades zawiera jego skrót) → nazwa pliku (nazwa dokumentu, „Polecenie 3”, „Rozliczenie”) → jedyna liczba w nazwie
+ * („skan 3”; niepewne — do sprawdzenia) → kolejność wgrania. Zwraca [{ plik, i (numer dokumentu lub null), jak: 'tresc' | 'nazwa' | 'liczba' | 'kolejnosc' | null }].
  */
 export async function dopasujPliki(pliki, dokumenty, odczyt) {
   const wynik = pliki.map(plik => ({ plik, i: null, jak: null })), zajete = new Set();
@@ -158,9 +163,13 @@ export async function dopasujPliki(pliki, dokumenty, odczyt) {
     for (const d of dokumenty) { const baza = normalizujNazwe(d.nazwa); if (baza && n.includes(baza)) { trafiony = d; break; } }
     if (!trafiony) { const m = n.match(/(?:polecenie|delegacja)\s*0*(\d+)/); if (m) trafiony = dokumenty.find(d => d.tytul === `Polecenie ${Number(m[1])}`) || null; }
     if (!trafiony && /\brozliczenie\b/.test(n)) trafiony = dokumenty.find(d => d.tytul === 'Rozliczenie') || null;
-    if (!trafiony) { const m = n.match(/(?:^| )(\d{1,2})(?: |$)/); if (m) trafiony = dokumenty.find(d => d.tytul === `Polecenie ${Number(m[1])}`) || null; }
-    if (trafiony) { w.i = trafiony.i; w.jak = 'nazwa'; zajete.add(trafiony.i); }
+    if (trafiony) { w.i = trafiony.i; w.jak = 'nazwa'; zajete.add(trafiony.i); continue; }
+    const liczby = liczbyWNazwie(w.plik.name), d = liczby.length === 1 && dokumenty.find(x => x.tytul === `Polecenie ${Number(liczby[0])}`);
+    if (d) { w.i = d.i; w.jak = 'liczba'; }
   }
+  // kilka plików z jednego wgrania z tą samą liczbą w nazwie to raczej numery stron albo kopii niż numer dokumentu — zostają dla kolejności
+  const slabe = wynik.filter(w => w.jak === 'liczba'), ile = new Map(); for (const w of slabe) ile.set(w.i, (ile.get(w.i) || 0) + 1);
+  for (const w of slabe) { if (ile.get(w.i) > 1) { w.i = null; w.jak = null; } else zajete.add(w.i); }
   // 3) kolejność wgrania dla reszty: tylko dokumenty, które nie mają jeszcze podpisu ani pliku z tego wgrania
   const reszta = wynik.filter(w => w.i === null).sort((a, b) => naturalnie(a.plik, b.plik)), wolneDok = dokumenty.filter(d => d.wolny !== false && !zajete.has(d.i));
   reszta.forEach((w, k) => { if (wolneDok[k]) { w.i = wolneDok[k].i; w.jak = 'kolejnosc'; zajete.add(w.i); } });

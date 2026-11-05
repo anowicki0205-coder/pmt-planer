@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'e08980a7bb58';
+const WERSJA = 'eeab1b415298';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -76,7 +76,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "db8a6e1faa3f6295",
- "./js/podpis.js": "c0754944bdee619d",
+ "./js/podpis.js": "89f915bcfb05b012",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
@@ -86,7 +86,7 @@ const SKROTY = {
  "./js/weryfikacja.js": "3f3d2ed71b5ded1e",
  "./js/widowisko.js": "26feba6053e71f65",
  "./js/zipaes.js": "7214b972dfd20d7b",
- "./js/zywe.js": "3dfa03378a1e5d82",
+ "./js/zywe.js": "899fb1647f97f695",
  "./manifest.webmanifest": "6ee157d9cfb7b428",
  "./przyklad/miesiac.json": "7173034fc27f02be",
  "./przyklad/plan.json": "b580a14be501ec3b",

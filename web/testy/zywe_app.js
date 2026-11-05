@@ -179,6 +179,7 @@ const chce = e => !ETAP || ETAP === e;
     await czekaj(q, () => /^1 z \d+$/.test(document.querySelector('.wyc-licz').textContent), null, 60000); await q.waitForTimeout(1200);
     const N = Number((await licz()).split(' z ')[1]);
     ok('po zapisaniu danych rusza wycieczka po aplikacji (kroki, w tym o motywie, uwagach i telefonie)', /^1 z \d+$/.test(await licz()) && N >= 9, await licz());
+    ok('wycieczka zapisuje się jako pokazana już przy pierwszym wyświetleniu (nie wraca przy każdym logowaniu, nawet gdy jej nie dokończono — np. zamknięta karta, wylogowanie)', await q.evaluate(() => localStorage.getItem('pmt-ui-wycieczka') === '1'));
     const sw = await q.evaluate(() => { const s = document.querySelector('.wyc-swiatlo').style; return { x: parseFloat(s.left), y: parseFloat(s.top), w: parseFloat(s.width), h: parseFloat(s.height) }; }), kafel = await q.locator('#kA .b-lewa').boundingBox();
     ok('reflektor otacza opisywany element', sw.x < kafel.x && sw.y < kafel.y && sw.x + sw.w > kafel.x + kafel.width && sw.y + sw.h > kafel.y + kafel.height, JSON.stringify(sw));
     await q.screenshot({ path: wyj + '/6_wycieczka1.png' });

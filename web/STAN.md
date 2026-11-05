@@ -263,3 +263,11 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
 - [x] ADRES ODBIORCY NIEWIDOCZNY DLA UŻYTKOWNIKA (uwaga właściciela 5.11): opis kroku 5, komunikaty po wysyłce (Outlook, mailto, pulpit, .eml, telefon) i odnośniki nie pokazują adresu; przycisk „Otwórz wiadomość” jest przyciskiem
       (adres mailto: trzymany w pamięci, nie w kodzie strony). Adres jest tylko w polu „Do” gotowej wiadomości (poczta musi go pokazać) i w zaszyfrowanym koncie. Telefon: udostępnianie systemowe nie wpisuje adresata, więc
       zawsze pobranie paczki + mailto: (adresat, temat, treść wpisane; paczkę dołącza się z Pobranych). Test: podpis_offline_app.js (bezAdresu(): brak adresu w tekście, HTML i odnośnikach okna po każdym sposobie).
+- [x] EDGE/CHROME BLOKOWAŁ POBRANY .eml (zgłoszenie właściciela 5.11: „Niepotwierdzony ….crdownload”, „plik jest niebezpieczny”; Firefox bez problemu). PRZYCZYNA (lista typów plików Chromium,
+      components/safe_browsing/content/resources/download_file_types): rozszerzenie „eml” ma na Windows danger_level ALLOW_ON_USER_GESTURE („otwiera się w Outlooku, może być wykorzystane”, CVE-2015-6172) — Chromium puszcza je
+      bez ostrzeżenia tylko wtedy, gdy pobranie następuje w ciągu ok. 5 s od kliknięcia i strona jest znana z historii; u nas kliknięcie czekało na serwer hasła (Apps Script), czytanie plików i szyfrowanie.
+      POPRAWKA: hasło/adres/termin z pamięci okna (pobrane przy otwarciu kroku 5, ≤10 min, niewygasłe) zamiast pytania serwera w trakcie kliknięcia, a po wysyłce sprawdzenie w tle (zmiana hasła → ostrzeżenie „Cofnij wysłanie”);
+      gdy mimo to minęło >5 s (navigator.userActivation.isActive === false) — przycisk „Zapisz wiadomość” (osobne kliknięcie) zamiast pobrania; wskazówka „Zachowaj” dla Edge/Chrome. NIE zweryfikowane na prawdziwym Edge
+      (SmartScreen / polityki firmy mogą dodatkowo ostrzegać) — rezerwa: „Zmień sposób” → „otwórz pocztę” albo szkic w Outlooku (rejestracja aplikacji Microsoft, WDROZENIE.txt p. 7).
+      Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
+      Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.

@@ -207,7 +207,9 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pob0 = t.backend.pobraniaHasla;
   const emlP = await pobierz(wyslijSel);
   const emlWynik0Ok = () => emlOtwarty(emlP.sciezka).to === ADRES;
-  ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
+  ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
+  { const t0 = Date.now(); while (t.backend.pobraniaHasla <= pob0 && Date.now() - t0 < 8000) await p.waitForTimeout(100); }
+  ok('hasło, adres i termin były już pobrane przy otwarciu kroku 5 (kliknięcie nie czeka na serwer), a po wysyłce serwer jest pytany jeszcze raz w tle, czy administrator niczego nie zmienił; użytkownik hasła nigdzie nie widzi', t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)), `pobrania: ${pob0} → ${t.backend.pobraniaHasla}`);
   ok('po pierwszym pobraniu .eml jednorazowa wskazówka: 3 kroki (ikona pobierania → prawy przycisk na pliku → „Zawsze otwieraj pliki tego typu”), makieta menu z zaznaczoną opcją, rada dla poczty w przeglądarce i przycisk „Zrobione”', (await p.locator('#podp-wyslij-stan #eml-rada').count()) === 1 && (await p.locator('#eml-rada .eml-kroki > span').count()) === 3 && /„Zawsze otwieraj pliki tego typu”/.test(await stanW()) && /Zawsze otwieraj pliki tego typu/.test(await p.locator('#eml-rada .em-wyb').innerText()) && /Gmail/.test(await stanW()) && (await p.locator('#eml-rada [data-akcja="eml-rada-ok"]').count()) === 1, await stanW());
   await p.locator('#eml-rada').scrollIntoViewIfNeeded(); await p.screenshot({ path: tmp + '/5b_rada_eml.png' });
   await p.click('#eml-rada [data-akcja="eml-rada-ok"]'); await p.waitForTimeout(200);
@@ -390,6 +392,30 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pobPoPulpicie = await pobierz(wyslijSel2); await p.waitForTimeout(400);      // przywraca stan „Wysłane” sposobem „plik”
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   ok('po scenariuszu „pulpit” stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoPulpicie.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+
+  /* [J] Chromium (Edge, Chrome) puszcza plik .eml bez ostrzeżenia o „niebezpiecznym pliku” tylko wtedy, gdy pobranie następuje tuż po kliknięciu (ok. 5 s), więc kliknięcie nie może czekać na wolny serwer */
+  await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
+  t.backend.opoznienieMs = 5500; const t0J = Date.now(); const emlWolny = await pobierz(wyslijSel2); const trwalo = Date.now() - t0J;
+  ok('wolny serwer (odpowiedź po 5,5 s) nie opóźnia pobrania: plik .eml schodzi w ciągu kilku sekund od kliknięcia, bo dane z serwera są już w pamięci', emlWolny.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && trwalo < 4000 && emlOtwarty(emlWolny.sciezka).to === ADRES, `${trwalo} ms`);
+  await p.waitForTimeout(6000); t.backend.opoznienieMs = 0;      // dokończ spóźnione sprawdzenie w tle
+  // administrator zmienia hasło tuż po pobraniu danych przez okno: paczka ma stare hasło — użytkownik jest o tym uprzedzony
+  await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
+  t.backend.paczka = { haslo: 'Zmienione-Haslo#7-2026', wazne_do: '2099-12-31', adres: ADRES };
+  await pobierz(wyslijSel2); await czekajStan(/administrator zmienił właśnie hasło/);
+  ok('zmiana hasła przez administratora w trakcie pracy okna: po wysyłce ostrzeżenie „administrator zmienił właśnie hasło… Cofnij wysłanie i wyślij jeszcze raz”', /Cofnij wysłanie/.test(await stanW()), await stanW());
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };
+  // minęło zbyt dużo czasu od kliknięcia (aktywność użytkownika wygasła): zamiast pobrania, które Chromium uznałby za niebezpieczne, jest przycisk „Zapisz wiadomość”
+  await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
+  const pobraniaPrzed = pobraniePrzyZapisie;
+  await p.evaluate(() => Object.defineProperty(navigator, 'userActivation', { get: () => ({ isActive: false, hasBeenActive: true }), configurable: true }));
+  await p.click(wyslijSel2); await czekajStan(/Zapisz wiadomość/); await p.waitForTimeout(1200);
+  ok('bez aktywności użytkownika (Edge/Chrome): nic się nie pobiera samo, w kroku 5 jest przycisk „Zapisz wiadomość”, status „Wysłane” jeszcze się nie ustawia', (await p.locator('#podp-wyslij-stan [data-akcja="zapisz-eml"]').count()) === 1 && pobraniePrzyZapisie === pobraniaPrzed && !(await p.locator('#status').innerText()).includes('Wysłane'), await stanW());
+  const emlZPrzycisku = await (async () => { const [d] = await Promise.all([p.waitForEvent('download', { timeout: 30000 }), p.click('#podp-wyslij-stan [data-akcja="zapisz-eml"]')]); const sc = path.join(tmp, Date.now() + '_' + d.suggestedFilename()); await d.saveAs(sc); return { nazwa: d.suggestedFilename(), sciezka: sc }; })();
+  await p.waitForTimeout(500);
+  ok('po kliknięciu „Zapisz wiadomość” pobiera się ta sama wiadomość (adresat, paczka otwierana hasłem administratora), status „Wysłane” ustawia się dopiero teraz, a komunikat mówi, co dalej', emlZPrzycisku.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (() => { const w = emlOtwarty(emlZPrzycisku.sciezka); return w.to === ADRES && w.pliki.length >= 7; })() && (await p.locator('#status').innerText()).includes('Wysłane') && /Kliknij ją|kliknij pobrany plik/.test(await stanW()) && /Zachowaj/.test(await stanW()), await stanW());
+  await p.evaluate(() => { delete navigator.userActivation; });
+  ok('ostrzeżenie przeglądarki („plik może zaszkodzić urządzeniu”) nie zaskakuje: wskazówka mówi, że w Edge/Chrome wystarczy wybrać „Zachowaj”', /Zachowaj/.test(await stanW()));
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
 
   /* [G] telefon, na którym udostępnienie ZIP-a się nie udaje (Chrome na Androidzie odrzuca pliki ZIP błędem NotAllowedError): pobrana paczka + wiadomość przez mailto:, a nie błąd bez wyjścia */
   await p.click('#cofnij'); await p.waitForTimeout(600);

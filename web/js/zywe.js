@@ -532,7 +532,8 @@ export function zainstalujZywe(k) {
     const idz2 = i => { if (i < 0) return; if (i >= kroki.length) { koniec(); return; } krok = i; pokaz(i); };
     function start(reczny) {
       if (trwa) return; if (palOtw) zamknijPal();
-      kroki = KROKI(); krok = 0; trwa = true; wtorna = !!reczny; if (!wyc) zbuduj();
+      kroki = KROKI(); krok = 0; trwa = true; wtorna = !!reczny; if (!reczny) pamiec.set('wycieczka', '1');      // samoczynna wycieczka pokazuje się RAZ — także wtedy, gdy ktoś jej nie dokończy (zamknięta karta, wylogowanie); ręczne uruchomienie działa zawsze
+      if (!wyc) zbuduj();
       wyc.classList.remove('zamyka'); wyc.hidden = false; void wyc.offsetWidth; wyc.classList.add('otwarta'); k.ruchOkno(true); app.inert = true; wyc.inert = false;
       $('.wyc-karta', wyc).focus({ preventScroll: true }); pokaz(0);
     }

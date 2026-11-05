@@ -8,7 +8,8 @@
 import * as sejf from './sejf.js';
 
 export const BACKEND = 'https://script.google.com/macros/s/AKfycbyKUur4Fhs90_I8w5qqB39V5nqSQgQYixkItuxvT3gu4HokQlaMz3yXbiL06S2jZgoYAw/exec';
-export const WERSJA = '3.24.0';          // numer wersji programu, z którego pochodzi silnik (backend porównuje go liczbowo)
+export const WERSJA = '3.25.1';          // numer najnowszego programu na komputerze (WERSJA_PROGRAMU w PMT_Delegacje.py; test dostep_test.js pilnuje zgodności). Backend porównuje go liczbowo,
+                                           // a w arkuszu („Uzytkownicy”, „Sesje”) aplikacja web widnieje z dopiskiem: „web 3.25.1” — tak administrator widzi, że web jest na poziomie najnowszego programu
 export const OFFLINE_DNI = 45;
 export const PULS_CO_MIN = 15;
 const KLUCZ = 'pmt-web-dostep-v1';

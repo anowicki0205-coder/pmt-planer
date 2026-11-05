@@ -279,3 +279,6 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       pad + arpeggio z echem + bas + cicha perkusja, melodia w drugiej połowie pętli; planowany z wyprzedzeniem (setInterval 90 ms). Przyciski: #dzwiek i #muzyka w nagłówku (desktop), sekcja „Dźwięk” w menu konta
       (telefon); krok wycieczki „Dźwięk i muzyka”. Kontekst audio powstaje przy pierwszym geście; karta w tle jest zawieszana. Testy: dzwiek_test.js (renderowanie offline do liczb), dzwiek_app.js, plan_app.js (odhaczanie),
       podpis_offline_app.js (podpisy, wysyłka). NIE sprawdzone: jak to brzmi na prawdziwych głośnikach (poziomy i proporcje pasm zmierzone, nie wysłuchane) i zachowanie iOS przy wyciszonym dzwonku.
+- [x] WERSJA WEB W ARKUSZU (uwaga właściciela 5.11: panel administracji nie pokazuje nikogo na najwyższej wersji; web miał inny numer niż program): aplikacja web zgłaszała stały numer silnika „web 3.24.0”,
+      więc w zakładkach Uzytkownicy i Sesje wyglądała na starszą od programu 3.25.1. Teraz js/dostep.js WERSJA = numer najnowszego programu (WERSJA_PROGRAMU w PMT_Delegacje.py) → w arkuszu „web 3.25.1”;
+      dostep_test.js pilnuje zgodności (przy nowym wydaniu programu trzeba podbić oba numery). Numer programu w kolumnie „Wersja” zmienia się dopiero po uruchomieniu programu, aktualizacji i logowaniu.

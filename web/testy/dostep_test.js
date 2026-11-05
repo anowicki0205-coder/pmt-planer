@@ -103,6 +103,10 @@ globalThis.fetch = async (url, o = {}) => {
   ok('zegar +15 min: hasło paczki przychodzi (podpis hasłem w oknie serwera)', hp.ok && hp.haslo === 'Tajne-Haslo-1', JSON.stringify(hp));
   zegarUrzadzenia = 0; B.podpisObowiazkowy = false; D.wyloguj();
 
+  /* numer, który aplikacja web zgłasza w arkuszu („web 3.25.1”), ma być numerem najnowszego programu: panel administracji nie może pokazywać użytkowników web jako starszych */
+  { const fs = require('fs'), path = require('path'), pyf = path.join(__dirname, '..', '..', 'PMT_Delegacje.py');
+    if (fs.existsSync(pyf)) { const m = /^WERSJA_PROGRAMU\s*=\s*"([0-9.]+)"/m.exec(fs.readFileSync(pyf, 'utf8')); ok('web zgłasza w arkuszu ten sam numer co najnowszy program (WERSJA_PROGRAMU w PMT_Delegacje.py) — przy nowym wydaniu programu trzeba podbić też WERSJA w js/dostep.js', !!m && D.WERSJA === m[1], `web ${D.WERSJA}, program ${m && m[1]}`); }
+    else ok('plik programu niedostępny w tym układzie katalogów — porównanie numerów pominięte', true); }
   /* oznaczenie klienta: backend nie stosuje do aplikacji web bramki wersji programu (WYMAGANA_WERSJA) */
   w = await D.zaloguj('12345', 'haslo123'); const zLogowania = ostatnieZapytanie; await D.puls();
   ok('każde zapytanie aplikacji niesie klient: "web" (logowanie, puls)', w.ok && zLogowania.klient === 'web' && ostatnieZapytanie.akcja === 'puls' && ostatnieZapytanie.klient === 'web', JSON.stringify([zLogowania && zLogowania.klient, ostatnieZapytanie && ostatnieZapytanie.klient]));

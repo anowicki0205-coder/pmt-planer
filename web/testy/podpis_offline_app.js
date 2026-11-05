@@ -240,7 +240,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
      treścią i zahasłowaną paczką i otwiera go w Outlooku. Microsoft jest tu atrapą (trasy Playwrighta): sprawdzamy to, co wysyłamy i jak aplikacja radzi sobie z odmową, złym tokenem i zablokowanym oknem. */
   const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,content-range', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' };
   const ms = { klient: '11111111-2222-3333-4444-555555555555', zadania: [], szkic: null, zalaczniki: [], sesja: null, kawalki: [], putZAutoryzacja: false, odmowa: false, zlyToken: false, token: 'TOKEN-TEST-Outlook' };
-  const wlaczMs = on => { OPSERW.pocztaMs = on ? ms.klient.toUpperCase() : ''; };      // plik poczta_microsoft.txt podaje serwer testowy (service worker pobiera go sam, więc trasa Playwrighta by go nie przechwyciła)
+  const wlaczMs = on => { OPSERW.pocztaMs = on ? ms.klient.toUpperCase() : undefined; };      // undefined = serwer oddaje prawdziwy plik z samymi komentarzami (jak produkcja), a nie 404      // plik poczta_microsoft.txt podaje serwer testowy (service worker pobiera go sam, więc trasa Playwrighta by go nie przechwyciła)
   await t.ctx.route('https://login.microsoftonline.com/**', async r => {
     const rq = r.request(), u = new URL(rq.url());
     if (rq.method() === 'OPTIONS') return r.fulfill({ status: 204, headers: CORS });
@@ -391,13 +391,13 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   /* ---- praca bez internetu: service worker zapisał aplikację (w tym nowe moduły sprawdzania podpisów); na zwykłym http przeglądarka go nie dopuszcza ---- */
   if (!bezpieczny) {
     ok('http: aplikacja działa w całości, ale bez trybu offline (przeglądarka nie dopuszcza service workera na zwykłym http)', (await p.evaluate(async () => (navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0))) === 0);
-    console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu)
+    console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b) && !/wysyłka Error: (access_denied|szkic: HTTP 401)|status of 401 \(Unauthorized\)/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu), oraz trzy komunikaty z celowych scenariuszy negatywnych szkicu w Outlooku (odmowa zgody, zły token → 401)
     await t.zamknij(); process.exit(kod);
   }
   await p.waitForFunction(async () => { const k = await caches.keys(); if (!k.length) return false; const c = await caches.open(k[0]); const u = (await c.keys()).map(r => r.url); return u.length >= 25 && u.some(x => /weryfikacja\.js/.test(x)) && u.some(x => /podpis_reczny\.js/.test(x)); }, null, { timeout: 120000 });
   await t.ctx.setOffline(true);
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);
   ok('bez internetu aplikacja startuje i pokazuje zapisany miesiąc', (await p.locator('#b-kwota-w').getAttribute('aria-label')).length > 4, await p.locator('#b-kwota-w').getAttribute('aria-label'));
-  console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu)
+  console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b) && !/wysyłka Error: (access_denied|szkic: HTTP 401)|status of 401 \(Unauthorized\)/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu), oraz trzy komunikaty z celowych scenariuszy negatywnych szkicu w Outlooku (odmowa zgody, zły token → 401)
   await t.zamknij(); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.stack); process.exit(2); });

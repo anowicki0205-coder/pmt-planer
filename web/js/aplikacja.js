@@ -8,6 +8,7 @@ import { zainstalujZywe } from './zywe.js';
 import { zainstalujPomoc } from './pomoc.js';
 import { zainstalujPodpis } from './podpis.js';
 import { widowisko } from './widowisko.js';
+import { dzwiek } from './dzwiek.js';
 
 /* Ochrona przed osadzeniem w cudzej ramce (clickjacking: niewidoczna strona z naszym oknem logowania pod kursorem). Nagłówka frame-ancestors nie da się ustawić z meta, więc robi to kod:
    w ramce nic się nie pokazuje, a przeglądarka dostaje polecenie wyjścia z niej. */
@@ -376,6 +377,7 @@ function pierscienFali(m, x, y, R, czasMs, easing) {
 }
 function ustawMotyw(m, zrodlo) {
   if (m === motywTeraz() && root.dataset.theme) return;
+  dzwiek.efekt('motyw');
   const zm = () => { root.dataset.theme = m; pamiec.set('motyw', m); poMotywie(); };
   if (spokoj) { zm(); return; }
   const r = zrodlo && zrodlo.getClientRects().length ? zrodlo.getBoundingClientRect() : { left: innerWidth - 40, top: 28, width: 0, height: 0 };
@@ -1488,7 +1490,7 @@ let arkuszOtwarty = null, arkuszPoZamknieciu = null, fokusPrzed = null;
 const arkTlo = $('#arkusz-tlo'), arkTresc = $('#arkusz-tresc');
 let arkuszKoniec = 0;
 function otworzArkusz(html, poZamknieciu, opcje) {
-  clearTimeout(arkuszKoniec); arkTlo.classList.remove('zamyka');
+  const bylOtwarty = arkuszOtwarty; clearTimeout(arkuszKoniec); arkTlo.classList.remove('zamyka');
   if (!arkTresc.contains(doc.activeElement)) fokusPrzed = doc.activeElement;      // okno otwierane z okna: fokus wraca potem tam, skąd otwarto pierwsze (stara treść zaraz zniknie)
   arkuszPoZamknieciu = poZamknieciu || null;
   $('#arkusz').classList.toggle('szeroki', !!(opcje && opcje.szeroki));
@@ -1499,6 +1501,7 @@ function otworzArkusz(html, poZamknieciu, opcje) {
   dodajPodpowiedzi(arkTresc);
   szkla.forEach(budujSoczewke);
   requestAnimationFrame(() => szkla.forEach(budujSoczewke));
+  if (!bylOtwarty) dzwiek.efekt('okno');
 }
 /** Podmienia treść otwartego okna (kolejny krok tego samego okna), bez zamykania i otwierania. */
 function zmienArkusz(html) {
@@ -1509,6 +1512,7 @@ function zmienArkusz(html) {
 let dostepBlokada = false;      // okno logowania nie zamyka się Esc, tłem ani krzyżykiem
 function zamknijArkusz() {
   if (!arkuszOtwarty || dostepBlokada) return;
+  dzwiek.efekt('okno-zam');
   arkuszOtwarty = false; root.classList.remove('okno'); app.inert = !!RUCH.zewn;      // paleta albo wycieczka same trzymają pulpit nieaktywny
   if (spokoj) { arkTlo.classList.remove('otwarty'); arkTresc.innerHTML = ''; }
   else { arkTlo.classList.add('zamyka'); arkuszKoniec = setTimeout(() => { arkTlo.classList.remove('otwarty', 'zamyka'); arkTresc.innerHTML = ''; }, 200); }
@@ -1795,7 +1799,7 @@ async function generuj() {
   if (!(await arkuszPotwierdzenia(pr))) return;            // użytkownik sprawdza dane, zanim cokolwiek powstanie
   magUst.ustaw('kwota-' + kl, par.kwota);
   generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
-  btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35);
+  btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35); dzwiek.efekt('gen-start');
   const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
   wid && wid.start();
   let w;
@@ -1821,6 +1825,7 @@ async function generuj() {
   }
   magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
+  dzwiek.efekt('gen-koniec');
   try {
     if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
     else await zegar(450);
@@ -2191,7 +2196,7 @@ function zdarzenia() {
       return;
     }
     const b = e.target.closest('.p-znak'); if (!b) return;
-    const i = Number(b.dataset.i), w = PLAN_DZIS[i]; w.ok = !w.ok;
+    const i = Number(b.dataset.i), w = PLAN_DZIS[i]; w.ok = !w.ok; dzwiek.efekt(w.ok ? 'odhacz' : 'odhacz-wyl');
     const t = new Date(); wizytaUstaw(w.data, w.klucz, w.ok, `${dwa(t.getHours())}:${dwa(t.getMinutes())}`);
     oznaczWidoczneWiersze();
     const vt = przejscie(rysujDzis, () => { const nb = $(`.p-znak[data-i="${i}"]`); nb && nb.focus({ preventScroll: true }); }, 'dzis', { znak: i });
@@ -2481,7 +2486,7 @@ async function start() {
   kurtyna = startKurtyna();
   szkla.forEach(el => { ro && ro.observe(el); });
   mierz(); ustawSwiatlo(); poMotywieUI();
-  zdarzenia();
+  dzwiek.init(doc); zdarzenia();
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { /* bez trwałego magazynu też działa */ }      // prosi przeglądarkę, by nie czyściła danych użytkownika (Safari/iOS i Chrome zwykle zgadzają się dla zainstalowanej aplikacji)
   const pomoc = zainstalujPomoc({ $, doc, otworzArkusz, naglowekArkusza, zamknijArkusz, arkTresc, bezZnacznikow, pokazToast, zamknijDymki });
   zainstalujZywe({

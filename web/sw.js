@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'cbd6ca235a24';
+const WERSJA = '7e3d9b87845b';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -15,6 +15,7 @@ const PLIKI = [
  "./js/aplikacja.js",
  "./js/dokument_atrapa.js",
  "./js/dostep.js",
+ "./js/dzwiek.js",
  "./js/karuzela.js",
  "./js/krypto_js.js",
  "./js/magazyn.js",
@@ -58,17 +59,18 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "56d45c04dfd8b657",
+ "./css/aplikacja.css": "d31ff6507d8bfd70",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
  "./ikony/logo-128.webp": "b6d1105a5f46f0b2",
  "./ikony/logo-192.png": "6f1af7c8a362f1aa",
  "./ikony/logo-512.png": "d14d554fd2207fee",
- "./index.html": "f9df28cf8073e85f",
- "./js/aplikacja.js": "807a37daa24d0369",
+ "./index.html": "9e71bb58fbb0f25a",
+ "./js/aplikacja.js": "f84e4a7b05d68ca4",
  "./js/dokument_atrapa.js": "f1f185a9adda8ce6",
  "./js/dostep.js": "a2793ff8c2e3a16e",
+ "./js/dzwiek.js": "0f0cd07423bbd28c",
  "./js/karuzela.js": "d64507d7e8c41a91",
  "./js/krypto_js.js": "d5adbfd578434c89",
  "./js/magazyn.js": "4b50220968cf07cf",
@@ -76,7 +78,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "f5d318bd1a8e1ddd",
- "./js/podpis.js": "6a5c30657f82e794",
+ "./js/podpis.js": "113e5cbcbe5fd176",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
@@ -86,7 +88,7 @@ const SKROTY = {
  "./js/weryfikacja.js": "3f3d2ed71b5ded1e",
  "./js/widowisko.js": "26feba6053e71f65",
  "./js/zipaes.js": "7214b972dfd20d7b",
- "./js/zywe.js": "899fb1647f97f695",
+ "./js/zywe.js": "53d6a4be56c6b75c",
  "./manifest.webmanifest": "6ee157d9cfb7b428",
  "./przyklad/miesiac.json": "7173034fc27f02be",
  "./przyklad/plan.json": "b580a14be501ec3b",
@@ -110,7 +112,7 @@ const SKROTY = {
  "./vendor/pyodide/pyodide.mjs": "23213d27e9dacbda",
  "./vendor/pyodide/python_stdlib.zip": "4298b6ee445cb724",
  "./vendor/qr/qrcode.mjs": "86e07bd03bcfd50b",
- "./": "f9df28cf8073e85f"
+ "./": "9e71bb58fbb0f25a"
 };
 /* Poprzednie pamięci z mapą skrótów (zapisaną na końcu udanej instalacji): plik o tym samym skrócie jest identyczny, więc można go skopiować. */
 async function pamieciPoprzednie() {

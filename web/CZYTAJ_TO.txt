@@ -337,6 +337,8 @@ TESTY (wymagają Node + Playwright)
   testy/nakladanie_app.js       — wykrywa nachodzący i wystający tekst w wielu rozmiarach okna (STRES=1: szersze pismo)
   testy/ruch_app.js             — jedna pełna wersja ruchu: zorza WebGL, pył, magnes, ?diag (bez wyboru trybów); uruchamiać z RUCH=pelny
   testy/spokoj_app.js           — tryb spokojny (animacje wyłączone): brak animacji i klatek w spoczynku, kursor bez efektów, funkcje działają jak dotąd
+  testy/dzwiek_test.js          — dźwięki: synteza efektów i podkładu renderowana do liczb (OfflineAudioContext): brak NaN i przesterowania, zanik na końcu, właściwe nuty, równowaga pasm; sterowanie i zapamiętanie wyboru
+  testy/dzwiek_app.js           — dźwięki w aplikacji: przyciski w nagłówku i menu konta, okna, motyw, wyciszenie, podkład, generowanie, brak błędów w konsoli
   testy/adres_app.js            — adres bez ulicy, pytanie o rodzaj adresu, arkusz potwierdzenia przed generowaniem
   testy/wykres_kalendarz_app.js — kalendarz (kolorowe karty) i wykres dni: ta sama skala kolorów, klik/najechanie na słupek, kontrast panelu do kafla (MOTYW=light, W=390 H=844 MOB=1)
   testy/zywe_app.js             — suwak kwoty, malowanie dni, teatr trasy (▶), paleta poleceń, wycieczka, przesuwanie zakładek (telefon)
@@ -359,3 +361,13 @@ TESTY (wymagają Node + Playwright)
   testy/webkit_app.py           — ten sam przepływ w prawdziwym WebKit (Safari): xvfb-run python webkit_app.py (wymaga webkit2gtk-driver i selenium)
   testy/plan_app.js             — import listy sklepów, plan, kafel Dziś (telefon: W=390 H=844 MOB=1 node plan_app.js)
   testy/zgodnosc_silnika.py     — wyciąg kontra oryginał, bajt w bajt (python zgodnosc_silnika.py oryginal|wyciag)
+
+
+DŹWIĘKI I PODKŁAD MUZYCZNY (js/dzwiek.js)
+  · Krótkie efekty: kliknięcia przycisków, otwarcie i zamknięcie okna, przełączenie Noc/Dzień, odhaczenie wizyty, podpis sprawdzony (dłuższy akord, gdy wszystkie dokumenty poprawne),
+    wiadomość gotowa do wysłania, początek i koniec generowania dokumentów. Domyślnie WŁĄCZONE; głośnik w nagłówku (na telefonie: menu konta → Dźwięk → Efekty) wycisza je na stałe na tym urządzeniu.
+  · Podkład: spokojna, zapętlona muzyka w stylu retro-futurystycznym (synth-wave, 96 BPM, Am–F–C–G). Domyślnie WYŁĄCZONY; nutka w nagłówku (albo menu konta → Dźwięk → Muzyka) go włącza.
+    Przeglądarka pozwala grać dopiero po kliknięciu, więc zapamiętany podkład rusza przy pierwszym kliknięciu po otwarciu aplikacji. Karta w tle nie gra (oszczędza baterię).
+  · Wszystko jest WYTWARZANE W PRZEGLĄDARCE (Web Audio): żadnych plików dźwiękowych, żadnych licencji, nic dodatkowego do pobrania, działa offline. Popularnych utworów z mediów społecznościowych
+    NIE WOLNO wstawiać do aplikacji (prawa autorskie); własny utwór z licencją można dodać jako plik — wymaga to zmiany polityki bezpieczeństwa strony (media-src) i osobnej decyzji.
+  · Ustawienia pamiętane na urządzeniu: pmt-ui-dzwiek (0 = wyciszone), pmt-ui-muzyka (1 = podkład włączony).

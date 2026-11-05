@@ -9,6 +9,7 @@
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
 import { zipujAes } from './zipaes.js';
 import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
+import { dzwiek } from './dzwiek.js';
 import { wczytajKlienta, pobierzKod, wymienKod, utworzSzkic, komunikatBledu } from './outlook.js';
 import { karuzela } from './karuzela.js';
 import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
@@ -71,7 +72,14 @@ export function zainstalujPodpis(k) {
   let fokusI = null;              // dokument wskazany z probówki na pulpicie: jego karta na liście mruga (znacznik przeżywa ponowne rysowanie listy)
   let widziane = {};              // stan każdej karty z ostatniego narysowania: efekty (podpis „rysuje się”, zły dokument drży) tylko przy ZMIANIE stanu, nie przy każdym odświeżeniu
   const nowyStan = i => widziane[i] !== undefined && widziane[i] !== stanKarty(i);
-  const zapamietajStany = () => { widziane = {}; k.nazwyDok().forEach(d => { widziane[d.i] = stanKarty(d.i); }); };
+  /* Dźwięk przy ZMIANIE stanu dokumentów (tak samo jak efekt wizualny „rysującego się” podpisu): podpis sprawdzony, zły dokument, a gdy wszystkie są poprawne — dłuższy akord. */
+  const zapamietajStany = () => {
+    const nowe = {}; let nowoOk = 0, nowoZle = 0;
+    k.nazwyDok().forEach(d => { const st = stanKarty(d.i); nowe[d.i] = st; const o = widziane[d.i]; if (o !== undefined && o !== st) { if (st === 'ok') nowoOk++; else if (st === 'zle') nowoZle++; } });
+    const wszystkie = Object.values(nowe).length > 0 && Object.values(nowe).every(st => st === 'ok'), bylo = Object.keys(widziane).length > 0 && Object.values(widziane).every(st => st === 'ok');
+    widziane = nowe;
+    if (wszystkie && nowoOk && !bylo) dzwiek.efekt('wszystkie'); else if (nowoOk) dzwiek.efekt('ok'); else if (nowoZle) dzwiek.efekt('zle');
+  };
   function kartaDok(d) {
     const st = stanKarty(d.i), otw = otwarte.has(d.i) && st !== 'czeka', wys = wyslane() && st === 'ok';      // po wysłaniu zamiast „Otwórz” karta pokazuje, że dokument poszedł
     const szczegolyBtn = st !== 'czeka' && st !== 'trwa' ? `<button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Szczegóły</button>` : '';
@@ -586,7 +594,7 @@ export function zainstalujPodpis(k) {
       if (uzyte && wyslane()) hasloDoPaczki().then(o => { daneWysylki = o; daneWysylkiTs = Date.now(); if (o.ok && (o.haslo !== uzyte.haslo || o.adres !== uzyte.adres)) stanW('<span class="zle">Uwaga: administrator zmienił właśnie hasło do paczek — ta paczka ma poprzednie hasło. Kliknij „Cofnij wysłanie” na pulpicie i wyślij jeszcze raz.</span>'); }).catch(() => { /* bez sieci zostają dane z pamięci */ });
       if (okno && !oknoZostaje) { try { okno.close(); } catch (e) { /* zamknięte */ } } if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
   }
-  function oznaczWyslane() { const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); }
+  function oznaczWyslane() { dzwiek.efekt('wyslano'); const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); }
 
   /* ---------------------------------- zdarzenia ---------------------------------- */
   arkTresc.addEventListener('click', async e => {
@@ -640,7 +648,7 @@ export function zainstalujPodpis(k) {
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
     /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
-    otworz(fokus) { wczytajKlientaMs(); const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; gotowyEml = null; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
+    otworz(fokus) { wczytajKlientaMs(); const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; gotowyEml = null; widziane = {}; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
       if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(dokonczSprawdzanie).then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };

@@ -46,6 +46,9 @@
     <symbol id="i-lewo" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
     <symbol id="i-prawo" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
     <symbol id="i-dzwonek" viewBox="0 0 24 24"><path d="M6.2 16.4V11a5.8 5.8 0 0 1 11.6 0v5.4l1.6 1.6H4.6z"/><path d="M10 20.6a2.2 2.2 0 0 0 4 0"/></symbol>
+    <symbol id="i-glosnik" viewBox="0 0 24 24"><path d="M4.5 9.6h3.2L12 6v12l-4.3-3.6H4.5z"/><path d="M15.4 9.4a3.6 3.6 0 0 1 0 5.2M17.6 7.2a6.7 6.7 0 0 1 0 9.6"/></symbol>
+    <symbol id="i-glosnik-wyl" viewBox="0 0 24 24"><path d="M4.5 9.6h3.2L12 6v12l-4.3-3.6H4.5z"/><path d="M16 9.6l4.4 4.8M20.4 9.6L16 14.4"/></symbol>
+    <symbol id="i-nuta" viewBox="0 0 24 24"><path d="M9.5 17.5V6.2l9-1.8v11.3"/><circle cx="7.2" cy="17.5" r="2.3"/><circle cx="16.2" cy="15.7" r="2.3"/></symbol>
     <symbol id="i-ksiezyc" viewBox="0 0 24 24"><path d="M19.5 14.8A7.8 7.8 0 1 1 9.2 4.5a6.2 6.2 0 0 0 10.3 10.3z"/></symbol>
     <symbol id="i-slonce" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5l1.5 1.5M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5"/></symbol>
     <symbol id="i-pioro" viewBox="0 0 24 24"><path d="M4 20h4.2L19.3 8.9a2.6 2.6 0 0 0-3.7-3.7L4.5 16.3z"/><path d="M14 6.8l3.6 3.6"/></symbol>
@@ -92,6 +95,8 @@
       <button class="dzwonek ikb" type="button" id="dzwonek" aria-label="Powiadomienia: 2 nowe" aria-expanded="false" aria-controls="dymek"><svg class="ik"><use href="#i-dzwonek"/></svg><b>2</b></button>
       <button class="uzytkownik" type="button" id="konto" aria-label="Konto" aria-expanded="false" aria-controls="konto-menu"><span class="awatar" id="awatar">?</span><span class="imie" id="imie-pasek">Moje dane</span></button>
       <button class="motyw ikb" type="button" id="motyw" aria-label="Przełącz motyw: Noc / Dzień"><svg class="ik i-ksiezyc"><use href="#i-ksiezyc"/></svg><svg class="ik i-slonce"><use href="#i-slonce"/></svg></button>
+      <button class="dzw ikb" type="button" id="dzwiek" aria-pressed="true" aria-label="Dźwięki: włączone — kliknij, żeby wyciszyć"><svg class="ik"><use href="#i-glosnik"/></svg></button>
+      <button class="dzw ikb" type="button" id="muzyka" aria-pressed="false" aria-label="Muzyka w tle: wyłączona — kliknij, żeby włączyć"><svg class="ik"><use href="#i-nuta"/></svg></button>
     </div>
     <div class="dymek szklo dym" id="dymek" role="dialog" aria-label="Powiadomienia">
       <div class="w">
@@ -112,6 +117,11 @@
         <div class="przel" role="group" aria-label="Motyw">
           <button type="button" data-motyw="dark" aria-pressed="true"><svg class="ik"><use href="#i-ksiezyc"/></svg>Noc</button>
           <button type="button" data-motyw="light" aria-pressed="false"><svg class="ik"><use href="#i-slonce"/></svg>Dzień</button>
+        </div>
+        <h3>Dźwięk</h3>
+        <div class="przel" role="group" aria-label="Dźwięk">
+          <button type="button" data-dzwiek="efekty" aria-pressed="true"><svg class="ik"><use href="#i-glosnik"/></svg>Efekty</button>
+          <button type="button" data-dzwiek="muzyka" aria-pressed="false"><svg class="ik"><use href="#i-nuta"/></svg>Muzyka</button>
         </div>
       </div>
     </div>

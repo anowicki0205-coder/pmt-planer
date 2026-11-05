@@ -523,7 +523,7 @@ export function zainstalujPodpis(k) {
       const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
       k.pobierzBlob(new Blob([eml], { type: 'message/rfc822' }), 'PMT_wiadomosc_do_wyslania.eml');
       oznaczWyslane();
-      stanW(`Pobrałem wiadomość <span class="adr">PMT_wiadomosc_do_wyslania.eml</span>. <span class="adr">Kliknij ją</span> (pasek pobierania przeglądarki albo folder Pobrane) — otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.${duza}`);
+      stanW(`Pobrałem wiadomość <span class="adr">PMT_wiadomosc_do_wyslania.eml</span>. <span class="adr">Kliknij ją</span> (pasek pobierania przeglądarki albo folder Pobrane) — otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.<br><span class="adr">Żeby następnym razem otwierała się sama</span> (zero klikania): w pasku pobierania przeglądarki kliknij „⋯” przy tym pliku → „Zawsze otwieraj pliki tego typu” (Chrome, Edge).${duza}`);
       pokazToast('Wiadomość gotowa — kliknij pobrany plik .eml, żeby ją wysłać');
     } catch (e) {
       console.error('wysyłka', e);

@@ -173,6 +173,7 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   /* ---- wysyłka: moduł w kroku 5 TEGO SAMEGO okna; hasło do paczki, termin jego ważności i adres odbiorcy nadaje administrator (zakładka „Ustawienia” w arkuszu) ---- */
   const PYZ = process.env.PYZ_PYTHON || ['/tmp/pzvenv/bin/python', 'python3'].find(b => cp.spawnSync(b, ['-c', 'import pyzipper']).status === 0);
   const stanW = () => p.locator('#podp-wyslij-stan').innerText();
+  const bezAdresu = async () => { const t = await p.evaluate(() => document.documentElement.outerHTML + '\n' + document.body.innerText + '\n' + [...document.querySelectorAll('[title],[aria-label],[href],[value]')].map(e => ['title', 'aria-label', 'href', 'value'].map(a => e.getAttribute(a) || '').join(' ')).join(' ')); return !/odbiorca@|example\.com/i.test(t); };      // adres odbiorcy zna tylko administrator: nie ma go ani w tekście, ani w HTML, ani w odnośnikach okna
   const opisK5 = () => p.locator('#podp-wyslij-opis').innerText();
   const przycisk5 = () => p.locator('#podp-wyslij-akcje button');
   const wyslijSel = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
@@ -200,13 +201,19 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('hasło ustawione przez administratora poniżej 8 znaków jest odrzucane z komunikatem (paczka nie powstaje, status „wysłane” się nie ustawia)', /minimum 8 znaków/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'));
   /* [E] wszystko poprawnie → jedno kliknięcie */
   t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES }; await ponownieOtworz();
-  ok('„Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie; pokazuje adres z arkusza; nie ma żadnych dodatkowych opcji ani przycisków wysyłki', (await p.locator(wyslijSel).count()) === 1 && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()) && (await p.locator('#arkusz #w-mailto, #arkusz #w-udostepnij, #arkusz #w-eml, #arkusz #w-haslo, #arkusz #w-odb, #arkusz #w-oznacz, #arkusz input[type=password]').count()) === 0 && !/Otwórz pocztę|dołączę sam|Udostępnij pliki|Kierownik regionu|Oznacz jako wysłane/.test(await p.locator('#arkusz').innerText()));
+  ok('„Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie; NIE pokazuje adresu odbiorcy (zna go tylko administrator); nie ma żadnych dodatkowych opcji ani przycisków wysyłki', (await p.locator(wyslijSel).count()) === 1 && /Wyślij” zrobi z nich zahasłowaną paczkę/.test(await opisK5()) && (await bezAdresu()) && (await p.locator('#arkusz #w-mailto, #arkusz #w-udostepnij, #arkusz #w-eml, #arkusz #w-haslo, #arkusz #w-odb, #arkusz #w-oznacz, #arkusz input[type=password]').count()) === 0 && !/Otwórz pocztę|dołączę sam|Udostępnij pliki|Kierownik regionu|Oznacz jako wysłane/.test(await p.locator('#arkusz').innerText()));
   ok('przed wysłaniem karty dokumentów mają przyciski „Otwórz”, a nie informację „Wysłano”', (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 0);
   await p.screenshot({ path: tmp + '/5_wyslij.png' });
   const pob0 = t.backend.pobraniaHasla;
   const emlP = await pobierz(wyslijSel);
+  const emlWynik0Ok = () => emlOtwarty(emlP.sciezka).to === ADRES;
   ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
+  ok('po pierwszym pobraniu .eml jednorazowa wskazówka: 3 kroki (ikona pobierania → prawy przycisk na pliku → „Zawsze otwieraj pliki tego typu”), makieta menu z zaznaczoną opcją, rada dla poczty w przeglądarce i przycisk „Zrobione”', (await p.locator('#podp-wyslij-stan #eml-rada').count()) === 1 && (await p.locator('#eml-rada .eml-kroki > span').count()) === 3 && /„Zawsze otwieraj pliki tego typu”/.test(await stanW()) && /Zawsze otwieraj pliki tego typu/.test(await p.locator('#eml-rada .em-wyb').innerText()) && /Gmail/.test(await stanW()) && (await p.locator('#eml-rada [data-akcja="eml-rada-ok"]').count()) === 1, await stanW());
+  await p.locator('#eml-rada').scrollIntoViewIfNeeded(); await p.screenshot({ path: tmp + '/5b_rada_eml.png' });
+  await p.click('#eml-rada [data-akcja="eml-rada-ok"]'); await p.waitForTimeout(200);
+  ok('„Zrobione” chowa wskazówkę na stałe (zapamiętane na urządzeniu) i potwierdza, że przy włączonej opcji wiadomość będzie się od teraz otwierać sama', (await p.locator('#eml-rada').count()) === 0 && /będzie się od teraz otwierać sama/.test(await stanW()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-eml-auto'))) === '1');
   await p.waitForTimeout(500);
+  ok('po wysłaniu plikiem .eml adresu odbiorcy nie ma w oknie (ani w komunikacie, ani w kodzie strony) — jest tylko w polu „Do” samej wiadomości', (await bezAdresu()) && emlWynik0Ok(), await stanW());
   ok('status „Wysłane” ustawia się SAM (bez dodatkowego przycisku): kafel pulpitu, krok 5 („Dokumenty wysłane …”, przycisk „Wysłano” szary)', (await p.locator('#status').innerText()).includes('Wysłane') && /Dokumenty wysłane \d\d\.\d\d\.\d{4} \d\d:\d\d/.test(await opisK5()) && (await przycisk5().isDisabled()) && /Wysłano/.test(await przycisk5().innerText()) && (await p.locator('#w-oznacz').count()) === 0);
   ok('„chmurki” dokumentów pokazują „Wysłano” z datą zamiast przycisku „Otwórz” (zostają „Szczegóły”)', (await p.locator('.dok-k.wyslano').count()) === 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 7 && /Wysłano \d\d\.\d\d\.\d{4}/.test(await p.locator('.dok-k .dok-wyslano >> nth=0').innerText()) && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="szczegoly"]').count()) === 7 && /wysłano/.test(await p.locator('.dok-k .stan >> nth=0').innerText()));
   await p.screenshot({ path: tmp + '/6_po_wyslaniu.png' });
@@ -224,7 +231,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   /* [F] „Cofnij wysłanie” przywraca stan i przyciski „Otwórz”; potem bez internetu: wysyłka na zapamiętanych danych */
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
   t.backend.martwy = true; await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
-  ok('po „Cofnij wysłanie” karty znów mają „Otwórz”, a krok 5 znów pozwala wysłać; bez internetu pokazuje adres z pamięci konta', (await p.locator('.dok-k .dok-wyslano').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator(wyslijSel).count()) === 1 && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
+  ok('po „Cofnij wysłanie” karty znów mają „Otwórz”, a krok 5 znów pozwala wysłać; bez internetu adresu odbiorcy nadal nie widać', (await p.locator('.dok-k .dok-wyslano').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator(wyslijSel).count()) === 1 && (await bezAdresu()), await opisK5());
   const emlOff = await pobierz(wyslijSel);
   ok('bez internetu wysyłka działa na zapamiętanych danych (hasło ważne do terminu): paczka otwiera się tym samym hasłem administratora, adresat z pamięci', emlOff.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (() => { const w = emlOtwarty(emlOff.sciezka); return w.to === ADRES && w.pliki.length >= 7; })());
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
@@ -273,7 +280,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   wlaczMs(false); await cofnijIOtworz();
   ok('bez identyfikatora aplikacji Microsoft nie ma szkicu w Outlooku: „Wyślij” (tu: plik .eml, bo tak ustawia zestaw testów) i „Zmień sposób” między „otwórz pocztę” a „plik .eml”; opis bez Outlooka', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && !/Outlook/.test(await opisK5()) && (await ustawMetode('outlook')) === false, await opisK5());
   wlaczMs(true); await cofnijIOtworz();
-  ok('po wpisaniu identyfikatora w pliku poczta_microsoft.txt dochodzi trzeci sposób; po przełączeniu na „outlook” opis mówi o szkicu w Outlooku, a „Zmień sposób” zostaje obok', (await ustawMetode('outlook')) === true && (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && /Zmień sposób/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && /szkic wiadomości w Twoim Outlooku/.test(await opisK5()) && new RegExp('do\\s+' + ADRES.replace('.', '\\.')).test(await opisK5()), await opisK5());
+  ok('po wpisaniu identyfikatora w pliku poczta_microsoft.txt dochodzi trzeci sposób; po przełączeniu na „outlook” opis mówi o szkicu w Outlooku, a „Zmień sposób” zostaje obok', (await ustawMetode('outlook')) === true && (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && /Zmień sposób/.test(await p.locator('[data-akcja="zmien-poczte"]').innerText()) && /szkic wiadomości w Twoim Outlooku/.test(await opisK5()) && (await bezAdresu()), await opisK5());
   await p.screenshot({ path: tmp + '/7_outlook_krok5.png' });
   // [H1] przeglądarka blokuje okno logowania → jasny komunikat i wyjście plikiem .eml
   await p.evaluate(() => { window.__openOrig = window.open; window.open = () => null; });
@@ -308,11 +315,20 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('to, co trafiło do Outlooka, jest tą samą zahasłowaną paczką: otwiera się hasłem administratora, ≥ 7 plików', Number(zipOutlookOk) >= 7, zipOutlookOk);
   ok('okno logowania przeszło na gotowy szkic (adres Outlooka), status „Wysłane” ustawiony sam, w kroku 5 jest odnośnik „Otwórz szkic” na wypadek zablokowanego przekierowania', /outlook\.office365\.com\/owa\//.test(oknoOk.url()) && (await p.locator('#status').innerText()).includes('Wysłane') && (await p.locator('#podp-wyslij-stan a[href^="https://outlook.office365.com/"]').count()) === 1 && /Kliknij tam „Wyślij”/.test(await stanW()), oknoOk.url());
   ok('token ani kod autoryzacji nie zostają w pamięci przeglądarki (localStorage, sessionStorage, strona)', !(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.documentElement.outerHTML)).match(/TOKEN-TEST-Outlook|KOD-TEST-Outlook/));
+  ok('po utworzeniu szkicu w Outlooku adresu odbiorcy nie ma w oknie aplikacji (jest tylko w szkicu w skrzynce)', (await bezAdresu()) && /Szkic gotowy w Twoim Outlooku \(z zahasłowaną paczką\)/.test(await stanW()), await stanW());
   await oknoOk.close(); await p.screenshot({ path: tmp + '/7b_outlook_gotowe.png' });
-  // [H5] „Zmień sposób” przełącza kolejno: outlook → poczta (mailto) → plik .eml → outlook; wybór jest pamiętany
+  // [H5] „Zmień sposób” przełącza kolejno: outlook → plik .eml → poczta (mailto) → outlook; wybór jest pamiętany
   await cofnijIOtworz();
+  await p.evaluate(() => { window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
   await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
-  ok('„Zmień sposób” z Outlooka przechodzi na „otwórz pocztę” (mailto), opis mówi o programie pocztowym i folderze Pobrane, wybór zapamiętany na urządzeniu', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && /program pocztowy z adresem, tematem i treścią/.test(await opisK5()) && /folderze Pobrane/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'poczta', await opisK5());
+  ok('„Zmień sposób” z Outlooka przechodzi na plik .eml (drugi w kolejce, domyślny bez Outlooka); opis: gotowa wiadomość w jednym pliku .eml, w poczcie zostaje tylko „Wyślij”; wybór zapamiętany', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && /jednym pliku \.eml/.test(await opisK5()) && /zostanie tylko kliknąć „Wyślij”/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik', await opisK5());
+  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
+  ok('przy sposobie „plik .eml” „Wyślij” nie otwiera ani poczty, ani okna logowania — pobiera plik .eml', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.evaluate(() => window.__mailto.length)) === 0);
+  ok('po „Zrobione” kolejne wysyłki mają krótki komunikat (bez wskazówki) z przyciskiem „Jak sprawić, żeby otwierała się sama?”', (await p.locator('#eml-rada').count()) === 0 && /Wiadomość gotowa/.test(await stanW()) && /kliknij pobrany plik/.test(await stanW()) && (await p.locator('#podp-wyslij-stan [data-akcja="eml-rada"]').count()) === 1, await stanW());
+  await p.click('#podp-wyslij-stan [data-akcja="eml-rada"]'); await p.waitForTimeout(200);
+  ok('ten przycisk pokazuje wskazówkę ponownie (w miejscu przycisku)', (await p.locator('#podp-wyslij-stan #eml-rada').count()) === 1 && (await p.locator('#podp-wyslij-stan [data-akcja="eml-rada"]').count()) === 0);
+  await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
+  ok('kolejne „Zmień sposób”: z pliku .eml na „otwórz pocztę” (mailto), opis mówi o programie pocztowym i folderze Pobrane, wybór zapamiętany na urządzeniu', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && /program pocztowy z adresem, tematem i treścią/.test(await opisK5()) && /folderze Pobrane/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'poczta', await opisK5());
   // [H6] OTWARCIE POCZTY (mailto:) — jak w pierwszej wersji: jeden klik, program pocztowy dostaje adres, temat i treść; paczka ZIP zapisuje się w Pobranych
   await p.evaluate(() => { window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
   const zipPoczta = await pobierz(wyslijSel2); await p.waitForTimeout(600);
@@ -320,29 +336,68 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('jedno kliknięcie: poczta otwarta dokładnie raz, adres z arkusza z „@” wprost (bez %40), temat „[PMT] Delegacje — Jan Testowy — …”, treść o zahasłowanej paczce z nowymi wierszami CRLF i podpisem; bez hasła, PESEL-u i bez dopisków w nawiasach', mailto.length === 1 && !!mm && mm[1] === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(temM) && /zahasłowana paczka \(ZIP\)/.test(trM) && /\r\n/.test(trM) && /Jan Testowy\s*$/.test(trM) && !trM.includes(HASLO) && !mailto[0].includes('90010112349') && !/\(Dołącz/.test(trM), mailto[0]);
   const zipPocztaOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipPoczta.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
   ok('paczka zapisała się do Pobranych sama (nazwa Dokumenty_….zip), otwiera się hasłem administratora, ≥ 7 plików', /^Dokumenty_.*\.zip$/.test(zipPoczta.nazwa) && Number(zipPocztaOk) >= 7, zipPoczta.nazwa + ' / ' + zipPocztaOk);
-  ok('komunikat: „Otworzyłem pocztę z adresem…”, nazwa paczki, instrukcja „dołącz ją do wiadomości”, przycisk „Otwórz wiadomość” z tym samym mailto; status „Wysłane” ustawiony sam; nie otwarto okna logowania ani pliku .eml', /Otworzyłem pocztę z adresem/.test(await stanW()) && /dołącz ją do wiadomości/.test(await stanW()) && (await p.locator('#podp-otworz-poczte').getAttribute('href')) === mailto[0] && (await p.locator('#status').innerText()).includes('Wysłane') && !/\.eml/.test(zipPoczta.nazwa));
+  ok('komunikat: „Otworzyłem pocztę z gotową wiadomością…”, nazwa paczki, instrukcja „dołącz ją do wiadomości”; adresu odbiorcy nie ma w oknie, a przycisk „Otwórz wiadomość” nie niesie go w odnośniku; status „Wysłane” ustawiony sam; nie otwarto okna logowania ani pliku .eml', /Otworzyłem pocztę z gotową wiadomością/.test(await stanW()) && /dołącz ją do wiadomości/.test(await stanW()) && (await p.locator('#podp-otworz-poczte').evaluate(e => e.tagName + '|' + (e.getAttribute('href') || ''))) === 'BUTTON|' && (await bezAdresu()) && (await p.locator('#status').innerText()).includes('Wysłane') && !/\.eml/.test(zipPoczta.nazwa));
+  await p.click('#podp-otworz-poczte'); await p.waitForTimeout(200);
+  ok('przycisk „Otwórz wiadomość” otwiera tę samą wiadomość jeszcze raz (adresat wpisany)', (await p.evaluate(() => window.__mailto.length)) === 2 && (await p.evaluate(() => window.__mailto[1] === window.__mailto[0])));
   await p.screenshot({ path: tmp + '/7c_poczta_mailto.png' });
-  await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
-  ok('kolejne „Zmień sposób”: z „otwórz pocztę” na plik .eml (opis „przygotuje wiadomość”), wybór zapamiętany', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && /przygotuje wiadomość/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
-  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
-  ok('przy sposobie „plik .eml” „Wyślij” nie otwiera ani poczty, ani okna logowania — pobiera plik .eml jak dawniej', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.evaluate(() => window.__mailto.length)) === 1);
   await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
   ok('trzecie „Zmień sposób” zamyka koło i wraca do szkicu w Outlooku', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'outlook');
   // bez identyfikatora Microsoft nie ma Outlooka: zapamiętany „outlook” nie obowiązuje, domyślną staje się „poczta”, a koło ma dwa sposoby
   wlaczMs(false); await cofnijIOtworz();
-  ok('po usunięciu identyfikatora z pliku zapamiętany „outlook” przestaje obowiązywać: „Wyślij” otwiera pocztę (mailto), „Zmień sposób” przełącza już tylko między pocztą a plikiem .eml', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && (await ustawMetode('outlook')) === false);
+  ok('po usunięciu identyfikatora z pliku zapamiętany „outlook” przestaje obowiązywać: „Wyślij” pobiera plik .eml (domyślny), „Zmień sposób” przełącza już tylko między plikiem .eml a pocztą', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && (await ustawMetode('outlook')) === false);
   ok('wracamy do „plik .eml” dla kolejnych kroków testu', (await ustawMetode('plik')) === true && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
   const pobPoOutlook = await pobierz(wyslijSel2);      // dokumenty są teraz niewysłane i okno otwarte: plik .eml await p.waitForTimeout(500);      // przywraca stan „Wysłane”, którego oczekują kolejne kroki testu
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   ok('po całym scenariuszu wysyłki stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoOutlook.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
 
+  /* [I] ZAPIS NA PULPICIE (Chrome, Edge): „Wyślij” otwiera okno „Zapisz jako” od razu na Pulpicie z nazwą pliku .eml; po zapisie ikona gotowej wiadomości leży na pulpicie, dwuklik otwiera pocztę.
+     Natywnego okna zapisu w teście nie da się obsłużyć, więc podstawiamy atrapę showSaveFilePicker (zapisuje do pamięci i pamięta, z czym ją wywołano). */
+  let pobraniePrzyZapisie = 0; p.on('download', () => { pobraniePrzyZapisie++; });
+  await p.evaluate(() => {
+    window.__zapisy = []; window.__anulujZapis = false;
+    window.showSaveFilePicker = async o => {
+      const z = { o, kawalki: [], zamkniety: false }; window.__zapisy.push(z);
+      if (window.__anulujZapis) throw new DOMException('Użytkownik anulował', 'AbortError');
+      return { name: o.suggestedName, createWritable: async () => ({ write: async b => { z.kawalki.push(Array.from(new Uint8Array(await new Response(b).arrayBuffer()))); }, close: async () => { z.zamkniety = true; } }) };
+    };
+  });
+  await cofnijIOtworz();
+  ok('gdy przeglądarka umie okno zapisu, dochodzi sposób „pulpit” (w kole „Zmień sposób” zaraz po pliku .eml); opis mówi o ikonie na pulpicie', (await ustawMetode('pulpit')) === true && /ikonę gotowej wiadomości/.test(await opisK5()) && /dwukrotnie/.test(await opisK5()), await opisK5());
+  // anulowanie okna zapisu: nic się nie dzieje, nic nie jest przygotowywane ani oznaczone jako wysłane
+  await p.evaluate(() => { window.__anulujZapis = true; });
+  const hasloPrzed = t.backend.pobraniaHasla;
+  await p.click(wyslijSel2); await czekajStan(/Anulowano — nic nie zapisano/);
+  ok('anulowanie okna zapisu: komunikat „Anulowano”, status „Wysłane” się nie ustawia, nic nie zapisano, hasło do paczki nie pobierane, bez pobierania pliku', (await p.evaluate(() => window.__zapisy.length)) === 1 && (await p.evaluate(() => window.__zapisy[0].kawalki.length)) === 0 && !(await p.locator('#status').innerText()).includes('Wysłane') && t.backend.pobraniaHasla === hasloPrzed && pobraniePrzyZapisie === 0, await stanW());
+  // zapis
+  await p.evaluate(() => { window.__anulujZapis = false; });
+  await p.click(wyslijSel2); await czekajStan(/Zapisałem wiadomość/); await p.waitForTimeout(500);
+  const zapis = await p.evaluate(() => { const z = window.__zapisy[1]; return { o: z.o, zamkniety: z.zamkniety, bajty: [].concat(...z.kawalki) }; });
+  ok('okno zapisu otwarte na PULPICIE (startIn: desktop), z nazwą PMT_wiadomosc_do_wyslania.eml i filtrem .eml; plik zapisany i zamknięty; bez zwykłego pobierania', zapis.o.startIn === 'desktop' && zapis.o.suggestedName === 'PMT_wiadomosc_do_wyslania.eml' && JSON.stringify(zapis.o.types[0].accept) === '{"message/rfc822":[".eml"]}' && zapis.zamkniety && zapis.bajty.length > 1000 && pobraniePrzyZapisie === 0, `bajtów: ${zapis.bajty.length}`);
+  const emlPulpit = path.join(tmp, 'z_pulpit.eml'); fs.writeFileSync(emlPulpit, Buffer.from(zapis.bajty)); const wPulpit = emlOtwarty(emlPulpit);
+  ok('zapisany plik to ta sama gotowa wiadomość: adresat z arkusza, temat „[PMT] Delegacje — Jan Testowy — …”, nagłówek X-Unsent, jeden załącznik ZIP, który otwiera się hasłem administratora (≥ 7 plików); czysty ASCII, bez jawnego PESEL-u i hasła', wPulpit.x === '1' && wPulpit.to === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(wPulpit.temat) && wPulpit.zal === 1 && wPulpit.pliki.length >= 7 && wPulpit.ascii && !wPulpit.jawne, JSON.stringify([wPulpit.to, wPulpit.temat, wPulpit.zal, wPulpit.pliki.length]));
+  ok('komunikat: „Zapisałem wiadomość … ikona jest na pulpicie … Kliknij ją dwukrotnie”; adresu odbiorcy nie ma w oknie; status „Wysłane” ustawiony sam', (await bezAdresu()) && /Zapisałem wiadomość/.test(await stanW()) && /ikona jest na pulpicie/.test(await stanW()) && /dwukrotnie/.test(await stanW()) && (await p.locator('#status').innerText()).includes('Wysłane'), await stanW());
+  await p.screenshot({ path: tmp + '/7d_pulpit.png' });
+  // błąd zapisu (np. brak uprawnień) → wyjście zwykłym plikiem .eml
+  await cofnijIOtworz(); await ustawMetode('pulpit');
+  await p.evaluate(() => { window.showSaveFilePicker = async o => ({ name: o.suggestedName, createWritable: async () => { throw new DOMException('brak uprawnień do zapisu', 'NotAllowedError'); } }); });
+  await p.click(wyslijSel2); await czekajStan(/Nie udało się zapisać wiadomości na pulpicie/);
+  ok('błąd zapisu na pulpicie: komunikat z przyczyną i przycisk „Wyślij plikiem .eml”; status „Wysłane” się nie ustawia', (await p.locator('#podp-wyslij-stan [data-akcja="wyslij-plik"]').count()) === 1 && /brak uprawnień do zapisu/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'), await stanW());
+  // przeglądarka bez okna zapisu (Firefox, Safari): sposób „pulpit” nie jest oferowany, domyślny wraca do „poczta”/„plik”
+  await p.evaluate(() => { window.showSaveFilePicker = undefined; });
+  await cofnijIOtworz();
+  ok('bez okna zapisu w przeglądarce sposób „pulpit” znika, a zapamiętany wybór nie obowiązuje (domyślnie plik .eml)', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && (await ustawMetode('pulpit')) === false);
+  ok('wracamy do „plik .eml” dla kolejnych kroków testu', (await ustawMetode('plik')) === true);
+  const pobPoPulpicie = await pobierz(wyslijSel2); await p.waitForTimeout(400);      // przywraca stan „Wysłane” sposobem „plik”
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  ok('po scenariuszu „pulpit” stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoPulpicie.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+
   /* [G] telefon, na którym udostępnienie ZIP-a się nie udaje (Chrome na Androidzie odrzuca pliki ZIP błędem NotAllowedError): pobrana paczka + wiadomość przez mailto:, a nie błąd bez wyjścia */
   await p.click('#cofnij'); await p.waitForTimeout(600);
-  await p.evaluate(() => { const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q); navigator.canShare = () => true; navigator.share = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); });
+  await p.evaluate(() => { const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q); navigator.canShare = () => true; window.__udostepniono = false; navigator.share = () => { window.__udostepniono = true; return Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); }; window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900);
   const zipTel = await pobierz(wyslijSel); await p.waitForTimeout(800);
   const zipTelOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipTel.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
-  ok('telefon bez udostępniania ZIP-a: pobrana zahasłowana paczka (otwiera się hasłem administratora), wiadomość przez mailto:, status „Wysłane”', /^Dokumenty_.*\.zip$/.test(zipTel.nazwa) && Number(zipTelOk) >= 7 && /Pobrałem zahasłowaną paczkę/.test(await stanW()) && (await p.locator('#status').innerText()).includes('Wysłane'), `${zipTel.nazwa}, ${zipTelOk} plików — ${await stanW()}`);
+  ok('telefon: zawsze pobrana zahasłowana paczka (otwiera się hasłem administratora) + poczta z gotowym adresatem, tematem i treścią (mailto:), bo udostępnianie systemowe nie wpisuje adresata; adresu nie widać w oknie; status „Wysłane”', /^Dokumenty_.*\.zip$/.test(zipTel.nazwa) && Number(zipTelOk) >= 7 && /Pobrałem zahasłowaną paczkę/.test(await stanW()) && /adresat, temat i treść są już wpisane/.test(await stanW()) && !(await p.evaluate(() => window.__udostepniono)) && (await p.evaluate(() => window.__mailto.length)) === 1 && (await p.evaluate(() => /^mailto:odbiorca@example\.com\?subject=/.test(window.__mailto[0]) && /Dołącz pobrany plik Dokumenty_/.test(decodeURIComponent(window.__mailto[0])))) && (await bezAdresu()) && (await p.locator('#podp-otworz-poczte').evaluate(e => e.tagName)) === 'BUTTON' && (await p.locator('#status').innerText()).includes('Wysłane'), `${zipTel.nazwa}, ${zipTelOk} plików — ${await stanW()}`);
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
 
   /* ---- zapis wyników sprawdzenia ---- */
@@ -391,13 +446,13 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   /* ---- praca bez internetu: service worker zapisał aplikację (w tym nowe moduły sprawdzania podpisów); na zwykłym http przeglądarka go nie dopuszcza ---- */
   if (!bezpieczny) {
     ok('http: aplikacja działa w całości, ale bez trybu offline (przeglądarka nie dopuszcza service workera na zwykłym http)', (await p.evaluate(async () => (navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0))) === 0);
-    console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b) && !/wysyłka Error: (access_denied|szkic: HTTP 401)|status of 401 \(Unauthorized\)/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu), oraz trzy komunikaty z celowych scenariuszy negatywnych szkicu w Outlooku (odmowa zgody, zły token → 401)
+    console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b) && !/wysyłka (Error: (access_denied|szkic: HTTP 401)|NotAllowedError: brak uprawnień do zapisu)|status of 401 \(Unauthorized\)/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu), oraz komunikaty z celowych scenariuszy negatywnych wysyłki (odmowa zgody w Outlooku, zły token → 401, błąd zapisu na pulpicie)
     await t.zamknij(); process.exit(kod);
   }
   await p.waitForFunction(async () => { const k = await caches.keys(); if (!k.length) return false; const c = await caches.open(k[0]); const u = (await c.keys()).map(r => r.url); return u.length >= 25 && u.some(x => /weryfikacja\.js/.test(x)) && u.some(x => /podpis_reczny\.js/.test(x)); }, null, { timeout: 120000 });
   await t.ctx.setOffline(true);
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(2500);
   ok('bez internetu aplikacja startuje i pokazuje zapisany miesiąc', (await p.locator('#b-kwota-w').getAttribute('aria-label')).length > 4, await p.locator('#b-kwota-w').getAttribute('aria-label'));
-  console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b) && !/wysyłka Error: (access_denied|szkic: HTTP 401)|status of 401 \(Unauthorized\)/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu), oraz trzy komunikaty z celowych scenariuszy negatywnych szkicu w Outlooku (odmowa zgody, zły token → 401)
+  console.log('  zrzuty:', tmp); const bledyReal = t.bledy.filter(b => !/net::ERR_INTERNET_DISCONNECTED/.test(b) && !/wysyłka (Error: (access_denied|szkic: HTTP 401)|NotAllowedError: brak uprawnień do zapisu)|status of 401 \(Unauthorized\)/.test(b)); console.log('  błędy konsoli:', JSON.stringify(bledyReal.slice(0, 6))); if (bledyReal.length) kod = 1;      // pomijamy odcięcie sieci, które test robi celowo (wysyłka bez internetu), oraz komunikaty z celowych scenariuszy negatywnych wysyłki (odmowa zgody w Outlooku, zły token → 401, błąd zapisu na pulpicie)
   await t.zamknij(); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.stack); process.exit(2); });

@@ -1782,6 +1782,20 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 .dok-wyslano{display:inline-flex;align-items:center;gap:.4rem;font-size:.86rem;font-weight:700;color:var(--t1);padding:0 .3rem}.dok-wyslano svg{width:1.05rem;height:1.05rem;flex:none}
 .kk-tresc .adr{font-weight:700;color:var(--t1);overflow-wrap:anywhere}
 .podp-stan{display:block;margin-top:.35rem;font-size:.85rem;line-height:1.45}.podp-stan:empty{display:none}.podp-stan .zle{color:var(--a-blad)}.podp-stan .przycisk{margin-top:.55rem}
+/* jednorazowa wskazówka „Zawsze otwieraj pliki tego typu” po pobraniu wiadomości .eml */
+.eml-rada{display:flex;flex-direction:column;gap:.5rem;margin-top:.7rem;padding:.8rem .9rem;border-radius:14px;background:rgb(255 255 255/.12);border:1px solid rgb(255 255 255/.32);color:var(--t2)}
+.eml-rada>b{color:var(--t1);font-size:.92rem}
+.eml-kroki{display:flex;flex-direction:column;gap:.4rem}.eml-kroki>span{display:block;position:relative;padding-left:1.9rem;min-height:1.35rem}
+
+.eml-kroki i{position:absolute;left:0;top:-.05rem;display:inline-grid;place-items:center;width:1.35rem;height:1.35rem;border-radius:50%;font-style:normal;font-weight:700;font-size:.78rem;background:#087432;color:#fff}
+.eml-makieta{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.4rem;font-size:.8rem}
+.em-plik{display:inline-flex;align-items:center;gap:.4rem;padding:.4rem .6rem;border-radius:10px;background:rgb(255 255 255/.2);color:var(--t1);overflow-wrap:anywhere}.em-plik svg{width:1rem;height:1rem;flex:none}
+.em-menu{display:flex;flex-direction:column;min-width:13rem;padding:.25rem;border-radius:10px;background:rgb(0 0 0/.16);border:1px solid rgb(255 255 255/.25)}.em-menu>span{padding:.3rem .55rem;border-radius:7px}
+.em-menu .em-wyb{background:#087432;color:#fff;font-weight:700}
+.krok-k.k5.nieaktywny:has(.eml-rada){filter:none;opacity:1}      /* wskazówka po wysłaniu ma być czytelna, choć krok 5 jest już „zrobiony” */
+.eml-inna{font-size:.8rem;color:var(--t3)}
+.eml-rada-dol .przycisk{margin-top:0}
+.eml-rada-zrobione{display:block;margin-top:.6rem;color:#fff;font-weight:700}
 .ark-opis .zle,.ark-opis.zle{color:var(--a-blad)}
 .ark-dol .ik{width:1.05rem;height:1.05rem}
 

@@ -51,7 +51,7 @@ async function otworz({ pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h
   if (widokDok) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-widok-dok') === null) localStorage.setItem('pmt-ui-widok-dok', v); } catch (e) {} }, widokDok);
   // sposób wysyłki dokumentów: aplikacja domyślnie otwiera na komputerze program pocztowy (mailto:); zestaw testów od dawna opisuje plik .eml, więc domyślnie ustawiamy „plik”
   // (tylko gdy wyboru jeszcze nie ma); pocztaDomyslna: null = bez ustawiania (prawdziwy domyślny sposób), 'poczta' / 'outlook' = wybrany sposób
-  if (pocztaDomyslna) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
+  if (pocztaDomyslna) await ctx.addInitScript(v => { try { localStorage.setItem('pmt-ui-poczta-v', '2'); if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
   // natywne okno „Zapisz jako” (showSaveFilePicker) nie daje się obsłużyć w przeglądarce bez interfejsu, więc w testach go nie ma — aplikacja wtedy nie oferuje sposobu „pulpit”; test tego sposobu podstawia atrapę
   await ctx.addInitScript(() => { try { Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, writable: true, configurable: true }); } catch (e) {} });
   if (!wycieczka) await ctx.addInitScript(() => { try { localStorage.setItem('pmt-ui-wycieczka', '1'); } catch (e) {} });      // wycieczka po aplikacji (pierwsze uruchomienie) nie zasłania testów; test wycieczki prosi o nią wprost

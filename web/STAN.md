@@ -271,3 +271,6 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       (SmartScreen / polityki firmy mogą dodatkowo ostrzegać) — rezerwa: „Zmień sposób” → „otwórz pocztę” albo szkic w Outlooku (rejestracja aplikacji Microsoft, WDROZENIE.txt p. 7).
       Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
       Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.
+- [x] EDGE OTWIERAŁ POCZTĘ BEZ ZAŁĄCZNIKA (zgłoszenie właściciela 5.11, po poprawce pobierania): najprawdopodobniej zapamiętany w Edge sposób „otwarcie poczty” (mailto: nie umie dołączyć pliku) — wybór jest osobny w każdej
+      przeglądarce i został po próbach, gdy Edge blokował .eml. Poprawka: obok „Wyślij” widać „Sposób: …” (przy mailto: „samo otwarcie poczty — paczkę dołączysz sam”); jednorazowe wyzerowanie dawnego wyboru
+      (znacznik pmt-ui-poczta-v = 2, js/poczta.js wczytajSposobWysylki; test jednostkowy w paczka_test.js). Gdyby przyczyną był nowy Outlook (gubi załącznik w .eml z X-Unsent) — sposób „szkic w Outlooku” (WDROZENIE.txt p. 7).

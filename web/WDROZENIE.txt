@@ -87,7 +87,9 @@ Wyjątek: adres http://localhost:... na TYM SAMYM komputerze przeglądarki trakt
     3) zapis na pulpicie — tylko Chrome i Edge: okno „Zapisz jako” od razu na Pulpicie z gotową nazwą (Enter), na pulpicie leży ikona tej samej wiadomości .eml; dwuklik otwiera pocztę;
     4) „otwórz pocztę” (mailto:) — program pocztowy albo poczta w przeglądarce (Gmail, Onet, WP…) dostaje adres, temat i treść, a paczka zapisuje się w Pobranych do dołączenia ręcznie
        (mailto: nie umie dołączać plików — tak działają przeglądarki).
-  Użytkownik z pocztą tylko w przeglądarce używa czwartego (wskazówka po pierwszej wysyłce mu to mówi). Telefon bez zmian (udostępnianie do aplikacji pocztowej).
+  Użytkownik z pocztą tylko w przeglądarce używa czwartego (wskazówka po pierwszej wysyłce mu to mówi). Telefon: pobranie paczki + poczta z gotowym adresatem, tematem i treścią (paczkę dołącza się z Pobranych; systemowe udostępnianie nie umie wpisać adresata).
+  ADRES ODBIORCY zna tylko administrator: aplikacja nie pokazuje go użytkownikowi ani w opisie kroku 5, ani w komunikatach, ani w odnośnikach; trafia wyłącznie do pola „Do” gotowej wiadomości
+  (tam poczta musi go pokazać — to pole adresata). Przechowywany jest tylko w zaszyfrowanym koncie na urządzeniu.
   Wymaga: strony pod https (jest) i JEDNORAZOWEJ rejestracji aplikacji w Microsoft Entra (ok. 10 minut). Identyfikator, który z niej dostajesz, nie jest tajemnicą.
 
   REJESTRACJA (konto z prawem rejestrowania aplikacji w Twoim katalogu Microsoft 365, zwykle administrator):

@@ -260,3 +260,6 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       od tej pory „Wyślij” od razu pokazuje okno poczty z gotową wiadomością. „Zrobione” chowa ją na stałe (localStorage pmt-ui-eml-auto), potem w komunikacie przycisk „Jak sprawić, żeby otwierała się sama?”.
       Plik .eml zbudowany jak wiadomość zapisana przez Outlook: multipart/mixed → multipart/alternative (tekst + HTML) + ZIP, nagłówki Date i Message-ID (zgłoszenia: nowy Outlook dla Windows gubi treść/załącznik
       przy samym zwykłym tekście albo bez Message-ID — NIE sprawdzone na prawdziwym nowym Outlooku). Testy: paczka_test.js (budowa MIME, HTML, Date, Message-ID), podpis_offline_app.js (kolejność, wskazówka).
+- [x] ADRES ODBIORCY NIEWIDOCZNY DLA UŻYTKOWNIKA (uwaga właściciela 5.11): opis kroku 5, komunikaty po wysyłce (Outlook, mailto, pulpit, .eml, telefon) i odnośniki nie pokazują adresu; przycisk „Otwórz wiadomość” jest przyciskiem
+      (adres mailto: trzymany w pamięci, nie w kodzie strony). Adres jest tylko w polu „Do” gotowej wiadomości (poczta musi go pokazać) i w zaszyfrowanym koncie. Telefon: udostępnianie systemowe nie wpisuje adresata, więc
+      zawsze pobranie paczki + mailto: (adresat, temat, treść wpisane; paczkę dołącza się z Pobranych). Test: podpis_offline_app.js (bezAdresu(): brak adresu w tekście, HTML i odnośnikach okna po każdym sposobie).

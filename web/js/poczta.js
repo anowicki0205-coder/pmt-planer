@@ -49,3 +49,12 @@ export function zbudujEml({ adres, temat, tresc, zalacznik, data = new Date() })
     `--${gr}--`, ''];
   return enc.encode(linie.join('\r\n'));
 }
+
+/** Zapamiętany na urządzeniu sposób wysyłki (osobny w każdej przeglądarce). Wersja 2 wysyłki zeruje dawny wybór jednorazowo — po próbach z poprzednich wersji łatwo było zostawić „otwarcie poczty”,
+ *  które otwiera wiadomość BEZ załącznika (mailto: nie umie go dołączyć). mag: localStorage (albo atrapa), metody: dozwolone nazwy; zwraca nazwę albo '' (= sposób domyślny). */
+export function wczytajSposobWysylki(mag, metody) {
+  try {
+    if (mag.getItem('pmt-ui-poczta-v') !== '2') { mag.setItem('pmt-ui-poczta-v', '2'); mag.removeItem('pmt-ui-poczta'); return ''; }
+    const v = mag.getItem('pmt-ui-poczta'); return metody.includes(v) ? v : '';
+  } catch (e) { return ''; }
+}

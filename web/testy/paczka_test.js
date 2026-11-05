@@ -93,6 +93,14 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const naglowki = Buffer.from(wstrzykniecie).toString('latin1').split('\r\n\r\n')[0];
   ok('wstrzyknięcie nagłówków (CR/LF w adresie i temacie) nie tworzy dodatkowego nagłówka Bcc', !/^Bcc:/im.test(naglowki), naglowki.split('\r\n').filter(l => /^(To|Subject):/.test(l)).join(' | '));
   ok('naglowekTekst: tekst ASCII zostaje, a każde słowo kodowane mieści się w 76 znakach', E.naglowekTekst('Prosty temat') === 'Prosty temat' && E.naglowekTekst('Żółć '.repeat(30)).split('\r\n').every(l => l.length <= 76));
+  /* ---- zapamiętany sposób wysyłki ---- */
+  const atrapa = (poczatek, rzuca = false) => { const d = { ...poczatek }; return { d, getItem: k => { if (rzuca) throw new Error('zablokowane'); return k in d ? d[k] : null; }, setItem: (k, v) => { if (rzuca) throw new Error('zablokowane'); d[k] = String(v); }, removeItem: k => { if (rzuca) throw new Error('zablokowane'); delete d[k]; } }; };
+  const METODY = ['outlook', 'plik', 'pulpit', 'poczta'];
+  { const m = atrapa({ 'pmt-ui-poczta': 'poczta' }); const w = E.wczytajSposobWysylki(m, METODY);
+    ok('stary wybór „otwarcie poczty” (bez załącznika) z poprzednich wersji jest jednorazowo zerowany: wraca sposób domyślny, a znacznik wersji 2 zostaje zapisany', w === '' && !('pmt-ui-poczta' in m.d) && m.d['pmt-ui-poczta-v'] === '2', JSON.stringify(m.d)); }
+  { const m = atrapa({ 'pmt-ui-poczta-v': '2', 'pmt-ui-poczta': 'poczta' }); ok('po zerowaniu świadomy wybór użytkownika jest już pamiętany', E.wczytajSposobWysylki(m, METODY) === 'poczta'); }
+  { const m = atrapa({ 'pmt-ui-poczta-v': '2', 'pmt-ui-poczta': 'cokolwiek' }); ok('nieznana wartość jest ignorowana (sposób domyślny)', E.wczytajSposobWysylki(m, METODY) === ''); }
+  ok('zablokowana pamięć przeglądarki nie wywraca wysyłki (sposób domyślny)', E.wczytajSposobWysylki(atrapa({}, true), METODY) === '');
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(kod ? 'KONIEC kod=1' : 'KONIEC kod=0'); process.exit(kod);
 })().catch(e => { console.error(e); process.exit(1); });

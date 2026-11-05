@@ -1838,6 +1838,7 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 .kk-tresc b{display:block;font-size:1.05rem;font-weight:680}
 .kk-tresc>small{display:block;color:var(--t2);font-size:.84rem;line-height:1.38;margin-top:.1rem}
 .kk-akcje,.kk-przyciski{display:flex;gap:.45rem;flex-wrap:wrap;justify-content:flex-end}
+.wyslij-sposob{flex:1 0 100%;text-align:right;font-size:.78rem;line-height:1.3;opacity:.92}.wyslij-sposob b{font-weight:700}
 .kk-opcje{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.45rem}
 .kk-opcja{display:flex;flex-direction:column;align-items:flex-start;gap:.35rem;padding:.7rem .85rem;border-radius:17px;background:rgb(255 255 255/.16);box-shadow:inset 0 0 0 1px rgb(255 255 255/.34),inset 0 1px 0 rgb(255 255 255/.4)}
 .kk-opcja b{display:flex;align-items:center;gap:.45rem;font-size:.98rem;font-weight:660}
@@ -1877,6 +1878,7 @@ html:not(.szklo-blur):root[data-theme="light"] .arkusz-tlo.dostep{background:rgb
 @media (max-width:700px){
   .krok-k{grid-template-columns:2.2rem minmax(0,1fr);padding:.7rem .8rem;gap:.7rem}
   .krok-k>.kk-akcje{grid-column:1/-1;justify-content:flex-start}
+  .wyslij-sposob{text-align:left}
   .krok-k.k2{grid-template-columns:2.2rem minmax(0,1fr)}
   .kk-opcje{grid-template-columns:1fr}
   .kk-nr{width:2.2rem;height:2.2rem}

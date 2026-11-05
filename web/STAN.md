@@ -255,3 +255,8 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       adres, temat, treść; paczka ZIP w Pobranych do dołączenia, bo mailto: nie umie dołączać plików) i zwykłe pobranie .eml. Telefon bez zmian (udostępnianie). Załącznik w wersji roboczej wchodzi tylko przez szkic w Outlooku albo plik .eml.
       Testy: outlook_test.js, podpis_offline_app.js (okno logowania Microsoft i atrapa Graph, mailto:, przełączanie sposobów, duża paczka przez sesję wysyłania, atrapa showSaveFilePicker). Natywnego okna zapisu w teście
       nie da się obsłużyć — wspolne.js je wyłącza, a scenariusz podstawia atrapę; zachowanie prawdziwego okna i Outlooka z plikiem .eml sprawdza dopiero właściciel.
+- [x] WYSYŁKA — PLIK .eml DOMYŚLNY (decyzja właściciela 5.11: „tylko plik .eml”, bez rejestracji w Microsoft i bez IT): kolejka sposobów na komputerze: szkic w Outlooku (tylko z identyfikatorem) → plik .eml → pulpit → mailto:.
+      Po pierwszym pobraniu .eml jednorazowa wskazówka w kroku 5 (3 kroki + makieta menu): prawy przycisk na pliku w okienku pobierania → „Zawsze otwieraj pliki tego typu” (Firefox: „…podobne pliki”);
+      od tej pory „Wyślij” od razu pokazuje okno poczty z gotową wiadomością. „Zrobione” chowa ją na stałe (localStorage pmt-ui-eml-auto), potem w komunikacie przycisk „Jak sprawić, żeby otwierała się sama?”.
+      Plik .eml zbudowany jak wiadomość zapisana przez Outlook: multipart/mixed → multipart/alternative (tekst + HTML) + ZIP, nagłówki Date i Message-ID (zgłoszenia: nowy Outlook dla Windows gubi treść/załącznik
+      przy samym zwykłym tekście albo bez Message-ID — NIE sprawdzone na prawdziwym nowym Outlooku). Testy: paczka_test.js (budowa MIME, HTML, Date, Message-ID), podpis_offline_app.js (kolejność, wskazówka).

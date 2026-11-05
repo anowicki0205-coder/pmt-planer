@@ -80,11 +80,14 @@ Wyjątek: adres http://localhost:... na TYM SAMYM komputerze przeglądarki trakt
   i zahasłowaną paczką ZIP i otwiera go w Outlooku; użytkownik tylko klika „Wyślij” w swojej poczcie (wiadomość zostaje w jego „Wysłanych”).
   Na komputerze są CZTERY sposoby wysyłki, przełączane przyciskiem „Zmień sposób” (wybór pamiętany na urządzeniu; domyślny jest pierwszy dostępny w tej kolejności):
     1) szkic w Outlooku — tylko gdy wpiszesz identyfikator aplikacji Microsoft; wersja robocza z załącznikiem w skrzynce użytkownika;
-    2) zapis na pulpicie — tylko Chrome i Edge: po „Wyślij” otwiera się okno „Zapisz jako” od razu na Pulpicie z gotową nazwą (Enter), a na pulpicie leży ikona wiadomości .eml (adres, temat,
-       treść i zahasłowana paczka w jednym pliku); dwuklik otwiera pocztę. Strona nie może położyć pliku na pulpicie sama, bez tego okna — tak działają przeglądarki;
-    3) „otwórz pocztę” (mailto:) — program pocztowy dostaje adres, temat i treść, a paczka zapisuje się w Pobranych do dołączenia ręcznie (mailto: nie umie dołączać plików);
-    4) plik .eml pobrany jak każdy plik (wszystko razem, w tym załącznik).
-  Użytkownik z inną pocztą (Gmail, Onet, WP…) używa drugiego albo trzeciego. Telefon bez zmian (udostępnianie do aplikacji pocztowej).
+    2) plik .eml — DOMYŚLNY bez rejestracji: jeden plik z adresem, tematem, treścią (zwykły tekst + HTML) i zahasłowaną paczką. Klasyczny Outlook, Thunderbird i Poczta Apple otwierają go
+       jako gotowe okno nowej wiadomości — zostaje kliknąć „Wyślij”. Po pierwszym pobraniu aplikacja raz pokazuje, jak w przeglądarce włączyć „Zawsze otwieraj pliki tego typu”
+       (Chrome, Edge; Firefox: „Zawsze otwieraj podobne pliki”); od tej pory „Wyślij” od razu pokazuje okno poczty. Nowy Outlook dla Windows bywa z takimi plikami kapryśny
+       (wg zgłoszeń użytkowników potrafi otworzyć wiadomość tylko do odczytu albo bez załącznika) — wtedy sposób 1 albo 4;
+    3) zapis na pulpicie — tylko Chrome i Edge: okno „Zapisz jako” od razu na Pulpicie z gotową nazwą (Enter), na pulpicie leży ikona tej samej wiadomości .eml; dwuklik otwiera pocztę;
+    4) „otwórz pocztę” (mailto:) — program pocztowy albo poczta w przeglądarce (Gmail, Onet, WP…) dostaje adres, temat i treść, a paczka zapisuje się w Pobranych do dołączenia ręcznie
+       (mailto: nie umie dołączać plików — tak działają przeglądarki).
+  Użytkownik z pocztą tylko w przeglądarce używa czwartego (wskazówka po pierwszej wysyłce mu to mówi). Telefon bez zmian (udostępnianie do aplikacji pocztowej).
   Wymaga: strony pod https (jest) i JEDNORAZOWEJ rejestracji aplikacji w Microsoft Entra (ok. 10 minut). Identyfikator, który z niej dostajesz, nie jest tajemnicą.
 
   REJESTRACJA (konto z prawem rejestrowania aplikacji w Twoim katalogu Microsoft 365, zwykle administrator):

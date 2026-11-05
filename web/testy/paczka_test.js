@@ -74,13 +74,18 @@ except Exception as e: print('odmowa')`, path.join(tmp, 'zmieniony.zip'), haslo)
   const wi = JSON.parse(py(`
 import sys, json, email, email.policy, pyzipper, io
 raw = open(sys.argv[1], 'rb').read(); m = email.message_from_bytes(raw, policy=email.policy.default)
-cz = list(m.iter_attachments()); tr = m.get_body(preferencelist=('plain',))
+cz = list(m.iter_attachments()); tr = m.get_body(preferencelist=('plain',)); th = m.get_body(preferencelist=('html',))
+import email.utils
 z = pyzipper.AESZipFile(io.BytesIO(cz[0].get_content())); z.setpassword(sys.argv[2].encode('utf-8'))
 print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr.get_content(), 'zal': len(cz), 'nazwa': cz[0].get_filename(), 'typ': cz[0].get_content_type(),
   'rozmiar': len(cz[0].get_content()), 'plik0': z.read(z.namelist()[1]) == b'' , 'plik4': z.read(z.namelist()[4]) == open(sys.argv[3] + '/p4.bin', 'rb').read(),
-  'crlf': raw.count(b'\\r\\n') == raw.count(b'\\n'), 'maxlinia': max(len(l) for l in raw.split(b'\\r\\n')), 'ascii': all(b < 128 for b in raw), 'bcc': m['Bcc']}))`, path.join(tmp, 'wiadomosc.eml'), haslo, tmp));
+  'crlf': raw.count(b'\\r\\n') == raw.count(b'\\n'), 'maxlinia': max(len(l) for l in raw.split(b'\\r\\n')), 'ascii': all(b < 128 for b in raw), 'bcc': m['Bcc'],
+  'html': th.get_content() if th is not None else '', 'typy': [c.get_content_type() for c in m.walk()], 'data': email.utils.parsedate_to_datetime(m['Date']).isoformat() if m['Date'] else '', 'mid': str(m['Message-ID'] or '')}))`, path.join(tmp, 'wiadomosc.eml'), haslo, tmp));
   ok('parser poczty Pythona widzi nagłówek „X-Unsent: 1” (Outlook otworzy wiadomość jako szkic do wysłania), adresata i jeden załącznik', wi.x === '1' && wi.to === 'kierownik@example.com' && wi.zal === 1 && wi.typ === 'application/zip', JSON.stringify([wi.x, wi.to, wi.zal, wi.typ]));
   ok('temat z polskimi znakami, półpauzą i długi (po zawinięciu) wraca bez zmian', wi.temat === temat, wi.temat);
+  ok('budowa jak w wiadomości zapisanej przez Outlook: multipart/mixed → multipart/alternative (zwykły tekst + HTML) + załącznik ZIP', JSON.stringify(wi.typy) === JSON.stringify(['multipart/mixed', 'multipart/alternative', 'text/plain', 'text/html', 'application/zip']), JSON.stringify(wi.typy));
+  ok('wersja HTML ma tę samą treść: polskie znaki, nowe wiersze jako <br>, bez surowego HTML z treści', /Dzień dobry,<br>/.test(wi.html) && /zahasłowana paczka \(ZIP\)/.test(wi.html) && /Żaneta Gęśla-Łódzka/.test(wi.html) && E.trescHtml('a<b>&"c').includes('a&lt;b&gt;&amp;&quot;c'), wi.html.slice(0, 120));
+  ok('nagłówki Date (RFC 5322, czytelny dla poczty) i Message-ID (<…@…>) są obecne', /^\d{4}-\d\d-\d\dT/.test(wi.data) && /^<[0-9a-f]{32}@pmt-planer\.invalid>$/.test(wi.mid) && /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d\d (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d\d:\d\d:\d\d [+-]\d{4}$/.test(E.dataPoczty(new Date(2026, 10, 5, 9, 7, 3))), wi.data + ' ' + wi.mid + ' ' + E.dataPoczty(new Date(2026, 10, 5, 9, 7, 3)));
   ok('treść wraca bez zmian (UTF-8, polskie znaki, akapity)', wi.tresc.replace(/\r\n/g, '\n').trimEnd() === tresc, JSON.stringify(wi.tresc).slice(0, 80));
   ok('nazwa załącznika jest bezpieczna (ASCII, bez spacji i nawiasów), a po otwarciu wiadomości paczka nadal się odszyfrowuje tym samym hasłem', wi.nazwa === 'Dokumenty_Zaneta_Gesla_Wrzesien_2026_1_.zip' && wi.plik0 && wi.plik4, wi.nazwa);
   ok('plik jest czystym ASCII, wiersze ≤ 998 znaków, wszystkie końce wierszy to CRLF', wi.ascii && wi.maxlinia <= 998 && wi.crlf, 'najdłuższy wiersz ' + wi.maxlinia);

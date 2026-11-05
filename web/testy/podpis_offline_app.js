@@ -206,6 +206,10 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pob0 = t.backend.pobraniaHasla;
   const emlP = await pobierz(wyslijSel);
   ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
+  ok('po pierwszym pobraniu .eml jednorazowa wskazówka: 3 kroki (ikona pobierania → prawy przycisk na pliku → „Zawsze otwieraj pliki tego typu”), makieta menu z zaznaczoną opcją, rada dla poczty w przeglądarce i przycisk „Zrobione”', (await p.locator('#podp-wyslij-stan #eml-rada').count()) === 1 && (await p.locator('#eml-rada .eml-kroki > span').count()) === 3 && /„Zawsze otwieraj pliki tego typu”/.test(await stanW()) && /Zawsze otwieraj pliki tego typu/.test(await p.locator('#eml-rada .em-wyb').innerText()) && /Gmail/.test(await stanW()) && (await p.locator('#eml-rada [data-akcja="eml-rada-ok"]').count()) === 1, await stanW());
+  await p.locator('#eml-rada').scrollIntoViewIfNeeded(); await p.screenshot({ path: tmp + '/5b_rada_eml.png' });
+  await p.click('#eml-rada [data-akcja="eml-rada-ok"]'); await p.waitForTimeout(200);
+  ok('„Zrobione” chowa wskazówkę na stałe (zapamiętane na urządzeniu) i potwierdza, że przy włączonej opcji wiadomość będzie się od teraz otwierać sama', (await p.locator('#eml-rada').count()) === 0 && /będzie się od teraz otwierać sama/.test(await stanW()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-eml-auto'))) === '1');
   await p.waitForTimeout(500);
   ok('status „Wysłane” ustawia się SAM (bez dodatkowego przycisku): kafel pulpitu, krok 5 („Dokumenty wysłane …”, przycisk „Wysłano” szary)', (await p.locator('#status').innerText()).includes('Wysłane') && /Dokumenty wysłane \d\d\.\d\d\.\d{4} \d\d:\d\d/.test(await opisK5()) && (await przycisk5().isDisabled()) && /Wysłano/.test(await przycisk5().innerText()) && (await p.locator('#w-oznacz').count()) === 0);
   ok('„chmurki” dokumentów pokazują „Wysłano” z datą zamiast przycisku „Otwórz” (zostają „Szczegóły”)', (await p.locator('.dok-k.wyslano').count()) === 7 && (await p.locator('.dok-k .dok-wyslano').count()) === 7 && /Wysłano \d\d\.\d\d\.\d{4}/.test(await p.locator('.dok-k .dok-wyslano >> nth=0').innerText()) && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="szczegoly"]').count()) === 7 && /wysłano/.test(await p.locator('.dok-k .stan >> nth=0').innerText()));
@@ -309,10 +313,18 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('okno logowania przeszło na gotowy szkic (adres Outlooka), status „Wysłane” ustawiony sam, w kroku 5 jest odnośnik „Otwórz szkic” na wypadek zablokowanego przekierowania', /outlook\.office365\.com\/owa\//.test(oknoOk.url()) && (await p.locator('#status').innerText()).includes('Wysłane') && (await p.locator('#podp-wyslij-stan a[href^="https://outlook.office365.com/"]').count()) === 1 && /Kliknij tam „Wyślij”/.test(await stanW()), oknoOk.url());
   ok('token ani kod autoryzacji nie zostają w pamięci przeglądarki (localStorage, sessionStorage, strona)', !(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.documentElement.outerHTML)).match(/TOKEN-TEST-Outlook|KOD-TEST-Outlook/));
   await oknoOk.close(); await p.screenshot({ path: tmp + '/7b_outlook_gotowe.png' });
-  // [H5] „Zmień sposób” przełącza kolejno: outlook → poczta (mailto) → plik .eml → outlook; wybór jest pamiętany
+  // [H5] „Zmień sposób” przełącza kolejno: outlook → plik .eml → poczta (mailto) → outlook; wybór jest pamiętany
   await cofnijIOtworz();
+  await p.evaluate(() => { window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
   await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
-  ok('„Zmień sposób” z Outlooka przechodzi na „otwórz pocztę” (mailto), opis mówi o programie pocztowym i folderze Pobrane, wybór zapamiętany na urządzeniu', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && /program pocztowy z adresem, tematem i treścią/.test(await opisK5()) && /folderze Pobrane/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'poczta', await opisK5());
+  ok('„Zmień sposób” z Outlooka przechodzi na plik .eml (drugi w kolejce, domyślny bez Outlooka); opis: gotowa wiadomość w jednym pliku .eml, w poczcie zostaje tylko „Wyślij”; wybór zapamiętany', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && /jednym pliku \.eml/.test(await opisK5()) && /zostanie tylko kliknąć „Wyślij”/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik', await opisK5());
+  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
+  ok('przy sposobie „plik .eml” „Wyślij” nie otwiera ani poczty, ani okna logowania — pobiera plik .eml', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.evaluate(() => window.__mailto.length)) === 0);
+  ok('po „Zrobione” kolejne wysyłki mają krótki komunikat (bez wskazówki) z przyciskiem „Jak sprawić, żeby otwierała się sama?”', (await p.locator('#eml-rada').count()) === 0 && /Wiadomość gotowa/.test(await stanW()) && /kliknij pobrany plik/.test(await stanW()) && (await p.locator('#podp-wyslij-stan [data-akcja="eml-rada"]').count()) === 1, await stanW());
+  await p.click('#podp-wyslij-stan [data-akcja="eml-rada"]'); await p.waitForTimeout(200);
+  ok('ten przycisk pokazuje wskazówkę ponownie (w miejscu przycisku)', (await p.locator('#podp-wyslij-stan #eml-rada').count()) === 1 && (await p.locator('#podp-wyslij-stan [data-akcja="eml-rada"]').count()) === 0);
+  await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
+  ok('kolejne „Zmień sposób”: z pliku .eml na „otwórz pocztę” (mailto), opis mówi o programie pocztowym i folderze Pobrane, wybór zapamiętany na urządzeniu', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && /program pocztowy z adresem, tematem i treścią/.test(await opisK5()) && /folderze Pobrane/.test(await opisK5()) && !/Outlooku/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'poczta', await opisK5());
   // [H6] OTWARCIE POCZTY (mailto:) — jak w pierwszej wersji: jeden klik, program pocztowy dostaje adres, temat i treść; paczka ZIP zapisuje się w Pobranych
   await p.evaluate(() => { window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
   const zipPoczta = await pobierz(wyslijSel2); await p.waitForTimeout(600);
@@ -323,14 +335,10 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('komunikat: „Otworzyłem pocztę z adresem…”, nazwa paczki, instrukcja „dołącz ją do wiadomości”, przycisk „Otwórz wiadomość” z tym samym mailto; status „Wysłane” ustawiony sam; nie otwarto okna logowania ani pliku .eml', /Otworzyłem pocztę z adresem/.test(await stanW()) && /dołącz ją do wiadomości/.test(await stanW()) && (await p.locator('#podp-otworz-poczte').getAttribute('href')) === mailto[0] && (await p.locator('#status').innerText()).includes('Wysłane') && !/\.eml/.test(zipPoczta.nazwa));
   await p.screenshot({ path: tmp + '/7c_poczta_mailto.png' });
   await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
-  ok('kolejne „Zmień sposób”: z „otwórz pocztę” na plik .eml (opis „przygotuje wiadomość”), wybór zapamiętany', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && /przygotuje wiadomość/.test(await opisK5()) && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
-  const emlPref = await pobierz(wyslijSel2); await p.waitForTimeout(400);
-  ok('przy sposobie „plik .eml” „Wyślij” nie otwiera ani poczty, ani okna logowania — pobiera plik .eml jak dawniej', emlPref.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.evaluate(() => window.__mailto.length)) === 1);
-  await cofnijIOtworz(); await p.click('[data-akcja="zmien-poczte"]'); await p.waitForTimeout(400);
   ok('trzecie „Zmień sposób” zamyka koło i wraca do szkicu w Outlooku', (await p.locator(`${wyslijSel2}[data-metoda="outlook"]`).count()) === 1 && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'outlook');
   // bez identyfikatora Microsoft nie ma Outlooka: zapamiętany „outlook” nie obowiązuje, domyślną staje się „poczta”, a koło ma dwa sposoby
   wlaczMs(false); await cofnijIOtworz();
-  ok('po usunięciu identyfikatora z pliku zapamiętany „outlook” przestaje obowiązywać: „Wyślij” otwiera pocztę (mailto), „Zmień sposób” przełącza już tylko między pocztą a plikiem .eml', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && (await ustawMetode('outlook')) === false);
+  ok('po usunięciu identyfikatora z pliku zapamiętany „outlook” przestaje obowiązywać: „Wyślij” pobiera plik .eml (domyślny), „Zmień sposób” przełącza już tylko między plikiem .eml a pocztą', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && (await p.locator('[data-akcja="zmien-poczte"]').count()) === 1 && (await ustawMetode('outlook')) === false);
   ok('wracamy do „plik .eml” dla kolejnych kroków testu', (await ustawMetode('plik')) === true && (await p.evaluate(() => localStorage.getItem('pmt-ui-poczta'))) === 'plik');
   const pobPoOutlook = await pobierz(wyslijSel2);      // dokumenty są teraz niewysłane i okno otwarte: plik .eml await p.waitForTimeout(500);      // przywraca stan „Wysłane”, którego oczekują kolejne kroki testu
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
@@ -348,7 +356,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
     };
   });
   await cofnijIOtworz();
-  ok('gdy przeglądarka umie okno zapisu, dochodzi sposób „pulpit” i jest DOMYŚLNY w kole („Zmień sposób” prowadzi do niego); opis mówi o ikonie na pulpicie', (await ustawMetode('pulpit')) === true && /ikonę gotowej wiadomości/.test(await opisK5()) && /dwukrotnie/.test(await opisK5()), await opisK5());
+  ok('gdy przeglądarka umie okno zapisu, dochodzi sposób „pulpit” (w kole „Zmień sposób” zaraz po pliku .eml); opis mówi o ikonie na pulpicie', (await ustawMetode('pulpit')) === true && /ikonę gotowej wiadomości/.test(await opisK5()) && /dwukrotnie/.test(await opisK5()), await opisK5());
   // anulowanie okna zapisu: nic się nie dzieje, nic nie jest przygotowywane ani oznaczone jako wysłane
   await p.evaluate(() => { window.__anulujZapis = true; });
   const hasloPrzed = t.backend.pobraniaHasla;
@@ -371,7 +379,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   // przeglądarka bez okna zapisu (Firefox, Safari): sposób „pulpit” nie jest oferowany, domyślny wraca do „poczta”/„plik”
   await p.evaluate(() => { window.showSaveFilePicker = undefined; });
   await cofnijIOtworz();
-  ok('bez okna zapisu w przeglądarce sposób „pulpit” znika, a zapamiętany wybór nie obowiązuje (domyślnie „otwórz pocztę”)', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && (await ustawMetode('pulpit')) === false);
+  ok('bez okna zapisu w przeglądarce sposób „pulpit” znika, a zapamiętany wybór nie obowiązuje (domyślnie plik .eml)', (await p.locator(`${wyslijSel2}[data-metoda="plik"]`).count()) === 1 && (await ustawMetode('pulpit')) === false);
   ok('wracamy do „plik .eml” dla kolejnych kroków testu', (await ustawMetode('plik')) === true);
   const pobPoPulpicie = await pobierz(wyslijSel2); await p.waitForTimeout(400);      // przywraca stan „Wysłane” sposobem „plik”
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });

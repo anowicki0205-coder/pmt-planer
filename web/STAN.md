@@ -250,3 +250,8 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       aplikacja ufa nazwie certyfikatu pieczęci, więc to wygodna kontrola, nie podpis prawny. (3) CZAS: pieczęć nie niesie atrybutu czasu — czas z pola /M słownika podpisu.
       Testy: weryfikacja_test.js (+9 plików testowych z podpisem „jak z gov.pl”: pieczec_ministra*.pdf, rsa_bez_null*.pdf; generuj_podpisy.py / podpisy_lib.py), krypto_js_test.js
       (DigestInfo bez NULL dla SHA-1/256/384/512 + blok z dopisanymi bajtami), oba także w trybie BEZ_WEBCRYPTO. Prawdziwego pliku z gov.pl NIE ma w repozytorium (zawiera PESEL).
+- [x] WYSYŁKA DOKUMENTÓW — SPOSOBY (uwagi właściciela 4–5.11): na komputerze cztery sposoby przełączane przyciskiem „Zmień sposób” (wybór pamiętany; domyślny pierwszy dostępny): szkic w Outlooku (Microsoft Graph, uśpiony do wpisania
+      identyfikatora aplikacji — WDROZENIE.txt p. 7), zapis na pulpicie (showSaveFilePicker ze startIn: 'desktop', tylko Chrome/Edge: okno „Zapisz jako” na Pulpicie, ikona .eml z załącznikiem w środku), otwarcie poczty (mailto: —
+      adres, temat, treść; paczka ZIP w Pobranych do dołączenia, bo mailto: nie umie dołączać plików) i zwykłe pobranie .eml. Telefon bez zmian (udostępnianie). Załącznik w wersji roboczej wchodzi tylko przez szkic w Outlooku albo plik .eml.
+      Testy: outlook_test.js, podpis_offline_app.js (okno logowania Microsoft i atrapa Graph, mailto:, przełączanie sposobów, duża paczka przez sesję wysyłania, atrapa showSaveFilePicker). Natywnego okna zapisu w teście
+      nie da się obsłużyć — wspolne.js je wyłącza, a scenariusz podstawia atrapę; zachowanie prawdziwego okna i Outlooka z plikiem .eml sprawdza dopiero właściciel.

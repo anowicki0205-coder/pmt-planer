@@ -336,6 +336,47 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   ok('po całym scenariuszu wysyłki stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoOutlook.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
 
+  /* [I] ZAPIS NA PULPICIE (Chrome, Edge): „Wyślij” otwiera okno „Zapisz jako” od razu na Pulpicie z nazwą pliku .eml; po zapisie ikona gotowej wiadomości leży na pulpicie, dwuklik otwiera pocztę.
+     Natywnego okna zapisu w teście nie da się obsłużyć, więc podstawiamy atrapę showSaveFilePicker (zapisuje do pamięci i pamięta, z czym ją wywołano). */
+  let pobraniePrzyZapisie = 0; p.on('download', () => { pobraniePrzyZapisie++; });
+  await p.evaluate(() => {
+    window.__zapisy = []; window.__anulujZapis = false;
+    window.showSaveFilePicker = async o => {
+      const z = { o, kawalki: [], zamkniety: false }; window.__zapisy.push(z);
+      if (window.__anulujZapis) throw new DOMException('Użytkownik anulował', 'AbortError');
+      return { name: o.suggestedName, createWritable: async () => ({ write: async b => { z.kawalki.push(Array.from(new Uint8Array(await new Response(b).arrayBuffer()))); }, close: async () => { z.zamkniety = true; } }) };
+    };
+  });
+  await cofnijIOtworz();
+  ok('gdy przeglądarka umie okno zapisu, dochodzi sposób „pulpit” i jest DOMYŚLNY w kole („Zmień sposób” prowadzi do niego); opis mówi o ikonie na pulpicie', (await ustawMetode('pulpit')) === true && /ikonę gotowej wiadomości/.test(await opisK5()) && /dwukrotnie/.test(await opisK5()), await opisK5());
+  // anulowanie okna zapisu: nic się nie dzieje, nic nie jest przygotowywane ani oznaczone jako wysłane
+  await p.evaluate(() => { window.__anulujZapis = true; });
+  const hasloPrzed = t.backend.pobraniaHasla;
+  await p.click(wyslijSel2); await czekajStan(/Anulowano — nic nie zapisano/);
+  ok('anulowanie okna zapisu: komunikat „Anulowano”, status „Wysłane” się nie ustawia, nic nie zapisano, hasło do paczki nie pobierane, bez pobierania pliku', (await p.evaluate(() => window.__zapisy.length)) === 1 && (await p.evaluate(() => window.__zapisy[0].kawalki.length)) === 0 && !(await p.locator('#status').innerText()).includes('Wysłane') && t.backend.pobraniaHasla === hasloPrzed && pobraniePrzyZapisie === 0, await stanW());
+  // zapis
+  await p.evaluate(() => { window.__anulujZapis = false; });
+  await p.click(wyslijSel2); await czekajStan(/Zapisałem wiadomość/); await p.waitForTimeout(500);
+  const zapis = await p.evaluate(() => { const z = window.__zapisy[1]; return { o: z.o, zamkniety: z.zamkniety, bajty: [].concat(...z.kawalki) }; });
+  ok('okno zapisu otwarte na PULPICIE (startIn: desktop), z nazwą PMT_wiadomosc_do_wyslania.eml i filtrem .eml; plik zapisany i zamknięty; bez zwykłego pobierania', zapis.o.startIn === 'desktop' && zapis.o.suggestedName === 'PMT_wiadomosc_do_wyslania.eml' && JSON.stringify(zapis.o.types[0].accept) === '{"message/rfc822":[".eml"]}' && zapis.zamkniety && zapis.bajty.length > 1000 && pobraniePrzyZapisie === 0, `bajtów: ${zapis.bajty.length}`);
+  const emlPulpit = path.join(tmp, 'z_pulpit.eml'); fs.writeFileSync(emlPulpit, Buffer.from(zapis.bajty)); const wPulpit = emlOtwarty(emlPulpit);
+  ok('zapisany plik to ta sama gotowa wiadomość: adresat z arkusza, temat „[PMT] Delegacje — Jan Testowy — …”, nagłówek X-Unsent, jeden załącznik ZIP, który otwiera się hasłem administratora (≥ 7 plików); czysty ASCII, bez jawnego PESEL-u i hasła', wPulpit.x === '1' && wPulpit.to === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(wPulpit.temat) && wPulpit.zal === 1 && wPulpit.pliki.length >= 7 && wPulpit.ascii && !wPulpit.jawne, JSON.stringify([wPulpit.to, wPulpit.temat, wPulpit.zal, wPulpit.pliki.length]));
+  ok('komunikat: „Zapisałem wiadomość … ikona jest na pulpicie … Kliknij ją dwukrotnie”; status „Wysłane” ustawiony sam', /Zapisałem wiadomość/.test(await stanW()) && /ikona jest na pulpicie/.test(await stanW()) && /dwukrotnie/.test(await stanW()) && (await p.locator('#status').innerText()).includes('Wysłane'), await stanW());
+  await p.screenshot({ path: tmp + '/7d_pulpit.png' });
+  // błąd zapisu (np. brak uprawnień) → wyjście zwykłym plikiem .eml
+  await cofnijIOtworz(); await ustawMetode('pulpit');
+  await p.evaluate(() => { window.showSaveFilePicker = async o => ({ name: o.suggestedName, createWritable: async () => { throw new DOMException('brak uprawnień do zapisu', 'NotAllowedError'); } }); });
+  await p.click(wyslijSel2); await czekajStan(/Nie udało się zapisać wiadomości na pulpicie/);
+  ok('błąd zapisu na pulpicie: komunikat z przyczyną i przycisk „Wyślij plikiem .eml”; status „Wysłane” się nie ustawia', (await p.locator('#podp-wyslij-stan [data-akcja="wyslij-plik"]').count()) === 1 && /brak uprawnień do zapisu/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'), await stanW());
+  // przeglądarka bez okna zapisu (Firefox, Safari): sposób „pulpit” nie jest oferowany, domyślny wraca do „poczta”/„plik”
+  await p.evaluate(() => { window.showSaveFilePicker = undefined; });
+  await cofnijIOtworz();
+  ok('bez okna zapisu w przeglądarce sposób „pulpit” znika, a zapamiętany wybór nie obowiązuje (domyślnie „otwórz pocztę”)', (await p.locator(`${wyslijSel2}[data-metoda="poczta"]`).count()) === 1 && (await ustawMetode('pulpit')) === false);
+  ok('wracamy do „plik .eml” dla kolejnych kroków testu', (await ustawMetode('plik')) === true);
+  const pobPoPulpicie = await pobierz(wyslijSel2); await p.waitForTimeout(400);      // przywraca stan „Wysłane” sposobem „plik”
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
+  ok('po scenariuszu „pulpit” stan „Wysłane” jest przywrócony dla kolejnych kroków', pobPoPulpicie.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
+
   /* [G] telefon, na którym udostępnienie ZIP-a się nie udaje (Chrome na Androidzie odrzuca pliki ZIP błędem NotAllowedError): pobrana paczka + wiadomość przez mailto:, a nie błąd bez wyjścia */
   await p.click('#cofnij'); await p.waitForTimeout(600);
   await p.evaluate(() => { const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q); navigator.canShare = () => true; navigator.share = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); });

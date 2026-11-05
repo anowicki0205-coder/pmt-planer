@@ -158,9 +158,14 @@ export function zainstalujPodpis(k) {
      Przycisk „Zmień sposób” przełącza kolejno; wybór pamiętany na urządzeniu. */
   let klientMs = '', pobieranieKlienta = false;
   const czyOutlook = () => !!klientMs && !matchMedia('(pointer:coarse)').matches && !!(globalThis.crypto && crypto.subtle);
-  const METODY = ['outlook', 'poczta', 'plik'];
+  const METODY = ['outlook', 'pulpit', 'poczta', 'plik'];
   let prefPoczty = (() => { try { const v = localStorage.getItem('pmt-ui-poczta'); return METODY.includes(v) ? v : ''; } catch (e) { return ''; } })();
-  const dostepneMetody = () => matchMedia('(pointer:coarse)').matches ? ['plik'] : [...(czyOutlook() ? ['outlook'] : []), 'poczta', 'plik'];
+  /* „pulpit”: okno „Zapisz jako” otwiera się od razu na Pulpicie (File System Access API: showSaveFilePicker z startIn: 'desktop' — Chrome, Edge; Firefox i Safari go nie mają), nazwa pliku .eml jest wpisana.
+     Po zapisie ikona gotowej wiadomości (adres, temat, treść i zahasłowana paczka w jednym pliku) leży na pulpicie — dwuklik otwiera pocztę. Strona nie może zapisać pliku na pulpicie sama, bez tego okna. */
+  const czyPulpit = () => !matchMedia('(pointer:coarse)').matches && typeof window.showSaveFilePicker === 'function' && window.isSecureContext !== false;
+  const dostepneMetody = () => matchMedia('(pointer:coarse)').matches ? ['plik'] : [...(czyOutlook() ? ['outlook'] : []), ...(czyPulpit() ? ['pulpit'] : []), 'poczta', 'plik'];
+  /** Okno „Zapisz jako” na Pulpicie — wywoływane SYNCHRONICZNIE w obsłudze kliknięcia (przeglądarka pozwala na nie tylko tuż po geście użytkownika); zwraca obietnicę uchwytu pliku. */
+  const zapytajOMiejsceZapisu = () => { const o = window.showSaveFilePicker({ suggestedName: 'PMT_wiadomosc_do_wyslania.eml', startIn: 'desktop', types: [{ description: 'Wiadomość e-mail (.eml)', accept: { 'message/rfc822': ['.eml'] } }] }); o.catch(() => {}); return o; };
   const metodaWysylki = () => { const d = dostepneMetody(); return d.includes(prefPoczty) ? prefPoczty : d[0]; };
   function wczytajKlientaMs() { if (pobieranieKlienta) return; pobieranieKlienta = true; wczytajKlienta().then(id => { if (id !== klientMs) { klientMs = id; odswiezWidok(); } }).finally(() => { pobieranieKlienta = false; }); }      // przy każdym otwarciu okna (mały plik, bez pamięci podręcznej): zmiana ustawienia działa od razu
   function zmienPoczte() { const d = dostepneMetody(); prefPoczty = d[(d.indexOf(metodaWysylki()) + 1) % d.length]; try { localStorage.setItem('pmt-ui-poczta', prefPoczty); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } odswiezWidok(); }
@@ -173,7 +178,7 @@ export function zainstalujPodpis(k) {
   const opisWyslij = () => !wszystkoPodpisane() ? 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.'
     : wyslane() ? `Dokumenty wysłane${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}. Gdyby wiadomość nie wyszła z poczty, „Cofnij wysłanie” na pulpicie przywraca stan sprzed wysyłki.`
     : zablokowana() ? esc(daneWysylki.komunikat)
-    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${({ outlook: 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)', poczta: 'otworzy Twój program pocztowy z adresem, tematem i treścią (paczkę zapisze w folderze Pobrane, do dołączenia)' })[metodaWysylki()] || 'przygotuje wiadomość'}${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
+    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${({ outlook: 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)', pulpit: 'zapisze na pulpicie ikonę gotowej wiadomości (adres, temat, treść i paczka w jednym pliku) — klikniesz ją dwukrotnie, a otworzy się poczta ze wszystkim', poczta: 'otworzy Twój program pocztowy z adresem, tematem i treścią (paczkę zapisze w folderze Pobrane, do dołączenia)' })[metodaWysylki()] || 'przygotuje wiadomość'}${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
   function wczytajDane() { if (daneWysylki !== undefined || pobieranieDanych) return; pobieranieDanych = true; hasloDoPaczki().then(o => { daneWysylki = o; }).finally(() => { pobieranieDanych = false; odswiezWidok(); }); }
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
@@ -485,11 +490,15 @@ export function zainstalujPodpis(k) {
     pokazToast('Szkic gotowy w Outlooku — kliknij tam „Wyślij”');
     return otwarte;
   }
-  async function wyslij(metoda = 'plik', okno = null) {
+  async function wyslij(metoda = 'plik', okno = null, zapis = null) {
     if (wysylanie) { try { okno && okno.close(); } catch (e) { /* zamknięte */ } return; } wysylanie = true;
     const przycisk = () => $('#podp-wyslij-akcje button', arkTresc); if (przycisk()) przycisk().disabled = true;
-    let oknoZostaje = false;
+    let oknoZostaje = false, uchwyt = null;
     try {
+      if (metoda === 'pulpit') {      // najpierw ludzka decyzja (okno „Zapisz jako” już stoi na ekranie), dopiero potem hasło, paczka i szyfrowanie
+        try { uchwyt = await zapis; } catch (e) { if (e && e.name === 'AbortError') { stanW('Anulowano — nic nie zapisano. Kliknij „Wyślij”, żeby spróbować jeszcze raz.'); return; } throw e; }
+        if (!uchwyt) { stanW('Nie udało się otworzyć okna zapisu. <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true); return; }
+      }
       if (metoda === 'outlook' && !okno) { stanW('Przeglądarka zablokowała okno logowania do Outlooka. Zezwól tej stronie na wyskakujące okna i kliknij „Wyślij” jeszcze raz — albo <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true); return; }
       stanW('Pobieram hasło do paczki i adres odbiorcy…');
       const h = await hasloDoPaczki(); daneWysylki = h; if (!h.ok) { stanW(esc(h.komunikat), true); odswiezWidok(); return; }
@@ -509,6 +518,14 @@ export function zainstalujPodpis(k) {
       const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
       if (metoda === 'outlook') { oknoZostaje = await szkicOutlook(okno, { adres, tem, tr, blob, duza }); return; }
+      if (metoda === 'pulpit') {
+        const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
+        const wpis = await uchwyt.createWritable(); await wpis.write(new Blob([eml], { type: 'message/rfc822' })); await wpis.close();
+        oznaczWyslane();
+        stanW(`Zapisałem wiadomość <span class="adr">${esc(uchwyt.name || 'PMT_wiadomosc_do_wyslania.eml')}</span> — ikona jest na pulpicie (albo tam, gdzie ją zapisałeś). <span class="adr">Kliknij ją dwukrotnie</span>: otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.${duza}`);
+        pokazToast('Ikona wiadomości na pulpicie — kliknij ją dwukrotnie');
+        return;
+      }
       if (matchMedia('(pointer:coarse)').matches) {      // telefon: systemowe udostępnianie prosto do aplikacji pocztowej (adresat do wpisania); poczta na telefonie nie otwiera pliku .eml jako szkicu
         if (navigator.canShare && navigator.canShare({ files: [plik] })) {
           try { await navigator.share({ files: [plik], title: tem, text: tr }); oznaczWyslane(); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}`); return; }
@@ -528,6 +545,7 @@ export function zainstalujPodpis(k) {
     } catch (e) {
       console.error('wysyłka', e);
       if (metoda === 'outlook') stanW(esc(komunikatBledu(e)) + ' <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true);
+      else if (metoda === 'pulpit') stanW('Nie udało się zapisać wiadomości na pulpicie (' + esc(String((e && e.message) || e).slice(0, 120)) + '). <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true);
       else stanW('Nie udało się przygotować wiadomości. Spróbuj jeszcze raz.', true);
     }
     finally { wysylanie = false; if (okno && !oknoZostaje) { try { okno.close(); } catch (e) { /* zamknięte */ } } if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
@@ -542,7 +560,7 @@ export function zainstalujPodpis(k) {
     else if (a === 'zip') zip();
     else if (a === 'osobno') pobierzOsobno();
     else if (a === 'glowny') pokaz('glowny');
-    else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
+    else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null, m === 'pulpit' ? zapytajOMiejsceZapisu() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
     else if (a === 'wyslij-plik') wyslij('plik', null);
     else if (a === 'zmien-poczte') zmienPoczte();
     else if (a === 'widok') ustawWidok(b.dataset.w === '3d' ? '3d' : 'lista');

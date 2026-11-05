@@ -52,6 +52,8 @@ async function otworz({ pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h
   // sposób wysyłki dokumentów: aplikacja domyślnie otwiera na komputerze program pocztowy (mailto:); zestaw testów od dawna opisuje plik .eml, więc domyślnie ustawiamy „plik”
   // (tylko gdy wyboru jeszcze nie ma); pocztaDomyslna: null = bez ustawiania (prawdziwy domyślny sposób), 'poczta' / 'outlook' = wybrany sposób
   if (pocztaDomyslna) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
+  // natywne okno „Zapisz jako” (showSaveFilePicker) nie daje się obsłużyć w przeglądarce bez interfejsu, więc w testach go nie ma — aplikacja wtedy nie oferuje sposobu „pulpit”; test tego sposobu podstawia atrapę
+  await ctx.addInitScript(() => { try { Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, writable: true, configurable: true }); } catch (e) {} });
   if (!wycieczka) await ctx.addInitScript(() => { try { localStorage.setItem('pmt-ui-wycieczka', '1'); } catch (e) {} });      // wycieczka po aplikacji (pierwsze uruchomienie) nie zasłania testów; test wycieczki prosi o nią wprost
   if (!pelnaZorza) await ctx.addInitScript(() => { window.__zorzaRzadko = true; });      // testy na grafice programowej: zorza odświeża się rzadko (aplikacja produkcyjna go nie ustawia)
   if (bezZycia) await ctx.addInitScript(() => { window.__bezZycia = true; });      // „życie” kalendarza i fiolek (koniec css/aplikacja.css) domyślnie wyłączone w testach: Playwright nie klika elementów, które się poruszają („element is not stable”); test zycie_app.js włącza je jawnie (bezZycia: false), a ZYCIE=tak włącza je w każdym teście

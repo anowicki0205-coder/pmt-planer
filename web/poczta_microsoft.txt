@@ -1,0 +1,4 @@
+# Szkic wiadomości w Outlooku (Microsoft Graph) — identyfikator aplikacji (Application / client ID) zarejestrowanej w Microsoft Entra.
+# Jedna linia: GUID, np. 12345678-1234-1234-1234-123456789abc. Wiersze zaczynające się od # są pomijane.
+# Identyfikator nie jest tajemnicą. Wdrożenie na GitHub Pages (web-pages.yml) wpisuje tu wartość zmiennej repozytorium PMT_MS_KLIENT.
+# Bez identyfikatora wysyłka działa jak dotąd (plik .eml na komputerze, udostępnianie na telefonie). Opis rejestracji: web/WDROZENIE.txt, punkt „SZKIC W OUTLOOKU”.

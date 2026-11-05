@@ -9,6 +9,7 @@
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
 import { zipujAes } from './zipaes.js';
 import { zbudujEml } from './poczta.js';
+import { wczytajKlienta, pobierzKod, wymienKod, utworzSzkic, komunikatBledu } from './outlook.js';
 import { karuzela } from './karuzela.js';
 import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
@@ -149,12 +150,30 @@ export function zainstalujPodpis(k) {
   const wyslane = () => !!M().wyslane;
   const mozeWyslac = () => wszystkoPodpisane() && !wyslane() && !zablokowana();
   const dataPl = iso => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; const p = n => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-  const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij">${ik('i-wyslij')}Wyślij</button>`
+  /* Trzy sposoby wysyłki (na telefonie zawsze systemowe udostępnianie z plikiem — to jest gałąź „plik”):
+       • „outlook” — szkic w skrzynce Outlook (Microsoft Graph, js/outlook.js), gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt) i strona ma https;
+       • „poczta”  — DOMYŚLNIE na komputerze: link mailto: otwiera program pocztowy z adresem, tematem i treścią, a zahasłowana paczka zapisuje się w folderze Pobrane (do dołączenia;
+                     mailto: nie umie dołączyć pliku — przeglądarki na to nie pozwalają). Tak działała pierwsza wersja wysyłki;
+       • „plik”    — plik .eml z adresem, tematem, treścią I załącznikiem (otwarcie pliku w Outlooku, Thunderbirdzie, Poczcie Windows daje gotową wiadomość).
+     Przycisk „Zmień sposób” przełącza kolejno; wybór pamiętany na urządzeniu. */
+  let klientMs = '', pobieranieKlienta = false;
+  const czyOutlook = () => !!klientMs && !matchMedia('(pointer:coarse)').matches && !!(globalThis.crypto && crypto.subtle);
+  const METODY = ['outlook', 'poczta', 'plik'];
+  let prefPoczty = (() => { try { const v = localStorage.getItem('pmt-ui-poczta'); return METODY.includes(v) ? v : ''; } catch (e) { return ''; } })();
+  const dostepneMetody = () => matchMedia('(pointer:coarse)').matches ? ['plik'] : [...(czyOutlook() ? ['outlook'] : []), 'poczta', 'plik'];
+  const metodaWysylki = () => { const d = dostepneMetody(); return d.includes(prefPoczty) ? prefPoczty : d[0]; };
+  function wczytajKlientaMs() { if (pobieranieKlienta) return; pobieranieKlienta = true; wczytajKlienta().then(id => { if (id !== klientMs) { klientMs = id; odswiezWidok(); } }).finally(() => { pobieranieKlienta = false; }); }      // przy każdym otwarciu okna (mały plik, bez pamięci podręcznej): zmiana ustawienia działa od razu
+  function zmienPoczte() { const d = dostepneMetody(); prefPoczty = d[(d.indexOf(metodaWysylki()) + 1) % d.length]; try { localStorage.setItem('pmt-ui-poczta', prefPoczty); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } odswiezWidok(); }
+  /** mailto: (RFC 6068): „@” zostaje w adresie, temat i treść zakodowane, nowe wiersze jako CRLF. */
+  const mailtoDo = (adres, tem, tr) => `mailto:${encodeURIComponent(adres).replace(/%40/g, '@')}?subject=${encodeURIComponent(tem)}&body=${encodeURIComponent(String(tr).replace(/\r?\n/g, '\r\n'))}`;
+  /** Otwarcie poczty. Test może przechwycić adres (okno __testy), bo przeglądarka bez zainstalowanego programu pocztowego nic z mailto: nie robi. */
+  const otworzMailto = u => { if (window.__testy && typeof window.__przechwycMailto === 'function') { window.__przechwycMailto(u); return; } try { location.href = u; } catch (e) { /* bez programu pocztowego — jest odnośnik w komunikacie */ } };
+  const przyciskWyslij = () => mozeWyslac() ? `<button type="button" class="przycisk glowny" data-akcja="wyslij" data-metoda="${metodaWysylki()}">${ik('i-wyslij')}Wyślij</button>${dostepneMetody().length > 1 ? `<button type="button" class="przycisk maly" data-akcja="zmien-poczte">Zmień sposób</button>` : ''}`
     : `<button type="button" class="przycisk glowny" disabled aria-disabled="true">${ik(wyslane() ? 'i-ok' : 'i-wyslij')}${wyslane() ? 'Wysłano' : 'Wyślij'}</button>`;
   const opisWyslij = () => !wszystkoPodpisane() ? 'Odblokuje się, gdy wgrasz i sprawdzę wszystkie podpisane dokumenty.'
     : wyslane() ? `Dokumenty wysłane${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}. Gdyby wiadomość nie wyszła z poczty, „Cofnij wysłanie” na pulpicie przywraca stan sprzed wysyłki.`
     : zablokowana() ? esc(daneWysylki.komunikat)
-    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i przygotuje wiadomość${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
+    : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${({ outlook: 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)', poczta: 'otworzy Twój program pocztowy z adresem, tematem i treścią (paczkę zapisze w folderze Pobrane, do dołączenia)' })[metodaWysylki()] || 'przygotuje wiadomość'}${daneWysylki && daneWysylki.ok ? ` do <span class="adr">${esc(daneWysylki.adres)}</span>` : ''}`;
   function wczytajDane() { if (daneWysylki !== undefined || pobieranieDanych) return; pobieranieDanych = true; hasloDoPaczki().then(o => { daneWysylki = o; }).finally(() => { pobieranieDanych = false; odswiezWidok(); }); }
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
@@ -445,17 +464,51 @@ export function zainstalujPodpis(k) {
   let wysylanie = false;
   /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
       Samo kliknięcie jest akceptacją: gdy wiadomość jest gotowa, dokumenty dostają status „wysłane” (karty pokazują „Wysłano”); „Cofnij wysłanie” na pulpicie go przywraca. */
-  async function wyslij() {
-    if (wysylanie) return; wysylanie = true;
+  /** Okno logowania do Outlooka — musi się otworzyć SYNCHRONICZNIE w obsłudze kliknięcia, inaczej przeglądarka je zablokuje (null = zablokowane). */
+  function otworzOknoLogowania() {
+    let o = null; try { o = window.open('about:blank', 'pmt-outlook', 'popup=yes,width=560,height=760'); } catch (e) { return null; }
+    try { if (o) { o.document.title = 'PMT Planer — Outlook'; o.document.body.style.cssText = 'margin:0;display:grid;place-items:center;height:100vh;font:16px system-ui,sans-serif;background:#2a2f70;color:#fff'; o.document.body.textContent = 'Przygotowuję paczkę…'; } } catch (e) { /* okno bez dostępu — zostaje puste */ }
+    return o;
+  }
+  /** Logowanie → szkic z załącznikiem → okno przechodzi na gotowy szkic. Zwraca true, gdy okno zostało przekierowane na szkic (wtedy zostaje otwarte). */
+  async function szkicOutlook(okno, { adres, tem, tr, blob, duza }) {
+    const powrot = new URL('ms_powrot.html', location.href).href;
+    stanW('Zaloguj się do Outlooka w otwartym oknie (potwierdzenie dostępu do szkiców) — to potrwa chwilę…');
+    const { kod, verifier } = await pobierzKod({ okno, klient: klientMs, powrot });
+    stanW('Tworzę szkic wiadomości w Outlooku…');
+    const token = await wymienKod({ klient: klientMs, powrot, kod, verifier });
+    const szkic = await utworzSzkic({ token, adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' }, postep: pr => stanW(`Dołączam zahasłowaną paczkę do szkicu… ${pr}%`) });
+    oznaczWyslane();
+    const link = /^https:\/\//i.test(szkic.webLink || '') ? szkic.webLink : '';
+    let otwarte = false; try { if (link && okno && !okno.closed) { okno.location.href = link; otwarte = true; } } catch (e) { /* okno niedostępne — jest odnośnik niżej */ }
+    stanW(`Szkic gotowy w Twoim Outlooku (do <span class="adr">${esc(adres)}</span>, z zahasłowaną paczką). Kliknij tam „Wyślij”. ${link ? `Jeśli się nie otworzył: <a class="przycisk maly" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Otwórz szkic</a>` : 'Znajdziesz go w „Wersjach roboczych”.'}${duza}`);
+    pokazToast('Szkic gotowy w Outlooku — kliknij tam „Wyślij”');
+    return otwarte;
+  }
+  async function wyslij(metoda = 'plik', okno = null) {
+    if (wysylanie) { try { okno && okno.close(); } catch (e) { /* zamknięte */ } return; } wysylanie = true;
     const przycisk = () => $('#podp-wyslij-akcje button', arkTresc); if (przycisk()) przycisk().disabled = true;
+    let oknoZostaje = false;
     try {
+      if (metoda === 'outlook' && !okno) { stanW('Przeglądarka zablokowała okno logowania do Outlooka. Zezwól tej stronie na wyskakujące okna i kliknij „Wyślij” jeszcze raz — albo <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true); return; }
       stanW('Pobieram hasło do paczki i adres odbiorcy…');
       const h = await hasloDoPaczki(); daneWysylki = h; if (!h.ok) { stanW(esc(h.komunikat), true); odswiezWidok(); return; }
       const adres = h.adres;
       stanW('Przygotowuję zahasłowaną paczkę…'); await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
       const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
+      if (metoda === 'poczta') {      // otwieramy pocztę JAK NAJSZYBCIEJ po kliknięciu (przeglądarka pozwala na to tylko tuż po geście użytkownika), zanim szyfrowanie zajmie procesor
+        const mailto = mailtoDo(adres, temat(), trescWiad(zal.length));
+        otworzMailto(mailto); stanW('Otwieram pocztę i przygotowuję zahasłowaną paczkę…'); await czekaj(60);
+        const blobP = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo);
+        k.pobierzBlob(blobP, nazwaZip()); await czekaj(450);
+        oznaczWyslane();
+        stanW(`Otworzyłem pocztę z adresem <span class="adr">${esc(adres)}</span>, tematem i treścią. Zahasłowana paczka <span class="adr">${esc(nazwaZip())}</span> zapisała się w folderze Pobrane — <span class="adr">dołącz ją do wiadomości</span> (spinacz → ostatnio pobrane albo przeciągnij z paska pobierania) i wyślij. Jeśli poczta się nie otworzyła: <a class="przycisk maly" id="podp-otworz-poczte" href="${esc(mailto)}">Otwórz wiadomość</a>${blobP.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blobP.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : ''}`);
+        pokazToast('Poczta otwarta — dołącz paczkę z folderu Pobrane i wyślij');
+        return;
+      }
       const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
+      if (metoda === 'outlook') { oknoZostaje = await szkicOutlook(okno, { adres, tem, tr, blob, duza }); return; }
       if (matchMedia('(pointer:coarse)').matches) {      // telefon: systemowe udostępnianie prosto do aplikacji pocztowej (adresat do wpisania); poczta na telefonie nie otwiera pliku .eml jako szkicu
         if (navigator.canShare && navigator.canShare({ files: [plik] })) {
           try { await navigator.share({ files: [plik], title: tem, text: tr }); oznaczWyslane(); stanW(`Wybierz aplikację poczty i wyślij wiadomość na adres <span class="adr">${esc(adres)}</span>.${duza}`); return; }
@@ -470,10 +523,14 @@ export function zainstalujPodpis(k) {
       const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
       k.pobierzBlob(new Blob([eml], { type: 'message/rfc822' }), 'PMT_wiadomosc_do_wyslania.eml');
       oznaczWyslane();
-      stanW(`Pobrałem wiadomość <span class="adr">PMT_wiadomosc_do_wyslania.eml</span>. <span class="adr">Kliknij ją</span> (pasek pobierania przeglądarki albo folder Pobrane) — otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.${duza}`);
+      stanW(`Pobrałem wiadomość <span class="adr">PMT_wiadomosc_do_wyslania.eml</span>. <span class="adr">Kliknij ją</span> (pasek pobierania przeglądarki albo folder Pobrane) — otworzy się poczta z adresatem, tematem, treścią i zahasłowaną paczką; kliknij tam „Wyślij”.<br><span class="adr">Żeby następnym razem otwierała się sama</span> (zero klikania): w pasku pobierania przeglądarki kliknij „⋯” przy tym pliku → „Zawsze otwieraj pliki tego typu” (Chrome, Edge).${duza}`);
       pokazToast('Wiadomość gotowa — kliknij pobrany plik .eml, żeby ją wysłać');
-    } catch (e) { console.error('wysyłka', e); stanW('Nie udało się przygotować wiadomości. Spróbuj jeszcze raz.', true); }
-    finally { wysylanie = false; if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
+    } catch (e) {
+      console.error('wysyłka', e);
+      if (metoda === 'outlook') stanW(esc(komunikatBledu(e)) + ' <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true);
+      else stanW('Nie udało się przygotować wiadomości. Spróbuj jeszcze raz.', true);
+    }
+    finally { wysylanie = false; if (okno && !oknoZostaje) { try { okno.close(); } catch (e) { /* zamknięte */ } } if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
   }
   function oznaczWyslane() { const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); }
 
@@ -485,7 +542,9 @@ export function zainstalujPodpis(k) {
     else if (a === 'zip') zip();
     else if (a === 'osobno') pobierzOsobno();
     else if (a === 'glowny') pokaz('glowny');
-    else if (a === 'wyslij') wyslij();
+    else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
+    else if (a === 'wyslij-plik') wyslij('plik', null);
+    else if (a === 'zmien-poczte') zmienPoczte();
     else if (a === 'widok') ustawWidok(b.dataset.w === '3d' ? '3d' : 'lista');
     else if (a === 'powieksz') otworzPodglad(Number(b.dataset.i));
     else if (a === 'k3-wroc') zamknijPodglad();
@@ -523,7 +582,7 @@ export function zainstalujPodpis(k) {
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
     /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
-    otworz(fokus) { const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
+    otworz(fokus) { wczytajKlientaMs(); const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
       if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(dokonczSprawdzanie).then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };

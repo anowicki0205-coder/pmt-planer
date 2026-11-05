@@ -73,3 +73,32 @@ Wyjątek: adres http://localhost:... na TYM SAMYM komputerze przeglądarki trakt
   2. Otwórz aplikację, zaloguj się, wygeneruj miesiąc przykładowy (kwota) — dokumenty powinny się utworzyć.
   3. W oknie "Dokumenty do podpisu" pobierz ZIP z dokumentami — powinien się pobrać i rozpakować do 7 plików PDF.
   4. Na https: wyłącz internet w przeglądarce i odśwież — aplikacja ma wstać (tryb offline).
+
+7. SZKIC W OUTLOOKU (opcja; bez niej wysyłka działa jak dotąd — plik .eml na komputerze, udostępnianie na telefonie)
+---------------------------------------------------------------------------------------------------------------
+  Co to daje: na komputerze „Wyślij” loguje użytkownika do jego konta Microsoft (Outlook / Microsoft 365) w osobnym oknie, tworzy w jego skrzynce SZKIC z adresem odbiorcy, tematem, treścią
+  i zahasłowaną paczką ZIP i otwiera go w Outlooku; użytkownik tylko klika „Wyślij” w swojej poczcie (wiadomość zostaje w jego „Wysłanych”).
+  Na komputerze są TRZY sposoby wysyłki, przełączane przyciskiem „Zmień sposób” (wybór pamiętany na urządzeniu): szkic w Outlooku (tylko gdy wpiszesz identyfikator), „otwórz pocztę” (mailto: —
+  program pocztowy dostaje adres, temat i treść, a paczka zapisuje się w Pobranych do dołączenia; to DOMYŚLNY sposób, gdy nie ma identyfikatora) i plik .eml (wszystko razem, w tym załącznik).
+  Użytkownik z inną pocztą (Gmail, Onet, WP…) używa drugiego albo trzeciego. Telefon bez zmian (udostępnianie do aplikacji pocztowej).
+  Wymaga: strony pod https (jest) i JEDNORAZOWEJ rejestracji aplikacji w Microsoft Entra (ok. 10 minut). Identyfikator, który z niej dostajesz, nie jest tajemnicą.
+
+  REJESTRACJA (konto z prawem rejestrowania aplikacji w Twoim katalogu Microsoft 365, zwykle administrator):
+    1. Wejdź na https://entra.microsoft.com → Tożsamość (Identity) → Aplikacje (Applications) → Rejestracje aplikacji (App registrations) → Nowa rejestracja (New registration).
+    2. Nazwa: PMT Planer.  Obsługiwane typy kont: „Konta w dowolnym katalogu organizacji (dowolny katalog Microsoft Entra ID — wiele dzierżaw) oraz osobiste konta Microsoft”
+       (inaczej zalogują się tylko osoby z Twojej firmy).
+    3. Adres URI przekierowania: platforma „Aplikacja jednostronicowa (SPA)” — NIE „Internet” (inaczej Microsoft odrzuci wymianę kodu z przeglądarki), adres DOKŁADNIE taki:
+         https://anowicki0205-coder.github.io/pmt-planer/ms_powrot.html
+       (zmiana adresu strony = poprawka tego adresu w rejestracji). → Zarejestruj.
+    4. Na stronie przeglądu skopiuj „Identyfikator aplikacji (klienta)” — GUID, np. 12345678-1234-1234-1234-123456789abc.
+    5. Uprawnienia interfejsu API → Dodaj uprawnienie → Microsoft Graph → Uprawnienia delegowane → Mail.ReadWrite → Dodaj. (User.Read może zostać; więcej nie dodawaj.)
+       „Udziel zgody administratora dla …” dla własnej firmy (Twoi ludzie nie zobaczą wtedy pytania o zgodę). Mail.ReadWrite nie jest „niskiego ryzyka”: w firmach z domyślnymi ustawieniami
+       Microsoft pokaże użytkownikowi „potrzebna zgoda administratora” — jeśli ktoś z innej firmy tak zobaczy, jego administrator musi zatwierdzić aplikację albo użytkownik wybiera inny sposób („Zmień sposób”).
+    6. GitHub → repozytorium → Settings → Secrets and variables → Actions → zakładka „Variables” → New repository variable:  Name: PMT_MS_KLIENT,  Value: ten GUID  (zmienna, nie sekret).
+    7. Actions → „Web (GitHub Pages)” → Run workflow. Workflow sprawdza, czy wartość wygląda jak GUID, i wpisuje ją do poczta_microsoft.txt na stronie.
+  SPRAWDZENIE: otwórz <adres>/poczta_microsoft.txt — ma pokazać komentarze i jedną linię z identyfikatorem. W oknie „Dokumenty do podpisu”, gdy wszystko jest sprawdzone, obok „Wyślij” pojawia się
+  „Zmień sposób”, a po przełączeniu na szkic opis kroku 5 mówi o „szkicu wiadomości w Twoim Outlooku”. Kliknij „Wyślij” → okno logowania Microsoft → po chwili szkic w Outlooku z paczką.
+  WYCOFANIE: usuń zmienną PMT_MS_KLIENT (albo wyczyść jej wartość) i uruchom wdrożenie jeszcze raz — wysyłka wraca do pliku .eml. Użytkownik może cofnąć zgodę na https://myapps.microsoft.com
+  (lub account.microsoft.com → Prywatność → Aplikacje), a administrator firmy w Entra → Aplikacje przedsiębiorstwa.
+  GDY COŚ NIE GRA: komunikat pod krokiem 5 mówi, co się stało, i ma przycisk „Wyślij plikiem .eml”. Najczęstsze: „zgoda administratora” (punkt 5), „nie jest poprawnie zarejestrowana”
+  (adres powrotu inny niż w rejestracji albo platforma „Internet” zamiast SPA), okno logowania zablokowane przez przeglądarkę (zezwól tej stronie na wyskakujące okna).

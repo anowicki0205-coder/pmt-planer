@@ -48,11 +48,13 @@ jobs:
           PMT_ADRES: ${{ secrets.PMT_ADRES }}
           PMT_SEKRET: ${{ secrets.PMT_SEKRET }}
           PMT_MENEDZER: ${{ secrets.PMT_MENEDZER }}
+          PMT_MS_KLIENT: ${{ vars.PMT_MS_KLIENT }}
         run: |
           set -e
           mkdir -p strona
           cp -r web/index.html web/manifest.webmanifest web/css web/js web/ikony web/silnik web/przyklad strona/
           cp web/uwagi.txt web/adres_aplikacji.txt strona/
+          cp web/ms_powrot.html web/poczta_microsoft.txt strona/
           mkdir -p strona/vendor && cp -r web/vendor/czcionki web/vendor/paczki web/vendor/pyodide web/vendor/qr strona/vendor/
           [ -n "$PMT_MENEDZER" ] || { echo "::error::Brak sekretu PMT_MENEDZER — generowanie dokumentów byłoby zablokowane."; exit 1; }
           [ -n "$PMT_SEKRET" ] || { echo "::error::Brak sekretu PMT_SEKRET — backend odrzuci puls, sesję i reset hasła po włączeniu podpisu."; exit 1; }
@@ -66,6 +68,11 @@ jobs:
           python strona/narzedzia/zbuduj_sw.py
           rm -rf strona/narzedzia
           find strona -name '__pycache__' -prune -exec rm -rf {} +
+          # szkic w Outlooku: identyfikator aplikacji Microsoft Entra ze zmiennej repozytorium PMT_MS_KLIENT (nie sekret); bez niej wysyłka zostaje przy pliku .eml
+          if [ -n "$PMT_MS_KLIENT" ]; then
+            printf '%s' "$PMT_MS_KLIENT" | grep -Eiq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || { echo "::error::Zmienna PMT_MS_KLIENT nie wygląda na identyfikator aplikacji (GUID z portalu Microsoft Entra)."; exit 1; }
+            printf '%s\n' "$PMT_MS_KLIENT" > strona/poczta_microsoft.txt
+          fi
           touch strona/.nojekyll
 
       - name: Wyślij paczkę

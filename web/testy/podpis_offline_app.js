@@ -301,8 +301,8 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const sk = require('crypto').createHash('sha256').update(tok.code_verifier || '').digest('base64url');
   ok('wymiana kodu na token: ten sam adres powrotu, kod z odpowiedzi, a „code_verifier” pasuje do „code_challenge” z logowania (PKCE)', tok.grant_type === 'authorization_code' && tok.code === 'KOD-TEST-Outlook' && tok.redirect_uri === auth.redirect_uri && sk === auth.code_challenge && tok.client_id === ms.klient, JSON.stringify(tok));
   ok('szkic: adresat z arkusza, temat „[PMT] Delegacje — Jan Testowy — …”, treść zwykłym tekstem o zahasłowanej paczce, podpisana imieniem; bez hasła i PESEL-u', !!ms.szkic && ms.szkic.toRecipients[0].emailAddress.address === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(ms.szkic.subject) && ms.szkic.body.contentType === 'text' && /zahasłowana paczka \(ZIP\)/.test(ms.szkic.body.content) && /Jan Testowy\s*$/.test(ms.szkic.body.content) && !ms.szkic.body.content.includes(HASLO) && !JSON.stringify(ms.szkic).includes('90010112349'), JSON.stringify(ms.szkic).slice(0, 200));
-  const razemMs = ms.kawalki.length ? ms.kawalki[0].razemMs : 0, sklejone = Buffer.concat(ms.kawalki.sort((a, b) => a.od - b.od).map(x => x.bajty));
-  ok('paczka (kilkanaście MB) poszła przez sesję wysyłania: kawałki idą po kolei bez dziur, razem tyle, ile zapowiedziała sesja, bez nagłówka Authorization w wysyłaniu; nazwa pliku i typ ZIP', ms.zalaczniki.length === 0 && !!ms.sesja && ms.sesja.AttachmentItem.size === razemMs && razemMs === sklejone.length && ms.kawalki.length >= 2 && ms.kawalki.every((x, i, w) => i === 0 ? x.od === 0 : x.od === w[i - 1].do + 1) && ms.kawalki[ms.kawalki.length - 1].do + 1 === razemMs && !ms.putZAutoryzacja && /^Dokumenty_.*\.zip$/.test(ms.sesja.AttachmentItem.name) && ms.sesja.AttachmentItem.contentType === 'application/zip', `kawałków: ${ms.kawalki.length}, razem: ${razemMs}`);
+  const sklejone = ms.zalaczniki.length ? Buffer.from(ms.zalaczniki[0].contentBytes, 'base64') : Buffer.alloc(0);
+  ok('mała paczka (poniżej 3 MB) poszła jednym zapytaniem jako załącznik pliku: nazwa Dokumenty_….zip, typ ZIP, bez sesji wysyłania i bez kawałków', ms.zalaczniki.length === 1 && !ms.sesja && ms.kawalki.length === 0 && ms.zalaczniki[0]['@odata.type'] === '#microsoft.graph.fileAttachment' && /^Dokumenty_.*\.zip$/.test(ms.zalaczniki[0].name) && ms.zalaczniki[0].contentType === 'application/zip' && sklejone.length > 1000, `bajtów: ${sklejone.length}`);
   const zipOut = path.join(tmp, 'z_outlook.zip'); fs.writeFileSync(zipOut, sklejone);
   const zipOutlookOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipOut, HASLO], { encoding: 'utf8' }).stdout.trim();
   ok('to, co trafiło do Outlooka, jest tą samą zahasłowaną paczką: otwiera się hasłem administratora, ≥ 7 plików', Number(zipOutlookOk) >= 7, zipOutlookOk);
@@ -374,6 +374,19 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   await wgraj(lista(duzy)); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const duzyEml = await pobierz(wyslijSel);
   ok('przy paczce powyżej 20 MB krok 5 ostrzega przed limitem poczty (wiadomość jest mimo to gotowa)', duzyEml.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /20–25 MB/.test(await stanW()), await stanW());
+
+  /* [H7] DUŻA paczka (22 MB, więcej niż 3 MB) w szkicu w Outlooku: nie jednym zapytaniem, tylko przez sesję wysyłania w kawałkach */
+  Object.assign(ms, { szkic: null, sesja: null, kawalki: [], zalaczniki: [], putZAutoryzacja: false }); ms.zadania.length = 0; wlaczMs(true);
+  await cofnijIOtworz(); await ustawMetode('outlook');
+  const [oknoDuze] = await Promise.all([p.waitForEvent('popup', { timeout: 20000 }), p.click(wyslijSel2)]);
+  await czekajStan(/Szkic gotowy w Twoim Outlooku/); await oknoDuze.waitForURL(/outlook\.office365\.com\/owa\//, { timeout: 15000 }); await p.waitForTimeout(500);
+  const razemMs = ms.kawalki.length ? ms.kawalki[0].razemMs : 0, kawalkiPosort = ms.kawalki.slice().sort((a, b) => a.od - b.od), sklejoneDuze = Buffer.concat(kawalkiPosort.map(x => x.bajty));
+  ok('duża paczka poszła przez sesję wysyłania: kawałki idą po kolei bez dziur i nakładania, razem tyle, ile zapowiedziała sesja, bez nagłówka Authorization w wysyłaniu; jeden załącznik, bez zapytania „załącznik”; nazwa i typ ZIP', ms.zalaczniki.length === 0 && !!ms.sesja && ms.sesja.AttachmentItem.size === razemMs && razemMs === sklejoneDuze.length && razemMs > 20 * 1048576 && ms.kawalki.length >= 5 && kawalkiPosort.every((x, i, w) => i === 0 ? x.od === 0 : x.od === w[i - 1].do + 1) && kawalkiPosort[kawalkiPosort.length - 1].do + 1 === razemMs && !ms.putZAutoryzacja && /^Dokumenty_.*\.zip$/.test(ms.sesja.AttachmentItem.name) && ms.sesja.AttachmentItem.contentType === 'application/zip', `kawałków: ${ms.kawalki.length}, razem: ${razemMs}`);
+  const zipDuzy = path.join(tmp, 'z_outlook_duzy.zip'); fs.writeFileSync(zipDuzy, sklejoneDuze);
+  const zipDuzyOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipDuzy, HASLO], { encoding: 'utf8' }).stdout.trim();
+  ok('sklejone kawałki to ta sama zahasłowana paczka: otwiera się hasłem administratora, ≥ 7 plików; w komunikacie jest ostrzeżenie o limicie poczty (> 20 MB)', Number(zipDuzyOk) >= 7 && /20–25 MB/.test(await stanW()), zipDuzyOk);
+  await oknoDuze.close(); wlaczMs(false);
+  await cofnijIOtworz(); await ustawMetode('plik'); await pobierz(wyslijSel2); await p.waitForTimeout(400);      // wracamy do pliku .eml i stanu „Wysłane”, jak przed tym scenariuszem
 
   /* ---- praca bez internetu: service worker zapisał aplikację (w tym nowe moduły sprawdzania podpisów); na zwykłym http przeglądarka go nie dopuszcza ---- */
   if (!bezpieczny) {

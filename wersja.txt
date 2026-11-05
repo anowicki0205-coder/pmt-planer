@@ -1,5 +1,5 @@
-3.25.0
-przygotowanie do przejścia na aplikację webową
+3.25.1
+Ostatnia wersja programu na komputerze. Dalej pracujesz w aplikacji w przeglądarce i na telefonie
 min=3.25.0
 blokada=2026-11-12
 web=https://anowicki0205-coder.github.io/pmt-planer/

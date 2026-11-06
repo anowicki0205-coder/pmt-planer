@@ -16,9 +16,10 @@ function szumBufor(c) {
 }
 
 /** Jeden ton: obwiednia (szybki narost, wykładniczy zanik), opcjonalny przesuw wysokości i filtr. */
-function ton(c, wyj, { t, f, f2, d, g = .1, a = .005, typ = 'sine', filtr }) {
+function ton(c, wyj, { t, f, f2, d, g = .1, a = .005, typ = 'sine', filtr, vib }) {
   const o = c.createOscillator(), v = c.createGain();
   o.type = typ; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+  if (vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = vib.hz; lg.gain.value = vib.cent; l.connect(lg); lg.connect(o.detune); l.start(t); l.stop(t + d + .03); }      // delikatne vibrato (w centach)
   v.gain.setValueAtTime(0.0001, t); v.gain.exponentialRampToValueAtTime(g, t + a); v.gain.exponentialRampToValueAtTime(0.0001, t + d);
   o.connect(v); let out = v;
   if (filtr) { const bq = c.createBiquadFilter(); bq.type = filtr.typ || 'lowpass'; bq.frequency.setValueAtTime(filtr.f, t); if (filtr.f2) bq.frequency.exponentialRampToValueAtTime(filtr.f2, t + d); bq.Q.value = filtr.q || .7; v.connect(bq); out = bq; }
@@ -59,10 +60,41 @@ export const EFEKTY = {
 /** Planuje efekt na kontekście c, w węźle wyj, od chwili t. Zwraca czas trwania w sekundach (0 = nieznany efekt). */
 export function zbudujEfekt(c, wyj, nazwa, t) { const f = EFEKTY[nazwa]; return f ? f(c, wyj, t) : 0; }
 
+/* ------------------------------ tor wyjściowy: pogłos, kompresor ------------------------------ */
+/** Syntetyczna odpowiedź impulsowa małej sali (stereo, ok. 1,9 s): szum, który zanika wykładniczo i z czasem ciemnieje (powietrze tłumi wysokie tony). */
+function odpowiedzImpulsowa(c, sek = 1.9) {
+  const sr = c.sampleRate, n = Math.floor(sr * sek), b = c.createBuffer(2, n, sr), wstep = Math.floor(sr * .012);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch); let lp = 0;
+    for (let i = wstep; i < n; i++) { const t = (i - wstep) / sr, a = .22 + .78 * Math.exp(-t / .45); lp += a * ((Math.random() * 2 - 1) * Math.exp(-t / .42) - lp); d[i] = lp; }
+  }
+  return b;
+}
+/** Wspólny tor wyjściowy (używa go aplikacja i renderowanie próbek do testów oraz odsłuchu — dzięki temu brzmią tak samo):
+ *  efekty (ef — bez pogłosu, efR — z pogłosem) i podkład (pogMuzyki — wysyłka do pogłosu) → wzmocnienie 0,8 → kompresor → cel. */
+export function zbudujTor(c, cel) {
+  const master = c.createGain(); master.gain.value = .8;
+  const k = c.createDynamicsCompressor(); k.threshold.value = -20; k.knee.value = 12; k.ratio.value = 4; k.attack.value = .004; k.release.value = .2;
+  const lim = c.createDynamicsCompressor(); lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = .002; lim.release.value = .09;      // zabezpieczenie przed przesterowaniem (limiter)
+  master.connect(k); k.connect(lim); lim.connect(cel);
+  const ef = c.createGain(); ef.connect(master);
+  const conv = c.createConvolver(); conv.buffer = odpowiedzImpulsowa(c); const pogWyj = c.createGain(); pogWyj.gain.value = 3; conv.connect(pogWyj); pogWyj.connect(master);      // splot z odpowiedzią impulsową jest znormalizowany, więc sam z siebie wychodzi bardzo cicho — stąd duże wzmocnienie powrotu
+  const efR = c.createGain(); efR.connect(master); const efWysylka = c.createGain(); efWysylka.gain.value = 1; efR.connect(efWysylka); efWysylka.connect(conv);
+  const pogMuzyki = c.createGain(); pogMuzyki.gain.value = 1; pogMuzyki.connect(conv);
+  return { master, ef, efR, pogMuzyki };
+}
+/** Muzyka na chwilę cichnie, gdy gra efekt (efekt zawsze wyraźnie słychać), potem wraca. duck — węzeł wzmocnienia z zbudujMuzyke(). */
+export function przygluszMuzyke(duck, t, dl) {
+  duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(.6, t, .025); duck.gain.setTargetAtTime(1, t + Math.min(dl, 1.3) * .6, .28);
+}
+const Z_POGLOSEM = new Set(['okno', 'okno-zam', 'motyw', 'ok', 'wszystkie', 'wyslano', 'gen-start', 'gen-koniec']);      // dzwonki i „ruchy okien”; klik, odhaczenie i błąd zostają suche
+/** Do której magistrali tora trafia efekt: z pogłosem (dzwonki, okna) albo suchej (klik, odhaczenie, błąd). */
+export const magistralaEfektu = (tor, nazwa) => (Z_POGLOSEM.has(nazwa) ? tor.efR : tor.ef);
+
 /* ------------------------------ podkład (synth-wave) ------------------------------ */
 export const TEMPO = 96;
 export const KROK = 60 / TEMPO / 4;      // szesnastka
-export const GLOSNOSC_MUZYKI = 1.4;      // docelowe wzmocnienie podkładu (tło: wyraźnie ciszej niż efekty)
+export const GLOSNOSC_MUZYKI = 1.2;      // docelowe wzmocnienie podkładu (tło: wyraźnie ciszej niż efekty)
 export const TAKT = KROK * 16;
 const AKORDY = [
   { baz: 45, ton: [57, 60, 64], lead: [[0, 76], [6, 72], [10, 69]] },       // Am
@@ -71,45 +103,56 @@ const AKORDY = [
   { baz: 43, ton: [55, 59, 62], lead: [[0, 74], [6, 79], [12, 71]] }        // G
 ];
 const WZOR_ARP = [0, 1, 2, 3, 2, 1, 2, 3];
-/** Buduje tor podkładu (suchy sygnał + echo w rytmie „z kropką”) i zwraca { bus, planTakt(numerTaktu, czasPoczatku) }.
- *  Pętla: 4 akordy (Am–F–C–G); w drugiej czwórce taktów dochodzi spokojna melodia. */
-export function zbudujMuzyke(c, cel) {
-  const bus = c.createGain(); bus.gain.value = 0.0001; bus.connect(cel);
+/** Buduje tor podkładu i zwraca { bus, duck, planTakt(numerTaktu, czasPoczatku) }. pog (opcjonalnie): węzeł wysyłki do pogłosu (zbudujTor().pogMuzyki).
+ *  Pętla 8 taktów: akordy Am–F–C–G dwa razy; w drugiej czwórce melodia z vibrato. Brzmienie: szeroki pad (każda nuta w innym miejscu panoramy), arpeggio z echem „ping-pong”,
+ *  bas, cicha perkusja, „pompowanie” padu i arpeggia w rytm stopy (jak sidechain w muzyce klubowej), filtr, który otwiera się w ciągu pętli, krótkie wypełnienie przed powrotem. */
+export function zbudujMuzyke(c, cel, pog) {
+  const bus = c.createGain(); bus.gain.value = 0.0001; const duck = c.createGain(); duck.gain.value = 1; bus.connect(duck); duck.connect(cel);
   const sucho = c.createGain(); sucho.connect(bus);
-  const delay = c.createDelay(1.5); delay.delayTime.value = 60 / TEMPO * .75;
-  const fb = c.createGain(); fb.gain.value = .33; const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
-  const wet = c.createGain(); wet.gain.value = .32; delay.connect(lp); lp.connect(fb); fb.connect(delay); lp.connect(wet); wet.connect(bus);
-  const doEcha = c.createGain(); doEcha.gain.value = 1; doEcha.connect(delay);
-  const arpWyj = c.createGain(); arpWyj.gain.value = 1; arpWyj.connect(sucho); arpWyj.connect(doEcha);
-  const leadWyj = c.createGain(); leadWyj.gain.value = 1; leadWyj.connect(sucho); const leadEcho = c.createGain(); leadEcho.gain.value = 1.6; leadWyj.connect(leadEcho); leadEcho.connect(doEcha);
+  const pompa = c.createGain(); pompa.gain.setValueAtTime(1, 0); pompa.connect(sucho);      // pad, arpeggio i melodia przechodzą tędy: gain opada na każdej stopie i wraca
+  const wysylka = (zrodlo, ile) => { if (!pog) return; const g = c.createGain(); g.gain.value = ile; zrodlo.connect(g); g.connect(pog); };
+  // echo „ping-pong”: powtórki na przemian w lewym i prawym kanale, coraz ciemniejsze
+  const dL = c.createDelay(1.5), dR = c.createDelay(1.5); dL.delayTime.value = dR.delayTime.value = 60 / TEMPO * .75;
+  const lpE = c.createBiquadFilter(); lpE.type = 'lowpass'; lpE.frequency.value = 2400; const fb = c.createGain(); fb.gain.value = .36;
+  const pL = c.createStereoPanner(), pR = c.createStereoPanner(); pL.pan.value = -.65; pR.pan.value = .65; const wet = c.createGain(); wet.gain.value = .34;
+  const doEcha = c.createGain(); doEcha.connect(dL); dL.connect(pL); pL.connect(wet); dL.connect(lpE); lpE.connect(dR); dR.connect(pR); pR.connect(wet); dR.connect(fb); fb.connect(dL); wet.connect(bus);
+  const arpWyj = c.createGain(); arpWyj.connect(pompa); arpWyj.connect(doEcha); wysylka(arpWyj, .14);
+  const leadWyj = c.createGain(); leadWyj.connect(pompa); const leadEcho = c.createGain(); leadEcho.gain.value = 1.6; leadWyj.connect(leadEcho); leadEcho.connect(doEcha); wysylka(leadWyj, .5);
+  const padWyj = c.createGain(); padWyj.connect(pompa); wysylka(padWyj, .3);
   function planTakt(takt, t0) {
-    const ak = AKORDY[takt % 4], druga = (takt % 8) >= 4, ostatni = takt % 4 === 3;
-    // pad: sześć lekko rozstrojonych „piłek” przez filtr dolnoprzepustowy, miękki narost i zanik na cały takt
-    const padF = c.createBiquadFilter(); padF.type = 'lowpass'; padF.frequency.value = 1100; padF.Q.value = .5;
-    const padG = c.createGain(); padG.gain.setValueAtTime(0.0001, t0); padG.gain.exponentialRampToValueAtTime(.075, t0 + .7); padG.gain.setValueAtTime(.075, t0 + TAKT - .5); padG.gain.exponentialRampToValueAtTime(0.0001, t0 + TAKT + .25);
-    padF.connect(padG); padG.connect(sucho);
-    ak.ton.forEach(n => [-7, 7].forEach(det => { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mid(n); o.detune.value = det; const og = c.createGain(); og.gain.value = .3; o.connect(og); og.connect(padF); o.start(t0); o.stop(t0 + TAKT + .3); }));
-    // arpeggio szesnastkowe z echem
+    const ak = AKORDY[takt % 4], faza = takt % 8, druga = faza >= 4, ostatni = takt % 4 === 3;
+    // pompowanie: na każdej stopie (kroki 0, 4, 8, 12) pad/arpeggio schodzą do 40% i w ćwierć sekundy wracają
+    [0, 4, 8, 12].forEach(st => { const t = t0 + st * KROK; pompa.gain.setValueAtTime(.4, t); pompa.gain.linearRampToValueAtTime(1, t + .26); });
+    // pad: nuty akordu rozstawione w panoramie, filtr powoli się otwiera w ciągu ośmiu taktów
+    const padF = c.createBiquadFilter(); padF.type = 'lowpass'; padF.frequency.value = 800 + 1100 * (faza / 7); padF.Q.value = .5;
+    const padG = c.createGain(); padG.gain.setValueAtTime(0.0001, t0); padG.gain.exponentialRampToValueAtTime(.09, t0 + .7); padG.gain.setValueAtTime(.09, t0 + TAKT - .5); padG.gain.exponentialRampToValueAtTime(0.0001, t0 + TAKT + .25);
+    padF.connect(padG); padG.connect(padWyj);
+    ak.ton.forEach((n, i) => { const pn = c.createStereoPanner(); pn.pan.value = [-.5, 0, .5][i]; pn.connect(padF);
+      [-7, 7].forEach(det => { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mid(n); o.detune.value = det; const og = c.createGain(); og.gain.value = .3; o.connect(og); og.connect(pn); o.start(t0); o.stop(t0 + TAKT + .3); }); });
+    // arpeggio szesnastkowe z echem; im dalej w pętli, tym jaśniejsze
     const nutyArp = [ak.ton[0] + 12, ak.ton[1] + 12, ak.ton[2] + 12, ak.ton[0] + 24];
     for (let s = 0; s < 16; s++) {
       const n = nutyArp[WZOR_ARP[s % 8]] + (druga && s % 8 === 7 ? 12 : 0);
-      ton(c, arpWyj, { t: t0 + s * KROK, f: mid(n), d: KROK * 1.9, g: s % 4 === 0 ? .06 : .045, a: .004, typ: 'sawtooth', filtr: { typ: 'lowpass', f: 3600, f2: 600, q: 2.2 } });
+      ton(c, arpWyj, { t: t0 + s * KROK, f: mid(n), d: KROK * 1.9, g: s % 4 === 0 ? .072 : .054, a: .004, typ: 'sawtooth', filtr: { typ: 'lowpass', f: 3000 + 450 * faza, f2: 600, q: 2.2 } });
     }
     // bas: sinus z piłą pod spodem, synkopowy rytm
     [0, 3, 6, 8, 11, 14].forEach(s => {
       const t = t0 + s * KROK, f = mid(ak.baz);
-      ton(c, sucho, { t, f, d: KROK * 2.6, g: .07, a: .006 });
-      ton(c, sucho, { t, f, d: KROK * 2.6, g: .075, a: .006, typ: 'sawtooth', filtr: { typ: 'lowpass', f: 480, q: .8 } });      // piła z harmonicznymi: bas słychać też na małych głośnikach
+      ton(c, sucho, { t, f, d: KROK * 2.6, g: .055, a: .006 });
+      ton(c, sucho, { t, f, d: KROK * 2.6, g: .066, a: .006, typ: 'sawtooth', filtr: { typ: 'lowpass', f: 480, q: .8 } });      // piła z harmonicznymi: bas słychać też na małych głośnikach
     });
     // perkusja bardzo cicha: stopa na „raz”, klaśnięcie na „dwa” i „cztery”, hi-hat na ósemkach
     [0, 4, 8, 12].forEach(s => ton(c, sucho, { t: t0 + s * KROK, f: 140, f2: 42, d: .2, g: .09, a: .002 }));
     [4, 12].forEach(s => { szum(c, sucho, { t: t0 + s * KROK, d: .15, g: .05, f: 1700, q: .9 }); szum(c, sucho, { t: t0 + s * KROK + .018, d: .1, g: .03, f: 2100, q: .9 }); });
     for (let s = 0; s < 16; s += 2) szum(c, sucho, { t: t0 + s * KROK, d: s % 4 === 2 ? .07 : .035, g: s % 4 === 2 ? .018 : .01, f: 7500, q: .6, typ: 'highpass' });
-    // melodia (druga połowa pętli) i zakończenie frazy
-    if (druga) ak.lead.forEach(([s, n]) => ton(c, leadWyj, { t: t0 + s * KROK, f: mid(n), d: KROK * 5, g: .075, a: .02, typ: 'triangle' }));
-    if (ostatni) szum(c, sucho, { t: t0 + TAKT - KROK * 3, d: KROK * 3, g: .03, f: 600, f2: 5000, q: 1.2 });      // krótki „przelot” przed powrotem do początku
+    // melodia z vibrato (druga połowa pętli); dzwoneczek na pierwszej dobie pętli
+    if (druga) ak.lead.forEach(([s, n]) => ton(c, leadWyj, { t: t0 + s * KROK, f: mid(n), d: KROK * 5, g: .075, a: .02, typ: 'triangle', vib: { hz: 5.2, cent: 7 } }));
+    if (faza === 0) dzwonek(c, leadWyj, t0, 93, { g: .03, d: 1.3 });
+    // zakończenie frazy: „przelot” przed powrotem do początku, a przed końcem pętli krótkie wypełnienie werblami
+    if (ostatni) szum(c, sucho, { t: t0 + TAKT - KROK * 3, d: KROK * 3, g: .03, f: 600, f2: 5000, q: 1.2 });
+    if (faza === 7) [12, 13, 14, 15].forEach((s, i) => szum(c, sucho, { t: t0 + s * KROK, d: .09, g: .03 + .014 * i, f: 1900, q: .9 }));
   }
-  return { bus, planTakt };
+  return { bus, duck, planTakt };
 }
 
 /* ------------------------------ sterowanie ------------------------------ */
@@ -121,7 +164,7 @@ const odczyt = k => { try { return localStorage.getItem(k); } catch (e) { return
 const zapis = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* bez pamięci przeglądarki ustawienie obowiązuje do zamknięcia karty */ } };
 
 function utworz() {
-  let doc = null, c = null, master = null, efBus = null, mus = null, timer = 0, takt = 0, nastepny = 0, init = false;
+  let doc = null, c = null, tor = null, mus = null, timer = 0, takt = 0, nastepny = 0, init = false;
   let efektyWl = odczyt(KLUCZ_EFEKTY) !== '0', muzykaWl = odczyt(KLUCZ_MUZYKA) === '1';
   const log = [], licznik = {}, ostatnio = {}, sluchacze = [];
   const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
@@ -132,10 +175,7 @@ function utworz() {
     if (!c) {
       if (!zGestu) return null;      // bez gestu użytkownika przeglądarka i tak nie pozwoli grać (i wypisze ostrzeżenie w konsoli)
       try { c = new AC({ latencyHint: 'interactive' }); } catch (e) { return null; }
-      master = c.createGain(); master.gain.value = .8;
-      const kompresor = c.createDynamicsCompressor(); kompresor.threshold.value = -20; kompresor.knee.value = 12; kompresor.ratio.value = 4; kompresor.attack.value = .004; kompresor.release.value = .2;
-      master.connect(kompresor); kompresor.connect(c.destination);
-      efBus = c.createGain(); efBus.gain.value = 1; efBus.connect(master);
+      tor = zbudujTor(c, c.destination);
     }
     if (c.state === 'suspended') { try { c.resume().catch(() => {}); } catch (e) { /* kontekst zamknięty */ } }
     return c;
@@ -145,7 +185,7 @@ function utworz() {
     log.push(nazwa); if (log.length > 80) log.shift(); licznik[nazwa] = (licznik[nazwa] || 0) + 1;
     if (!c || c.state !== 'running' || (doc && doc.hidden)) return false;
     const teraz = Date.now(), min = ODSTEP_MS[nazwa] || 0; if (min && ostatnio[nazwa] && teraz - ostatnio[nazwa] < min) return false; ostatnio[nazwa] = teraz;
-    try { return zbudujEfekt(c, efBus, nazwa, c.currentTime + .005) > 0; } catch (e) { return false; }
+    try { const t = c.currentTime + .005, dl = zbudujEfekt(c, magistralaEfektu(tor, nazwa), nazwa, t); if (dl > 0 && mus && nazwa !== 'klik') przygluszMuzyke(mus.duck, t, dl); return dl > 0; } catch (e) { return false; }
   }
   function tik() {
     if (!mus || !c) return;
@@ -154,7 +194,7 @@ function utworz() {
   function startMuzyki() {
     if (mus) return true;
     const k = kontekst(true); if (!k) return false;
-    mus = zbudujMuzyke(k, master); const t = k.currentTime;
+    mus = zbudujMuzyke(k, tor.master, tor.pogMuzyki); const t = k.currentTime;
     mus.bus.gain.cancelScheduledValues(t); mus.bus.gain.setValueAtTime(0.0001, t); mus.bus.gain.exponentialRampToValueAtTime(GLOSNOSC_MUZYKI, t + 1.6);
     takt = 0; nastepny = t + .12; tik(); timer = setInterval(tik, 90); return true;
   }

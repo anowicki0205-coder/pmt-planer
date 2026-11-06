@@ -8,7 +8,7 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   const STRONA = `<!doctype html><meta charset="utf-8"><title>dźwięk</title>
     <button id="dzwiek" aria-pressed="true"><svg><use href="#i-glosnik"/></svg></button><button id="muzyka" aria-pressed="false"></button>
     <button id="zwykly">Zwykły</button><button id="zam" data-zamknij>Zamknij</button><button class="p-znak" id="znak">Znak</button><button id="wyl" disabled>Wyłączony</button>
-    <script type="module">import { dzwiek, zbudujEfekt, zbudujMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI } from '/js/dzwiek.js'; window.D = { dzwiek, zbudujEfekt, zbudujMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI }; dzwiek.init(document); window.gotowe = true;</script>`;
+    <script type="module">import { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI } from '/js/dzwiek.js'; window.D = { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI }; dzwiek.init(document); window.gotowe = true;</script>`;
   const sv = http.createServer((q, o) => {
     if (q.url === '/') { o.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return o.end(STRONA); }
     const f = path.join(WEB, q.url.split('?')[0]); if (!f.startsWith(WEB) || !fs.existsSync(f)) { o.writeHead(404); return o.end(); }
@@ -44,7 +44,7 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
 
   /* ---------- synteza: podkład ---------- */
   const mu = await p.evaluate(async () => {
-    const SR = 44100, TAKTOW = 8, oc = new OfflineAudioContext(1, Math.ceil(SR * (D.TAKT * TAKTOW + .6)), SR), m = D.zbudujMuzyke(oc, oc.destination);
+    const SR = 44100, TAKTOW = 8, oc = new OfflineAudioContext(1, Math.ceil(SR * (D.TAKT * TAKTOW + 3.2)), SR), m = D.zbudujMuzyke(oc, oc.destination);
     m.bus.gain.setValueAtTime(D.GLOSNOSC_MUZYKI, 0); for (let i = 0; i < TAKTOW; i++) m.planTakt(i, i * D.TAKT);
     const buf = await oc.startRendering(), d = buf.getChannelData(0), N = Math.floor(SR * D.TAKT);
     // podział energii na pasma (prawdziwe FFT, 2^19 próbek ≈ 11,9 s): podkład nie może być samym basem, którego małe głośniki laptopa nie odtworzą
@@ -52,7 +52,7 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
     const NF = 1 << 19, re = new Float64Array(NF), im = new Float64Array(NF); for (let i = 0; i < NF && i < d.length; i++) re[i] = d[i]; fft(re, im);
     const pasmo = (a, b) => { let e = 0; for (let k = Math.floor(a * NF / SR); k < Math.floor(b * NF / SR); k++) e += re[k] * re[k] + im[k] * im[k]; return e; }, calosc = pasmo(30, 11000);
     let pk = 0, nan = false; const rms = []; for (let t = 0; t < TAKTOW; t++) { let s = 0; for (let i = t * N; i < (t + 1) * N; i++) { const a = d[i]; if (!(a === a)) nan = true; s += a * a; if (Math.abs(a) > pk) pk = Math.abs(a); } rms.push(Math.sqrt(s / N)); }
-    const kon = d.slice(Math.floor((TAKTOW * D.TAKT + .3) * SR)), ogon = Math.sqrt(kon.reduce((s, x) => s + x * x, 0) / kon.length);
+    const kon = d.slice(Math.floor((TAKTOW * D.TAKT + 1.7) * SR)), ogon = Math.sqrt(kon.reduce((s, x) => s + x * x, 0) / kon.length);
     // trzask na łączeniu pętli: największy skok między sąsiednimi próbkami w okolicy granicy taktów
     let skok = 0; for (let t = 1; t < TAKTOW; t++) for (let i = t * N - 40; i < t * N + 40; i++) skok = Math.max(skok, Math.abs(d[i] - d[i - 1]));
     return { pk, nan, rms, ogon, skok, takt: D.TAKT, bas: pasmo(30, 150) / calosc, srodek: pasmo(150, 2000) / calosc, rmsDb: 20 * Math.log10(Math.sqrt(rms.reduce((s, r) => s + r * r, 0) / rms.length)) };
@@ -62,7 +62,35 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   ok('podkład: każdy takt gra (RMS ≥ 0,008) i jest tłem, nie hałasem (RMS ≤ 0,12 ≈ −18 dBFS)', mu.rms.every(r => r >= .008 && r <= .12), mu.rms.map(r => r.toFixed(3)).join(' '));
   ok('podkład: druga połowa pętli (z melodią) nie jest cichsza od pierwszej i nie głośniejsza więcej niż o 40%', mu.rms.slice(4).reduce((a, b) => a + b, 0) >= mu.rms.slice(0, 4).reduce((a, b) => a + b, 0) * .98 && mu.rms.slice(4).reduce((a, b) => a + b, 0) <= mu.rms.slice(0, 4).reduce((a, b) => a + b, 0) * 1.4, mu.rms.map(r => r.toFixed(3)).join(' '));
   ok('podkład: równowaga pasm — bas (30–150 Hz) nie przeważa nad resztą (≤ 60% energii), a środek (150–2000 Hz: pad, arpeggio, melodia) ma ≥ 35%; poziom ≈ −31…−22 dBFS jako tło', mu.bas <= .6 && mu.srodek >= .35 && mu.rmsDb >= -31 && mu.rmsDb <= -22, `bas ${(mu.bas * 100).toFixed(0)}%, środek ${(mu.srodek * 100).toFixed(0)}%, ${mu.rmsDb.toFixed(1)} dBFS`);
-  ok('podkład: po ostatnim takcie zostaje tylko cichy ogon (< 0,01) i nie ma skoków na łączeniu taktów (największa różnica sąsiednich próbek < 0,25)', mu.ogon < .01 && mu.skok < .25, `ogon ${mu.ogon.toFixed(4)}, skok ${mu.skok.toFixed(3)}`);
+  ok('podkład: 1,7 s po ostatnim takcie zostaje tylko cichy ogon echa (< 0,01) i nie ma skoków na łączeniu taktów (największa różnica sąsiednich próbek < 0,25)', mu.ogon < .01 && mu.skok < .25, `ogon ${mu.ogon.toFixed(4)}, skok ${mu.skok.toFixed(3)}`);
+
+
+  /* ---------- tor z pogłosem, stereo, przyciszanie muzyki ---------- */
+  const tor = await p.evaluate(async () => {
+    const SR = 44100, rms = (d, a, b) => { let s = 0; for (let i = Math.floor(a * SR); i < Math.floor(b * SR); i++) s += d[i] * d[i]; return Math.sqrt(s / Math.max(1, Math.floor((b - a) * SR))); };
+    const wyn = {};
+    // pogłos: efekt „wszystkie” przez tor z pogłosem (efR) i bez (ef): po końcu suchego dźwięku pogłos ma dźwięczeć i wygasać do ciszy
+    for (const [nazwa, bus] of [['sucho', 'ef'], ['pogłos', 'efR']]) {
+      const oc = new OfflineAudioContext(2, SR * 6, SR), t = D.zbudujTor(oc, oc.destination), dl = D.zbudujEfekt(oc, t[bus], 'wszystkie', .1), buf = await oc.startRendering(), L = buf.getChannelData(0), R = buf.getChannelData(1);
+      let pk = 0, nan = false; for (let i = 0; i < L.length; i++) { const a = Math.max(Math.abs(L[i]), Math.abs(R[i])); if (!(a === a)) nan = true; if (a > pk) pk = a; }
+      wyn[nazwa] = { dl, pk, nan, po: rms(L, .1 + dl + .15, .1 + dl + .6), koniec: rms(L, 5.5, 6) };
+    }
+    // muzyka w pełnym torze (stereo, z pogłosem): poziom, szczyt, szerokość stereo
+    { const T = 8, oc = new OfflineAudioContext(2, Math.ceil(SR * (D.TAKT * T)), SR), t = D.zbudujTor(oc, oc.destination), m = D.zbudujMuzyke(oc, t.master, t.pogMuzyki);
+      m.bus.gain.setValueAtTime(D.GLOSNOSC_MUZYKI, 0); for (let i = 0; i < T; i++) m.planTakt(i, i * D.TAKT);
+      const buf = await oc.startRendering(), L = buf.getChannelData(0), R = buf.getChannelData(1); let pk = 0, nan = false, sl = 0, sr = 0, slr = 0;
+      for (let i = SR * 2; i < L.length; i++) { const a = Math.max(Math.abs(L[i]), Math.abs(R[i])); if (!(a === a)) nan = true; if (a > pk) pk = a; sl += L[i] * L[i]; sr += R[i] * R[i]; slr += L[i] * R[i]; }
+      wyn.muzyka = { pk, nan, rmsDb: 20 * Math.log10(Math.sqrt((sl + sr) / 2 / (L.length - SR * 2))), korelacja: slr / Math.sqrt(sl * sr) }; }
+    // przyciszanie: ta sama muzyka z wywołaniem przygluszMuzyke w 6. sekundzie i bez
+    { const render = async duck => { const oc = new OfflineAudioContext(1, SR * 9, SR), m = D.zbudujMuzyke(oc, oc.destination); m.bus.gain.setValueAtTime(D.GLOSNOSC_MUZYKI, 0); for (let i = 0; i < 4; i++) m.planTakt(i, i * D.TAKT); if (duck) D.przygluszMuzyke(m.duck, 6, .8); return (await oc.startRendering()).getChannelData(0); };
+      const a = await render(false), b = await render(true); wyn.duck = { w: rms(b, 6.15, 6.55) / rms(a, 6.15, 6.55), po: rms(b, 8.6, 9) / rms(a, 8.6, 9) }; }
+    return wyn;
+  });
+  ok('pogłos: po zakończeniu suchego efektu wciąż słychać pogłos (≥ 3× głośniej niż bez pogłosu), a po kilku sekundach wygasa do ciszy (< 0,002)', tor['pogłos'].po > 3 * tor.sucho.po && tor['pogłos'].koniec < .002 && tor.sucho.koniec < .002, JSON.stringify({ sucho: tor.sucho.po.toExponential(1), pogłos: tor['pogłos'].po.toExponential(1), koniec: tor['pogłos'].koniec.toExponential(1) }));
+  ok('efekt przez cały tor (kompresor + pogłos): brak NaN i przesterowania (szczyt ≤ 0,95)', !tor.sucho.nan && !tor['pogłos'].nan && tor.sucho.pk <= .95 && tor['pogłos'].pk <= .95, `sucho ${tor.sucho.pk.toFixed(2)}, z pogłosem ${tor['pogłos'].pk.toFixed(2)}`);
+  ok('podkład w pełnym torze (jak w aplikacji): brak NaN, szczyt ≤ 0,95, poziom −30…−16 dBFS (RMS)', !tor.muzyka.nan && tor.muzyka.pk <= .95 && tor.muzyka.rmsDb >= -30 && tor.muzyka.rmsDb <= -16, `szczyt ${tor.muzyka.pk.toFixed(2)}, ${tor.muzyka.rmsDb.toFixed(1)} dBFS`);
+  ok('podkład jest naprawdę stereo: lewy i prawy kanał nie są kopią (korelacja < 0,95)', tor.muzyka.korelacja < .95, 'korelacja ' + tor.muzyka.korelacja.toFixed(3));
+  ok('przyciszanie: w czasie efektu muzyka jest cichsza o ≥ 20% i wraca do poprzedniego poziomu (±10%) po jego końcu', tor.duck.w < .8 && Math.abs(tor.duck.po - 1) < .1, JSON.stringify(tor.duck));
 
   /* ---------- sterowanie ---------- */
   const st0 = await p.evaluate(() => ({ efekty: D.dzwiek.efektyWl(), muzyka: D.dzwiek.muzykaWl(), gra: D.dzwiek.muzykaGra(), ctx: D.dzwiek.stan(), a1: document.querySelector('#dzwiek').getAttribute('aria-pressed'), a2: document.querySelector('#muzyka').getAttribute('aria-pressed') }));

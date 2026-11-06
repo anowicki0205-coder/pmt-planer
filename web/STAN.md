@@ -282,3 +282,6 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
 - [x] WERSJA WEB W ARKUSZU (uwaga właściciela 5.11: panel administracji nie pokazuje nikogo na najwyższej wersji; web miał inny numer niż program): aplikacja web zgłaszała stały numer silnika „web 3.24.0”,
       więc w zakładkach Uzytkownicy i Sesje wyglądała na starszą od programu 3.25.1. Teraz js/dostep.js WERSJA = numer najnowszego programu (WERSJA_PROGRAMU w PMT_Delegacje.py) → w arkuszu „web 3.25.1”;
       dostep_test.js pilnuje zgodności (przy nowym wydaniu programu trzeba podbić oba numery). Numer programu w kolumnie „Wersja” zmienia się dopiero po uruchomieniu programu, aktualizacji i logowaniu.
+- [x] DŹWIĘKI v2 (na pytanie właściciela „czy może być jeszcze lepiej”): wspólny tor zbudujTor() — pogłos (splot z syntetyczną odpowiedzią impulsową małej sali, tylko dla dzwonków i okien; klik, odhaczenie i błąd
+      zostają suche), kompresor i limiter; podkład stereo (pad rozstawiony w panoramie, echo „ping-pong”), „pompowanie” padu i arpeggia w rytm stopy, filtr otwierający się w ciągu 8 taktów, vibrato w melodii, dzwoneczek
+      na początku pętli i wypełnienie przed jej końcem; muzyka cichnie o ok. 40% na czas efektu (przygluszMuzyke). Odsłuch A/B: pliki *_v2.wav. Testy: dzwiek_test.js (pogłos zanika, stereo, przyciszanie, poziomy w pełnym torze).

@@ -46,6 +46,15 @@ const { otworz, generuj } = require('./wspolne');
   const s4 = await st();
   ok('wyłączenie nutką z nagłówka zatrzymuje podkład; menu pokazuje to samo', !(await p.evaluate(() => window.__pmtDzwiek.muzykaGra())) && s4.muzyka === 'false' && s4.mMuzyka === 'false', JSON.stringify(s4));
 
+  /* ---------- głośność w menu konta ---------- */
+  await p.click('#konto'); await p.waitForTimeout(400);
+  const sg0 = await p.evaluate(() => ({ wart: document.querySelector('#glosnosc').value, out: document.querySelector('#glosnosc').parentElement.querySelector('output').textContent, widoczny: !!document.querySelector('#glosnosc').offsetParent, gl: window.__pmtDzwiek.glosnosc() }));
+  ok('w menu konta (sekcja „Dźwięk”) jest suwak „Głośność” ze stanem 70% i napisem obok', sg0.widoczny && sg0.wart === '70' && sg0.out === '70%' && sg0.gl === 70, JSON.stringify(sg0));
+  await p.evaluate(() => { const r = document.querySelector('#glosnosc'); r.value = '35'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); }); await p.waitForTimeout(400);
+  const sg1 = await p.evaluate(() => ({ gl: window.__pmtDzwiek.glosnosc(), out: document.querySelector('#glosnosc').parentElement.querySelector('output').textContent, wz: window.__pmtDzwiek.wzmocnienie(), mag: localStorage.getItem('pmt-ui-glosnosc') }));
+  ok('zmiana suwaka na 35%: napis „35%”, zapis na urządzeniu, wzmocnienie główne spada do ≈ 0,40 (0,8 × 35/70)', sg1.gl === 35 && sg1.out === '35%' && sg1.mag === '35' && (sg1.wz === null || Math.abs(sg1.wz - .4) < .02), JSON.stringify(sg1));
+  await p.evaluate(() => { const r = document.querySelector('#glosnosc'); r.value = '70'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); localStorage.removeItem('pmt-ui-glosnosc'); }); await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+
   /* ---------- generowanie ---------- */
   // jak użytkownik: najpierw kwota do rozliczenia (bez niej „Generuj” prosi o potwierdzenie z kwotą), jednorazowe okna informacji zamknięte
   if (await p.locator('#arkusz-tlo.otwarty').count()) { await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('#arkusz-tlo.otwarty'), null, { timeout: 5000, polling: 100 }).catch(() => {}); }

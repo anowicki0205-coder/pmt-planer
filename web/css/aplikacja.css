@@ -255,6 +255,7 @@ html.soczewka .szklo.ma-soczewke{-webkit-backdrop-filter:var(--soczewka);backdro
 .ikb:hover{background:var(--k10)}
 .ikb:active{transform:scale(.9)}
 .ikb .ik{width:1.12rem;height:1.12rem}
+.glosnosc{display:flex;align-items:center;gap:.7rem;margin-top:.6rem;font-size:.85rem;color:var(--t2)}.glosnosc input{flex:1;min-width:0;accent-color:var(--a-cyan);height:1.6rem}.glosnosc output{min-width:2.6rem;text-align:right;font-variant-numeric:tabular-nums;color:var(--t1)}
 .ikb.dzw[aria-pressed="false"]{opacity:.55}.ikb.dzw[aria-pressed="true"]{color:var(--a-cyan)}.ikb.dzw#dzwiek[aria-pressed="true"]{color:var(--t1)}
 .dzwonek b{position:absolute;z-index:8;top:-.18rem;right:-.18rem;min-width:1.2rem;height:1.2rem;padding:0 .28rem;border-radius:999px;background:var(--blad);color:var(--na-blad);
   font-size:.75rem;font-weight:750;display:grid;place-items:center;box-shadow:0 0 0 2px var(--tlo-0),0 0 14px color-mix(in srgb,var(--blad) 60%,transparent)}

@@ -370,4 +370,5 @@ DŹWIĘKI I PODKŁAD MUZYCZNY (js/dzwiek.js)
     Przeglądarka pozwala grać dopiero po kliknięciu, więc zapamiętany podkład rusza przy pierwszym kliknięciu po otwarciu aplikacji. Karta w tle nie gra (oszczędza baterię).
   · Wszystko jest WYTWARZANE W PRZEGLĄDARCE (Web Audio): żadnych plików dźwiękowych, żadnych licencji, nic dodatkowego do pobrania, działa offline. Popularnych utworów z mediów społecznościowych
     NIE WOLNO wstawiać do aplikacji (prawa autorskie); własny utwór z licencją można dodać jako plik — wymaga to zmiany polityki bezpieczeństwa strony (media-src) i osobnej decyzji.
-  · Ustawienia pamiętane na urządzeniu: pmt-ui-dzwiek (0 = wyciszone), pmt-ui-muzyka (1 = podkład włączony).
+  · Ustawienia pamiętane na urządzeniu: pmt-ui-dzwiek (0 = wyciszone), pmt-ui-muzyka (1 = podkład włączony), pmt-ui-glosnosc (0–100; suwak „Głośność” w menu konta, domyślnie 70).
+  · Podkład to pętla 16 taktów (ok. 40 s) z drugim motywem akordów; w arpeggiu jest odrobina losowości, więc kolejne przejścia brzmią nieco inaczej.

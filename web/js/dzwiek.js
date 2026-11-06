@@ -96,12 +96,12 @@ export const TEMPO = 96;
 export const KROK = 60 / TEMPO / 4;      // szesnastka
 export const GLOSNOSC_MUZYKI = 1.2;      // docelowe wzmocnienie podkładu (tło: wyraźnie ciszej niż efekty)
 export const TAKT = KROK * 16;
-const AKORDY = [
-  { baz: 45, ton: [57, 60, 64], lead: [[0, 76], [6, 72], [10, 69]] },       // Am
-  { baz: 41, ton: [53, 57, 60], lead: [[0, 77], [6, 72], [12, 69]] },       // F
-  { baz: 48, ton: [55, 60, 64], lead: [[0, 79], [6, 76], [10, 72]] },       // C
-  { baz: 43, ton: [55, 59, 62], lead: [[0, 74], [6, 79], [12, 71]] }        // G
-];
+const Am = { baz: 45, ton: [57, 60, 64], lead: [[0, 76], [6, 72], [10, 69]] }, F = { baz: 41, ton: [53, 57, 60], lead: [[0, 77], [6, 72], [12, 69]] },
+  C = { baz: 48, ton: [55, 60, 64], lead: [[0, 79], [6, 76], [10, 72]] }, G = { baz: 43, ton: [55, 59, 62], lead: [[0, 74], [6, 79], [12, 71]] },
+  E = { baz: 40, ton: [52, 56, 59], lead: [[0, 80], [6, 76], [10, 71]] };      // E-dur: napięcie przed powrotem do Am
+/** Pętla 16 taktów (ok. 40 s): Am F C G (sam akompaniament) → Am F C G (z melodią) → F C G Am (inny kierunek) → F G Am E (zwrot z napięciem). */
+export const PETLA = 16;
+const PROGRESJA = [Am, F, C, G, Am, F, C, G, F, C, G, Am, F, G, Am, E];
 const WZOR_ARP = [0, 1, 2, 3, 2, 1, 2, 3];
 /** Buduje tor podkładu i zwraca { bus, duck, planTakt(numerTaktu, czasPoczatku) }. pog (opcjonalnie): węzeł wysyłki do pogłosu (zbudujTor().pogMuzyki).
  *  Pętla 8 taktów: akordy Am–F–C–G dwa razy; w drugiej czwórce melodia z vibrato. Brzmienie: szeroki pad (każda nuta w innym miejscu panoramy), arpeggio z echem „ping-pong”,
@@ -120,7 +120,7 @@ export function zbudujMuzyke(c, cel, pog) {
   const leadWyj = c.createGain(); leadWyj.connect(pompa); const leadEcho = c.createGain(); leadEcho.gain.value = 1.6; leadWyj.connect(leadEcho); leadEcho.connect(doEcha); wysylka(leadWyj, .5);
   const padWyj = c.createGain(); padWyj.connect(pompa); wysylka(padWyj, .3);
   function planTakt(takt, t0) {
-    const ak = AKORDY[takt % 4], faza = takt % 8, druga = faza >= 4, ostatni = takt % 4 === 3;
+    const ak = PROGRESJA[takt % PETLA], faza = takt % 8, druga = takt % PETLA >= 4, ostatni = takt % 4 === 3, luz = () => Math.random() * .007, glos = () => .92 + Math.random() * .16;      // luz/glos: odrobina „ludzkiego” wykonania (opóźnienie do 7 ms, głośność ±8%)
     // pompowanie: na każdej stopie (kroki 0, 4, 8, 12) pad/arpeggio schodzą do 40% i w ćwierć sekundy wracają
     [0, 4, 8, 12].forEach(st => { const t = t0 + st * KROK; pompa.gain.setValueAtTime(.4, t); pompa.gain.linearRampToValueAtTime(1, t + .26); });
     // pad: nuty akordu rozstawione w panoramie, filtr powoli się otwiera w ciągu ośmiu taktów
@@ -133,7 +133,7 @@ export function zbudujMuzyke(c, cel, pog) {
     const nutyArp = [ak.ton[0] + 12, ak.ton[1] + 12, ak.ton[2] + 12, ak.ton[0] + 24];
     for (let s = 0; s < 16; s++) {
       const n = nutyArp[WZOR_ARP[s % 8]] + (druga && s % 8 === 7 ? 12 : 0);
-      ton(c, arpWyj, { t: t0 + s * KROK, f: mid(n), d: KROK * 1.9, g: s % 4 === 0 ? .072 : .054, a: .004, typ: 'sawtooth', filtr: { typ: 'lowpass', f: 3000 + 450 * faza, f2: 600, q: 2.2 } });
+      ton(c, arpWyj, { t: t0 + s * KROK + luz(), f: mid(n), d: KROK * 1.9, g: (s % 4 === 0 ? .072 : .054) * glos(), a: .004, typ: 'sawtooth', filtr: { typ: 'lowpass', f: 3000 + 450 * faza, f2: 600, q: 2.2 } });
     }
     // bas: sinus z piłą pod spodem, synkopowy rytm
     [0, 3, 6, 8, 11, 14].forEach(s => {
@@ -147,16 +147,17 @@ export function zbudujMuzyke(c, cel, pog) {
     for (let s = 0; s < 16; s += 2) szum(c, sucho, { t: t0 + s * KROK, d: s % 4 === 2 ? .07 : .035, g: s % 4 === 2 ? .018 : .01, f: 7500, q: .6, typ: 'highpass' });
     // melodia z vibrato (druga połowa pętli); dzwoneczek na pierwszej dobie pętli
     if (druga) ak.lead.forEach(([s, n]) => ton(c, leadWyj, { t: t0 + s * KROK, f: mid(n), d: KROK * 5, g: .075, a: .02, typ: 'triangle', vib: { hz: 5.2, cent: 7 } }));
-    if (faza === 0) dzwonek(c, leadWyj, t0, 93, { g: .03, d: 1.3 });
+    if (takt % PETLA === 0) dzwonek(c, leadWyj, t0, 93, { g: .03, d: 1.3 });      // dzwoneczek na początku każdej pętli
     // zakończenie frazy: „przelot” przed powrotem do początku, a przed końcem pętli krótkie wypełnienie werblami
     if (ostatni) szum(c, sucho, { t: t0 + TAKT - KROK * 3, d: KROK * 3, g: .03, f: 600, f2: 5000, q: 1.2 });
-    if (faza === 7) [12, 13, 14, 15].forEach((s, i) => szum(c, sucho, { t: t0 + s * KROK, d: .09, g: .03 + .014 * i, f: 1900, q: .9 }));
+    if (faza === 7) [12, 13, 14, 15].forEach((s, i) => szum(c, sucho, { t: t0 + s * KROK, d: .09, g: (takt % PETLA === 15 ? .05 : .03) + .014 * i, f: 1900, q: .9 }));      // wypełnienie werblami; mocniejsze przed końcem całej pętli
   }
   return { bus, duck, planTakt };
 }
 
 /* ------------------------------ sterowanie ------------------------------ */
-const KLUCZ_EFEKTY = 'pmt-ui-dzwiek', KLUCZ_MUZYKA = 'pmt-ui-muzyka';
+const KLUCZ_EFEKTY = 'pmt-ui-dzwiek', KLUCZ_MUZYKA = 'pmt-ui-muzyka', KLUCZ_GLOSNOSC = 'pmt-ui-glosnosc';
+const GLOSNOSC_DOMYSLNA = 70, GLOSNOSC_MAX = 100;      // suwak 0–100%; 70% = poziom wzorcowy (wzmocnienie 0,8), 100% to ok. +3 dB (limiter pilnuje przesterowania)
 const BEZ_KLIKU = '.p-znak,[data-zamknij],.ark-zam,#motyw,[data-motyw],#dzwiek,#muzyka,[data-dzwiek]';      // te elementy mają własny dźwięk albo działają cicho
 const KLIKALNE = 'button,[role="button"],a.przycisk,label.przycisk,[data-akcja]';
 const ODSTEP_MS = { klik: 45, okno: 120, 'okno-zam': 120, odhacz: 60, 'odhacz-wyl': 60, ok: 220, zle: 220 };      // ten sam efekt nie częściej niż co tyle ms (kilka naraz brzmi jak szum)
@@ -166,6 +167,8 @@ const zapis = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* bez
 function utworz() {
   let doc = null, c = null, tor = null, mus = null, timer = 0, takt = 0, nastepny = 0, init = false;
   let efektyWl = odczyt(KLUCZ_EFEKTY) !== '0', muzykaWl = odczyt(KLUCZ_MUZYKA) === '1';
+  let glosnosc = (() => { const v = Number(odczyt(KLUCZ_GLOSNOSC)); return odczyt(KLUCZ_GLOSNOSC) !== null && Number.isFinite(v) ? Math.max(0, Math.min(GLOSNOSC_MAX, Math.round(v))) : GLOSNOSC_DOMYSLNA; })();
+  const wzmocnienieGlowne = () => .8 * glosnosc / GLOSNOSC_DOMYSLNA;
   const log = [], licznik = {}, ostatnio = {}, sluchacze = [];
   const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
   const powiadom = () => sluchacze.forEach(f => { try { f(); } catch (e) { /* słuchacz nie psuje dźwięku */ } });
@@ -175,7 +178,7 @@ function utworz() {
     if (!c) {
       if (!zGestu) return null;      // bez gestu użytkownika przeglądarka i tak nie pozwoli grać (i wypisze ostrzeżenie w konsoli)
       try { c = new AC({ latencyHint: 'interactive' }); } catch (e) { return null; }
-      tor = zbudujTor(c, c.destination);
+      tor = zbudujTor(c, c.destination); tor.master.gain.value = wzmocnienieGlowne();
     }
     if (c.state === 'suspended') { try { c.resume().catch(() => {}); } catch (e) { /* kontekst zamknięty */ } }
     return c;
@@ -208,7 +211,13 @@ function utworz() {
     doc.querySelectorAll('#muzyka,[data-dzwiek="muzyka"]').forEach(b => { b.setAttribute('aria-pressed', String(muzykaWl && !!mus)); });
     const g = doc.querySelector('#dzwiek use'); if (g) g.setAttribute('href', efektyWl ? '#i-glosnik' : '#i-glosnik-wyl');
     const e = doc.querySelector('#dzwiek'); if (e) e.setAttribute('aria-label', efektyWl ? 'Dźwięki: włączone — kliknij, żeby wyciszyć' : 'Dźwięki: wyciszone — kliknij, żeby włączyć');
+    doc.querySelectorAll('#glosnosc').forEach(r => { if (Number(r.value) !== glosnosc) r.value = String(glosnosc); const o = r.parentElement && r.parentElement.querySelector('output'); if (o) o.textContent = glosnosc + '%'; });
     const m = doc.querySelector('#muzyka'); if (m) m.setAttribute('aria-label', muzykaWl && mus ? 'Muzyka w tle: gra — kliknij, żeby wyłączyć' : 'Muzyka w tle: wyłączona — kliknij, żeby włączyć');
+  }
+  function ustawGlosnosc(v, zapisz = true) {
+    glosnosc = Math.max(0, Math.min(GLOSNOSC_MAX, Math.round(Number(v) || 0))); if (zapisz) zapis(KLUCZ_GLOSNOSC, String(glosnosc));
+    if (tor && c) tor.master.gain.setTargetAtTime(wzmocnienieGlowne(), c.currentTime, .03);
+    odswiezPrzyciski(); powiadom();
   }
   function ustawEfekty(w, zGestu = true) {
     efektyWl = !!w; zapis(KLUCZ_EFEKTY, efektyWl ? '1' : '0');
@@ -237,6 +246,7 @@ function utworz() {
     const sw = (sel, f) => doc.querySelectorAll(sel).forEach(b => b.addEventListener('click', e => { if (e.isTrusted) f(); }));
     sw('#dzwiek,[data-dzwiek="efekty"]', () => ustawEfekty(!efektyWl));
     sw('#muzyka,[data-dzwiek="muzyka"]', () => ustawMuzyke(!(muzykaWl && !!mus)));
+    doc.querySelectorAll('#glosnosc').forEach(r => { r.addEventListener('input', () => { ustawGlosnosc(r.value, false); }); r.addEventListener('change', () => { ustawGlosnosc(r.value); kontekst(true); efekt('ok', { wymus: true }); }); });      // przy puszczeniu suwaka krótki dźwięk próbny
     doc.addEventListener('visibilitychange', () => {
       if (!c) return;
       if (doc.hidden) { try { c.suspend().catch(() => {}); } catch (e) { /* kontekst zamknięty */ } }      // karta w tle nie gra i nie zjada baterii
@@ -246,7 +256,7 @@ function utworz() {
   }
   return {
     init(d) { if (init || !d) return; init = true; podepnij(d); },
-    efekt, ustawEfekty, ustawMuzyke, odswiezPrzyciski,
+    efekt, ustawEfekty, ustawMuzyke, ustawGlosnosc, odswiezPrzyciski, glosnosc: () => glosnosc, wzmocnienie: () => (tor ? tor.master.gain.value : null),
     efektyWl: () => efektyWl, muzykaWl: () => muzykaWl, muzykaGra: () => !!mus, stan: () => (c ? c.state : 'brak'),
     naZmiane: f => sluchacze.push(f), log, licznik,      // dziennik ostatnich efektów i liczniki od początku (dla testów)
     // tylko do testów: ile taktów podkładu już zaplanowano

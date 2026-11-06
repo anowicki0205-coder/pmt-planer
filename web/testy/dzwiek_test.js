@@ -7,8 +7,8 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   const WEB = path.join(__dirname, '..');
   const STRONA = `<!doctype html><meta charset="utf-8"><title>dźwięk</title>
     <button id="dzwiek" aria-pressed="true"><svg><use href="#i-glosnik"/></svg></button><button id="muzyka" aria-pressed="false"></button>
-    <button id="zwykly">Zwykły</button><button id="zam" data-zamknij>Zamknij</button><button class="p-znak" id="znak">Znak</button><button id="wyl" disabled>Wyłączony</button>
-    <script type="module">import { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI } from '/js/dzwiek.js'; window.D = { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI }; dzwiek.init(document); window.gotowe = true;</script>`;
+    <label><input type="range" id="glosnosc" min="0" max="100" step="5" value="70"><output></output></label><button id="zwykly">Zwykły</button><button id="zam" data-zamknij>Zamknij</button><button class="p-znak" id="znak">Znak</button><button id="wyl" disabled>Wyłączony</button>
+    <script type="module">import { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI, PETLA } from '/js/dzwiek.js'; window.D = { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI, PETLA }; dzwiek.init(document); window.gotowe = true;</script>`;
   const sv = http.createServer((q, o) => {
     if (q.url === '/') { o.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return o.end(STRONA); }
     const f = path.join(WEB, q.url.split('?')[0]); if (!f.startsWith(WEB) || !fs.existsSync(f)) { o.writeHead(404); return o.end(); }
@@ -44,23 +44,23 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
 
   /* ---------- synteza: podkład ---------- */
   const mu = await p.evaluate(async () => {
-    const SR = 44100, TAKTOW = 8, oc = new OfflineAudioContext(1, Math.ceil(SR * (D.TAKT * TAKTOW + 3.2)), SR), m = D.zbudujMuzyke(oc, oc.destination);
+    const SR = 44100, TAKTOW = D.PETLA, oc = new OfflineAudioContext(1, Math.ceil(SR * (D.TAKT * TAKTOW + 3.2)), SR), m = D.zbudujMuzyke(oc, oc.destination);
     m.bus.gain.setValueAtTime(D.GLOSNOSC_MUZYKI, 0); for (let i = 0; i < TAKTOW; i++) m.planTakt(i, i * D.TAKT);
     const buf = await oc.startRendering(), d = buf.getChannelData(0), N = Math.floor(SR * D.TAKT);
-    // podział energii na pasma (prawdziwe FFT, 2^19 próbek ≈ 11,9 s): podkład nie może być samym basem, którego małe głośniki laptopa nie odtworzą
+    // podział energii na pasma (prawdziwe FFT, 2^20 próbek ≈ 23,8 s): podkład nie może być samym basem, którego małe głośniki laptopa nie odtworzą
     const fft = (re, im) => { const n = re.length; for (let i = 1, j = 0; i < n; i++) { let bit = n >> 1; for (; j & bit; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; } } for (let len = 2; len <= n; len <<= 1) { const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang); for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let k = 0; k < len / 2; k++) { const ur = re[i + k], ui = im[i + k], vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci, vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr; re[i + k] = ur + vr; im[i + k] = ui + vi; re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi; const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr; } } } };
-    const NF = 1 << 19, re = new Float64Array(NF), im = new Float64Array(NF); for (let i = 0; i < NF && i < d.length; i++) re[i] = d[i]; fft(re, im);
+    const NF = 1 << 20, re = new Float64Array(NF), im = new Float64Array(NF); for (let i = 0; i < NF && i < d.length; i++) re[i] = d[i]; fft(re, im);
     const pasmo = (a, b) => { let e = 0; for (let k = Math.floor(a * NF / SR); k < Math.floor(b * NF / SR); k++) e += re[k] * re[k] + im[k] * im[k]; return e; }, calosc = pasmo(30, 11000);
     let pk = 0, nan = false; const rms = []; for (let t = 0; t < TAKTOW; t++) { let s = 0; for (let i = t * N; i < (t + 1) * N; i++) { const a = d[i]; if (!(a === a)) nan = true; s += a * a; if (Math.abs(a) > pk) pk = Math.abs(a); } rms.push(Math.sqrt(s / N)); }
     const kon = d.slice(Math.floor((TAKTOW * D.TAKT + 1.7) * SR)), ogon = Math.sqrt(kon.reduce((s, x) => s + x * x, 0) / kon.length);
     // trzask na łączeniu pętli: największy skok między sąsiednimi próbkami w okolicy granicy taktów
     let skok = 0; for (let t = 1; t < TAKTOW; t++) for (let i = t * N - 40; i < t * N + 40; i++) skok = Math.max(skok, Math.abs(d[i] - d[i - 1]));
-    return { pk, nan, rms, ogon, skok, takt: D.TAKT, bas: pasmo(30, 150) / calosc, srodek: pasmo(150, 2000) / calosc, rmsDb: 20 * Math.log10(Math.sqrt(rms.reduce((s, r) => s + r * r, 0) / rms.length)) };
+    return { pk, nan, rms, ogon, skok, takt: D.TAKT, takty: TAKTOW, bas: pasmo(30, 150) / calosc, srodek: pasmo(150, 2000) / calosc, rmsDb: 20 * Math.log10(Math.sqrt(rms.reduce((s, r) => s + r * r, 0) / rms.length)) };
   });
-  ok('podkład: takt ma ok. 2,5 s (96 BPM), pętla 8 taktów', Math.abs(mu.takt - 2.5) < .01, mu.takt.toFixed(3) + ' s');
+  ok('podkład: takt ma ok. 2,5 s (96 BPM), pętla 16 taktów (ok. 40 s)', Math.abs(mu.takt - 2.5) < .01 && mu.takty === 16, mu.takt.toFixed(3) + ' s, taktów ' + mu.takty);
   ok('podkład: brak NaN, szczyt ≤ 0,5 (bez przesterowania)', !mu.nan && mu.pk <= .5, 'szczyt ' + mu.pk.toFixed(3));
   ok('podkład: każdy takt gra (RMS ≥ 0,008) i jest tłem, nie hałasem (RMS ≤ 0,12 ≈ −18 dBFS)', mu.rms.every(r => r >= .008 && r <= .12), mu.rms.map(r => r.toFixed(3)).join(' '));
-  ok('podkład: druga połowa pętli (z melodią) nie jest cichsza od pierwszej i nie głośniejsza więcej niż o 40%', mu.rms.slice(4).reduce((a, b) => a + b, 0) >= mu.rms.slice(0, 4).reduce((a, b) => a + b, 0) * .98 && mu.rms.slice(4).reduce((a, b) => a + b, 0) <= mu.rms.slice(0, 4).reduce((a, b) => a + b, 0) * 1.4, mu.rms.map(r => r.toFixed(3)).join(' '));
+  { const sr = t => t.reduce((s, v) => s + v, 0) / t.length, bez = sr(mu.rms.slice(0, 4)), z = sr(mu.rms.slice(4)); ok('podkład: takty z melodią (od 5. do 16.) nie są cichsze od pierwszych czterech (bez melodii) i nie głośniejsze więcej niż o 40%', z >= bez * .98 && z <= bez * 1.4, `bez ${bez.toFixed(3)}, z melodią ${z.toFixed(3)}; ` + mu.rms.map(r => r.toFixed(3)).join(' ')); }
   ok('podkład: równowaga pasm — bas (30–150 Hz) nie przeważa nad resztą (≤ 60% energii), a środek (150–2000 Hz: pad, arpeggio, melodia) ma ≥ 35%; poziom ≈ −31…−22 dBFS jako tło', mu.bas <= .6 && mu.srodek >= .35 && mu.rmsDb >= -31 && mu.rmsDb <= -22, `bas ${(mu.bas * 100).toFixed(0)}%, środek ${(mu.srodek * 100).toFixed(0)}%, ${mu.rmsDb.toFixed(1)} dBFS`);
   ok('podkład: 1,7 s po ostatnim takcie zostaje tylko cichy ogon echa (< 0,01) i nie ma skoków na łączeniu taktów (największa różnica sąsiednich próbek < 0,25)', mu.ogon < .01 && mu.skok < .25, `ogon ${mu.ogon.toFixed(4)}, skok ${mu.skok.toFixed(3)}`);
 
@@ -76,7 +76,7 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
       wyn[nazwa] = { dl, pk, nan, po: rms(L, .1 + dl + .15, .1 + dl + .6), koniec: rms(L, 5.5, 6) };
     }
     // muzyka w pełnym torze (stereo, z pogłosem): poziom, szczyt, szerokość stereo
-    { const T = 8, oc = new OfflineAudioContext(2, Math.ceil(SR * (D.TAKT * T)), SR), t = D.zbudujTor(oc, oc.destination), m = D.zbudujMuzyke(oc, t.master, t.pogMuzyki);
+    { const T = D.PETLA, oc = new OfflineAudioContext(2, Math.ceil(SR * (D.TAKT * T)), SR), t = D.zbudujTor(oc, oc.destination), m = D.zbudujMuzyke(oc, t.master, t.pogMuzyki);
       m.bus.gain.setValueAtTime(D.GLOSNOSC_MUZYKI, 0); for (let i = 0; i < T; i++) m.planTakt(i, i * D.TAKT);
       const buf = await oc.startRendering(), L = buf.getChannelData(0), R = buf.getChannelData(1); let pk = 0, nan = false, sl = 0, sr = 0, slr = 0;
       for (let i = SR * 2; i < L.length; i++) { const a = Math.max(Math.abs(L[i]), Math.abs(R[i])); if (!(a === a)) nan = true; if (a > pk) pk = a; sl += L[i] * L[i]; sr += R[i] * R[i]; slr += L[i] * R[i]; }
@@ -128,6 +128,22 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   await p.click('#zwykly'); await p.waitForTimeout(600);
   ok('…ale rusza przy pierwszym geście (kliknięciu gdziekolwiek), bo użytkownik miał go włączony', await p.evaluate(() => D.dzwiek.muzykaGra() === true));
   await p.evaluate(() => { D.dzwiek.ustawMuzyke(false); localStorage.removeItem('pmt-ui-muzyka'); localStorage.removeItem('pmt-ui-dzwiek'); });
+
+  /* ---------- głośność ---------- */
+  await p.evaluate(() => { document.querySelector('#glosnosc').dispatchEvent(new Event('input')); });
+  const g0 = await p.evaluate(() => ({ gl: D.dzwiek.glosnosc(), suwak: document.querySelector('#glosnosc').value, out: document.querySelector('#glosnosc').parentElement.querySelector('output').textContent, wz: D.dzwiek.wzmocnienie() }));
+  ok('głośność: domyślnie 70% (suwak i napis), wzmocnienie główne 0,8 (poziom wzorcowy)', g0.gl === 70 && g0.suwak === '70' && g0.out === '70%' && Math.abs(g0.wz - .8) < .005, JSON.stringify(g0));
+  await p.evaluate(() => { const r = document.querySelector('#glosnosc'); r.value = '100'; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }); await p.waitForTimeout(300);
+  const g1 = await p.evaluate(() => ({ gl: D.dzwiek.glosnosc(), out: document.querySelector('#glosnosc').parentElement.querySelector('output').textContent, wz: D.dzwiek.wzmocnienie(), mag: localStorage.getItem('pmt-ui-glosnosc') }));
+  ok('głośność 100%: wzmocnienie ≈ 1,14 (+3 dB), napis „100%”, zapis na urządzeniu', g1.gl === 100 && g1.out === '100%' && Math.abs(g1.wz - 1.143) < .02 && g1.mag === '100', JSON.stringify(g1));
+  await p.evaluate(() => { const r = document.querySelector('#glosnosc'); r.value = '0'; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }); await p.waitForTimeout(300);
+  ok('głośność 0%: wzmocnienie 0 (cisza), a zapisane ustawienie to 0', await p.evaluate(() => D.dzwiek.glosnosc() === 0 && D.dzwiek.wzmocnienie() < .01 && localStorage.getItem('pmt-ui-glosnosc') === '0'));
+  await p.evaluate(() => { const r = document.querySelector('#glosnosc'); r.value = '45'; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); }); await p.waitForTimeout(300);
+  await p.reload(); await p.waitForFunction(() => window.gotowe);
+  ok('zapamiętana głośność wraca po odświeżeniu (suwak 45%, napis „45%”)', await p.evaluate(() => D.dzwiek.glosnosc() === 45 && document.querySelector('#glosnosc').value === '45' && document.querySelector('#glosnosc').parentElement.querySelector('output').textContent === '45%'));
+  await p.evaluate(() => localStorage.setItem('pmt-ui-glosnosc', 'abc')); await p.reload(); await p.waitForFunction(() => window.gotowe);
+  ok('zepsuta wartość w pamięci (tekst) nie psuje głośności: wraca 70%', await p.evaluate(() => D.dzwiek.glosnosc() === 70));
+  await p.evaluate(() => localStorage.removeItem('pmt-ui-glosnosc'));
   ok('w konsoli nie było błędów ani ostrzeżeń (m.in. „AudioContext was not allowed to start”)', bledy.length === 0, bledy.join(' | '));
   await b.close(); sv.close();
   console.log(kod ? 'KONIEC kod=1' : 'KONIEC kod=0'); process.exit(kod);

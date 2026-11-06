@@ -285,3 +285,7 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
 - [x] DŹWIĘKI v2 (na pytanie właściciela „czy może być jeszcze lepiej”): wspólny tor zbudujTor() — pogłos (splot z syntetyczną odpowiedzią impulsową małej sali, tylko dla dzwonków i okien; klik, odhaczenie i błąd
       zostają suche), kompresor i limiter; podkład stereo (pad rozstawiony w panoramie, echo „ping-pong”), „pompowanie” padu i arpeggia w rytm stopy, filtr otwierający się w ciągu 8 taktów, vibrato w melodii, dzwoneczek
       na początku pętli i wypełnienie przed jej końcem; muzyka cichnie o ok. 40% na czas efektu (przygluszMuzyke). Odsłuch A/B: pliki *_v2.wav. Testy: dzwiek_test.js (pogłos zanika, stereo, przyciszanie, poziomy w pełnym torze).
+- [x] DŹWIĘKI v3 — FINALNY SZLIF (po „Fajne”, prośba o ostatnie dopracowanie): pętla podkładu 16 taktów (ok. 40 s) zamiast 8: Am F C G (akompaniament) → Am F C G (z melodią) → F C G Am (inny kierunek) → F G Am E
+      (E-dur: napięcie przed powrotem), mocniejsze wypełnienie przed końcem pętli, dzwoneczek na jej początku; odrobina „ludzkiego” wykonania w arpeggiu (opóźnienie do 7 ms, głośność ±8% — dźwięk nie jest identyczny przy każdym
+      przejściu); suwak „Głośność” w menu konta (0–100%, domyślnie 70% = poziom wzorcowy, 100% ≈ +3 dB; limiter pilnuje przesterowania; zapamiętany: pmt-ui-glosnosc; przy puszczeniu suwaka krótki dźwięk próbny).
+      Pełna regresja (21 zestawów) zielona. NIE sprawdzone: brzmienie na prawdziwych głośnikach/słuchawkach (poziomy zmierzone, nie wysłuchane przeze mnie), iOS z wyciszonym dzwonkiem.

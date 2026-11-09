@@ -1,6 +1,6 @@
 // Wykrywanie nakładającego się i wystającego tekstu w wielu rozmiarach okna (m.in. typowe laptopowe okna przeglądarki ze scalingiem 125%/150%).
 // Tryb jak Firefox: bez View Transitions. NODE_PATH=/opt/node22/lib/node_modules node testy/nakladanie_app.js [motyw]
-const { otworz } = require('./wspolne'); const path = require('path'); const fs = require('fs');
+const { wpiszAdres, otworz } = require('./wspolne'); const path = require('path'); const fs = require('fs');
 const ROZMIARY = process.env.ROZMIARY ? JSON.parse(process.env.ROZMIARY) : [[1920, 1080], [1536, 730], [1536, 864], [1440, 760], [1366, 650], [1280, 590], [1100, 640], [1024, 768], [960, 560], [900, 700], [820, 1100], [390, 844], [360, 640]];
 const WYKRYJ = () => {
   const wyn = [], opis = e => e ? (e.id ? '#' + e.id : (e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : ''))) : '?';
@@ -39,7 +39,7 @@ const WYKRYJ = () => {
   if (process.env.STRES) await p.addStyleTag({ content: '*{letter-spacing:.02em!important;word-spacing:.04em!important}' });   // szersze pismo niż w Chromium (Firefox bywa szerszy)
   if (process.env.PRZYKLAD) await p.waitForTimeout(6000);
   else {
-    await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+    await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
     await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 60000 }); await p.waitForTimeout(3000);
   }
   const stan = async nazwa => {

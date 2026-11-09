@@ -1,13 +1,13 @@
 // Dźwięki w aplikacji (js/dzwiek.js podpięte w aplikacja.js, podpis.js, zywe.js): przyciski w nagłówku i w menu konta, ustawienia pamiętane na urządzeniu, momenty, w których gra efekt
 // (okna, motyw, generowanie), oraz to, że dźwięk niczego nie psuje (brak błędów w konsoli, wyciszenie działa). Sama synteza: dzwiek_test.js; podpisy/wysyłka: podpis_offline_app.js; odhaczanie: plan_app.js.
 // NODE_PATH=/opt/node22/lib/node_modules node dzwiek_app.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   const t = await otworz({ w: 1440, h: 900, bezZycia: true, muzykaDomyslna: null }), p = t.p; let kod = 0;      // muzykaDomyslna: null — prawdziwy domyślny stan podkładu (włączony)
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const log = () => p.evaluate(() => [...window.__pmtDzwiek.log]), czysc = () => p.evaluate(() => { window.__pmtDzwiek.log.length = 0; });
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3500);
 
   /* ---------- przyciski i ustawienia ---------- */
@@ -73,7 +73,7 @@ const { otworz, generuj } = require('./wspolne');
   /* ---------- pokaz generowania z „życiem”: każdy punkt trasy ma swoją nutę, w rytm podkładu ---------- */
   const t2 = await otworz({ w: 1440, h: 900, bezZycia: false, muzykaDomyslna: '1' }); const p2 = t2.p;
   await p2.goto(t2.adres + '/index.html'); await p2.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p2.fill('#d-imie', 'Jan Testowy'); await p2.fill('#d-pesel', '90010112349'); await p2.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p2.fill('#d-imie', 'Jan Testowy'); await p2.fill('#d-pesel', '90010112349'); await wpiszAdres(p2, 'ul. Testowa 1, 00-001 Warszawa');
   await p2.click('#zapisz-dane'); await p2.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p2.waitForTimeout(3000);
   await p2.fill('#kwota-in', '5000'); await p2.press('#kwota-in', 'Enter'); await p2.waitForTimeout(1200);
   await p2.evaluate(() => { window.__pmtDzwiek.log.length = 0; });

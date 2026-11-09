@@ -1,7 +1,7 @@
 // Przeniesienie danych z programu na komputerze: plik z programu (pmt_przeniesienie.py) → „Moje dane” w aplikacji web (formularz wypełnia się sam, nic nie zapisuje się bez „Zapisz”),
 // lista sklepów czeka w oknie „Plan wizyt”; błędne pliki (inne konto, inne hasło, zmieniony, nie z PMT) są odrzucane z czytelnym komunikatem.
 // NODE_PATH=/opt/node22/lib/node_modules node przeniesienie_app.js
-const { otworz, dzisTestow } = require('./wspolne'); const { execFileSync } = require('child_process'), path = require('path'), fs = require('fs'), os = require('os');
+const { wpiszAdres, otworz, dzisTestow } = require('./wspolne'); const { execFileSync } = require('child_process'), path = require('path'), fs = require('fs'), os = require('os');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const korzen = path.resolve(__dirname, '..', '..'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'przen-app-'));
@@ -32,7 +32,7 @@ print(P.zaszyfruj(json.loads(sys.stdin.read()), sys.argv[2], P.hash_hasla(sys.ar
     await p.setInputFiles('#plik-program', plik); await czekajInfo(re);
     ok(`odrzucony: ${opis}`, re.test(await info()) && (await p.locator('#przenos-info.zle').count()) === 1, (await info()).slice(0, 120));
   }
-  ok('po odrzuceniach formularz jest nietknięty (puste PESEL i adres)', (await p.inputValue('#d-pesel')) === '' && (await p.inputValue('#d-adres')) === '');
+  ok('po odrzuceniach formularz jest nietknięty (puste PESEL i pola adresu)', (await p.inputValue('#d-pesel')) === '' && (await p.inputValue('#d-ulica')) === '' && (await p.inputValue('#d-miasto')) === '');
 
   /* ---- hasło zmienione w aplikacji po zapisaniu pliku w programie: plik ma klucz z hasła z programu ---- */
   await p.setInputFiles('#plik-program', innyHaslo); await czekajInfo(/inne konto albo inne hasło/);
@@ -45,7 +45,7 @@ print(P.zaszyfruj(json.loads(sys.stdin.read()), sys.argv[2], P.hash_hasla(sys.ar
   /* ---- dobry plik ---- */
   await p.setInputFiles('#plik-program', dobry); await czekajInfo(/Wczytano/);
   ok('dobry plik: komunikat „Wczytano” z liczbą sklepów i prośbą o sprawdzenie', /Wczytano:.*3 sklepów.*Zapisz/s.test(await info()) && (await p.locator('#przenos-info.ok').count()) === 1, (await info()).slice(0, 160));
-  ok('formularz wypełniony: imię, PESEL, adres, stanowisko KR', (await p.inputValue('#d-imie')) === 'Jan Testowy' && (await p.inputValue('#d-pesel')) === '90010112349' && (await p.inputValue('#d-adres')) === 'ul. Testowa 1, 00-001 Warszawa' && (await p.inputValue('#d-stan')) === 'KR');
+  ok('formularz wypełniony: imię, PESEL, adres rozdzielony na pola (ulica, numer, kod, miejscowość), stanowisko KR', (await p.inputValue('#d-imie')) === 'Jan Testowy' && (await p.inputValue('#d-pesel')) === '90010112349' && (await p.inputValue('#d-ulica')) === 'ul. Testowa' && (await p.inputValue('#d-nr')) === '1' && (await p.inputValue('#d-lokal')) === '' && (await p.inputValue('#d-kod')) === '00-001' && (await p.inputValue('#d-miasto')) === 'Warszawa' && (await p.inputValue('#d-stan')) === 'KR');
   const przedZapisem = await p.evaluate(() => { const d = window.__pmtDane.czytaj(); return { profil: !!d.profil, sklepy: !!(d.ustawienia && d.ustawienia['sklepy-z-programu']) }; });
   ok('przed „Zapisz” nic nie jest zapisane (ani profil, ani lista sklepów)', !przedZapisem.profil && !przedZapisem.sklepy, JSON.stringify(przedZapisem));
   await p.screenshot({ path: '/tmp/przen_2_wczytano.png' });

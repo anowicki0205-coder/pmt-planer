@@ -1,11 +1,11 @@
 // Telefon: kontekst mobilny od początku (390x844 / 360x740), wszystkie zakładki. NODE_PATH=/opt/node22/lib/node_modules node telefon_app.js [w] [h] [motyw]
-const { otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
+const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
 (async () => {
   const [w = 390, h = 844, motyw = 'dark'] = process.argv.slice(2); const wyj = '/tmp/telefon_zrzuty'; fs.mkdirSync(wyj, { recursive: true });
   const t = await otworz({ w: +w, h: +h, dsf: 2, mobile: true, motyw }); const p = t.p;
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
   await p.waitForTimeout(2500); await p.screenshot({ path: `${wyj}/${motyw}_${w}_0_dane.png` });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.tap('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3500);
   await p.screenshot({ path: `${wyj}/${motyw}_${w}_1_plan.png` });
   await p.fill('#kwota-in', '3095,26'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);

@@ -3,7 +3,7 @@
 // etykieta kalendarza mówi, który to miesiąc, błąd zapisu po generowaniu nie zostawia aplikacji w „generowaniu”, zmiana miesiąca w trakcie generowania nie przenosi dokumentów do innego miesiąca,
 // nazwy miejscowości nie wchodzą do strony jako znaczniki, „Zmień kwotę” zostawia tryb i auto miesiąca, a kafel „Dziś” przechodzi na nowy dzień po północy.
 // NODE_PATH=/opt/node22/lib/node_modules node naprawy_aplikacja_app.js
-const { otworz } = require('./wspolne');
+const { wpiszAdres, otworz } = require('./wspolne');
 (async () => {
   const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
@@ -32,7 +32,7 @@ const { otworz } = require('./wspolne');
 
   /* ---- „Generuj” bez danych → Moje dane → Zapisz: wybór z pulpitu zostaje, komunikat widać ---- */
   await p.click('#podpisz'); await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 30000 }); await p.waitForTimeout(500);
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.evaluate(() => { window.__toast = { od: 0, do: 0 }; const el = document.querySelector('#toast'), t0 = performance.now(); const z = setInterval(() => { const t = performance.now() - t0; if (el.classList.contains('widoczny')) { if (!window.__toast.od) window.__toast.od = t; window.__toast.do = t; } if (t > 9000) clearInterval(z); }, 40); });      // klasa, nie nieprzezroczystość: na grafice programowej klatki są zbyt rzadkie, żeby mierzyć przejście
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 30000 }); await p.waitForTimeout(3000);
   await p.waitForTimeout(2000); const czasToastu = await p.evaluate(() => window.__toast.do - window.__toast.od);

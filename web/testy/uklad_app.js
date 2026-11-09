@@ -1,6 +1,6 @@
 // Układ aplikacji w wielu rozdzielczościach i obu motywach: przewijanie strony, przycięte teksty, elementy poza ekranem, błędy.
 // NODE_PATH=/opt/node22/lib/node_modules node uklad_app.js [katalog-zrzutow]
-const { otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
+const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
 const WIDOKI = [['1920x1080', 1920, 1080], ['1440x900', 1440, 900], ['1366x768', 1366, 768], ['1280x720', 1280, 720], ['1024x768', 1024, 768], ['390x844', 390, 844], ['360x740', 360, 740], ['412x915', 412, 915]];
 const BADAJ = () => {
   const se = document.scrollingElement, przyciete = [], poza = [];
@@ -19,7 +19,7 @@ const BADAJ = () => {
   const wyj = process.argv[2] || '/tmp/uklad_zrzuty'; fs.mkdirSync(wyj, { recursive: true });
   const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 30000 });
   await p.waitForTimeout(3500);
   await p.fill('#kwota-in', '3095,26'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);

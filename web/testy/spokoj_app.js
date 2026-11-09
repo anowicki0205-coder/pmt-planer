@@ -1,13 +1,13 @@
 // Spokojny tryb (czasowo: animacje wyłączone dla wszystkich, test płynności): w spoczynku nic się nie rusza, kursor nie uruchamia żadnych efektów,
 // a wszystkie funkcje działają jak dotąd (okna, zmiana miesiąca/dnia, generowanie). Oraz: liczba klatek/s w spoczynku (informacyjnie).
 // NODE_PATH=/opt/node22/lib/node_modules node spokoj_app.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   // bez „życia” kalendarza i fiolek (bezZycia) — ono ma osobny test: zycie_app.js
   const t = await otworz({ w: 1440, h: 900, pelnaZorza: true, bezZycia: true }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3500);
   ok('aplikacja startuje w trybie spokojnym (klasa html.spokojne)', await p.evaluate(() => document.documentElement.classList.contains('spokojne')));
   const stan = () => p.evaluate(() => ({ nazwy: document.getAnimations().filter(a => a.playState === 'running' && !(a instanceof CSSTransition)).map(a => (a.animationName || a.transitionProperty || '?') + '@' + ((a.effect && a.effect.target && (a.effect.target.id || a.effect.target.className)) || '')), ruchome: document.getAnimations().filter(a => a.playState === 'running' && !(a instanceof CSSTransition)).length, ciagle: document.getAnimations().filter(a => a.effect && a.effect.getComputedTiming().iterations === Infinity).length, zorza: window.__zorzaKlatki || 0 }));

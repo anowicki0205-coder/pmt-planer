@@ -80,4 +80,11 @@ async function wieczory(p, { tap = false } = {}) {
   await p.waitForFunction(() => document.querySelector('#parametry [data-tryb="wieczory"]').getAttribute('aria-pressed') === 'true', null, { timeout: 30000, polling: 200 });
   await p.waitForTimeout(600);
 }
-module.exports = { otworz, serwer, KORZEN, generuj, wieczory, dzisTestow };
+/** „Moje dane”: adres jest w pięciu polach (ulica, nr budynku, nr mieszkania, kod, miejscowość). Pomocnik przyjmuje adres jako jeden napis („ul. Testowa 1, 00-001 Warszawa”) i wypełnia pola tak, jak
+ *  zrobiłby to użytkownik; napisu, którego nie da się rozdzielić (test błędnych adresów), nie zgaduje — wpisuje całość w pole ulicy. */
+async function wpiszAdres(p, adres) {
+  const A = await import(require('url').pathToFileURL(path.join(KORZEN, 'js', 'adres.js')).href);
+  const c = A.rozbierzAdres(adres) || { ulica: String(adres), nr: '', lokal: '', kod: '', miasto: '' };
+  for (const [sel, k] of [['#d-ulica', 'ulica'], ['#d-nr', 'nr'], ['#d-lokal', 'lokal'], ['#d-kod', 'kod'], ['#d-miasto', 'miasto']]) await p.fill(sel, c[k]);
+}
+module.exports = { otworz, serwer, KORZEN, generuj, wieczory, dzisTestow, wpiszAdres };

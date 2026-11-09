@@ -2,7 +2,7 @@
 // kasuje dokumenty; wybór zapisuje się w profilu (domyślny w kolejnych miesiącach); „Zostaw jak jest” niczego nie rusza. Oraz: okno dokumentów ma pole przeciągania MIĘDZY krokiem 3 a 4
 // i szary, nieaktywny krok 5 „Wyślij”.
 // NODE_PATH=/opt/node22/lib/node_modules node ustawienia_po_generowaniu_app.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const t = await otworz({ w: 1440, h: 900, opcjeSerwera: { odbiorca: 'kierownik@example.com' } }); const p = t.p;
@@ -10,7 +10,7 @@ const { otworz, generuj } = require('./wspolne');
   const rekordy = () => p.evaluate(() => Object.values(window.__pmtDane.czytaj().miesiace || {}));
   const wcisniete = sel => p.evaluate(s => document.querySelector(s).getAttribute('aria-pressed'), sel);
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '3000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   ok('przed generowaniem przełączniki są w kaflu (Tydzień i powyżej 900 cm³ wciśnięte)', (await wcisniete('#parametry [data-tryb="tydzien"]')) === 'true' && (await wcisniete('#parametry [data-silnik="1"]')) === 'true');

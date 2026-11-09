@@ -1,12 +1,14 @@
 // PMT Planer (web) — podpisywanie, sprawdzanie podpisów i wysyłka dokumentów miesiąca.
-// Okno „Dokumenty do podpisu” prowadzi pięcioma krokami (piąty, „Wyślij”, jest szary, dopóki wszystkie dokumenty nie są wgrane i sprawdzone):
-//   1. Pobierz dokumenty (jeden ZIP albo osobne pliki),
-//   2. Podpisz: elektronicznie na gov.pl (Profil Zaufany) albo odręcznie (wydruk) — aplikacja nie ma jak wysłać plików na gov.pl, bo to osobna strona, więc pliki idą przez dysk,
-//   3. Wgraj podpisane pliki (PDF z podpisem, plik .xades, paczka ZIP, skany i zdjęcia — wszystkie naraz; aplikacja sama dopasowuje je do dokumentów),
-//   4. Sprawdzenie: dla każdego dokumentu — czy jest podpis, czy obejmuje całość, czy dokument nie został zmieniony, czy podpisała właściwa osoba (imię i nazwisko, PESEL),
-//      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane,
-//   5. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
-import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
+// Okno „Dokumenty do podpisu” prowadzi czterema krokami (czwarty, „Wyślij”, jest szary, dopóki wszystkie dokumenty nie są wgrane i sprawdzone). Dawny krok „Pobierz dokumenty” (ZIP albo osobne pliki)
+// zniknął (decyzja właściciela, 9.11): pobieranie jest teraz częścią kroku „Podpisz”, a numery w oknie to 1–4 (nazwy klas CSS .k2…k5 zostały — numeracja w nich pochodzi z czasów pięciu kroków):
+//   1. Podpisz: elektronicznie na gov.pl (Profil Zaufany) — najpierw trzeba pobrać dokumenty POJEDYNCZO jako PDF (każdy ma swój przycisk), dopiero po pobraniu odblokowuje się „Otwórz gov.pl”
+//      (strona gov.pl nie przyjmuje plików z zewnątrz: przeglądarka nie pozwala wypełnić okna wyboru pliku, więc pliki idą przez dysk) — albo odręcznie (wydruk),
+//   2. Wgraj podpisane pliki (PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia — wszystkie naraz; aplikacja sama dopasowuje je do dokumentów),
+//   3. Sprawdzenie: dla każdego dokumentu — czy jest podpis, czy obejmuje całość, czy dokument nie został zmieniony, czy podpisała właściwa osoba (imię i nazwisko, PESEL),
+//      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane. ROZLICZENIE WYDATKÓW podpisu nie wymaga
+//      (przyjmuję je z podpisem i bez; plik pobrany bez zmian też jest w porządku),
+//   4. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 2 a 3 — tam, gdzie się wgrywa.
+import { scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
 import { zipujKlasycznie } from './zipklasyczny.js';
 import { zipujAes } from './zipaes.js';
 import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
@@ -49,6 +51,10 @@ export function zainstalujPodpis(k) {
   /* ---------------------------------- pomocnicze ---------------------------------- */
   const nagl = (tytul, wstecz) => `<div class="ark-gora">${wstecz ? `<button type="button" class="ark-wstecz" data-akcja="glowny" aria-label="Wstecz">${ik('i-lewo')}</button>` : ''}<h2 id="ark-tyt">${tytul}</h2><button type="button" class="ark-zam" data-zamknij aria-label="Zamknij">${ik('i-zamknij')}</button></div>`;
   const wszystkoPodpisane = () => k.razemDok() > 0 && k.ilePodpisanych() >= k.razemDok();
+  /* Pobrane (jako PDF) dokumenty tego miesiąca: dopiero po pierwszym pobraniu odblokowuje się „Otwórz gov.pl”. Pamięć na urządzeniu (jak inne ustawienia miesiąca); po ponownym generowaniu zerowana. */
+  const kluczPobrane = () => 'pobrane-' + magMiesiace.klucz(M().rok, M().mies);
+  const pobrane = () => { const v = magUst.daj(kluczPobrane(), []); return new Set(Array.isArray(v) ? v : []); };
+  const oznaczPobrane = idx => { const s = pobrane(); idx.forEach(i => s.add(i)); magUst.ustaw(kluczPobrane(), [...s]); };
   const nazwaZip = () => `Dokumenty_${bezOgonkow(k.PROFIL().imie).replace(/\s+/g, '_')}_${bezOgonkow(String(k.MIES[M().mies - 1]))}_${M().rok}.zip`;
   async function oryginal(d) { return magPliki.daj(k.klucz(d.nazwa)); }
   async function oryginaly() { const wyn = []; for (const d of k.nazwyDok()) { const b = await oryginal(d); if (b) wyn.push({ d, bajty: b }); } return wyn; }
@@ -57,9 +63,11 @@ export function zainstalujPodpis(k) {
   /* ---------------------------------- widok główny: cztery kroki ---------------------------------- */
   const stanKarty = i => { const w = weryfikacje()[i]; if (sprawdzane.has(i)) return 'trwa'; if (!w) return plikiDok(i).length ? 'trwa' : 'czeka'; return M().podpisane[i] ? 'ok' : (w.stan === 'zle' ? 'zle' : 'uwaga'); };
   const CHIP = { czeka: 'czeka na podpis', trwa: 'sprawdzam…', ok: 'podpis sprawdzony', uwaga: 'do sprawdzenia', zle: 'błąd podpisu' };
+  const CHIP_ROZL = { czeka: 'czeka na plik', trwa: 'sprawdzam…', ok: 'przyjęte', uwaga: 'do sprawdzenia', zle: 'błąd podpisu' };      // rozliczenie wydatków nie wymaga podpisu: czeka na PLIK, a po sprawdzeniu jest „przyjęte”
+  const chip = (d, st) => (d && d.rozliczenie ? CHIP_ROZL : CHIP)[st];
   function komunikatKarty(i) {
-    const w = weryfikacje()[i]; if (!w) return plikiDok(i).length ? 'Sprawdzam plik…' : 'Wgraj podpisany plik tego dokumentu';
-    if (M().podpisane[i]) return w.potwierdzone ? 'Podpis potwierdzony przez Ciebie' : w.bezWymogu ? 'Rozliczenie przyjęte — podpis odręczny nie jest na nim wymagany' : w.rodzaj === 'odreczny' ? 'Widzę podpis w miejscu „podpis pracownika”' : `Podpisał(a): ${esc(w.sygnatariusz || '—')}${w.czas ? ' · ' + czasPl(new Date(w.czas)) : ''}`;
+    const w = weryfikacje()[i]; if (!w) return plikiDok(i).length ? 'Sprawdzam plik…' : (k.nazwyDok().find(x => x.i === i) || {}).rozliczenie ? 'Wgraj ten dokument — podpis nie jest wymagany (może być plik pobrany bez zmian)' : 'Wgraj podpisany plik tego dokumentu';
+    if (M().podpisane[i]) return w.potwierdzone ? (w.bezWymogu ? 'Plik potwierdzony przez Ciebie' : 'Podpis potwierdzony przez Ciebie') : w.bezWymogu ? 'Rozliczenie przyjęte — podpis nie jest na nim wymagany' : w.rodzaj === 'odreczny' ? 'Widzę podpis w miejscu „podpis pracownika”' : `Podpisał(a): ${esc(w.sygnatariusz || '—')}${w.czas ? ' · ' + czasPl(new Date(w.czas)) : ''}`;
     const zly = (w.kontrole.find(c => c.stan === 'zle') || w.kontrole.find(c => c.stan === 'uwaga')); return zly ? esc(zly.tekst) : 'Wymaga sprawdzenia';
   }
   function szczegoly(d) {
@@ -84,7 +92,7 @@ export function zainstalujPodpis(k) {
   function kartaDok(d) {
     const st = stanKarty(d.i), otw = otwarte.has(d.i) && st !== 'czeka', wys = wyslane() && st === 'ok';      // po wysłaniu zamiast „Otwórz” karta pokazuje, że dokument poszedł
     const szczegolyBtn = st !== 'czeka' && st !== 'trwa' ? `<button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Szczegóły</button>` : '';
-    return `<div class="dok-k st-${st}${nowyStan(d.i) ? ' nowy' : ''}${fokusI === d.i ? ' blysk' : ''}${wys ? ' wyslano' : ''}${otw ? ' otwarta' : ''}" data-i="${d.i}"><div class="dok-k-g"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div><small>${d.opis}</small>
+    return `<div class="dok-k st-${st}${nowyStan(d.i) ? ' nowy' : ''}${fokusI === d.i ? ' blysk' : ''}${wys ? ' wyslano' : ''}${otw ? ' otwarta' : ''}" data-i="${d.i}"><div class="dok-k-g"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : chip(d, st)}</span></div><small>${d.opis}</small>
       <p class="dok-kom">${komunikatKarty(d.i)}</p>
       ${otw ? szczegoly(d) : wys ? `<div class="dok-akcje"><span class="dok-wyslano">${ik('i-ok')}Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}</span>${szczegolyBtn}</div>` : `<div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz</button>${szczegolyBtn}</div>`}</div>`;
   }
@@ -102,13 +110,13 @@ export function zainstalujPodpis(k) {
   const przelacznikWidoku = () => `<div class="k3-przel" role="group" aria-label="Sposób wyświetlania dokumentów"><button type="button" data-akcja="widok" data-w="3d" aria-pressed="${widokKart === '3d'}">${ik('i-pioro')}Widok 3D</button><button type="button" data-akcja="widok" data-w="lista" aria-pressed="${widokKart === 'lista'}">Karty</button></div>`;      // „Widok 3D” pierwszy (domyślny), „Karty” jako opcja
   function karta3d(d) {
     const st = stanKarty(d.i), wys = wyslane() && st === 'ok', dane = daneDok(d);
-    return `<div class="karta3d k3-${st}${nowyStan(d.i) ? ' k3-nowy' : ''}${wys ? ' wyslano' : ''}" data-i="${d.i}" role="group" aria-label="${esc(d.tytul)}: ${wys ? 'wysłano' : CHIP[st]}">
-      <div class="k3-gl"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span></div>
+    return `<div class="karta3d k3-${st}${nowyStan(d.i) ? ' k3-nowy' : ''}${wys ? ' wyslano' : ''}" data-i="${d.i}" role="group" aria-label="${esc(d.tytul)}: ${wys ? 'wysłano' : chip(d, st)}">
+      <div class="k3-gl"><b>${d.tytul}</b><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : chip(d, st)}</span></div>
       ${dane ? atrapaHtml(dane, { stan: st, maks: 6, wyslano: wys, nowy: nowyStan(d.i) }) : '<div class="da-papier"></div>'}
       <div class="k3-st"><span>${d.opis}</span><div class="k3-akcje"><button type="button" class="przycisk maly" data-akcja="powieksz" data-i="${d.i}" tabindex="-1">Powiększ</button>${wys ? `<span class="dok-wyslano">${ik('i-ok')}Wysłano</span>` : `<button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}" tabindex="-1">Otwórz</button>`}</div></div></div>`;
   }
-  const kropkiKart = () => k.nazwyDok().map(d => { const st = stanKarty(d.i); return `<button type="button" class="k3-kropka k3-${st}${d.i === przodI ? ' akt' : ''}" data-akcja="k3-do" data-i="${d.i}" title="${esc(d.tytul)} — ${CHIP[st]}" aria-label="${esc(d.tytul)}: ${CHIP[st]}"></button>`; }).join('');
-  const nazwaPrzodu = () => { const d = k.nazwyDok()[przodI]; return d ? `${d.tytul} · ${CHIP[stanKarty(d.i)]} (${przodI + 1} z ${k.razemDok()})` : ''; };
+  const kropkiKart = () => k.nazwyDok().map(d => { const st = stanKarty(d.i); return `<button type="button" class="k3-kropka k3-${st}${d.i === przodI ? ' akt' : ''}" data-akcja="k3-do" data-i="${d.i}" title="${esc(d.tytul)} — ${chip(d, st)}" aria-label="${esc(d.tytul)}: ${chip(d, st)}"></button>`; }).join('');
+  const nazwaPrzodu = () => { const d = k.nazwyDok()[przodI]; return d ? `${d.tytul} · ${chip(d, stanKarty(d.i))} (${przodI + 1} z ${k.razemDok()})` : ''; };
   const widok3d = () => `<div class="k3-wrap" id="dok-siatka">
       <div class="k3-pasek" id="k3-pasek" aria-label="Stan wszystkich dokumentów">${kropkiKart()}</div>
       <div class="k3-scena" id="k3-scena" tabindex="0" role="group" aria-roledescription="karuzela" aria-label="Dokumenty do podpisu — strzałki obracają, Enter powiększa wybrany dokument"><div class="k3-podloga"></div><div class="k3-pier" id="k3-pier">${k.nazwyDok().map(karta3d).join('')}</div></div>
@@ -120,7 +128,7 @@ export function zainstalujPodpis(k) {
       <div class="k3-pg-gora"><button type="button" class="przycisk maly" data-akcja="k3-wroc">${ik('i-lewo')}Wróć do karuzeli</button><b>${d.tytul} <small>· ${d.opis}</small></b>
         <span class="k3-pg-nawig"><button type="button" class="przycisk ikb" data-akcja="k3-poprz" aria-label="Poprzedni dokument">‹</button><button type="button" class="przycisk ikb" data-akcja="k3-nast" aria-label="Następny dokument">›</button></span></div>
       <div class="k3-pg-tresc"><div class="k3-pg-kartka">${dane ? atrapaHtml(dane, { stan: st, pelnyPesel: true, wyslano: wys, nowy: nowyStan(i) }) : ''}</div>
-        <aside class="k3-pg-panel k3-${st}"><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : CHIP[st]}</span><p class="dok-kom">${wys ? `Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}` : komunikatKarty(i)}</p>${sz}
+        <aside class="k3-pg-panel k3-${st}"><span class="stan st-${st}"><i></i>${wys ? 'wysłano' : chip(d, st)}</span><p class="dok-kom">${wys ? `Wysłano${M().wyslaneKiedy ? ' ' + dataPl(M().wyslaneKiedy) : ''}` : komunikatKarty(i)}</p>${sz}
           <div class="dok-akcje"><button type="button" class="przycisk maly" data-akcja="otworz" data-nazwa="${esc(d.nazwa)}">Otwórz plik PDF</button></div>
           <small class="k3-pg-uwaga">To podgląd danych z wygenerowanego dokumentu (układ jak w pliku PDF). Sprawdź imię, adres, trasę i kwoty przed podpisem.</small></aside></div></div>`;
   }
@@ -194,22 +202,31 @@ export function zainstalujPodpis(k) {
     : zablokowana() ? esc(daneWysylki.komunikat)
     : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${({ outlook: 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)', plik: matchMedia('(pointer:coarse)').matches ? 'otworzy pocztę z gotową wiadomością (paczkę dołączysz z folderu Pobrane)' : 'przygotuje gotową wiadomość (adres, temat, treść i paczka w jednym pliku .eml) — otworzy się w Twojej poczcie i zostanie tylko kliknąć „Wyślij”', pulpit: 'zapisze na pulpicie ikonę gotowej wiadomości (adres, temat, treść i paczka w jednym pliku) — klikniesz ją dwukrotnie, a otworzy się poczta ze wszystkim', poczta: 'otworzy Twój program pocztowy z adresem, tematem i treścią (paczkę zapisze w folderze Pobrane, do dołączenia)' })[metodaWysylki()] || 'przygotuje wiadomość'}.`;      // adres odbiorcy zna tylko administrator — użytkownikowi się go nie pokazuje (trafia tylko do pola „Do” gotowej wiadomości)
   function wczytajDane() { if (daneWysylki !== undefined || pobieranieDanych) return; pobieranieDanych = true; hasloDoPaczki().then(o => { daneWysylki = o; daneWysylkiTs = Date.now(); }).finally(() => { pobieranieDanych = false; odswiezWidok(); }); }
+  /** Lista dokumentów do pobrania w kroku „Podpisz”: każdy PDF osobno (przycisk obok nazwy); pobrane są oznaczone. Rozliczenie wydatków nie wymaga podpisu — jest na liście, bo trafia do paczki. */
+  function wierszePobierania() {
+    const pob = pobrane();
+    return `<ul class="kk-pliki" aria-label="Dokumenty do pobrania">${k.nazwyDok().map(d => `<li class="kk-plik${pob.has(d.i) ? ' pobrano' : ''}"><span class="kk-plik-nazwa"><b>${d.tytul}</b><small>${d.rozliczenie ? 'podpis niewymagany' : d.opis}</small></span><button type="button" class="przycisk maly" data-akcja="pobierz-dok" data-i="${d.i}" aria-label="Pobierz PDF: ${esc(d.tytul)}">${pob.has(d.i) ? `${ik('i-ok')}Pobrano` : `${ik('i-pobierz')}Pobierz PDF`}</button></li>`).join('')}</ul>`;
+  }
+  /** „Otwórz gov.pl” działa dopiero po pobraniu choć jednego dokumentu; wcześniej to wyszarzony przycisk bez adresu (nic nie otworzy). */
+  const akcjeGov = () => `<span class="kk-przyciski" id="kk-gov-akcje"><button type="button" class="przycisk" data-akcja="osobno">${ik('i-pobierz')}Pobierz wszystkie</button>${pobrane().size
+    ? `<a class="przycisk glowny" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`
+    : `<button type="button" class="przycisk glowny" id="otworz-gov" disabled aria-disabled="true">Otwórz gov.pl</button>`}</span>${pobrane().size ? '' : '<small class="kk-podp" id="kk-gov-podp">„Otwórz gov.pl” odblokuje się po pobraniu dokumentów.</small>'}`;
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
     return `${nagl('Dokumenty do podpisu')}
       <ol class="kroki4">
-        <li class="krok-k k1"><span class="kk-nr">1</span><div class="kk-tresc"><b>Pobierz dokumenty</b><small>${razem} ${liczba(razem, 'dokument gotowy', 'dokumenty gotowe', 'dokumentów gotowych')} do podpisu. Zapisz je na dysku — program nie ma jak wysłać ich na gov.pl sam.</small></div>
-          <span class="kk-akcje"><button type="button" class="przycisk glowny" id="pobierz-wsz" data-akcja="zip">${ik('i-pobierz')}Wszystkie (ZIP)</button><button type="button" class="przycisk" data-akcja="osobno">Osobne pliki</button></span></li>
-        <li class="krok-k k2"><span class="kk-nr">2</span><div class="kk-tresc"><b>Podpisz</b>
+        <li class="krok-k k2"><span class="kk-nr">1</span><div class="kk-tresc"><b>Podpisz</b>
           <div class="kk-opcje">
-            <div class="kk-opcja"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>Profil Zaufany, bezpłatnie. gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small><a class="przycisk" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a></div>
+            <div class="kk-opcja kk-gov"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>Profil Zaufany, bezpłatnie. Najpierw pobierz dokumenty (każdy osobno, jako PDF) — strona gov.pl nie przyjmie plików z aplikacji, więc podpisujesz te z dysku. gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small>
+              ${wierszePobierania()}
+              ${akcjeGov()}</div>
             <div class="kk-opcja"><b>${ik('i-drukuj')}Odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika” (na rozliczeniu wydatków podpis nie jest wymagany), zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem).</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></div>
           </div></div></li>
-        <li class="krok-k k3"><span class="kk-nr">3</span><div class="kk-tresc"><b>Wgraj podpisane pliki</b><small>Wszystkie naraz: PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia. Sam dopasuję je do dokumentów.</small></div>
+        <li class="krok-k k3"><span class="kk-nr">2</span><div class="kk-tresc"><b>Wgraj podpisane pliki</b><small>Wszystkie naraz: PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia. Sam dopasuję je do dokumentów.</small></div>
           <span class="kk-akcje"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span></li>
         <li class="krok-strefa"><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></li>
-        <li class="krok-k k4"><span class="kk-nr">4</span><div class="kk-tresc"><b>Sprawdzenie</b><small class="podp-licznik" id="podp-licznik">${podsumowanie()}</small></div></li>
-        <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">5</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small><small class="podp-stan" id="podp-wyslij-stan" aria-live="polite">${stanWysylki}</small></div>
+        <li class="krok-k k4"><span class="kk-nr">3</span><div class="kk-tresc"><b>Sprawdzenie</b><small class="podp-licznik" id="podp-licznik">${podsumowanie()}</small></div></li>
+        <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">4</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small><small class="podp-stan" id="podp-wyslij-stan" aria-live="polite">${stanWysylki}</small></div>
           <span class="kk-akcje" id="podp-wyslij-akcje">${przyciskWyslij()}</span></li>
       </ol>
       <div id="podp-odrzucone" aria-live="polite"></div>
@@ -232,20 +249,29 @@ export function zainstalujPodpis(k) {
   }
 
   /* ---------------------------------- pobieranie i drukowanie ---------------------------------- */
-  async function zip() {
-    const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
-    k.pobierzBlob(zipuj(o.map(x => ({ nazwa: bezOgonkow(x.d.nazwa), bajty: x.bajty }))), nazwaZip());
-    pokazToast(`Pobrano ${o.length} ${liczba(o.length, 'dokument', 'dokumenty', 'dokumentów')} w jednym pliku ZIP`);
+  /** Jeden dokument jako osobny PDF (oryginał z generowania, bez podpisu). Oznacza go jako pobrany — to odblokowuje „Otwórz gov.pl”. */
+  async function pobierzDokument(i) {
+    const d = k.nazwyDok().find(x => x.i === i); if (!d) return;
+    const b = await oryginal(d); if (!b) { pokazToast('Nie znalazłem dokumentu — wygeneruj go ponownie'); return; }
+    k.pobierzBlob(k.blobPdf(b), bezOgonkow(d.nazwa)); oznaczPobrane([i]); odswiezPobieranie();
   }
+  /** Wszystkie dokumenty po kolei, każdy jako osobny PDF (przeglądarki mogą zapytać o zgodę na kilka pobrań). */
   async function pobierzOsobno() {
     const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
-    for (const x of o) { k.pobierzBlob(k.blobPdf(x.bajty), bezOgonkow(x.d.nazwa)); await czekaj(450); }      // pauza: przeglądarki gubią pobrania uruchomione w tej samej chwili
+    for (const x of o) { k.pobierzBlob(k.blobPdf(x.bajty), bezOgonkow(x.d.nazwa)); oznaczPobrane([x.d.i]); await czekaj(450); }      // pauza: przeglądarki gubią pobrania uruchomione w tej samej chwili
+    odswiezPobieranie();
     pokazToast(`Pobrano ${o.length} ${liczba(o.length, 'plik', 'pliki', 'plików')} do folderu Pobrane (przeglądarka mogła zapytać o zgodę na kilka pobrań)`);
+  }
+  /** Po pobraniu: odświeża tylko listę dokumentów i przycisk gov.pl (reszta okna, np. karuzela, zostaje jak była). */
+  function odswiezPobieranie() {
+    if (widok !== 'glowny') return;
+    const l = $('.kk-gov .kk-pliki', arkTresc), a = $('#kk-gov-akcje', arkTresc); if (!l || !a) return;
+    l.outerHTML = wierszePobierania(); const p = $('#kk-gov-podp', arkTresc); if (p) p.remove(); a.outerHTML = akcjeGov();
   }
   async function plikDoWydruku() {
     const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return null; }
     try { return k.blobPdf(scalPdf(o.map(x => x.bajty))); }
-    catch (e) { console.error('scalanie PDF', e); pokazToast('Nie udało się połączyć dokumentów w jeden plik — pobieram je osobno w ZIP-ie'); await zip(); return null; }
+    catch (e) { console.error('scalanie PDF', e); pokazToast('Nie udało się połączyć dokumentów w jeden plik — pobieram je osobno'); await pobierzOsobno(); return null; }
   }
   async function drukuj() { const b = await plikDoWydruku(); if (!b) return; const u = URL.createObjectURL(b), w = window.open(u, '_blank'); if (!w) k.pobierzBlob(b, 'Dokumenty_do_wydruku.pdf'); setTimeout(() => URL.revokeObjectURL(u), 120000); }
   async function pobierzWydruk() { const b = await plikDoWydruku(); b && k.pobierzBlob(b, 'Dokumenty_do_wydruku.pdf'); }
@@ -366,6 +392,7 @@ export function zainstalujPodpis(k) {
       if (pdfPodpisany) w = await ocenPodpisElektroniczny({ bajty: pdfPodpisany.bajty, oryginal: orig, imie: profil.imie, pesel: profil.pesel });
       else if (xades) w = await ocenPodpisElektroniczny({ xades: new TextDecoder('utf-8').decode(xades.bajty), oryginal: orig, imie: profil.imie, pesel: profil.pesel });
       else if (pliki.some(p => INNY_PODPIS.test(p.nazwa))) w = { rodzaj: 'e', kontrole: [{ id: 'podpis', stan: 'uwaga', tekst: 'Ten rodzaj pliku podpisu (.p7s/.sig) nie jest obsługiwany do sprawdzania — użyj podpisu w PDF albo pliku .xades' }], stan: 'uwaga', sygnatariusz: '', czas: null };
+      else if (d.rozliczenie && orig && pliki.length && pliki.every(p => /\.pdf$/i.test(p.nazwa) && p.bajty.length === orig.length && p.bajty.every((b, n) => b === orig[n]))) w = { rodzaj: 'bez-podpisu', kontrole: [{ id: 'podpis', stan: 'ok', tekst: 'Rozliczenie wydatków nie wymaga podpisu — przyjąłem plik bez zmian' }], stan: 'ok', sygnatariusz: '', czas: null, podglad: '', bezWymogu: true };
       else w = await ocenOdreczny(d, pliki);
       w.kontrole = [...w.kontrole, ...kontroleNazwy(d, pliki)];
       w.kiedy = new Date().toISOString(); w.czas = w.czas ? new Date(w.czas).toISOString() : null;
@@ -404,6 +431,8 @@ export function zainstalujPodpis(k) {
     }
     return { pliki, zepsute };
   }
+  /** Czy `bajty` to dokładnie ten PDF rozliczenia wydatków, który wygenerował program (bez podpisu): taki plik przyjmuję, bo rozliczenie podpisu nie wymaga. */
+  const rozliczenieBezZmian = (dok, orgBajty, bajty) => { const d = dok.find(x => x.rozliczenie), o = d && orgBajty.get(d.i); return !!o && o.length === bajty.length && o.every((b, n) => b === bajty[n]); };
   /** Skan zapisany jako jeden PDF z wieloma stronami (aplikacje skanujące) rozbijam na osobne obrazy — jedna strona to jeden dokument. */
   function rozbijSkan(plik, bajty) {
     const o = obrazyZPdf(bajty), baza = plik.name.replace(/\.pdf$/i, '');
@@ -429,6 +458,7 @@ export function zainstalujPodpis(k) {
       else if (OBRAZ.test(plik.name)) rodzaj = 'skan';
       else if (/\.pdf$/i.test(plik.name)) {
         if (podpisyWPdf(bajty).length) rodzaj = 'e';
+        else if (rozliczenieBezZmian(dok, orgBajty, bajty)) rodzaj = 'jawny';      // rozliczenie wydatków nie wymaga podpisu: plik pobrany bez zmian jest w porządku
         else {
           const sk = rozbijSkan(plik, bajty);
           if (sk.length > 1) { for (const s of sk) nowe.push({ plik: s.plik, bajty: s.bajty, i: null, jak: null, powod: '', rodzaj: 'skan' }); continue; }
@@ -613,7 +643,7 @@ export function zainstalujPodpis(k) {
     const b = e.target.closest('[data-akcja]'); if (!b) return;
     const a = b.dataset.akcja;
     if (a === 'otworz') k.otworzPdf(b.dataset.nazwa);
-    else if (a === 'zip') zip();
+    else if (a === 'pobierz-dok') pobierzDokument(Number(b.dataset.i));
     else if (a === 'osobno') pobierzOsobno();
     else if (a === 'glowny') pokaz('glowny');
     else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null, m === 'pulpit' ? zapytajOMiejsceZapisu() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)

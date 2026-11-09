@@ -38,7 +38,11 @@ export function daneRozliczenia(wynik, ctx) {
 
 const PODPIS_SVG = '<svg class="da-podpis" viewBox="0 0 60 30" fill="none" stroke="#1d2f8a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M3 22C8 6 12 4 14 14S18 26 24 12 30 6 32 16s4 8 9-6 6 6 14-4"/><path pathLength="1" d="M6 26c14-3 30-3 50-6" stroke-width="1"/></svg>';
 const ZNAK = { czeka: '✎', trwa: '…', uwaga: '?', zle: '×', ok: '' };
-const polePodpisu = stan => `<div class="da-pole da-moj">podpis pracownika${stan === 'ok' ? PODPIS_SVG : ''}${stan === 'ok' ? '' : `<span class="da-znak">${ZNAK[stan] ?? ''}</span>`}</div>`;
+/** Pole „podpis pracownika”. Na ROZLICZENIU WYDATKÓW podpis nie jest wymagany (wymagają go tylko polecenia wyjazdu), więc tam pole nie czeka na podpis: bez kreskowanej ramki, znaczków stanu (✎ ? ×)
+ *  i bez „rysującego się” podpisu — tylko cichy napis „niewymagany”. */
+const polePodpisu = (stan, wymagany = true) => wymagany
+  ? `<div class="da-pole da-moj">podpis pracownika${stan === 'ok' ? PODPIS_SVG : ''}${stan === 'ok' ? '' : `<span class="da-znak">${ZNAK[stan] ?? ''}</span>`}</div>`
+  : '<div class="da-pole da-niewym">podpis pracownika<span class="da-nie">niewymagany</span></div>';
 const blokAkceptacji = stan => `<div class="da-akc"><div class="da-v">AKCEPTACJA</div><div class="da-pole">podpis Księgowej</div><div class="da-pole">podpis Dyrektora Zarządzającego</div>${polePodpisu(stan)}</div>`;
 
 /** HTML kartki. o: { stan: 'czeka'|'trwa'|'ok'|'uwaga'|'zle', maks: najwyżej tyle wierszy (miniatura), pelnyPesel, wyslano, nowy (stan zmienił się przed chwilą: podpis „rysuje się”, zły dokument drży) }. Wszystkie teksty są oczyszczane — dane z pliku/profilu nie wstrzykną znaczników. */
@@ -55,7 +59,7 @@ export function atrapaHtml(d, o = {}) {
       <div class="da-nagl"><b>Imię i Nazwisko:</b><span>${esc(d.imie)}</span><b>Projekt/Stanowisko:</b><span>${esc(d.stanowisko)}</span><b>MENEDŻER:</b><span>${esc(d.przelozony || '—')}</span><b>Liczba dokumentów:</b><span>${esc(d.wiersze.length)}</span></div>
       <div class="da-tab da-tab4"><span class="h">Lp.</span><span class="h">Dokument</span><span class="h">Opis</span><span class="h">Kwota brutto</span>${pelne}${reszta > 0 ? `<span class="c">…</span><span class="szary" style="grid-column:span 3">jeszcze ${reszta} ${reszta === 1 ? 'dokument' : 'dokumenty'}</span>` : ''}${puste}</div>
       <div class="da-sumy"><span>zaliczka:</span><span class="r">&nbsp;</span><b>Suma wydatków global:</b><span class="r b">${esc(d.suma)}</span></div>
-      <div class="da-akc da-akc1"><div class="da-pole">&nbsp;</div>${polePodpisu(stan)}</div>`;
+      <div class="da-akc da-akc1"><div class="da-pole">&nbsp;</div>${polePodpisu(stan, false)}</div>`;
   } else {
     const rzedy = d.rzedy.slice(0, maks === Infinity ? undefined : Math.max(1, maks - (d.rzedy.length > maks ? 1 : 0))), reszta = d.rzedy.length - rzedy.length;
     const wiersze = rzedy.map(r => `<span>${esc(r.skad)}</span><span class="c">${esc(r.data)}</span><span class="c">${esc(r.wyj)}</span><span>${esc(r.dokad)}</span><span class="c">${esc(r.data)}</span><span class="c">${esc(r.przyj)}</span><span class="c">samochód osobowy</span><span class="r">${esc(r.kwota)}</span>`).join('')

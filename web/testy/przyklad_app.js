@@ -1,6 +1,6 @@
 // Pierwsze uruchomienie: zamiast pustego programu — przykładowy, w pełni wygenerowany miesiąc (przyklad/*.json), który znika przy pierwszym własnym kroku.
 // NODE_PATH=/opt/node22/lib/node_modules node przyklad_app.js
-const { otworz } = require('./wspolne'); const fs = require('fs');
+const { wpiszAdres, otworz } = require('./wspolne'); const fs = require('fs');
 (async () => {
   const wyj = process.env.WYJ || '/tmp/przyklad_zrzuty'; fs.mkdirSync(wyj, { recursive: true });
   const t = await otworz({ w: 1440, h: 900, przyklad: true }); const p = t.p; let kod = 0;
@@ -49,7 +49,7 @@ const { otworz } = require('./wspolne'); const fs = require('fs');
   await p.screenshot({ path: wyj + '/2a_kwota_wpisana.png' });
   await p.click('#podpisz'); await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 30000 });
   ok('dopiero „Generuj dokumenty” prosi o dane osobowe', (await p.locator('#arkusz [data-zamknij]').count()) === 1);   // jedynie krzyżyk — to pierwsze uzupełnienie
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 60000 }); await p.waitForTimeout(3000);
   ok('po zapisaniu danych wpisana kwota nadal jest w polu', /^3500(,00)?$/.test((await p.locator('#kwota-in').inputValue()).replace(/\s/g, '')), await p.locator('#kwota-in').inputValue());
   ok('program pokazuje prawdziwy miesiąc do wygenerowania', (await p.locator('#status').innerText()).includes('Do wygenerowania') && /Generuj dokumenty/.test(await p.locator('#kropla-napis').innerText()), (await p.locator('#status').innerText()) + ' | ' + await p.locator('#kropla-napis').innerText());

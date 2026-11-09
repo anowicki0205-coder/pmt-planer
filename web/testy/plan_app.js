@@ -1,11 +1,11 @@
 // Plan wizyt: import .xlsx/.csv → układanie → kafel „Dziś" → odhaczanie → trwałość. NODE_PATH=/opt/node22/lib/node_modules node plan_app.js
-const { otworz } = require('./wspolne'); const path = require('path');
+const { wpiszAdres, otworz } = require('./wspolne'); const path = require('path');
 (async () => {
   const W = Number(process.env.W || 1440), H = Number(process.env.H || 900), MOB = !!process.env.MOB; const t = await otworz({ w: W, h: H, mobile: MOB }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const wyj = process.env.WYJ || '/tmp/plan_zrzuty'; require('fs').mkdirSync(wyj, { recursive: true });
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3500);
   ok('bez planu kafel „Dziś" proponuje wczytanie', (await p.locator('#plan-otworz').count()) === 1);
   await p.click('#plan-otworz'); await p.waitForSelector('#plan-plik', { state: 'attached' });

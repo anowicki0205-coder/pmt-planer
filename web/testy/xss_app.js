@@ -2,7 +2,7 @@
 // Żaden z nich nie może zostać wykonany ani pojawić się w stronie jako element — sprawdzamy to na wszystkich ekranach (Dziś, kalendarz, dzień, dokumenty, okna, menu konta).
 // Dodatkowo: polityka CSP w index.html blokuje skrypty z innych źródeł i atrybuty onerror/onclick (druga linia obrony), a aplikacja nie działa w obcej ramce.
 // NODE_PATH=/opt/node22/lib/node_modules node xss_app.js
-const { otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock'); const fs = require('fs'), os = require('os'), path = require('path');
+const { wpiszAdres, otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock'); const fs = require('fs'), os = require('os'), path = require('path');
 (async () => {
   const PAY = '<i id="xss-znacznik">X</i><img src="x" onerror="window.__xss=1"><svg onload="window.__xss=2"></svg>"\'><script>window.__xss=3</script>';
   const B = new BackendMock(); B.uzytkownicy['12345'].imie = PAY; B.uzytkownicy['12345'].rejon = PAY;
@@ -17,7 +17,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
   await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 120000 }); await p.waitForTimeout(1500);
   await czysto('imię z serwera w oknie „Moje dane” (podpowiedź w polu)');
   ok('imię z serwera trafia do pola jako TEKST (wartość równa napisowi, bez znaczników)', (await p.inputValue('#d-imie')) === PAY);
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3500);
   await czysto('pulpit po zalogowaniu (nagłówek, menu konta, powitanie)');
 

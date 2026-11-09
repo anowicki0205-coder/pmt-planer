@@ -1,7 +1,7 @@
 // Pulpit pod otwartym oknem (np. „Dokumenty do podpisu”) blaknie i rozmywa się, żeby nie zwracał na siebie uwagi;
 // po zamknięciu okna wraca do normy, a okno logowania (które samo jest tłem) tego nie uruchamia.
 // NODE_PATH=/opt/node22/lib/node_modules node okno_tlo_app.js           (MOTYW=light — motyw Dzień; WYJ=/ścieżka.png — zrzut okna)
-const { otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock');
+const { wpiszAdres, otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock');
 (async () => {
   const motyw = process.env.MOTYW || 'dark';
   const t = await otworz({ w: 1440, h: 900, motyw }); const p = t.p; let kod = 0;
@@ -9,7 +9,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
   const czytaj = () => { const a = document.querySelector('#aplikacja'), cs = getComputedStyle(a); return { okno: document.documentElement.classList.contains('okno'), filtr: cs.filter, kryje: +cs.opacity }; };
   const tlo = async () => { await p.waitForFunction(() => { const a = document.querySelector('#aplikacja'); return !a.getAnimations().some(x => x.playState === 'running'); }, null, { timeout: 20000, polling: 200 }).catch(() => {}); return p.evaluate(czytaj); };      // przejście .4 s kończy się zanim odczytamy wartości (na grafice programowej klatki są rzadkie)
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.waitForTimeout(900); let s = await tlo();
   ok('okno „Moje dane” rozmywa i wycisza pulpit pod spodem', s.okno && /blur\(8px\)/.test(s.filtr) && s.kryje < .6, JSON.stringify(s));
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(1500);

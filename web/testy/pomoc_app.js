@@ -1,12 +1,12 @@
 // Instalacja na telefonie (instrukcje, kod QR, zdarzenie instalacji) i „Napisz uwagę” (dane techniczne, kopiowanie).
 // NODE_PATH=/opt/node22/lib/node_modules node pomoc_app.js
-const { otworz } = require('./wspolne');
+const { wpiszAdres, otworz } = require('./wspolne');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const t = await otworz({ w: 1440, h: 900 }); const p = t.p;
   await t.ctx.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 60000 }); await p.waitForTimeout(3500);
   const otworzMenu = async () => { await p.click('#konto'); await p.waitForTimeout(500); };
   const tekstArkusza = () => p.locator('#arkusz').innerText();
@@ -59,7 +59,7 @@ const { otworz } = require('./wspolne');
   const t2 = await otworz({ w: 390, h: 844, dsf: 2, mobile: true }); const q = t2.p;
   await t2.ctx.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1' }); });
   await q.goto(t2.adres + '/index.html'); await q.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await q.fill('#d-imie', 'Jan Testowy'); await q.fill('#d-pesel', '90010112349'); await q.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await q.fill('#d-imie', 'Jan Testowy'); await q.fill('#d-pesel', '90010112349'); await wpiszAdres(q, 'ul. Testowa 1, 00-001 Warszawa');
   await q.tap('#zapisz-dane'); await q.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 60000 }); await q.waitForTimeout(3500);
   await q.tap('#konto'); await q.waitForTimeout(600); await q.tap('#instaluj'); await q.waitForSelector('.inst-kolumna', { timeout: 20000 });
   ok('iPhone: okno instalacji pokazuje kroki „Udostępnij → Dodaj do ekranu początkowego”', /Dodaj do ekranu początkowego/.test(await q.locator('#arkusz').innerText()) && /Safari/.test(await q.locator('#arkusz').innerText()));

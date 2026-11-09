@@ -1,13 +1,13 @@
 // Kalendarz (kolorowe karty dni zamiast fiolek) i wykres dni w kaflu kwoty (płaskie słupki w kontrastowym panelu, bez WebGL):
 // ta sama skala kolorów n1…n5 (kolor = kwota dnia wobec limitu), klik i najechanie na słupek, zaznaczony dzień, kontrast panelu do kafla.
 // NODE_PATH=/opt/node22/lib/node_modules node wykres_kalendarz_app.js            (MOTYW=light — motyw Dzień; W=390 H=844 MOB=1 — telefon)
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   const motyw = process.env.MOTYW || 'dark', mob = process.env.MOB === '1';
   const t = await otworz({ w: +(process.env.W || 1440), h: +(process.env.H || 900), motyw, mobile: mob }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   await generuj(p); await p.waitForTimeout(3500);

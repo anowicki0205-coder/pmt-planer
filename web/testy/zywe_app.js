@@ -1,7 +1,7 @@
 // Żywy interfejs (js/zywe.js): suwak kwoty, podgląd cieczy, malowanie dni, teatr trasy, paleta poleceń, wycieczka, fiolki, przesuwanie zakładek.
 // NODE_PATH=/opt/node22/lib/node_modules node zywe_app.js [katalog-zrzutow]      ETAP=plan|gotowe|wycieczka|telefon zawęża do jednej części (domyślnie wszystkie)
 // Grafika jest tu liczona procesorem, więc klatek jest mało — kroki czekają na WARUNKI (nie na stałe czasy).
-const { otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
+const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
 const liczba = t => Number(String(t).replace(/[^\d,]/g, '').replace(',', '.'));
 const ETAP = process.env.ETAP || '';
 const chce = e => !ETAP || ETAP === e;
@@ -11,7 +11,7 @@ const chce = e => !ETAP || ETAP === e;
   const czekaj = (p, f, arg, ms = 150000) => p.waitForFunction(f, arg, { timeout: ms, polling: 250 });
   const profil = async (p, tap = false) => {
     await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-    await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+    await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
     await (tap ? p.tap('#zapisz-dane') : p.click('#zapisz-dane')); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 30000 });
   };
   /** wybiera dzień z trasą o danym numerze kolejnym i czeka, aż widok trasy naprawdę się przełączy (View Transition bywa wolny) */

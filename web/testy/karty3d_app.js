@@ -2,7 +2,7 @@
 // Domyślnie jest widok 3D (decyzja właściciela po teście, 4.11), „Karty” to opcja; wybór widoku jest pamiętany. Sprawdza: dane na kartach (prawdziwe, PESEL zasłonięty), kolory stanów, obrót (strzałki, kropki, klik w kartę z boku), powiększony podgląd (pełne dane, Esc, ‹ ›),
 // ruch „na żywo” (pętla animacji), układ w kilku rozmiarach okna i brak błędów w konsoli.
 // NODE_PATH=/opt/node22/lib/node_modules node karty3d_app.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   /* widokDok: null — bez ustawiania widoku, czyli PRAWDZIWY domyślny widok aplikacji */ const t = await otworz({ w: 1440, h: 900, widokDok: null }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
@@ -15,7 +15,7 @@ const { otworz, generuj } = require('./wspolne');
   const zamknijOkno = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.waitForTimeout(300); };
 
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   await generuj(p); await p.waitForTimeout(3000);

@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'f3d0447322b8';
+const WERSJA = 'bf420e96657f';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -12,6 +12,7 @@ const PLIKI = [
  "./ikony/logo-192.png",
  "./ikony/logo-512.png",
  "./index.html",
+ "./js/adres.js",
  "./js/aplikacja.js",
  "./js/dokument_atrapa.js",
  "./js/dostep.js",
@@ -60,7 +61,7 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "92eb91bfa4a26a6d",
+ "./css/aplikacja.css": "f1c7eba7620cca20",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
@@ -68,8 +69,9 @@ const SKROTY = {
  "./ikony/logo-192.png": "6f1af7c8a362f1aa",
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
- "./js/aplikacja.js": "ec2bbb7b1cf7e5ab",
- "./js/dokument_atrapa.js": "f1f185a9adda8ce6",
+ "./js/adres.js": "0f8a8ab804a08600",
+ "./js/aplikacja.js": "b1261094c9422058",
+ "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
  "./js/dostep.js": "f0e47d1ee7403bc8",
  "./js/dzwiek.js": "10c1e87b432e6721",
  "./js/karuzela.js": "d64507d7e8c41a91",
@@ -79,7 +81,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "f5d318bd1a8e1ddd",
- "./js/podpis.js": "0d3f5ab8dc9d9aaa",
+ "./js/podpis.js": "5c354df11ef02c16",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
@@ -92,14 +94,14 @@ const SKROTY = {
  "./js/zipklasyczny.js": "7e7f284e5079f43d",
  "./js/zywe.js": "b7c037cc4ddf41f6",
  "./manifest.webmanifest": "6ee157d9cfb7b428",
- "./przyklad/miesiac.json": "7173034fc27f02be",
- "./przyklad/plan.json": "b580a14be501ec3b",
+ "./przyklad/miesiac.json": "2c799e98b3922cc8",
+ "./przyklad/plan.json": "7de1a4627f7fe5e5",
  "./silnik/boot.py": "3016d346355bb8ed",
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
  "./silnik/most.py": "36f09af5d8c9f09a",
  "./silnik/pmt_silnik.py": "a0f0b50324f8ad45",
- "./silnik/sieci_cel.txt": "31135fd9d9200248",
+ "./silnik/sieci_cel.txt": "d252e908cd50d2e5",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",
  "./vendor/czcionki/geist-latin-wght-normal.woff2": "19f9c92546aa300c",
  "./vendor/paczki/defusedxml-0.7.1-py2.py3-none-any.whl": "a352e7e428770286",

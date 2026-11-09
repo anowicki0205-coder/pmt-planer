@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '1cb1c1830712';
+const WERSJA = 'fb42b832da4d';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -17,6 +17,7 @@ const PLIKI = [
  "./js/dokument_atrapa.js",
  "./js/dostep.js",
  "./js/dzwiek.js",
+ "./js/folder.js",
  "./js/karuzela.js",
  "./js/krypto_js.js",
  "./js/magazyn.js",
@@ -61,7 +62,7 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "5380b97e07326aaf",
+ "./css/aplikacja.css": "b3542f345a04477a",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
@@ -70,10 +71,11 @@ const SKROTY = {
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
  "./js/adres.js": "9d2ac5ab705e450f",
- "./js/aplikacja.js": "d2ca5f9fcb8699c9",
+ "./js/aplikacja.js": "6b4c774d953d79b3",
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
  "./js/dostep.js": "f0e47d1ee7403bc8",
  "./js/dzwiek.js": "10c1e87b432e6721",
+ "./js/folder.js": "8db7a119a9b254bb",
  "./js/karuzela.js": "d64507d7e8c41a91",
  "./js/krypto_js.js": "d5adbfd578434c89",
  "./js/magazyn.js": "4b50220968cf07cf",
@@ -81,7 +83,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "f5d318bd1a8e1ddd",
- "./js/podpis.js": "5c354df11ef02c16",
+ "./js/podpis.js": "6f0c93d511a9e4ae",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
@@ -99,7 +101,7 @@ const SKROTY = {
  "./silnik/boot.py": "3016d346355bb8ed",
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
- "./silnik/most.py": "d120daae17e6486f",
+ "./silnik/most.py": "18359571375958ef",
  "./silnik/pmt_silnik.py": "a0f0b50324f8ad45",
  "./silnik/sieci_cel.txt": "d252e908cd50d2e5",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",

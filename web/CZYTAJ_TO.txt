@@ -79,6 +79,7 @@ ADRES ZAMIESZKANIA W „MOICH DANYCH” (9.11): pięć osobnych pól zamiast jed
   Zapisany wcześniej adres (jeden napis) sam rozdziela się na pola tym samym wzorem, co w silniku; gdy się nie da — pola są puste, a pod nimi stoi uwaga z tym adresem (nic nie jest zgadywane). Okno jest wyższe niż dawniej,
   więc pasek z „Zapisz” jest przyklejony do dołu okna (zawsze widoczny na laptopie i telefonie), a na telefonie PESEL i stanowisko stoją obok siebie. Kod: js/adres.js, silnik/most.py (api_adres_mapa);
   testy: testy/adres_pola_test.js (także na prawdziwym silniku), adres_app.js (mapa w teście podstawiona: jest / brak / bez sieci).
+  Folder roboczy: js/folder.js (File System Access API), obserwacja w js/podpis.js; test testy/folder_app.js (folder z prywatnej pamięci przeglądarki zamiast okna systemowego, podpisy testowe zapisywane do folderu).
 
 WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
   Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) zielony przycisk „Przenieś dane” pyta o WŁASNY kod i hasło
@@ -193,7 +194,13 @@ INSTALACJA NA TELEFONIE (PWA) I iOS / SAFARI
 
 DOKUMENTY DO PODPISU: PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
   Okno „Dokumenty do podpisu” (przycisk „Podpisz …” albo probówki w kaflu Dokumenty) prowadzi czterema kolorowymi krokami; pod nimi są karty dokumentów (po jednej na polecenie i rozliczenie).
-  1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. Przy gov.pl dokumenty pobiera się POJEDYNCZO jako PDF (każdy ma przycisk „Pobierz PDF”, jest też „Pobierz wszystkie” — 7 osobnych PDF-ów);
+  1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. FOLDER NA PULPICIE (Chrome i Edge na komputerze): „Wskaż folder na pulpicie” — RAZ, w oknie wyboru (utwórz tam folder, np. „PMT”;
+     przeglądarka nie pozwala wskazać samego Pulpitu, Dokumentów ani Pobranych, dopiero podfolder), potem „Zapisz dokumenty w folderze”: w podfolderze „Rozliczenie_Imię_Nazwisko_miesiąc_rok” lądują PDF-y (rozliczenie
+     wydatków, które podpisu nie wymaga, od razu wchodzi do aplikacji jako przyjęte). Podpisujesz polecenia na gov.pl, a podpisane pliki zapisujesz w TYM SAMYM folderze (gov.pl oddaje je pod dowolnymi nazwami —
+     może też zastąpić oryginał) — aplikacja SAMA zauważa nowe pliki (odczyt co ok. 2,5 s, plik musi być zapisany do końca), wczytuje je, rozpoznaje dokument i w tle sprawdza podpis, tak jak przy „Wybierz pliki”;
+     gdy wszystko jest sprawdzone, zapala się „Wyślij” (zahasłowana paczka). Niepodpisany plik zapisany w folderze dostaje komunikat „nie ma podpisu elektronicznego”, podpis innej osoby — czerwony dokument. Folder
+     jest pamiętany (przeglądarka może poprosić o ponowną zgodę — przycisk „Pozwól”); zgoda dotyczy WYŁĄCZNIE tego folderu. W Firefoksie, Safari i na telefonie tej funkcji nie ma — działa dotychczasowy sposób
+     (poniżej). DOTYCHCZASOWY SPOSÓB: przy gov.pl dokumenty pobiera się POJEDYNCZO jako PDF (każdy ma przycisk „Pobierz PDF”, jest też „Pobierz wszystkie” — 7 osobnych PDF-ów);
      „Otwórz gov.pl” jest wyszarzone, dopóki nie pobierzesz choć jednego dokumentu (pamięć na urządzeniu, zerowana przy ponownym generowaniu). DLACZEGO nie da się otworzyć PUBLICZNEJ strony gov.pl
      z już wgranymi dokumentami: to osobna strona; przeglądarka nie pozwala cudzemu programowi nic wrzucić do okna wyboru pliku, a nie znalazłem w niej adresu z parametrem przyjmującego plik z zewnątrz — pliki muszą więc
      przejść przez Twój dysk. JEDYNA droga do „dokumenty już na gov.pl”: oficjalna INTEGRACJA z Podpisem Zaufanym dla zarejestrowanych systemów (usługi SOAP z WS-Security, środowisko testowe int.pz.gov.pl, po

@@ -51,7 +51,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne');
   /* ---- okno dokumentów: pole przeciągania między 3 a 4, szary krok 5 ---- */
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); await p.waitForTimeout(1000);
   const uklad = await p.evaluate(() => [...document.querySelectorAll('.kroki4 > li')].map(l => l.classList.contains('krok-strefa') ? 'strefa' : (l.className.match(/\bk\d\b/) || [])[0]));
-  ok('kolejność w oknie: 1, 2, 3, POLE PRZECIĄGANIA, 4, 5', JSON.stringify(uklad) === JSON.stringify(['k1', 'k2', 'k3', 'strefa', 'k4', 'k5']), JSON.stringify(uklad));
+  ok('kolejność w oknie: 1 (podpisz), 2 (wgraj), POLE PRZECIĄGANIA, 3 (sprawdzenie), 4 (wyślij) — klasy CSS k2…k5 zostały po dawnym kroku „pobierz”, który zniknął', JSON.stringify(uklad) === JSON.stringify(['k2', 'k3', 'strefa', 'k4', 'k5']), JSON.stringify(uklad));
   ok('pole przeciągania jest jedno i jest przypięte do wgrywania (label dla #plik-wgraj)', (await p.locator('.podp-strefa').count()) === 1 && (await p.locator('.krok-strefa label[for="plik-wgraj"]').count()) === 1);
   const k5 = await p.evaluate(() => { const l = document.querySelector('.krok-k.k5'), b = l.querySelector('button'); return { nieakt: l.classList.contains('nieaktywny'), dis: b.disabled, akcja: b.dataset.akcja || null, txt: b.innerText.trim(), opis: l.querySelector('small').innerText }; });
   ok('krok 5 „Wyślij” jest szary i nieaktywny, a przycisk wyłączony i bez akcji, dopóki nic nie jest wgrane', k5.nieakt && k5.dis && !k5.akcja && /Wyślij/.test(k5.txt) && /Odblokuje się/.test(k5.opis), JSON.stringify(k5));

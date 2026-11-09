@@ -1,7 +1,8 @@
 // PMT Planer (web) — podpisywanie, sprawdzanie podpisów i wysyłka dokumentów miesiąca.
 // Okno „Dokumenty do podpisu” prowadzi czterema krokami (czwarty, „Wyślij”, jest szary, dopóki wszystkie dokumenty nie są wgrane i sprawdzone). Dawny krok „Pobierz dokumenty” (ZIP albo osobne pliki)
 // zniknął (decyzja właściciela, 9.11): pobieranie jest teraz częścią kroku „Podpisz”, a numery w oknie to 1–4 (nazwy klas CSS .k2…k5 zostały — numeracja w nich pochodzi z czasów pięciu kroków):
-//   1. Podpisz: elektronicznie na gov.pl (Profil Zaufany) — najpierw trzeba pobrać dokumenty POJEDYNCZO jako PDF (każdy ma swój przycisk), dopiero po pobraniu odblokowuje się „Otwórz gov.pl”
+//   1. Podpisz: elektronicznie na gov.pl (Profil Zaufany). W Chrome i Edge na komputerze dokumenty zapisują się w FOLDZIE NA PULPICIE (wskazanym raz — js/folder.js), a aplikacja sama zauważa podpisane pliki, które użytkownik
+//      zapisze w tym folderze, wczytuje je i sprawdza (bez ręcznego wgrywania). Gdzie tego nie ma (Firefox, Safari, telefon) — dokumenty pobiera się POJEDYNCZO jako PDF (każdy ma swój przycisk), dopiero po pobraniu odblokowuje się „Otwórz gov.pl”
 //      (strona gov.pl nie przyjmuje plików z zewnątrz: przeglądarka nie pozwala wypełnić okna wyboru pliku, więc pliki idą przez dysk) — albo odręcznie (wydruk),
 //   2. Wgraj podpisane pliki (PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia — wszystkie naraz; aplikacja sama dopasowuje je do dokumentów),
 //   3. Sprawdzenie: dla każdego dokumentu — czy jest podpis, czy obejmuje całość, czy dokument nie został zmieniony, czy podpisała właściwa osoba (imię i nazwisko, PESEL),
@@ -15,6 +16,7 @@ import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
 import { dzwiek } from './dzwiek.js';
 import { wczytajKlienta, pobierzKod, wymienKod, utworzSzkic, komunikatBledu } from './outlook.js';
 import { karuzela } from './karuzela.js';
+import { obslugiwany as folderMozliwy, wczytajFolder, zapamietajFolder, zapomnijFolder, wskazFolder, zgoda as zgodaFolderu, podfolder, zapiszPlik, wypisz as wypiszFolder } from './folder.js';
 import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
 import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf, skanBezJpeg } from './podpis_reczny.js';
@@ -202,6 +204,98 @@ export function zainstalujPodpis(k) {
     : zablokowana() ? esc(daneWysylki.komunikat)
     : `Wszystkie dokumenty sprawdzone. „Wyślij” zrobi z nich zahasłowaną paczkę i ${({ outlook: 'otworzy gotowy szkic wiadomości w Twoim Outlooku (adres, temat, treść i załącznik)', plik: matchMedia('(pointer:coarse)').matches ? 'otworzy pocztę z gotową wiadomością (paczkę dołączysz z folderu Pobrane)' : 'przygotuje gotową wiadomość (adres, temat, treść i paczka w jednym pliku .eml) — otworzy się w Twojej poczcie i zostanie tylko kliknąć „Wyślij”', pulpit: 'zapisze na pulpicie ikonę gotowej wiadomości (adres, temat, treść i paczka w jednym pliku) — klikniesz ją dwukrotnie, a otworzy się poczta ze wszystkim', poczta: 'otworzy Twój program pocztowy z adresem, tematem i treścią (paczkę zapisze w folderze Pobrane, do dołączenia)' })[metodaWysylki()] || 'przygotuje wiadomość'}.`;      // adres odbiorcy zna tylko administrator — użytkownikowi się go nie pokazuje (trafia tylko do pola „Do” gotowej wiadomości)
   function wczytajDane() { if (daneWysylki !== undefined || pobieranieDanych) return; pobieranieDanych = true; hasloDoPaczki().then(o => { daneWysylki = o; daneWysylkiTs = Date.now(); }).finally(() => { pobieranieDanych = false; odswiezWidok(); }); }
+  /* ---------------------------------- folder roboczy na pulpicie (Chrome, Edge) ---------------------------------- */
+  /* stan: 'start' (sprawdzam) | 'bez-folderu' | 'gotowy' (folder wskazany, dokumenty tego miesiąca jeszcze nie zapisane) | 'zapisany' (dokumenty w folderze, folder jest obserwowany) | 'zgoda' (przeglądarka chce
+     ponownej zgody — jedno kliknięcie) | 'blad'. Zapamiętane w pamięci miesiąca (magUst 'folder-…'): odciski plików zapisanych przez aplikację (baza) i już wczytanych (przetworzone) — dzięki temu ani oryginały, ani
+     ponownie otwarte okno niczego nie wczytują drugi raz. */
+  const fol = { uchwyt: null, miesiac: null, stan: 'start', blad: '', ostatnio: 0, wykryto: 0, timer: 0, zajety: false, widziane: new Map() };
+  const kluczFolderu = () => 'folder-' + magMiesiace.klucz(M().rok, M().mies);
+  const stanFolderu = () => Object.assign({ zapisano: false, baza: {}, przetworzone: [] }, magUst.daj(kluczFolderu(), null) || {});
+  const zapiszStanFolderu = st => magUst.ustaw(kluczFolderu(), st);
+  const nazwaPodfolderu = () => `Rozliczenie_${bezOgonkow(k.PROFIL().imie).replace(/\s+/g, '_')}_${bezOgonkow(String(k.MIES[M().mies - 1]))}_${M().rok}`;
+  const godz = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+  function htmlFolderu() {
+    if (!folderMozliwy()) return '';
+    const nazwa = fol.uchwyt ? esc(fol.uchwyt.name) : '', pod = esc(nazwaPodfolderu()), blad = fol.blad ? `<small class="kk-folder-blad" role="alert">${esc(fol.blad)}</small>` : '';
+    let tresc;
+    if (fol.stan === 'start') tresc = '<small>Sprawdzam folder roboczy…</small>';
+    else if (fol.stan === 'bez-folderu') tresc = `<small>Wskaż RAZ folder na pulpicie (utwórz go w oknie wyboru, np. „PMT” — przeglądarka nie pozwala wskazać samego Pulpitu). Zapiszę w nim dokumenty, a gdy zapiszesz tam podpisane pliki z gov.pl, sam je zauważę, wczytam i sprawdzę.</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk glowny" data-akcja="folder-wskaz">${ik('i-pobierz')}Wskaż folder na pulpicie</button></span>`;
+    else if (fol.stan === 'zgoda') tresc = `<small>Przeglądarka prosi o ponowną zgodę na dostęp do folderu „${nazwa}” (zgoda dotyczy tylko tego folderu).</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk glowny" data-akcja="folder-wznow">Pozwól</button><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span>`;
+    else if (fol.stan === 'gotowy') tresc = `<small>Folder: „${nazwa}”. Dokumenty tego miesiąca zapiszę w podfolderze „${pod}”.</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk glowny" data-akcja="folder-zapisz">${ik('i-pobierz')}Zapisz dokumenty w folderze</button><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span>`;
+    else if (fol.stan === 'zapisany') tresc = `<small>Dokumenty leżą w folderze „${nazwa}” › „${pod}”. Podpisz je na gov.pl i zapisz podpisane pliki w TYM folderze — sam je zauważę, wczytam i sprawdzę.</small><small class="kk-folder-stan" id="kk-folder-stan" aria-live="polite">${fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…'}</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zapisz">Zapisz dokumenty ponownie</button><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span>`;
+    else tresc = `<small>Z folderem roboczym jest problem.</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zmien">Wskaż folder od nowa</button></span>`;
+    return `<div class="kk-folder" id="kk-folder"><b>${ik('i-pobierz')}Folder na pulpicie</b>${tresc}</div>`;
+  }
+  function odswiezFolder() { const e = $('#kk-folder', arkTresc); if (e && widok === 'glowny') { e.outerHTML = htmlFolderu(); odswiezPobieranie(); } }
+  /** Przy otwarciu okna: wczytuje zapamiętany folder i sprawdza, czy przeglądarka pamięta zgodę; jeśli dokumenty już są w folderze, zaczyna go obserwować. */
+  async function inicjujFolder() {
+    if (!folderMozliwy()) return;
+    clearInterval(fol.timer); fol.timer = 0; fol.uchwyt = null; fol.miesiac = null; fol.blad = ''; fol.stan = 'start'; fol.widziane = new Map(); fol.wykryto = 0; fol.ostatnio = 0;
+    const uchwyt = await wczytajFolder();
+    if (!uchwyt) { fol.stan = 'bez-folderu'; return odswiezFolder(); }
+    fol.uchwyt = uchwyt; await wznowFolder(false);
+  }
+  async function wznowFolder(zadaj) {
+    fol.blad = '';
+    const z = await zgodaFolderu(fol.uchwyt, zadaj);
+    if (z !== 'granted') { fol.stan = z === 'denied' && zadaj ? 'blad' : 'zgoda'; if (fol.stan === 'blad') fol.blad = 'Brak zgody na dostęp do folderu.'; return odswiezFolder(); }
+    if (!stanFolderu().zapisano) { fol.stan = 'gotowy'; return odswiezFolder(); }
+    try { fol.miesiac = await podfolder(fol.uchwyt, nazwaPodfolderu()); fol.stan = 'zapisany'; zacznijObserwowac(); }
+    catch (e) { fol.stan = 'blad'; fol.blad = 'Nie mogę otworzyć folderu miesiąca (' + String((e && e.message) || e).slice(0, 100) + ').'; }
+    odswiezFolder();
+  }
+  async function wskazFolderRoboczy() {
+    fol.blad = '';
+    try {
+      const u = await wskazFolder(); if (!u) return;      // użytkownik zrezygnował
+      await zapamietajFolder(u); fol.uchwyt = u; await wznowFolder(true);
+    } catch (e) {
+      fol.blad = e && (e.name === 'SecurityError' || /system|blocked|zablok/i.test(String(e.message))) ? 'Przeglądarka nie pozwala wskazać tego folderu (Pulpit, Dokumenty i Pobrane są zablokowane). Utwórz na pulpicie nowy folder, np. „PMT”, i wskaż jego.' : 'Nie udało się wskazać folderu: ' + String((e && e.message) || e).slice(0, 100);
+      odswiezFolder();
+    }
+  }
+  /** Zapisuje oryginały wszystkich dokumentów w podfolderze miesiąca i zaczyna obserwować folder. Rozliczenie wydatków (podpisu nie wymaga) od razu wchodzi do aplikacji jako przyjęte. */
+  async function zapiszDokumentyWFolderze() {
+    fol.blad = '';
+    try {
+      if ((await zgodaFolderu(fol.uchwyt, true)) !== 'granted') { fol.stan = 'zgoda'; return odswiezFolder(); }
+      const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
+      fol.miesiac = await podfolder(fol.uchwyt, nazwaPodfolderu());
+      const st = stanFolderu(); st.zapisano = true;
+      for (const x of o) { const nazwa = bezOgonkow(x.d.nazwa), odc = await zapiszPlik(fol.miesiac, nazwa, x.bajty); st.baza[nazwa] = `${odc.nazwa}|${odc.rozmiar}|${odc.zmiana}`; }
+      zapiszStanFolderu(st); oznaczPobrane(o.map(x => x.d.i)); fol.stan = 'zapisany'; fol.widziane = new Map(); zacznijObserwowac();
+      pokazToast(`Zapisano ${o.length} ${liczba(o.length, 'dokument', 'dokumenty', 'dokumentów')} w folderze „${fol.uchwyt.name}” › „${nazwaPodfolderu()}”`);
+      odswiezFolder();
+      const roz = o.find(x => x.d.rozliczenie); if (roz && !plikiDok(roz.d.i).length) await przyjmij([new File([roz.bajty], bezOgonkow(roz.d.nazwa), { type: 'application/pdf' })]);
+    } catch (e) { console.error('zapis w folderze', e); fol.stan = 'blad'; fol.blad = 'Nie udało się zapisać dokumentów w folderze: ' + String((e && e.message) || e).slice(0, 100); odswiezFolder(); }
+  }
+  async function zmienFolderRoboczy() { clearInterval(fol.timer); fol.timer = 0; await zapomnijFolder(); fol.uchwyt = null; fol.miesiac = null; fol.stan = 'bez-folderu'; fol.blad = ''; odswiezFolder(); await wskazFolderRoboczy(); }
+  function zacznijObserwowac() { clearInterval(fol.timer); fol.timer = setInterval(odczytajFolder, 2500); odczytajFolder(); }
+  /** Jeden obrót obserwacji: nowy albo zmieniony plik (inny odcisk niż oryginały i już wczytane) trzeba zobaczyć w dwóch kolejnych odczytach i nie może być świeżo zapisany — wtedy idzie do zwykłego wgrywania
+   *  (to samo, co „Wybierz pliki”: rozpoznanie dokumentu, sprawdzenie podpisu w tle). */
+  async function odczytajFolder() {
+    if (!arkTresc.isConnected || !$('#dok-obszar', arkTresc) || widok !== 'glowny') { clearInterval(fol.timer); fol.timer = 0; return; }
+    if (document.hidden || fol.zajety || fol.stan !== 'zapisany' || !fol.miesiac) return;
+    fol.zajety = true;
+    try {
+      const lista = await wypiszFolder(fol.miesiac); fol.ostatnio = Date.now();
+      const st = stanFolderu(), znane = new Set([...Object.values(st.baza), ...st.przetworzone]), nowe = [];
+      for (const f of lista) {
+        if (znane.has(f.odcisk)) continue;
+        if (fol.widziane.get(f.nazwa) !== f.odcisk) { fol.widziane.set(f.nazwa, f.odcisk); continue; }      // pierwszy odczyt: poczekaj, czy plik jest już zapisany do końca
+        if (Date.now() - f.zmiana < 1500) continue;
+        nowe.push(f);
+      }
+      if (nowe.length) {
+        const pliki = []; for (const f of nowe) pliki.push(await f.uchwyt.getFile());
+        st.przetworzone.push(...nowe.map(f => f.odcisk)); zapiszStanFolderu(st); fol.wykryto += nowe.length;
+        const s = $('#kk-folder-stan', arkTresc); if (s) s.textContent = `Wykryto ${nowe.length} ${liczba(nowe.length, 'nowy plik', 'nowe pliki', 'nowych plików')} — wczytuję i sprawdzam…`;
+        await przyjmij(pliki);
+      }
+      const s = $('#kk-folder-stan', arkTresc); if (s) s.textContent = `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}`;
+    } catch (e) { fol.blad = 'Folder przestał odpowiadać (' + String((e && e.message) || e).slice(0, 80) + '). Wskaż go ponownie.'; fol.stan = 'blad'; clearInterval(fol.timer); fol.timer = 0; odswiezFolder(); }
+    finally { fol.zajety = false; }
+  }
   /** Lista dokumentów do pobrania w kroku „Podpisz”: każdy PDF osobno (przycisk obok nazwy); pobrane są oznaczone. Rozliczenie wydatków nie wymaga podpisu — jest na liście, bo trafia do paczki. */
   function wierszePobierania() {
     const pob = pobrane();
@@ -218,7 +312,8 @@ export function zainstalujPodpis(k) {
         <li class="krok-k k2"><span class="kk-nr">1</span><div class="kk-tresc"><b>Podpisz</b>
           <div class="kk-opcje">
             <div class="kk-opcja kk-gov"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>Profil Zaufany, bezpłatnie. Najpierw pobierz dokumenty (każdy osobno, jako PDF) — strona gov.pl nie przyjmie plików z aplikacji, więc podpisujesz te z dysku. gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small>
-              ${wierszePobierania()}
+              ${htmlFolderu()}
+              ${folderMozliwy() ? `<details class="kk-osobno"><summary>Albo pobierz dokumenty osobno (pojedynczo, jako PDF)</summary>${wierszePobierania()}</details>` : wierszePobierania()}
               ${akcjeGov()}</div>
             <div class="kk-opcja"><b>${ik('i-drukuj')}Odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika” (na rozliczeniu wydatków podpis nie jest wymagany), zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem).</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></div>
           </div></div></li>
@@ -645,6 +740,10 @@ export function zainstalujPodpis(k) {
     if (a === 'otworz') k.otworzPdf(b.dataset.nazwa);
     else if (a === 'pobierz-dok') pobierzDokument(Number(b.dataset.i));
     else if (a === 'osobno') pobierzOsobno();
+    else if (a === 'folder-wskaz') wskazFolderRoboczy();
+    else if (a === 'folder-zapisz') zapiszDokumentyWFolderze();
+    else if (a === 'folder-wznow') wznowFolder(true);
+    else if (a === 'folder-zmien') zmienFolderRoboczy();
     else if (a === 'glowny') pokaz('glowny');
     else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null, m === 'pulpit' ? zapytajOMiejsceZapisu() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
     else if (a === 'wyslij-plik') wyslij('plik', null);
@@ -690,7 +789,7 @@ export function zainstalujPodpis(k) {
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
     /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
-    otworz(fokus) { wczytajKlientaMs(); const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; gotowyEml = null; widziane = {}; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele();
+    otworz(fokus) { wczytajKlientaMs(); const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; gotowyEml = null; widziane = {}; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele(); inicjujFolder();
       if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(dokonczSprawdzanie).then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };

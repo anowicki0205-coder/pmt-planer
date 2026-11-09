@@ -2036,6 +2036,15 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .kk-plik.pobrano{background:#E4F7EC;box-shadow:inset 0 0 0 1px rgb(20 140 80/.28)}
 .kk-plik.pobrano .przycisk{background:#D2F0DF;color:#0E7040;box-shadow:inset 0 0 0 1px rgb(20 140 80/.3)}
 .kk-opcja .kk-podp{flex:none;font-size:.76rem;line-height:1.3;color:#6A5A99}
+/* folder roboczy na pulpicie (Chrome, Edge): zapis dokumentów i automatyczne wczytywanie podpisanych plików */
+.kk-folder{display:flex;flex-direction:column;align-items:flex-start;gap:.35rem;width:100%;padding:.6rem .75rem;border-radius:13px;background:#F3F4FC;box-shadow:inset 0 0 0 1px rgb(90 60 220/.14)}
+.kk-opcja .kk-folder>b{font-size:.88rem}
+.kk-opcja .kk-folder small{flex:none;font-size:.78rem;line-height:1.35}
+.kk-opcja .kk-folder .kk-folder-stan{color:#0E7040;font-weight:600}
+.kk-opcja .kk-folder .kk-folder-blad{color:#B3203F;font-weight:600}
+.kk-osobno{width:100%}
+.kk-osobno>summary{cursor:pointer;font-size:.8rem;color:#5A4AB0;font-weight:600;padding:.2rem 0;list-style:revert}
+.kk-osobno[open]>summary{margin-bottom:.3rem}
 .podp-strefa{background:rgb(255 255 255/.16);box-shadow:inset 0 0 0 1.5px rgb(255 255 255/.6);color:#fff}
 .dok-k{--sc:#6B6BFF;--sc2:#8E5BFF;--t1:#fff;--t2:rgb(255 255 255/.9);--t3:rgb(255 255 255/.78);--a-mieta:#E4FFF4;--a-blad:#FFE3E9;--a-burs:#FFF1BD;color:#fff;padding-left:1rem;
   background:radial-gradient(70% 110% at 106% -14%,rgb(255 255 255/.26),transparent 62%),linear-gradient(135deg,var(--sc),var(--sc2));

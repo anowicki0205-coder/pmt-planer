@@ -1866,7 +1866,7 @@ async function generuj() {
     otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">${e && e.name === 'QuotaExceededError' ? 'Na urządzeniu zabrakło miejsca na dokumenty.' : `Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}).`} Zwolnij miejsce w pamięci przeglądarki i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
     odswiezHero(); await odswiezParametry(); return;
   }
-  magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); magUst.ustaw('pobrane-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
+  magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); magUst.ustaw('pobrane-' + kl, null); magUst.ustaw('folder-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
   dzwiek.efekt('gen-koniec');
   try {

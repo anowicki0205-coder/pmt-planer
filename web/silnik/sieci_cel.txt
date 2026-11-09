@@ -2,6 +2,7 @@
 # Na KAŻDYM poleceniu program wpisuje zawsze Biedronkę i Żabkę oraz 3–4 losowe sieci z tej listy, w kolejności alfabetycznej.
 # Losowanie jest powtarzalne (zależy od PESEL-u, miesiąca i numeru polecenia): ponowne wygenerowanie daje te same sieci.
 # Listę można swobodnie edytować (po zmianie odśwież stronę dwa razy).
+# Celowo NIE MA tu stacji paliw (Orlen, Shell, Moya, BP, Circle K itp.) ani Kauflandu — usunięte na życzenie właściciela (9.11); nie dopisuj ich z powrotem.
 Biedronka
 Stokrotka
 Żabka
@@ -11,13 +12,9 @@ Costa Coffee
 Rossmann
 Auchan
 Carrefour
-Stacja Paliw
 Hebe
-Stacja Moya
 Dino
-Kaufland
 Netto
-Stacja Shell
 Aquael
 Kakadu Zoo
 Auchan Supermarket

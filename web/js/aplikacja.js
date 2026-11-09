@@ -9,6 +9,7 @@ import { zainstalujPomoc } from './pomoc.js';
 import { zainstalujPodpis } from './podpis.js';
 import { widowisko } from './widowisko.js';
 import { dzwiek } from './dzwiek.js';
+import { rozbierzAdres, zlozAdres, zlozAdresBezDomyslnego, rozpoznajPrzedrostek, sprawdzPola, kodWTrakcieWpisywania } from './adres.js';
 
 /* Ochrona przed osadzeniem w cudzej ramce (clickjacking: niewidoczna strona z naszym oknem logowania pod kursorem). Nagłówka frame-ancestors nie da się ustawić z meta, więc robi to kod:
    w ramce nic się nie pokazuje, a przeglądarka dostaje polecenie wyjścia z niej. */
@@ -1545,39 +1546,75 @@ const peselPoprawny = p => {
 };
 function otworzMojeDane(pierwsze) {
   const p = PROFIL || { imie: dostep.imieZSerwera(), pesel: '', adres: '', stanowisko: 'merchandiser', silnik_powyzej_900: true, tryb: 'tydzien' };
+  /* adres w osobnych polach: z zapisanych części (jak je wpisano) albo, dla profilu sprzed tej zmiany, rozdzielony z jednego napisu (ten sam wzór, co w silniku) */
+  const PUSTE = { typ: 'ulica', ulica: '', nr: '', lokal: '', kod: '', miasto: '' };
+  const rozdzielone = p.adres_czesci || (p.adres ? rozbierzAdres(p.adres, p.typ_adresu) : null), cz = Object.assign({}, PUSTE, rozdzielone || {}, { typ: (rozdzielone && rozdzielone.typ) || p.typ_adresu || 'ulica' }), nieRozdzielono = !!p.adres && !rozdzielone;
   otworzArkusz(`${naglowekArkusza(pierwsze ? 'Zacznijmy od Twoich danych' : 'Moje dane')}
-    <p class="ark-opis">Imię i PESEL zostają tylko na tym urządzeniu (trafiają na dokumenty). Sam adres wysyłam do mapy OpenStreetMap, żeby policzyć kilometry.</p>
+    <p class="ark-opis">Imię i PESEL zostają tylko na tym urządzeniu (trafiają na dokumenty). Sam adres wysyłam do mapy OpenStreetMap, żeby policzyć kilometry. Na dokumentach adres wydrukuje się jak dotąd, np. <b>ul. Polna 5/12, 00-001 Warszawa</b>.</p>
     <div class="przenos"><label class="przycisk" id="przenos-etykieta">Wczytaj dane z programu na komputerze<input type="file" id="plik-program" accept=".pmtdane,.json,application/json" hidden></label><small id="przenos-info" aria-live="polite">Pracowałeś w programie na komputerze? Wskaż plik z danymi, który zapisał (PMT_dane_do_aplikacji.pmtdane) — nie musisz niczego wpisywać od nowa.</small><div class="przenos-stare" id="przenos-stare" hidden><label class="pole"><span>Hasło z programu na komputerze</span><input id="przenos-haslo" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label><button type="button" class="przycisk" id="przenos-odczytaj">Odczytaj plik</button></div></div>
-    <form id="form-dane" class="ark-pola" novalidate autocomplete="off">
+    <form id="form-dane" class="ark-pola ark-pola-wasko" novalidate autocomplete="off">
       <label class="pole pelne"><span>Imię i nazwisko</span><input id="d-imie" data-pierwsze value="${bezZnacznikow(p.imie)}" autocomplete="name" required><small></small></label>
       <label class="pole"><span>PESEL</span><input id="d-pesel" inputmode="numeric" maxlength="11" value="${bezZnacznikow(p.pesel)}" autocomplete="off" required><small></small></label>
       <label class="pole"><span>Stanowisko</span><select id="d-stan"><option value="merchandiser"${p.stanowisko === 'KR' ? '' : ' selected'}>merchandiser</option><option value="KR"${p.stanowisko === 'KR' ? ' selected' : ''}>KR</option></select><small></small></label>
-      <label class="pole pelne"><span>Adres zamieszkania</span><input id="d-adres" value="${bezZnacznikow(p.adres)}" placeholder="ul. Polna 5, 00-001 Warszawa  albo  Dębowa Wola 12, 26-660 Jedlińsk" autocomplete="street-address" required><small></small></label>
-      <div class="pole pelne" id="typ-adresu" hidden><span>Rodzaj adresu</span><div class="seg" role="group" aria-label="Rodzaj adresu"><button type="button" data-typ="ulica" aria-pressed="false">Ulica</button><button type="button" data-typ="wies" aria-pressed="false">Miejscowość bez ulicy</button></div><small id="typ-opis" aria-live="polite"></small></div>
+      <div class="pole pelne adres-grupa" role="group" aria-labelledby="adres-tyt"><span id="adres-tyt">Adres zamieszkania</span>
+        <div class="seg adres-typ" role="group" aria-label="Rodzaj adresu"><button type="button" data-typ="ulica" aria-pressed="${cz.typ === 'wies' ? 'false' : 'true'}">Ulica</button><button type="button" data-typ="wies" aria-pressed="${cz.typ === 'wies' ? 'true' : 'false'}">Miejscowość bez ulicy (wieś)</button></div>
+        <div class="adres-siatka">
+          <label class="pole a-ulica"><span id="a-ulica-et">${cz.typ === 'wies' ? 'Nazwa wsi (bez ulicy)' : 'Nazwa ulicy'}</span><input id="d-ulica" value="${bezZnacznikow(cz.ulica)}" placeholder="${cz.typ === 'wies' ? 'Dębowa Wola' : 'Polna'}" autocomplete="off" autocapitalize="words" required><small></small></label>
+          <label class="pole a-nr"><span>Nr budynku</span><input id="d-nr" value="${bezZnacznikow(cz.nr)}" placeholder="5" maxlength="8" autocomplete="off" required><small></small></label>
+          <label class="pole a-lokal"><span>Nr mieszkania</span><input id="d-lokal" value="${bezZnacznikow(cz.lokal)}" placeholder="opcjonalnie" maxlength="8" autocomplete="off"><small></small></label>
+          <label class="pole a-kod"><span>Kod pocztowy</span><input id="d-kod" value="${bezZnacznikow(cz.kod)}" placeholder="00-001" inputmode="numeric" maxlength="6" autocomplete="postal-code" required><small></small></label>
+          <label class="pole a-miasto"><span>Miejscowość</span><input id="d-miasto" value="${bezZnacznikow(cz.miasto)}" placeholder="Warszawa" autocomplete="address-level2" autocapitalize="words" required><small></small></label>
+        </div>
+        <small id="adres-podglad" aria-live="polite"></small><small id="adres-podp" class="adres-podp" aria-live="polite"></small><small id="adres-mapa" aria-live="polite"></small>
+        <small id="adres-uwaga" aria-live="polite">${nieRozdzielono ? 'Twój zapisany adres („' + bezZnacznikow(p.adres) + '”) nie dał się sam rozdzielić na pola — wpisz go w polach powyżej.' : ''}</small></div>
     </form>
-    <div class="ark-dol">${pierwsze ? '' : '<button type="button" class="przycisk" id="usun-dane" title="Usuń z tego urządzenia PESEL, miesiące, plan i dokumenty">Usuń dane z urządzenia</button><button type="button" class="przycisk" data-zamknij>Anuluj</button>'}<button type="button" class="przycisk glowny" id="zapisz-dane">Zapisz</button></div>`);
+    <div class="ark-dol lepki">${pierwsze ? '' : '<button type="button" class="przycisk" id="usun-dane" title="Usuń z tego urządzenia PESEL, miesiące, plan i dokumenty">Usuń dane z urządzenia</button><button type="button" class="przycisk" data-zamknij>Anuluj</button>'}<button type="button" class="przycisk glowny" id="zapisz-dane">Zapisz</button></div>`);
   const usunBtn = $('#usun-dane', arkTresc); if (usunBtn) usunBtn.addEventListener('click', arkuszUsunDane);
   const f = $('#form-dane', arkTresc);
-  f.addEventListener('click', e => { const b = e.target.closest('.seg button'); if (!b) return; $$('button', b.parentElement).forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
-  /* adres bez ulicy (wieś): silnik rozpoznaje go sam, a gdy nazwa jest niejednoznaczna („Dębowa Wola”, „Zielona Ścieżka”), pytamy — tak jak program na komputerze */
-  let wybor = p.typ_adresu || null, nrSpr = 0, tAdres = 0;
-  const blokTypu = $('#typ-adresu', arkTresc), opisTypu = $('#typ-opis', arkTresc);
-  const sprawdzAdres = async () => {
-    const pole = $('#d-adres', arkTresc); if (!pole || !doc.contains(blokTypu)) return;      // okno „Moje dane” zdążyło się zamknąć przed odliczeniem
-    const adres = pole.value.trim(), nr = ++nrSpr;
-    if (!adres) { blokTypu.hidden = true; return; }
-    let a; try { a = await silnik.adres({ adres, wymus_typ: wybor || undefined }); } catch (e) { a = { ok: false }; }
-    if (nr !== nrSpr || !doc.contains(blokTypu)) return;
-    if (!a.ok) { blokTypu.hidden = true; return; }
-    blokTypu.hidden = false;
-    const typ = a.niejednoznaczne ? null : (a.to_wies ? 'wies' : 'ulica');
-    $$('[data-typ]', blokTypu).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.typ === typ)));
-    opisTypu.classList.remove('zle');
-    opisTypu.textContent = typ ? `${typ === 'wies' ? 'Miejscowość bez ulicy. ' : ''}Start i meta trasy: ${a.baza_miasto}.` : `„${a.nazwa_do_pytania}” — to nazwa ulicy czy miejscowości? Wybierz, żebym wiedział, skąd liczyć trasy.`;
+  /* Rodzaj adresu wybiera użytkownik (Ulica albo Miejscowość bez ulicy); program pilnuje reszty: sam dopisuje „ul.” (w polu wpisuje się samą nazwę ulicy), poprawia wielkie litery (pokazuje, jak adres wydrukuje się
+     na dokumentach), podpowiada przy znanej nazwie wsi wpisanej jako ulica i sprawdza adres na mapie, żeby wychwycić literówki, zanim silnik po cichu weźmie za bazę trasy środek miejscowości. */
+  let typ = cz.typ, nrSpr = 0, tAdres = 0, mapa = { klucz: '', wynik: '' }, potwierdzonyBrak = '';
+  const poleUlicy = $('#d-ulica', arkTresc), etUlicy = $('#a-ulica-et', arkTresc), podglad = $('#adres-podglad', arkTresc), podpowiedz = $('#adres-podp', arkTresc), liniaMapy = $('#adres-mapa', arkTresc), zapiszBtn = $('#zapisz-dane', arkTresc);
+  const czesciAdresu = () => ({ typ, ulica: poleUlicy.value, nr: $('#d-nr', arkTresc).value, lokal: $('#d-lokal', arkTresc).value, kod: $('#d-kod', arkTresc).value, miasto: $('#d-miasto', arkTresc).value });
+  const kluczAdresu = c => zlozAdres(c) + '|' + c.typ;
+  const ustawTyp = t => {
+    typ = t === 'wies' ? 'wies' : 'ulica'; $$('.adres-typ [data-typ]', arkTresc).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.typ === typ)));
+    etUlicy.textContent = typ === 'wies' ? 'Nazwa wsi (bez ulicy)' : 'Nazwa ulicy'; poleUlicy.placeholder = typ === 'wies' ? 'Dębowa Wola' : 'Polna';
   };
-  blokTypu.addEventListener('click', e => { const b = e.target.closest('[data-typ]'); if (!b) return; wybor = b.dataset.typ; sprawdzAdres(); });
-  $('#d-adres', arkTresc).addEventListener('input', () => { wybor = null; clearTimeout(tAdres); tAdres = setTimeout(sprawdzAdres, 450); });
-  if (p.adres) sprawdzAdres();
+  const wpiszCzesci = c => { for (const [id, k] of [['d-ulica', 'ulica'], ['d-nr', 'nr'], ['d-lokal', 'lokal'], ['d-kod', 'kod'], ['d-miasto', 'miasto']]) $('#' + id, arkTresc).value = c[k] || ''; ustawTyp(c.typ); };
+  const zerujMape = () => { mapa = { klucz: '', wynik: '' }; potwierdzonyBrak = ''; liniaMapy.textContent = ''; liniaMapy.className = ''; zapiszBtn.textContent = 'Zapisz'; };
+  const sprawdzAdres = async () => {
+    if (!doc.contains(podglad)) return;      // okno „Moje dane” zdążyło się zamknąć przed odliczeniem
+    const c = czesciAdresu(), nr = ++nrSpr; podpowiedz.textContent = '';
+    if (!sprawdzPola(c).ok) { podglad.textContent = ''; return; }      // rodzaj i wygląd adresu sprawdzam dopiero, gdy wszystkie pola są wypełnione poprawnie
+    let a; try { a = await silnik.adres({ adres: zlozAdres(c), wymus_typ: typ }); } catch (e) { a = { ok: false }; }
+    if (nr !== nrSpr || !doc.contains(podglad)) return;
+    if (!a.ok) { podglad.textContent = ''; return; }
+    podglad.textContent = `Na dokumentach: ${a.adres_caly} · start i meta trasy: ${a.baza_miasto}`;
+    if (typ === 'ulica' && !rozpoznajPrzedrostek(c.ulica).przedrostek) {      // wpisana „ulica” to znana miejscowość? (silnik zna listę wsi) — tylko podpowiedź
+      let g; try { g = await silnik.adres({ adres: zlozAdresBezDomyslnego(c) }); } catch (e) { g = { ok: false }; }
+      if (nr === nrSpr && doc.contains(podglad) && g.ok && g.to_wies && !g.niejednoznaczne) podpowiedz.textContent = `„${g.nazwa_do_pytania}” to nazwa miejscowości. Jeśli pod tym adresem nie ma ulicy, wybierz „Miejscowość bez ulicy (wieś)”.`;
+    }
+  };
+  const pokazMape = wynik => {
+    liniaMapy.className = wynik === 'jest' ? 'ok' : wynik === 'brak' ? 'zle' : '';
+    liniaMapy.textContent = wynik === 'jest' ? 'Adres znaleziony na mapie.' : wynik === 'brak' ? 'Nie znalazłem takiego adresu na mapie — sprawdź pisownię ulicy (albo wsi), numer budynku i miejscowość.' : wynik === 'siec' ? 'Nie sprawdziłem adresu na mapie (brak połączenia z mapą).' : '';
+  };
+  /** Sprawdzenie adresu na mapie (OpenStreetMap, to samo zapytanie co przy generowaniu tras). Wynik pamiętam dla danego adresu, więc ponowne wywołanie (np. przy „Zapisz”) nie pyta drugi raz. → 'jest' | 'brak' | 'siec' | ''. */
+  const sprawdzMape = async () => {
+    const c = czesciAdresu(); if (!sprawdzPola(c).ok) { liniaMapy.textContent = ''; return ''; }
+    const klucz = kluczAdresu(c); if (mapa.klucz === klucz && mapa.wynik) return mapa.wynik;
+    liniaMapy.className = ''; liniaMapy.textContent = 'Sprawdzam adres na mapie…';
+    let w; try { w = await silnik.adresMapa({ adres: zlozAdres(c), wymus_typ: typ }); } catch (e) { w = { ok: false }; }
+    if (!doc.contains(liniaMapy) || kluczAdresu(czesciAdresu()) !== klucz) return '';      // okno zamknięte albo adres zmieniony w trakcie sprawdzania
+    const wynik = w.ok && w.wynik ? w.wynik : ''; mapa = { klucz, wynik }; pokazMape(wynik); return wynik;
+  };
+  $('.adres-typ', arkTresc).addEventListener('click', e => { const b = e.target.closest('[data-typ]'); if (!b || b.dataset.typ === typ) return; ustawTyp(b.dataset.typ); zerujMape(); sprawdzAdres(); sprawdzMape(); });
+  const planujSprawdzenie = () => { clearTimeout(tAdres); tAdres = setTimeout(sprawdzAdres, 450); };
+  for (const id of ['d-ulica', 'd-miasto', 'd-nr', 'd-lokal']) $('#' + id, arkTresc).addEventListener('input', () => { zerujMape(); planujSprawdzenie(); });
+  $('#d-kod', arkTresc).addEventListener('input', e => { const v = kodWTrakcieWpisywania(e.target.value); if (v !== e.target.value) e.target.value = v; zerujMape(); planujSprawdzenie(); });
+  for (const id of ['d-ulica', 'd-nr', 'd-lokal', 'd-kod', 'd-miasto']) $('#' + id, arkTresc).addEventListener('change', () => { sprawdzMape(); });      // po wyjściu z pola (nie przy każdym znaku — mapa dostaje jedno zapytanie na zmianę)
+  if (rozdzielone) { sprawdzAdres(); sprawdzMape(); }
   /* dane z programu na komputerze: plik jest zaszyfrowany kodem i hasłem tego konta; wypełniamy formularz (nic nie zapisuje się samo — sprawdzasz i klikasz „Zapisz”), a lista sklepów czeka w oknie „Plan” */
   let silnikZPliku = null, sklepyZPliku = null, planZPliku = null, odhaczeniaZPliku = {};
   const infoPrzenos = (html, klasa = '') => { const i = $('#przenos-info', arkTresc); if (i) { i.innerHTML = html; i.className = klasa; } };
@@ -1611,8 +1648,9 @@ function otworzMojeDane(pierwsze) {
   const pokazZPliku = d => {
     const czesci = [];
     if (d.profil) {
-      $('#d-imie', arkTresc).value = d.profil.imie; $('#d-pesel', arkTresc).value = d.profil.pesel; $('#d-stan', arkTresc).value = d.profil.stanowisko; $('#d-adres', arkTresc).value = d.profil.adres;
-      silnikZPliku = d.profil.silnik_powyzej_900; wybor = null; sprawdzAdres(); czesci.push('imię, PESEL, adres i stanowisko');
+      $('#d-imie', arkTresc).value = d.profil.imie; $('#d-pesel', arkTresc).value = d.profil.pesel; $('#d-stan', arkTresc).value = d.profil.stanowisko;
+      const rozb = rozbierzAdres(d.profil.adres, d.profil.typ_adresu); wpiszCzesci(Object.assign({}, PUSTE, rozb || {})); zerujMape(); $('#adres-uwaga', arkTresc).textContent = rozb ? '' : `Adresu z pliku („${d.profil.adres}”) nie dało się rozdzielić na pola — wpisz go w polach powyżej.`;
+      silnikZPliku = d.profil.silnik_powyzej_900; sprawdzAdres(); sprawdzMape(); czesci.push('imię, PESEL, adres i stanowisko');
     }
     if (d.sklepy.length) { sklepyZPliku = d.sklepy; czesci.push(`listę <b>${d.sklepy.length}</b> sklepów`); }
     const dniPlanu = d.plan ? d.plan.miesiace.reduce((a, m) => a + m.dni.length, 0) : 0;
@@ -1623,19 +1661,24 @@ function otworzMojeDane(pierwsze) {
   $('#plik-program', arkTresc).addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) wczytajZProgramu(f); });
   const zle = (id, t) => { const s = $('#' + id, arkTresc).parentElement.querySelector('small'); s.textContent = t || ''; s.classList.toggle('zle', !!t); if (t) potrzasnij($('#' + id, arkTresc)); return !t; };
   $('#zapisz-dane', arkTresc).addEventListener('click', async () => {
-    const imie = $('#d-imie', arkTresc).value.split(/\s+/).filter(Boolean).join(' '), pesel = $('#d-pesel', arkTresc).value.replace(/\s/g, ''), adres = $('#d-adres', arkTresc).value.trim();
+    const imie = $('#d-imie', arkTresc).value.split(/\s+/).filter(Boolean).join(' '), pesel = $('#d-pesel', arkTresc).value.replace(/\s/g, ''), c = czesciAdresu(), sprawdzone = sprawdzPola(c), adres = sprawdzone.ok ? zlozAdres(c) : '';
     let ok = true;
     ok = zle('d-imie', imie.split(' ').length < 2 ? 'Wpisz imię i nazwisko' : '') && ok;
     ok = zle('d-pesel', peselPoprawny(pesel) ? '' : 'PESEL jest niepoprawny') && ok;
     let adr = null;
-    if (adres) { try { adr = await silnik.adres({ adres, wymus_typ: wybor || undefined }); } catch (e) { adr = { ok: false }; } }
-    ok = zle('d-adres', adr && adr.ok ? '' : 'Podaj numer domu, kod pocztowy i miejscowość, np. ul. Polna 5, 00-001 Warszawa albo, bez ulicy, Dębowa Wola 12, 26-660 Jedlińsk') && ok;
-    if (ok && adr.niejednoznaczne && !wybor) {      // nie wiadomo, czy to ulica, czy wieś — bez rozstrzygnięcia nie zapisujemy
-      blokTypu.hidden = false; opisTypu.textContent = `„${adr.nazwa_do_pytania}” — to nazwa ulicy czy miejscowości? Wybierz, żebym wiedział, skąd liczyć trasy.`; opisTypu.classList.add('zle'); potrzasnij(blokTypu); ok = false;
+    for (const [id, klucz] of [['d-ulica', 'ulica'], ['d-nr', 'nr'], ['d-lokal', 'lokal'], ['d-kod', 'kod'], ['d-miasto', 'miasto']]) ok = zle(id, sprawdzone.bledy[klucz] || '') && ok;      // błąd przy konkretnym polu
+    if (adres) {
+      try { adr = await silnik.adres({ adres, wymus_typ: typ }); } catch (e) { adr = { ok: false }; }
+      if (!(adr && adr.ok)) ok = zle('d-ulica', 'Nie rozpoznaję takiego adresu — sprawdź nazwę ulicy (albo wsi), numer, kod i miejscowość') && ok;
+    }
+    if (ok) {      // literówka w ulicy: adresu nie ma na mapie → najpierw ostrzeżenie, zapis dopiero przy drugim kliknięciu („Zapisz mimo to”)
+      zapiszBtn.disabled = true; const w = await sprawdzMape(); zapiszBtn.disabled = false;
+      if (w === 'brak' && potwierdzonyBrak !== kluczAdresu(c)) { potwierdzonyBrak = kluczAdresu(c); zapiszBtn.textContent = 'Zapisz mimo to'; potrzasnij(liniaMapy); return; }
     }
     if (!ok) return;
     const zModelu = !PROFIL && M && !M.demo && M.stan === 'plan' ? M : null;      // pierwsze Moje dane: tryb i auto wybrane już na pulpicie (np. po przykładzie, przed „Generuj”) zostają
-    PROFIL = { imie, pesel, adres: adr.adres_caly, typ_adresu: wybor || (adr.to_wies ? 'wies' : 'ulica'), stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? (zModelu ? zModelu.silnik : p.silnik_powyzej_900) ?? true,
+    const znormalizowane = Object.assign(rozbierzAdres(adr.adres_caly, typ) || { ulica: c.ulica, nr: c.nr, lokal: c.lokal, kod: c.kod, miasto: c.miasto }, { typ });      // pola zapisuję tak, jak adres wydrukuje się na dokumencie (np. wielkie litery nazw): po ponownym otwarciu okna są dokładnie takie
+    PROFIL = { imie, pesel, adres: adr.adres_caly, adres_czesci: znormalizowane, typ_adresu: typ, stanowisko: $('#d-stan', arkTresc).value, silnik_powyzej_900: silnikZPliku ?? (zModelu ? zModelu.silnik : p.silnik_powyzej_900) ?? true,
       tryb: zModelu ? zModelu.tryb : trybDom(p), tryb_wybrany: zModelu ? zModelu.tryb !== 'tydzien' || !!p.tryb_wybrany : !!p.tryb_wybrany };   // silnik i tryb pracy zmieniają się co miesiąc: ustawia je kafel miesiąca, tu zostaje ostatni wybór
     magProfil.zapisz(PROFIL);
     if (sklepyZPliku && sklepyZPliku.length) magUst.ustaw('sklepy-z-programu', { pozycje: sklepyZPliku, zapisano: new Date().toISOString() });      // czeka w oknie „Plan wizyt”, aż ułożysz plan
@@ -1823,7 +1866,7 @@ async function generuj() {
     otworzArkusz(`${naglowekArkusza('Nie udało się zapisać dokumentów')}<p class="ark-opis">${e && e.name === 'QuotaExceededError' ? 'Na urządzeniu zabrakło miejsca na dokumenty.' : `Dokumenty powstały, ale nie dało się ich zapisać na tym urządzeniu (${bezZnacznikow((e && e.message) || e)}).`} Zwolnij miejsce w pamięci przeglądarki i wygeneruj je ponownie.</p><div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Rozumiem</button></div>`);
     odswiezHero(); await odswiezParametry(); return;
   }
-  magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
+  magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); magUst.ustaw('pobrane-' + kl, null); magUst.ustaw('folder-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
   dzwiek.efekt('gen-koniec');
   try {

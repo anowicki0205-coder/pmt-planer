@@ -1,11 +1,11 @@
 // Zmiana motywu Noc/Dzień bez View Transitions (Firefox, starsze Safari/iOS): fala z pierścieniem światła, niebo nowego motywu, potem odsłonięcie interfejsu.
 // NODE_PATH=/opt/node22/lib/node_modules node motyw_app.js
-const { otworz } = require('./wspolne');
+const { wpiszAdres, otworz } = require('./wspolne');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const t = await otworz({ w: 1440, h: 900, bezVT: true }); const p = t.p;
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 60000 }); await p.waitForTimeout(4000);
   const motyw = () => p.evaluate(() => document.documentElement.dataset.theme || 'auto');
   const poczatek = await motyw();

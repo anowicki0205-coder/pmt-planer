@@ -59,9 +59,27 @@ TRYB PRACY I SILNIK PO WYGENEROWANIU
   „Zostaw jak jest” niczego nie rusza. Wybór zapisuje się w profilu jako domyślny dla kolejnych miesięcy (każdy nowy miesiąc i tak zaczyna od widocznych przełączników). W przykładowym miesiącu zmiany nie ma.
   Na telefonie znaczek jest schowany (brak miejsca), ale krok „Ustaw” działa tak samo. Test: testy/ustawienia_po_generowaniu_app.js.
 
-OKNO „DOKUMENTY DO PODPISU”: PIĘĆ KROKÓW
-  1 pobierz, 2 podpisz, 3 wgraj, (pole „albo przeciągnij tu podpisane pliki” — tuż pod krokiem 3, tam gdzie się wgrywa), 4 sprawdzenie, 5 wyślij. Krok 5 jest szary, a jego przycisk wyłączony, dopóki wszystkie
+OKNO „DOKUMENTY DO PODPISU”: CZTERY KROKI
+  1 podpisz (z pobraniem dokumentów), 2 wgraj (pole „albo przeciągnij tu podpisane pliki” — tuż pod krokiem 2, tam gdzie się wgrywa), 3 sprawdzenie, 4 wyślij. Dawny krok „Pobierz dokumenty” (ZIP) zniknął
+  (9.11): był dublem kroku „Podpisz”. Krok 4 jest szary, a jego przycisk wyłączony, dopóki wszystkie
   dokumenty nie są wgrane i sprawdzone; wtedy zapala się kolorem i przycisk „Wyślij” działa. Stopka okna ma już tylko „Zamknij”. Na ekranie dotykowym pola przeciągania nie ma (tam służy „Wybierz pliki”).
+
+ADRES ZAMIESZKANIA W „MOICH DANYCH” (9.11): pięć osobnych pól zamiast jednego oraz przełącznik rodzaju. Użytkownik wpisuje SAMĄ NAZWĘ ULICY („Polna”) — przedrostek „ul.” dopisuje program (aleję, plac i osiedle
+  rozpoznaje po wpisanym przedrostku: „al. Róż”, „pl. Wolności”, „os. Słoneczne”; „ul Polna”, „ulica Polna” też są w porządku). Pola: nazwa ulicy, nr budynku, nr mieszkania (OPCJONALNY), kod pocztowy (myślnik
+  wstawia się sam), miejscowość. RODZAJ ADRESU wybiera użytkownik przełącznikiem „Ulica” / „Miejscowość bez ulicy (wieś)” — dla wsi pole zmienia się na „Nazwa wsi”, a na dokumencie nie ma „ul.” (np. „Dębowa Wola 12,
+  26-660 Jedlińsk”; start i meta trasy to wtedy nazwa wsi). Wybór jest zapamiętany w profilu (typ_adresu) i dalej decyduje o bazie trasy; dawne pytanie „to ulica czy miejscowość?” przy generowaniu zostaje już tylko
+  dla starych profili bez zapisanego rodzaju.
+  Na dokumentach adres drukuje się DOKŁADNIE jak dotąd: program składa pola w jeden napis „[ul.] nazwa numer[/mieszkanie], kod miejscowość” (np. „ul. Polna 5/12, 00-001 Warszawa”) i oddaje go temu samemu silnikowi
+  (waliduj_adres). Pod polami stoi PODGLĄD „Na dokumentach: … · start i meta trasy: …” — tak, jak silnik poprawił zapis (wielkie litery: „polna” → „ul. Polna”), więc literówkę widać od razu.
+  CO PROGRAM SPRAWDZA: (1) pola — błąd stoi przy konkretnym polu (brak nazwy, numer budynku „5”/„12A”, numer mieszkania, kod „00-000”, miejscowość bez cyfr i dziwnych znaków); (2) PODPOWIEDŹ, gdy w trybie „Ulica” wpisano
+  znaną miejscowość (silnik zna listę wsi, np. Goszczyn) — „wybierz Miejscowość bez ulicy”; to tylko podpowiedź, nic nie blokuje; (3) MAPA: po wyjściu z pola (i przy „Zapisz”) program pyta OpenStreetMap (to samo zapytanie,
+  co przy generowaniu tras), czy zna taki adres. Znany: zielone „Adres znaleziony na mapie”. Nieznany (literówka w ulicy, zły numer): ostrzeżenie „Nie znalazłem takiego adresu na mapie — sprawdź pisownię…”, a pierwsze
+  „Zapisz” NIE zapisuje — przycisk zmienia się na „Zapisz mimo to” (mapa bywa niepełna, więc decyzja jest użytkownika; bez tego literówka cicho kończyłaby się trasą liczoną ze środka miejscowości). Bez internetu: spokojna
+  informacja „Nie sprawdziłem adresu na mapie (brak połączenia)”, zapis nie jest blokowany. Mapa dostaje jedno zapytanie na zmianę (nie na każdy znak); wynik „nie znam” silnik pamięta na stałe.
+  Zapisany wcześniej adres (jeden napis) sam rozdziela się na pola tym samym wzorem, co w silniku; gdy się nie da — pola są puste, a pod nimi stoi uwaga z tym adresem (nic nie jest zgadywane). Okno jest wyższe niż dawniej,
+  więc pasek z „Zapisz” jest przyklejony do dołu okna (zawsze widoczny na laptopie i telefonie), a na telefonie PESEL i stanowisko stoją obok siebie. Kod: js/adres.js, silnik/most.py (api_adres_mapa);
+  testy: testy/adres_pola_test.js (także na prawdziwym silniku), adres_app.js (mapa w teście podstawiona: jest / brak / bez sieci).
+  Folder „delegacje”: js/folder.js (File System Access API), obserwacja w js/podpis.js; testy testy/folder_test.js (logika folderów na udawanych uchwytach) i testy/folder_app.js (folder z prywatnej pamięci przeglądarki zamiast okna systemowego, podpisy testowe zapisywane do folderu; uchwyt OPFS nie jest odczytywany z IndexedDB, bo to wywala bezgłowego Chromium — patrz testy/wspolne.js).
 
 WCZYTANIE DANYCH Z PROGRAMU NA KOMPUTERZE
   Kto pracował w programie na komputerze, nie wpisuje wszystkiego od nowa. W programie (okno z informacją o przejściu na aplikację) zielony przycisk „Przenieś dane” pyta o WŁASNY kod i hasło
@@ -174,15 +192,26 @@ INSTALACJA NA TELEFONIE (PWA) I iOS / SAFARI
   znalazł i naprawił jeden błąd (sprawdzanie adresu). CZEGO NIE SPRAWDZIŁEM: fizycznego iPhone'a (limity pamięci iOS przy silniku Pythona w przeglądarce, instalacja jako aplikacja,
   pobieranie PDF z karty „Pliki”) — to trzeba zobaczyć na prawdziwym urządzeniu. Minimum praktyczne: iOS 16.4+.
 
-DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
+DOKUMENTY DO PODPISU: PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
   Okno „Dokumenty do podpisu” (przycisk „Podpisz …” albo probówki w kaflu Dokumenty) prowadzi czterema kolorowymi krokami; pod nimi są karty dokumentów (po jednej na polecenie i rozliczenie).
-  1. POBIERZ: „Wszystkie (ZIP)” albo „Osobne pliki” (7 zwykłych PDF-ów, bez rozpakowywania). Program NIE MOŻE wysłać plików na gov.pl sam: to osobna strona, na którą przeglądarka nie pozwala
-     cudzemu programowi nic wrzucić, a podpisu Profilem Zaufanym nie da się wykonać „zza kulis” — pliki muszą więc przejść przez Twój dysk.
-  2. PODPISZ: elektronicznie (przycisk otwiera gov.pl; strona przyjmuje naraz do 5 plików po 25 MB, więc przy 7 dokumentach podpisujesz w 2 turach — okno to podpowiada) albo odręcznie
-     („Wydrukuj” / „Pobierz PDF” — jeden plik ze wszystkimi dokumentami; podpis długopisem w miejscu „podpis pracownika”, potem skan aplikacją skanującą, najlepiej nie zdjęcie pod kątem).
-  3. WGRAJ: „Wybierz pliki” (albo przeciągnij) — WSZYSTKIE naraz, w dowolnej kolejności i w dowolnym rodzaju: PDF z podpisem, plik .xades, paczka ZIP z gov.pl (rozpakuję ją sama), skany i zdjęcia
+  1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. FOLDER „delegacje” (Chrome i Edge na komputerze): blok „Folder „delegacje”” z przyciskiem „Wskaż miejsce” (po zapisie dokumentów zostaje jedna linia: ścieżka, stan obserwacji i mały odnośnik „zmień”; ręczne pobieranie PDF-ów jest wtedy schowane, a „Otwórz gov.pl” to jedyny przycisk) — RAZ wskazujesz w oknie wyboru miejsce (np. pulpit),
+     a aplikacja SAMA tworzy w nim folder „delegacje” (gdy wskażesz folder, który już tak się nazywa, używa go bez zagnieżdżania) i od razu zapisuje PDF-y w podfolderze miesiąca, np. „delegacje\wrzesień 2026” (rozliczenie
+     wydatków, które podpisu nie wymaga, od razu wchodzi do aplikacji jako przyjęte). Przeglądarka nie pozwala wskazać SAMEGO Pulpitu, Dokumentów ani Pobranych (tylko ich podfolder) — wtedy aplikacja podpowiada:
+     w oknie wyboru kliknij „Nowy folder”, nazwij go „delegacje” i wskaż go (potwierdzone w kodzie źródłowym Chromium, GenerateBlockPaths: cały Pulpit, Dokumenty i Pobrane są zablokowane, ich podfoldery nie — dotyczy też Edge; strona WWW nie ma więc prawa sama założyć folderu na samym Pulpicie, to robił tylko program na komputerze). Podpisujesz polecenia na gov.pl, a podpisane pliki zapisujesz w TYM SAMYM folderze (gov.pl oddaje je pod dowolnymi nazwami —
+     może też zastąpić oryginał) — aplikacja SAMA zauważa nowe pliki (odczyt co ok. 2,5 s, plik musi być zapisany do końca), wczytuje je, rozpoznaje dokument i w tle sprawdza podpis, tak jak przy „Wybierz pliki”;
+     gdy wszystko jest sprawdzone, zapala się „Wyślij” (zahasłowana paczka). Niepodpisany plik zapisany w folderze dostaje komunikat „nie ma podpisu elektronicznego”, podpis innej osoby — czerwony dokument. Folder
+     jest pamiętany (przeglądarka może poprosić o ponowną zgodę — przycisk „Pozwól”); zgoda dotyczy WYŁĄCZNIE tego folderu. W Firefoksie, Safari i na telefonie tej funkcji nie ma — działa dotychczasowy sposób
+     (poniżej). DOTYCHCZASOWY SPOSÓB: przy gov.pl dokumenty pobiera się POJEDYNCZO jako PDF (każdy ma przycisk „Pobierz PDF”, jest też „Pobierz wszystkie” — 7 osobnych PDF-ów);
+     „Otwórz gov.pl” jest wyszarzone, dopóki nie pobierzesz choć jednego dokumentu (pamięć na urządzeniu, zerowana przy ponownym generowaniu). DLACZEGO nie da się otworzyć PUBLICZNEJ strony gov.pl
+     z już wgranymi dokumentami: to osobna strona; przeglądarka nie pozwala cudzemu programowi nic wrzucić do okna wyboru pliku, a nie znalazłem w niej adresu z parametrem przyjmującego plik z zewnątrz — pliki muszą więc
+     przejść przez Twój dysk. JEDYNA droga do „dokumenty już na gov.pl”: oficjalna INTEGRACJA z Podpisem Zaufanym dla zarejestrowanych systemów (usługi SOAP z WS-Security, środowisko testowe int.pz.gov.pl, po
+     podpisaniu przekierowanie z powrotem do systemu zlecającego — Instrukcja dla integratora Podpisu Zaufanego, Ministerstwo Cyfryzacji). Wymaga formalnej rejestracji w Ministerstwie, certyfikatów po stronie serwera
+     i własnego serwera (strona na github.io go nie ma); jej warunków dla firmy takiej jak nasza nie sprawdzałem. gov.pl przyjmuje naraz do 5 plików po 25 MB, więc przy 7 dokumentach
+     podpisujesz w 2 turach — okno to podpowiada. Odręcznie: „Wydrukuj” / „Pobierz PDF” — jeden plik ze wszystkimi dokumentami; podpis długopisem w miejscu „podpis pracownika”, potem skan aplikacją skanującą,
+     najlepiej nie zdjęcie pod kątem. ROZLICZENIE WYDATKÓW podpisu nie wymaga (na liście stoi „podpis niewymagany”); wymagają go tylko polecenia wyjazdu.
+  2. WGRAJ: „Wybierz pliki” (albo przeciągnij) — WSZYSTKIE naraz, w dowolnej kolejności i w dowolnym rodzaju: PDF z podpisem, plik .xades, paczka ZIP z gov.pl (rozpakuję ją sama), skany i zdjęcia
      (JPG, PNG, także jeden PDF ze skanem wielu stron — rozdzielę go na dokumenty). Pliki dopasowuję do dokumentów po zawartości, po nazwie, a w ostateczności po kolejności (wtedy zaznaczam „sprawdź”).
-  4. SPRAWDZENIE (automatyczne, na Twoim urządzeniu — nic nie jest nigdzie wysyłane). Dopiero dokument ze sprawdzonym podpisem liczy się jako podpisany; „Wyślij” pojawia się, gdy sprawdzone są wszystkie.
+  3. SPRAWDZENIE (automatyczne, na Twoim urządzeniu — nic nie jest nigdzie wysyłane). Dopiero dokument ze sprawdzonym podpisem liczy się jako podpisany; „Wyślij” pojawia się, gdy sprawdzone są wszystkie.
      Podpis elektroniczny (PAdES w PDF-ie, XAdES w osobnym pliku): czy jest podpis; czy obejmuje CAŁY dokument (nic nie dopisano po podpisaniu); czy to ten sam dokument, który wygenerowałem;
      czy dokument nie został zmieniony po podpisaniu (skrót); czy podpis jest matematycznie poprawny (klucz z certyfikatu; RSA, RSA-PSS i ECDSA); KTO podpisał — imię i nazwisko (kolejność dowolna,
      bez względu na ogonki) oraz PESEL, jeśli certyfikat go zawiera; kiedy podpisano. Podpis innej osoby, zmieniony dokument i podpis niepełny są odrzucane i nie da się ich zatwierdzić ręcznie.
@@ -191,7 +220,7 @@ DOKUMENTY DO PODPISU: POBIERZ → PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
      NIE sprawdzam zaufania do urzędu certyfikacji (czy wystawca jest uznany) — pokazuję tylko, kto wystawił certyfikat; to potwierdza urzędowy walidator podpisu.
      Podpis odręczny: program zna miejsce „podpis pracownika” na każdej stronie (silnik zapisuje jego współrzędne w milimetrach), wycina je ze skanu i szuka śladu pisma, pomijając proste kreski
      (linia podpisu, ramki) i szum. To POMOC: ocenia obecność podpisu, nie jego autentyczność; imienia i nazwiska odręcznie nie da się odczytać, więc okno pokazuje wycinek skanu do obejrzenia
-     i przycisk „Potwierdzam, że podpis jest” (gdy program się pomyli albo skan jest zdjęciem pod kątem). Rozliczenie miesiąca nie ma wyznaczonego miejsca — szukam podpisu pod tabelą.
+     i przycisk „Potwierdzam, że podpis jest” (gdy program się pomyli albo skan jest zdjęciem pod kątem). Rozliczenie wydatków podpisu NIE wymaga: przyjmuję je z podpisem i bez (skan bez podpisu, PDF pobrany bez zmian — stan „przyjęte”, nie czerwony); na podglądzie 3D pole „podpis pracownika” jest wtedy ciche („niewymagany”), bez rysowanego podpisu i znaczków stanu.
      Na sztucznych skanach (przekrzywienie do 1,6°, szum, cień, JPEG) wykrywalność to 40/40 bez fałszywych alarmów, ale prawdziwych skanów z Twojego skanera jeszcze nie widziałem.
   WIDOK 3D DOKUMENTÓW (opcja) — w oknie „Dokumenty do podpisu”, nad kartami, jest przełącznik „Karty | Widok 3D”. Domyślnie zostaje zwykła lista kart; „Widok 3D” układa dokumenty na obracanym
   pierścieniu (z przodu największa karta, z tyłu mniejsze i wyżej, więc widać wszystkie). Na każdej karcie jest ATRAPA dokumentu zbudowana z DANYCH WYGENEROWANYCH przez silnik (nagłówek firmy, imię i
@@ -255,7 +284,8 @@ PULPIT: KAFEL „NA TELEFON” Z KODEM QR
   Gdy adresu nie da się ustalić, kafel prosi o wpisanie adresu komputera w oknie po kliknięciu.
 
 „CEL WYJAZDU” NA DOKUMENCIE
-  Pole „projekt: …” na każdym poleceniu zawiera ZAWSZE Biedronkę i Żabkę oraz 3–4 sieci wylosowane z listy w pliku silnik/sieci_cel.txt (Twoja lista z Excela plus sieci, które były na dokumentach dotąd),
+  Pole „projekt: …” na każdym poleceniu zawiera ZAWSZE Biedronkę i Żabkę oraz 3–4 sieci wylosowane z listy w pliku silnik/sieci_cel.txt (Twoja lista z Excela plus sieci, które były na dokumentach dotąd; od 9.11
+  bez stacji paliw i bez Kauflandu — na życzenie właściciela),
   w kolejności alfabetycznej po polsku (Ż na końcu). Przykład: „projekt: Auchan, Biedronka, Costa Coffee, Dino, Media Expert, Żabka”.
   Losowanie jest osobne dla KAŻDEGO polecenia (na dwóch poleceniach z jednego miesiąca zwykle stoją różne sieci) i POWTARZALNE: te same dane i ten sam numer polecenia dają zawsze ten sam zestaw,
   więc ponowne wygenerowanie miesiąca nie zmienia dokumentów. Wylosowane sieci zapisują się też w danych miesiąca (pole „sieci”).

@@ -1,6 +1,6 @@
 // „Cel wyjazdu” na dokumentach: na KAŻDYM poleceniu zawsze Biedronka i Żabka plus 3–4 losowe sieci z listy (silnik/sieci_cel.txt), alfabetycznie po polsku.
 // Losowanie jest powtarzalne (PESEL + miesiąc + numer polecenia). Sprawdzamy na prawdziwych PDF-ach. NODE_PATH=/opt/node22/lib/node_modules node cel_app.js
-const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const t = await otworz({ w: 1440, h: 900 }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
@@ -8,7 +8,7 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   const LISTA = fs.readFileSync(path.join(__dirname, '../silnik/sieci_cel.txt'), 'utf8').split(/\r?\n/).map(x => x.trim()).filter(x => x && !x.startsWith('#'));
   const klucz = (a, b) => a.localeCompare(b, 'pl');
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '3095,26'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   await generuj(p); await p.waitForTimeout(3000);
@@ -20,11 +20,14 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   ok('kolejność alfabetyczna po polsku (Ż na końcu)', sieci.every(s => JSON.stringify(s) === JSON.stringify([...s].sort(klucz))), JSON.stringify(sieci[0]));
   ok('polecenia różnią się między sobą (nie ma już tych samych sieci na każdym)', new Set(sieci.map(s => s.join('|'))).size >= 2, sieci.map(s => s.join(', ')).join('  //  '));
 
-  await p.click('#podpisz'); await p.waitForSelector('#pobierz-wsz'); await p.waitForTimeout(600);
-  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#pobierz-wsz')]); const zp = path.join(tmp, 'a.zip'); await dl.saveAs(zp);
-  const roz = path.join(tmp, 'roz'); cp.spawnSync('unzip', ['-o', '-q', '-d', roz, zp]);
+  await p.click('#podpisz'); await p.waitForSelector('[data-akcja="pobierz-dok"]'); await p.waitForTimeout(600);
+  const roz = path.join(tmp, 'roz'); fs.mkdirSync(roz, { recursive: true });
+  const liczbaDok = await p.locator('[data-akcja="pobierz-dok"]').count();
+  for (let i = 0; i < liczbaDok; i++) { const [dl] = await Promise.all([p.waitForEvent('download'), p.click(`[data-akcja="pobierz-dok"][data-i="${i}"]`)]); await dl.saveAs(path.join(roz, dl.suggestedFilename())); }      // dokumenty pobiera się pojedynczo (PDF)
   const pdfy = fs.readdirSync(roz).filter(f => /^delegacja_\d+_.*\.pdf$/.test(f)).sort();
-  ok('w ZIP-ie są wszystkie polecenia', pdfy.length === sieci.length, pdfy.join(', '));
+  ok('pobrano wszystkie polecenia', pdfy.length === sieci.length, pdfy.join(', '));
+  ok('lista sieci nie zawiera stacji paliw ani Kauflandu (usunięte na życzenie właściciela)', !LISTA.some(n => /stacj|kaufland|orlen|shell|moya|\bbp\b|circle ?k|lotos|amic/i.test(n)), LISTA.join(', '));
+  ok('żadne polecenie nie ma stacji paliw ani Kauflandu w polu „projekt”', sieci.every(s => !s.some(n => /stacj|kaufland/i.test(n))), JSON.stringify(sieci));
   pdfy.forEach((f, i) => {
     const txt = cp.spawnSync('pdftotext', ['-layout', path.join(roz, f), '-'], { encoding: 'utf8' }).stdout;
     const linia = (txt.split('\n').find(l => /projekt:/.test(l)) || '').trim(), cel = 'projekt: ' + sieci[i].join(', ');

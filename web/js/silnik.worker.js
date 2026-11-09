@@ -92,6 +92,7 @@ const METODY = {
     return w;
   },
   async adres(a) { return wolaj('api_adres', a); },
+  async adres_mapa(a) { return wolaj('api_adres_mapa', a); },
   /** Kasuje pamięć silnika w workerze (trasy i współrzędne, liczniki, kopia menedzer.txt) — przy zmianie konta, wylogowaniu i „Usuń dane”. */
   async czysc() {
     await py.runPythonAsync(`

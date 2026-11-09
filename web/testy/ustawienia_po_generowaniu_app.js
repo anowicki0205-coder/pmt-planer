@@ -2,7 +2,7 @@
 // kasuje dokumenty; wybór zapisuje się w profilu (domyślny w kolejnych miesiącach); „Zostaw jak jest” niczego nie rusza. Oraz: okno dokumentów ma pole przeciągania MIĘDZY krokiem 3 a 4
 // i szary, nieaktywny krok 5 „Wyślij”.
 // NODE_PATH=/opt/node22/lib/node_modules node ustawienia_po_generowaniu_app.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const t = await otworz({ w: 1440, h: 900, opcjeSerwera: { odbiorca: 'kierownik@example.com' } }); const p = t.p;
@@ -10,7 +10,7 @@ const { otworz, generuj } = require('./wspolne');
   const rekordy = () => p.evaluate(() => Object.values(window.__pmtDane.czytaj().miesiace || {}));
   const wcisniete = sel => p.evaluate(s => document.querySelector(s).getAttribute('aria-pressed'), sel);
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '3000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   ok('przed generowaniem przełączniki są w kaflu (Tydzień i powyżej 900 cm³ wciśnięte)', (await wcisniete('#parametry [data-tryb="tydzien"]')) === 'true' && (await wcisniete('#parametry [data-silnik="1"]')) === 'true');
@@ -51,7 +51,7 @@ const { otworz, generuj } = require('./wspolne');
   /* ---- okno dokumentów: pole przeciągania między 3 a 4, szary krok 5 ---- */
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); await p.waitForTimeout(1000);
   const uklad = await p.evaluate(() => [...document.querySelectorAll('.kroki4 > li')].map(l => l.classList.contains('krok-strefa') ? 'strefa' : (l.className.match(/\bk\d\b/) || [])[0]));
-  ok('kolejność w oknie: 1, 2, 3, POLE PRZECIĄGANIA, 4, 5', JSON.stringify(uklad) === JSON.stringify(['k1', 'k2', 'k3', 'strefa', 'k4', 'k5']), JSON.stringify(uklad));
+  ok('kolejność w oknie: 1 (podpisz), 2 (wgraj), POLE PRZECIĄGANIA, 3 (sprawdzenie), 4 (wyślij) — klasy CSS k2…k5 zostały po dawnym kroku „pobierz”, który zniknął', JSON.stringify(uklad) === JSON.stringify(['k2', 'k3', 'strefa', 'k4', 'k5']), JSON.stringify(uklad));
   ok('pole przeciągania jest jedno i jest przypięte do wgrywania (label dla #plik-wgraj)', (await p.locator('.podp-strefa').count()) === 1 && (await p.locator('.krok-strefa label[for="plik-wgraj"]').count()) === 1);
   const k5 = await p.evaluate(() => { const l = document.querySelector('.krok-k.k5'), b = l.querySelector('button'); return { nieakt: l.classList.contains('nieaktywny'), dis: b.disabled, akcja: b.dataset.akcja || null, txt: b.innerText.trim(), opis: l.querySelector('small').innerText }; });
   ok('krok 5 „Wyślij” jest szary i nieaktywny, a przycisk wyłączony i bez akcji, dopóki nic nie jest wgrane', k5.nieakt && k5.dis && !k5.akcja && /Wyślij/.test(k5.txt) && /Odblokuje się/.test(k5.opis), JSON.stringify(k5));

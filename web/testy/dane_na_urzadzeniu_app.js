@@ -2,7 +2,7 @@
 // wylogowanie, zmiana konta i „Usuń dane z urządzenia” nie zostawiają śladów cudzych adresów,
 // a usunięcie danych kasuje profil z PESEL-em, miesiące, PDF-y i zapamiętane konto. Oraz: pliki ustawień (adres_aplikacji.txt, odbiorca.txt) idą z sieci, nie z pamięci.
 // NODE_PATH=/opt/node22/lib/node_modules node dane_na_urzadzeniu_app.js
-const { otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock');
+const { wpiszAdres, otworz, generuj } = require('./wspolne'); const { BackendMock } = require('./backend_mock');
 (async () => {
   const B = new BackendMock(); const t = await otworz({ w: 1440, h: 900, zalogowany: false, backend: B }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
@@ -20,7 +20,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
 
   await p.route(/nominatim\.openstreetmap\.org\/search/, r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '[{"lat":"52.2297","lon":"21.0122"}]' }));      // współrzędne domu trafiają do pamięci silnika (reszta sieci zablokowana)
   await p.goto(t.adres + '/index.html'); await zaloguj();
-  await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 }); await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 }); await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200); await generuj(p); await p.waitForTimeout(3500);
   let m = await pamiec();
@@ -62,7 +62,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock } = requir
   ok('po usunięciu: konto zapomniane (brak skrótu hasła i sesji), okno logowania nie podpowiada loginu', !m.dostep.konta || !m.dostep.konta['12345'], JSON.stringify(Object.keys(m.dostep.konta || {})));
   ok('okno logowania jest puste (nie podpowiada usuniętego loginu)', (await p.inputValue('#dz-kod')) === '');
   await zaloguj(); await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 });
-  ok('po ponownym zalogowaniu aplikacja startuje od czystych danych („Moje dane” puste)', (await p.inputValue('#d-pesel')) === '' && (await p.inputValue('#d-adres')) === '');
+  ok('po ponownym zalogowaniu aplikacja startuje od czystych danych („Moje dane” puste)', (await p.inputValue('#d-pesel')) === '' && (await p.inputValue('#d-ulica')) === '' && (await p.inputValue('#d-nr')) === '' && (await p.inputValue('#d-kod')) === '' && (await p.inputValue('#d-miasto')) === '');
   console.log('  błędy konsoli:', JSON.stringify(t.bledy.slice(0, 4))); if (t.bledy.length) kod = 1;
   await t.zamknij();
 

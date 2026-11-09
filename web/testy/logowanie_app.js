@@ -1,6 +1,6 @@
 // Logowanie i dostęp: okno logowania, błędy, podpis zapytań, reset i ustawienie hasła, rozdzielone konta, wygasanie, praca bez sieci.
 // Backend to zamiennik reguł Apps Script (testy/backend_mock.js). NODE_PATH=/opt/node22/lib/node_modules node testy/logowanie_app.js
-const { otworz } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
+const { wpiszAdres, otworz } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
 (async () => {
   const B = new BackendMock(); const t = await otworz({ w: 1440, h: 900, zalogowany: false, backend: B }); const p = t.p; let kod = 0;
   const przeladuj = async () => { for (let i = 0; i < 4; i++) { try { await p.evaluate(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'F5' }))).catch(() => {}); await p.reload(); return; } catch (e) { if (!/ERR_ABORTED|detached/.test(String(e.message))) throw e; await p.waitForLoadState('load').catch(() => {}); await p.waitForTimeout(600); } } await p.reload(); };      // reload przerwany inną trwającą nawigacją (obciążona maszyna) powtarzamy po jej zakończeniu
@@ -43,7 +43,7 @@ const { otworz } = require('./wspolne'); const { BackendMock, hash } = require('
   ok('puls wysłany po zalogowaniu (uruchomienie liczone)', B.pulsy.length >= 1 && B.pulsy.some(x => x.kod === '12345' && x.uruchomienia >= 1 && x.system === 'Web'), JSON.stringify(B.pulsy.map(x => x.uruchomienia)));      // pierwszy puls to wczesna kontrola ważności dostępu (bez liczników), uruchomienie niesie kolejny
   ok('rejestr sesji dostał zalogowanie', B.sesje.some(s => s.rodzaj === 'logowanie' && s.kod === '12345'));
   ok('puls i sesja idą z podpisem hasłem (serwer nie odrzucił żadnego: ani pulsu, ani wpisu sesji)', !B.pulsyBezHasla && !B.sesjeOdrzucone && B.pulsy.length >= 1, JSON.stringify({ bezHasla: B.pulsyBezHasla || 0, odrzucone: B.sesjeOdrzucone || 0 }));
-  await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa'); await p.click('#zapisz-dane');
+  await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa'); await p.click('#zapisz-dane');
   await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(1500);
   ok('menu konta: login i ważność dostępu', /Login 12345 · dostęp do 31\.12\.2099/.test(await p.locator('#konto-dostep').textContent()), await p.locator('#konto-dostep').textContent());
 

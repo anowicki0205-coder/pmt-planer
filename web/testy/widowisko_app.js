@@ -3,13 +3,13 @@
 // Część 2: prawdziwe generowanie z „życiem” — pokaz pojawia się, przechodzi wszystkie fazy, pokazuje kwoty z silnika i znika; pulpit działa normalnie.
 // Część 3: przy „Ogranicz ruch” w systemie pokazu nie ma wcale. (Domyślnie testy mają „życie” wyłączone — wtedy też go nie ma; sprawdzają to pozostałe testy przeglądarkowe.)
 // NODE_PATH=/opt/node22/lib/node_modules node widowisko_app.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const bezSp = s => String(s).replace(/\s/g, '');
   const dane = async p => {
     await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-    await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+    await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
     await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
     await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   };

@@ -2,7 +2,7 @@
 // na dysku nie ma jawnego PESEL-u, adresu ani PDF-ów, ani skrótu hasła, a klucz danych nie leży w sessionStorage; odświeżenie karty nie pyta o hasło, nowa i przywrócona karta tak; autologowanie i logowanie bez sieci otwierają sejf;
 // zmiana hasła zachowuje dane; hasło zmienione gdzie indziej → okno odzyskiwania (poprzednie hasło albo usunięcie); dane sprzed szyfrowania są migrowane; uszkodzone dane nie są nadpisywane.
 // NODE_PATH=/opt/node22/lib/node_modules node szyfrowanie_app.js
-const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
+const { wpiszAdres, otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = require('./backend_mock');
 (async () => {
   const B = new BackendMock(); const t = await otworz({ w: 1440, h: 900, zalogowany: false, backend: B }); let p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
@@ -21,7 +21,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
 
   /* ---- 1. pierwsze logowanie, dane, generowanie ---- */
   await p.goto(t.adres + '/index.html'); await zaloguj(p);
-  await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 }); await p.fill('#d-imie', IMIE); await p.fill('#d-pesel', PESEL); await p.fill('#d-adres', `ul. ${ADRES}, 00-001 Warszawa`);
+  await p.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 60000 }); await p.fill('#d-imie', IMIE); await p.fill('#d-pesel', PESEL); await wpiszAdres(p, `ul. ${ADRES}, 00-001 Warszawa`);
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200); await generuj(p); await p.waitForTimeout(3500);
   let d = await dysk(p); const wszystkieLs = Object.values(d.ls).join('\n');
@@ -93,7 +93,7 @@ const { otworz, generuj } = require('./wspolne'); const { BackendMock, hash } = 
   await k9.close();
   /* ---- 7. uszkodzone dane nie są nadpisywane po cichu ---- */
   const k10 = await nowaKarta(); await zaloguj(k10, 'jeszczeInne5', false); await k10.waitForSelector('#arkusz-tlo.otwarty #d-imie', { timeout: 120000 });
-  await k10.fill('#d-imie', IMIE); await k10.fill('#d-pesel', PESEL); await k10.fill('#d-adres', `ul. ${ADRES}, 00-001 Warszawa`); await k10.click('#zapisz-dane'); await k10.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await k10.waitForTimeout(2500);
+  await k10.fill('#d-imie', IMIE); await k10.fill('#d-pesel', PESEL); await wpiszAdres(k10, `ul. ${ADRES}, 00-001 Warszawa`); await k10.click('#zapisz-dane'); await k10.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await k10.waitForTimeout(2500);
   await k10.evaluate(() => { const k = 'pmt-web-v1:12345'; const v = localStorage.getItem(k); const i = Math.floor(v.length / 2); localStorage.setItem(k, v.slice(0, i) + (v[i] === 'A' ? 'B' : 'A') + v.slice(i + 1)); });
   await k10.keyboard.press('F5').catch(() => {}); await k10.reload(); await k10.waitForSelector('#uszk-usun', { timeout: 180000 }).catch(() => {});      // F5: ta sama sesja, klucz przechodzi do nowej strony
   ok('zmieniony szyfrogram jest wykryty: aplikacja pokazuje „Dane na tym urządzeniu są uszkodzone” zamiast ich nadpisać', (await k10.locator('#uszk-usun').count()) === 1);

@@ -1,11 +1,11 @@
 // Przerwanie generowania, błąd bez menedzer.txt, „Wygeneruj od nowa", nawigacja miesięcy. NODE_PATH=/opt/node22/lib/node_modules node przerwanie_i_od_nowa.js
-const { otworz, generuj } = require('./wspolne');
+const { wpiszAdres, otworz, generuj } = require('./wspolne');
 (async () => {
   let kod = 0; const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   // A) brak menedzer.txt blokuje generowanie z czytelnym komunikatem
   let t = await otworz({ w: 1440, h: 900, opcjeSerwera: { bezMenedzera: true } }); let p = t.p;
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '1500'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1500);
   await p.click('#podpisz'); await p.waitForSelector('#menedzer-ponow', { timeout: 60000 });
@@ -14,7 +14,7 @@ const { otworz, generuj } = require('./wspolne');
   // B) przerwanie + ponowne generowanie + od nowa + miesiące
   t = await otworz({ w: 1440, h: 900 }); p = t.p;
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '3095,26'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1500);
   await p.click('#podpisz'); await p.waitForSelector('#potwierdz-gen'); await p.click('#potwierdz-gen'); await p.waitForFunction(() => document.querySelector('#podpisz.zbiera'), null, { timeout: 20000, polling: 100 });

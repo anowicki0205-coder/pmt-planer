@@ -271,6 +271,30 @@ def api_adres(p):
             "niejednoznaczne": bool(a.get("niejednoznaczne")), "nazwa_do_pytania": a.get("nazwa_do_pytania", "")}
 
 
+def api_adres_mapa(p):
+    """Czy adres da się znaleźć na mapie (OpenStreetMap — tymi samymi zapytaniami co przy generowaniu tras). Ma wychwycić literówki w ulicy, zanim silnik po cichu weźmie za bazę trasy środek miejscowości.
+    -> { ok, wynik: 'jest' (serwer zna adres) | 'brak' (serwer odpowiedział, że nie zna) | 'siec' (bez odpowiedzi — nie wiadomo) }.
+    BEZ SKUTKÓW UBOCZNYCH: nie dotyka pamięci geokodowania silnika (ani w pamięci, ani na dysku) — inaczej chwilowy brak sieci albo literówka „zatruwałyby” późniejsze generowanie (silnik uznałby adres za już pytany)."""
+    try:
+        a = S.waliduj_adres(str(p.get("adres", "")).strip(), p.get("wymus_typ"))
+    except ValueError as e:
+        return {"ok": False, "blad": str(e)}
+    import urllib.parse, urllib.request
+    odpowiedz = False
+    for zapytanie in S._warianty_geo(a["adres_geo"], a["baza_miasto"]):
+        try:
+            q = urllib.parse.quote(f"{zapytanie}, Polska", safe="")
+            req = urllib.request.Request(f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1", headers={"User-Agent": "PMT/112"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                dane = json.loads(resp.read())
+            odpowiedz = True
+            if dane:
+                return {"ok": True, "wynik": "jest"}
+        except Exception:
+            continue
+    return {"ok": True, "wynik": "brak" if odpowiedz else "siec"}
+
+
 # ================= PLAN WIZYT (odpowiednik PlanerWizytThread i _wczytaj_pozycje_z_pliku) =================
 import re as _re
 

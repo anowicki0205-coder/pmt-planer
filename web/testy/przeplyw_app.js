@@ -1,5 +1,5 @@
 // Przepływ w aplikacji: Moje dane → ustawienia → generowanie → widoki → dokumenty. NODE_PATH=/opt/node22/lib/node_modules node przeplyw_app.js [katalog-zrzutow]
-const { otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
+const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
 (async () => {
   const wyj = process.argv[2] || '/tmp/app_zrzuty'; fs.mkdirSync(wyj, { recursive: true });
   const t = await otworz({ w: 1440, h: 900, bezVT: !!process.env.BEZ_VT }); const p = t.p; let kod = 0;
@@ -8,7 +8,7 @@ const { otworz, generuj, wieczory } = require('./wspolne'); const fs = require('
   await p.goto(t.adres + '/index.html');
   await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
   ok('pierwsze uruchomienie pokazuje „Moje dane"', await p.locator('#ark-tyt').innerText() === 'Zacznijmy od Twoich danych');
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 30000 });
   ok('dane zapisane, nagłówek pokazuje imię', (await p.locator('#imie-pasek').innerText()) === 'Jan Testowy');
   await p.waitForTimeout(4500); await zrzut('1_plan');

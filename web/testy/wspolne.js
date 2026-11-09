@@ -25,7 +25,7 @@ function serwer(opcje = {}) {
 /** „Dzisiaj” w testach: stałe (PMT_DZIEN albo 15.10.2026 12:00) — i dla aplikacji (new Date() w stronie), i dla testów liczących dni po stronie Node. */
 const dzisTestow = () => new Date(process.env.PMT_DZIEN || '2026-10-15T12:00:00');
 const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
-async function otworz({ muzykaDomyslna = '0', pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
+async function otworz({ folder = false, muzykaDomyslna = '0', pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
   backend = backend || new BackendMock();
   const op = opcjeSerwera || {}; if (op.sekret === undefined) op.sekret = 'SEKRET-TESTOWY'; const host = process.env.HTTP_HOST || '';      // HTTP_HOST=pmt.example: aplikacja otwarta pod zwykłym adresem http (nie localhost) — jak na serwerze bez https: brak Web Crypto, service workera i instalacji
   const sv = await serwer(op); if (host) sv.adres = 'http://' + host + ':' + sv.port; const b = await chromium.launch({ args: host ? [...ARGS, `--host-resolver-rules=MAP ${host} 127.0.0.1`] : ARGS });      // obiekt opcji można zmieniać w trakcie testu (np. dołożyć menedzer.txt)
@@ -57,6 +57,22 @@ async function otworz({ muzykaDomyslna = '0', pocztaDomyslna = 'plik', widokDok 
   if (pocztaDomyslna) await ctx.addInitScript(v => { try { localStorage.setItem('pmt-ui-poczta-v', '2'); if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
   // natywne okno „Zapisz jako” (showSaveFilePicker) nie daje się obsłużyć w przeglądarce bez interfejsu, więc w testach go nie ma — aplikacja wtedy nie oferuje sposobu „pulpit”; test tego sposobu podstawia atrapę
   await ctx.addInitScript(() => { try { Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, writable: true, configurable: true }); } catch (e) {} });
+  // folder roboczy na pulpicie (showDirectoryPicker): okna systemowego nie da się obsłużyć w przeglądarce bez interfejsu, więc domyślnie go nie ma (aplikacja działa wtedy po staremu: pobieranie plików i ręczne wgrywanie);
+  // folder: true podstawia w jego miejsce folder z prywatnej pamięci przeglądarki (OPFS) — ten sam interfejs uchwytów, bez okna, więc test może zapisywać „podpisane pliki” do folderu, a aplikacja ma je zauważyć
+  // Uwaga: odczyt uchwytu z prywatnej pamięci przeglądarki (OPFS) z IndexedDB wywala bezgłowego Chromium (uchwyty z prawdziwego okna wyboru folderu działają normalnie), więc w teście do IndexedDB trafia tylko znacznik,
+  // a sam uchwyt czeka w pamięci strony (i jest odtwarzany po odświeżeniu z localStorage) — aplikacja i tak widzi ten sam przepływ: zapamiętaj → wczytaj → sprawdź zgodę.
+  if (folder) await ctx.addInitScript(() => {
+    window.showDirectoryPicker = async () => { const k = await navigator.storage.getDirectory(); return k.getDirectoryHandle('pmt-folder-testowy', { create: true }); };
+    // drugie ograniczenie prywatnej pamięci przeglądarki (OPFS) w Chromium: katalog o nazwie z polskimi znakami („wrzesień 2026”) zachowuje się jak katalog NADRZĘDNY (pliki lądują o piętro wyżej) — na prawdziwym dysku tak nie jest,
+    // więc w teście nazwy katalogów są zamieniane na ASCII („wrzesien 2026”); aplikacja i test używają tej samej, polskiej nazwy
+    const fold = n => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L'), gdh = FileSystemDirectoryHandle.prototype.getDirectoryHandle;
+    FileSystemDirectoryHandle.prototype.getDirectoryHandle = function (n, o) { return gdh.call(this, fold(n), o); };
+    const H = window.__opfsH = {}, put = IDBObjectStore.prototype.put, get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.put = function (v, key) { if (typeof FileSystemHandle !== 'undefined' && v instanceof FileSystemHandle) { H[key] = v; try { localStorage.setItem('__opfs_' + key, v.name); } catch (e) {} return put.call(this, { opfs: v.name }, key); } return put.call(this, v, key); };
+    IDBObjectStore.prototype.get = function (key) { const r = get.call(this, key); if (H[key]) Object.defineProperty(r, 'result', { get: () => H[key], configurable: true }); return r; };
+    navigator.storage.getDirectory().then(async k => { for (let i = 0; i < localStorage.length; i++) { const n = localStorage.key(i); if (n && n.startsWith('__opfs_')) H[n.slice(7)] = await k.getDirectoryHandle(localStorage.getItem(n)); } }).catch(() => {});
+  });
+  else await ctx.addInitScript(() => { try { Object.defineProperty(window, 'showDirectoryPicker', { value: undefined, writable: true, configurable: true }); } catch (e) {} });
   if (!wycieczka) await ctx.addInitScript(() => { try { localStorage.setItem('pmt-ui-wycieczka', '1'); } catch (e) {} });      // wycieczka po aplikacji (pierwsze uruchomienie) nie zasłania testów; test wycieczki prosi o nią wprost
   if (!pelnaZorza) await ctx.addInitScript(() => { window.__zorzaRzadko = true; });      // testy na grafice programowej: zorza odświeża się rzadko (aplikacja produkcyjna go nie ustawia)
   if (bezZycia) await ctx.addInitScript(() => { window.__bezZycia = true; });      // „życie” kalendarza i fiolek (koniec css/aplikacja.css) domyślnie wyłączone w testach: Playwright nie klika elementów, które się poruszają („element is not stable”); test zycie_app.js włącza je jawnie (bezZycia: false), a ZYCIE=tak włącza je w każdym teście
@@ -80,4 +96,13 @@ async function wieczory(p, { tap = false } = {}) {
   await p.waitForFunction(() => document.querySelector('#parametry [data-tryb="wieczory"]').getAttribute('aria-pressed') === 'true', null, { timeout: 30000, polling: 200 });
   await p.waitForTimeout(600);
 }
-module.exports = { otworz, serwer, KORZEN, generuj, wieczory, dzisTestow };
+/** „Moje dane”: adres jest w pięciu polach (nazwa ulicy, nr budynku, nr mieszkania, kod, miejscowość) i ma przełącznik rodzaju („Ulica” / „Miejscowość bez ulicy (wieś)”). Pomocnik przyjmuje adres jako jeden napis
+ *  („ul. Testowa 1, 00-001 Warszawa”) i wypełnia pola tak, jak zrobiłby to użytkownik: w polu ulicy ląduje SAMA nazwa („Testowa” — „ul.” dopisuje program). Rodzaj: jawny przedrostek = ulica; napis bez
+ *  przedrostka to domyślnie ulica, a wieś trzeba wskazać trzecim argumentem ('wies'). Napisu, którego nie da się rozdzielić (test błędnych adresów), nie zgaduje — wpisuje całość w pole nazwy. */
+async function wpiszAdres(p, adres, typ) {
+  const A = await import(require('url').pathToFileURL(path.join(KORZEN, 'js', 'adres.js')).href);
+  const c = A.rozbierzAdres(adres, typ || 'ulica') || { typ: typ || 'ulica', ulica: String(adres), nr: '', lokal: '', kod: '', miasto: '' };
+  if ((await p.getAttribute(`.adres-typ [data-typ="${c.typ}"]`, 'aria-pressed')) !== 'true') await p.click(`.adres-typ [data-typ="${c.typ}"]`);
+  for (const [sel, k] of [['#d-ulica', 'ulica'], ['#d-nr', 'nr'], ['#d-lokal', 'lokal'], ['#d-kod', 'kod'], ['#d-miasto', 'miasto']]) await p.fill(sel, c[k]);
+}
+module.exports = { otworz, serwer, KORZEN, generuj, wieczory, dzisTestow, wpiszAdres };

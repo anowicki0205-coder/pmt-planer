@@ -1,9 +1,9 @@
-// Dokumenty do podpisu — cały obieg w przeglądarce: pięć kolorowych kroków (pobierz → podpisz → wgraj → sprawdzenie → wyślij; pole przeciągania między 3 a 4), prawdziwe podpisy elektroniczne (pyHanko: PAdES, XAdES, ECDSA),
+// Dokumenty do podpisu — cały obieg w przeglądarce: cztery kolorowe kroki (podpisz [z pobieraniem pojedynczych PDF-ów] → wgraj → sprawdzenie → wyślij; pole przeciągania między 2 a 3), prawdziwe podpisy elektroniczne (pyHanko: PAdES, XAdES, ECDSA),
 // błędne podpisy (inna osoba, zmieniony dokument, dopisek po podpisie, niepodpisany plik), podpis odręczny na sztucznych skanach (także wielostronicowy PDF ze skanem),
 // ręczne potwierdzenie, wysyłka na adres z odbiorca.txt, zapis wyników sprawdzenia i praca bez internetu.
 // Wymaga: poppler, unzip, ImageMagick (convert) oraz python z pyhanko, lxml, pillow, numpy (PYTHON_PODPISY=/tmp/phvenv/bin/python).
 // NODE_PATH=/opt/node22/lib/node_modules node podpis_offline_app.js
-const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const PY = process.env.PYTHON_PODPISY || '/tmp/phvenv/bin/python', DANE = path.join(__dirname, 'dane');
   const OPSERW = {}; const t = await otworz({ w: 1440, h: 900, opcjeSerwera: OPSERW }); const p = t.p; let kod = 0;
@@ -27,7 +27,7 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });
   const bezpieczny = await p.evaluate(() => isSecureContext);      // HTTP_HOST=pmt.example: ten sam przebieg na zwykłym http (bez Web Crypto) — sprawdzanie podpisów działa na własnej kryptografii
   ok(bezpieczny ? 'adres bezpieczny (localhost): Web Crypto dostępne' : `zwykłe http (${t.adres}): brak Web Crypto, przebieg na własnej kryptografii`, bezpieczny === !t.host && (await p.evaluate(() => typeof crypto.subtle !== 'undefined')) === bezpieczny);
-  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await p.fill('#d-adres', 'ul. Testowa 1, 00-001 Warszawa');
+  await p.fill('#d-imie', 'Jan Testowy'); await p.fill('#d-pesel', '90010112349'); await wpiszAdres(p, 'ul. Testowa 1, 00-001 Warszawa');
   await p.click('#zapisz-dane'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached' }); await p.waitForTimeout(3000);
   await p.fill('#kwota-in', '5000'); await p.press('#kwota-in', 'Enter'); await p.waitForTimeout(1200);
   await generuj(p); await p.waitForTimeout(3500);
@@ -35,25 +35,31 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
 
   /* ---- okno: pięć kolorowych kroków, karty dokumentów ---- */
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka'); await p.waitForTimeout(1200);
-  ok('okno ma pięć kroków: pobierz, podpisz, wgraj, sprawdzenie, wyślij (ostatni szary)', (await p.locator('.krok-k').count()) === 5 && (await p.locator('.krok-k.k5.nieaktywny').count()) === 1 && /Pobierz dokumenty/.test(await p.locator('.k1').innerText()) && /Podpisz/.test(await p.locator('.k2').innerText()) && /Wgraj podpisane/.test(await p.locator('.k3').innerText()) && /Sprawdzenie/.test(await p.locator('.k4').innerText()));
+  ok('okno ma cztery kroki: podpisz, wgraj, sprawdzenie, wyślij (ostatni szary), z numerami 1–4 — bez dawnego kroku „Pobierz dokumenty”', (await p.locator('.krok-k').count()) === 4 && (await p.locator('.krok-k.k5.nieaktywny').count()) === 1 && (await p.locator('.k1').count()) === 0 && /Podpisz/.test(await p.locator('.k2').innerText()) && /Wgraj podpisane/.test(await p.locator('.k3').innerText()) && /Sprawdzenie/.test(await p.locator('.k4').innerText()) && /Wyślij/.test(await p.locator('.k5').innerText()) && JSON.stringify(await p.locator('.krok-k .kk-nr').allInnerTexts()) === '["1","2","3","4"]');
   const kolory = await p.evaluate(() => [...document.querySelectorAll('.krok-k')].map(k => getComputedStyle(k).backgroundImage));
-  ok('każdy krok ma własny kolor (pięć różnych gradientów, nie płaskie tło)', new Set(kolory).size === 5 && kolory.every(k => /gradient/.test(k)));
+  ok('każdy krok ma własny kolor (cztery różne gradienty, nie płaskie tło)', new Set(kolory).size === 4 && kolory.every(k => /gradient/.test(k)));
   ok('okno nie jest czarne: tło ma kolor (fiolet/granat)', await p.evaluate(() => /rgb\(122, 70, 252|rgb\(54, 82, 238|rgb\(182, 150, 255|rgb\(130, 174, 255|rgba\(104, 78, 240|104,\s*78,\s*240/.test(getComputedStyle(document.querySelector('#arkusz')).backgroundImage)));
-  ok('krok 2: elektronicznie (link do gov.pl, limit 5 plików po 25 MB, podział na 2 tury) albo odręcznie (wydruk)', (await p.locator('.k2 a[href*="gov.pl"]').count()) === 1 && /5 plików po 25 MB/.test(await p.locator('.k2').innerText()) && /w 2 turach/.test(await p.locator('.k2').innerText()) && /Wydrukuj/.test(await p.locator('.k2').innerText()));
+  ok('krok „Podpisz”: elektronicznie (gov.pl: limit 5 plików po 25 MB, podział na 2 tury, lista dokumentów do pobrania) albo odręcznie (wydruk, z uwagą, że rozliczenie wydatków podpisu nie wymaga)', /5 plików po 25 MB/.test(await p.locator('.k2').innerText()) && /w 2 turach/.test(await p.locator('.k2').innerText()) && /Wydrukuj/.test(await p.locator('.k2').innerText()) && /na rozliczeniu wydatków podpis nie jest wymagany/.test(await p.locator('.k2').innerText()) && (await p.locator('.kk-plik').count()) === 7);
   ok('nie ma już dawnych zakładek partii ani wyboru ścieżek', (await p.locator('.partia, .sciezka, .partie').count()) === 0);
   ok('7 kart dokumentów, wszystkie „czekają na podpis”', (await p.locator('.dok-k').count()) === 7 && (await stany()).every(s => s === 'czeka'));
   ok('na tym etapie nie ma przycisku „Wyślij”', (await p.locator('[data-akcja="wyslij"]').count()) === 0);
   await p.screenshot({ path: tmp + '/1_start.png' });
 
-  /* ---- krok 1: pobieranie ---- */
-  const zip = await pobierz('#pobierz-wsz');
-  ok('„Wszystkie (ZIP)” pobiera JEDEN plik ZIP', /\.zip$/i.test(zip.nazwa), zip.nazwa);
-  const roz = path.join(tmp, 'pdf'); cp.spawnSync('unzip', ['-o', '-q', '-d', roz, zip.sciezka]);
+  /* ---- krok „Podpisz”: dokumenty pobiera się POJEDYNCZO (PDF); „Otwórz gov.pl” odblokowuje się dopiero po pobraniu ---- */
+  ok('w przeglądarce bez dostępu do folderów (telefon, Firefox, Safari — tu: bez showDirectoryPicker) nie ma bloku „Folder na pulpicie”, a lista dokumentów do pobrania jest widoczna od razu (bez rozwijania)', (await p.locator('#kk-folder').count()) === 0 && (await p.locator('details.kk-osobno').count()) === 0 && (await p.locator('.kk-pliki .kk-plik').count()) === 7);
+  ok('przed pobraniem „Otwórz gov.pl” jest wyszarzony (przycisk bez adresu) z podpowiedzią; dawnego „Wszystkie (ZIP)” nie ma', (await p.locator('#otworz-gov').isDisabled()) && (await p.locator('a#otworz-gov').count()) === 0 && /odblokuje się po pobraniu/.test(await p.locator('.k2').innerText()) && (await p.locator('#pobierz-wsz, [data-akcja="zip"]').count()) === 0);
+  ok('każdy z 7 dokumentów ma własny przycisk „Pobierz PDF”, a rozliczenie jest oznaczone „podpis niewymagany”', (await p.locator('.kk-plik [data-akcja="pobierz-dok"]').count()) === 7 && /podpis niewymagany/.test(await p.locator('.kk-plik').nth(6).innerText()) && !/podpis niewymagany/.test(await p.locator('.kk-plik').nth(0).innerText()));
+  const roz = path.join(tmp, 'pdf'); fs.mkdirSync(roz, { recursive: true });
+  const pierwszy = await pobierz('[data-akcja="pobierz-dok"][data-i="0"]'); fs.copyFileSync(pierwszy.sciezka, path.join(roz, pierwszy.nazwa));
+  ok('pobranie jednego dokumentu daje pojedynczy prawdziwy PDF, oznacza go jako pobrany i ODBLOKOWUJE „Otwórz gov.pl” (teraz to link do gov.pl, podpowiedź znika)', /^delegacja_01_.*\.pdf$/i.test(pierwszy.nazwa) && fs.readFileSync(pierwszy.sciezka).subarray(0, 5).toString() === '%PDF-' && (await p.locator('.kk-plik.pobrano').count()) === 1 && (await p.locator('a#otworz-gov[href*="gov.pl"][target="_blank"]').count()) === 1 && (await p.locator('.kk-podp').count()) === 0, pierwszy.nazwa);
+  for (let i = 1; i < 7; i++) { const x = await pobierz(`[data-akcja="pobierz-dok"][data-i="${i}"]`); fs.copyFileSync(x.sciezka, path.join(roz, x.nazwa)); }
   const pdfy = fs.readdirSync(roz).filter(f => /\.pdf$/i.test(f)).sort();
-  ok('ZIP zawiera wszystkie 7 dokumentów (prawdziwe PDF-y) i przechodzi test integralności', pdfy.length === 7 && pdfy.every(f => fs.readFileSync(path.join(roz, f)).subarray(0, 5).toString() === '%PDF-') && cp.spawnSync('unzip', ['-t', zip.sciezka]).status === 0);
+  ok('wszystkie 7 dokumentów pobrane pojedynczo jako prawdziwe PDF-y; wszystkie oznaczone jako pobrane', pdfy.length === 7 && pdfy.every(f => fs.readFileSync(path.join(roz, f)).subarray(0, 5).toString() === '%PDF-') && (await p.locator('.kk-plik.pobrano').count()) === 7);
+  await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(600);
+  ok('po zamknięciu i ponownym otwarciu okna pobrane dokumenty nadal są oznaczone, a gov.pl odblokowany (pamięć na urządzeniu)', (await p.locator('.kk-plik.pobrano').count()) === 7 && (await p.locator('a#otworz-gov[href*="gov.pl"]').count()) === 1);
   const pobrane = [], nasluch = d => pobrane.push(d); p.on('download', nasluch);
   await p.click('[data-akcja="osobno"]'); for (let i = 0; i < 80 && pobrane.length < 7; i++) await p.waitForTimeout(250); p.off('download', nasluch);
-  ok('„Osobne pliki” pobiera 7 osobnych PDF-ów o nazwach dokumentów (bez rozpakowywania)', pobrane.length === 7 && pobrane.map(d => d.suggestedFilename()).sort().join('|') === pdfy.join('|'), pobrane.length + ' plików');
+  ok('„Pobierz wszystkie” pobiera 7 osobnych PDF-ów o nazwach dokumentów (bez rozpakowywania)', pobrane.length === 7 && pobrane.map(d => d.suggestedFilename()).sort().join('|') === pdfy.join('|'), pobrane.length + ' plików');
   const wydruk = await pobierz('[data-akcja="pdf-wydruk"]');
   const strony = f => Number((cp.spawnSync('pdfinfo', [f], { encoding: 'utf8' }).stdout.match(/Pages:\s+(\d+)/) || [0, 0])[1]);
   ok('wydruk (krok 2, odręcznie): jeden PDF ze stronami WSZYSTKICH dokumentów', strony(wydruk.sciezka) === pdfy.reduce((s, f) => s + strony(path.join(roz, f)), 0), wydruk.nazwa);
@@ -158,24 +164,32 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
     await otworzSzczegoly(6);
     const sz7 = await p.evaluate(() => ({ kontrole: document.querySelector('.dok-k.otwarta .kontrole').innerText, podglad: !!document.querySelector('.dok-k.otwarta .podglad-podpisu'), przycisk: !!document.querySelector('.dok-k.otwarta [data-akcja="potwierdz"]') }));
     ok('szczegóły rozliczenia: „nie wymaga podpisu odręcznego”, bez wycinka „miejsce podpisu” i bez przycisku „Potwierdzam, że podpis jest”', /nie wymaga podpisu odręcznego/.test(sz7.kontrole) && !/porównaj sam/.test(sz7.kontrole) && !sz7.podglad && !sz7.przycisk, JSON.stringify(sz7).slice(0, 300));
-    await p.click('.dok-k.otwarta [data-akcja="szczegoly"]'); }
+    await p.click('.dok-k.otwarta [data-akcja="szczegoly"]');
+    await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+    await wgraj([path.join(roz, pdfy[6])]); const s7b = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
+    ok('rozliczenie wydatków: PDF pobrany bez zmian (bez podpisu) też jest przyjęty — „przyjąłem plik bez zmian”', JSON.stringify(s7b) === '["ok","ok","ok","ok","ok","ok","ok"]' && /nie jest na nim wymagany/.test(await komunikat(6)), await komunikat(6));
+    await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+    await wgraj([path.join(roz, pdfy[4])]); await p.waitForFunction(() => /nie ma podpisu elektronicznego/.test((document.querySelector('#podp-odrzucone') || {}).innerText || ''), null, { timeout: 20000 });
+    ok('a ten sam niepodpisany PDF POLECENIA (nie rozliczenia) nadal jest odrzucony — podpis jest wymagany tylko tam; stan dokumentów bez zmian', (await stany())[4] === 'ok' && (await stany())[6] === 'czeka', JSON.stringify(await stany())); }
   // dokument 7 (indeks 6): poprawny podpis zamiast dopisku
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
-  await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+  await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);      // rozliczenie czeka już po scenariuszu „bez podpisu” wyżej (jego plik został zdjęty)
   await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
   await p.evaluate(() => { window.__nowe = new Set(); window.__anim = ''; new MutationObserver(() => { document.querySelectorAll('.karta3d.k3-nowy.k3-ok').forEach(k => { window.__nowe.add(Number(k.dataset.i)); const sc = k.querySelector('.da-podpis path'); if (sc) window.__anim = getComputedStyle(sc).animationName; }); }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
   await wgraj(kopiaZ(path.join(tmp, 'e4'), path.join(tmp, 'e4o'), { [pdfy[6]]: pdfy[0] }));      // podpisany dokument 7 wraca pod nazwą dokumentu 1 — ma zostać rozpoznany po zawartości
   await p.waitForSelector('.karta3d[data-i="6"].k3-ok', { timeout: 150000 }); await p.waitForTimeout(400);
   const efekt = await p.evaluate(() => ({ nowe: [...window.__nowe], anim: window.__anim }));
-  ok('widok 3D: karta, której stan zmienił się na „poprawny” (7), dostaje efekt (podpis „rysuje się”, błysk) — tylko ona; przy włączonym „życiu” animacja zycie-kresl (mimo trybu spokojnego), bez niego brak ruchu', JSON.stringify(efekt.nowe) === '[6]' && efekt.anim === (process.env.ZYCIE === 'tak' ? 'zycie-kresl' : 'none'), JSON.stringify(efekt));
+  ok('widok 3D: karta, której stan zmienił się na „poprawny” (7 — rozliczenie), dostaje błysk — tylko ona; podpis się na niej NIE „rysuje” (rozliczenie podpisu nie wymaga), niezależnie od „życia”', JSON.stringify(efekt.nowe) === '[6]' && efekt.anim === '', JSON.stringify(efekt));
+  { const m = await p.evaluate(() => ({ poleceniePodpis: document.querySelectorAll('.karta3d[data-i="0"] .da-podpis').length, rozlPodpis: document.querySelectorAll('.karta3d[data-i="6"] .da-podpis').length, rozlNiewym: document.querySelectorAll('.karta3d[data-i="6"] .da-niewym').length, rozlZnak: document.querySelectorAll('.karta3d[data-i="6"] .da-akc1 .da-znak, .karta3d[data-i="6"] .da-akc1 .da-moj').length, napis: (document.querySelector('.karta3d[data-i="6"] .da-niewym') || {}).textContent || '', chip: (document.querySelector('.karta3d[data-i="6"] .stan') || {}).textContent || '' }));
+    ok('podgląd rozliczenia w 3D: pole „podpis pracownika” jest ciche („niewymagany”, bez znaczków stanu i bez rysowanego podpisu), a polecenie z podpisem ma go narysowanego; etykieta stanu rozliczenia to „przyjęte”', m.poleceniePodpis === 1 && m.rozlPodpis === 0 && m.rozlNiewym === 1 && m.rozlZnak === 0 && /niewymagany/.test(m.napis) && /przyjęte/.test(m.chip), JSON.stringify(m)); }
   await p.click('[data-akcja="widok"][data-w="lista"]'); await p.waitForSelector('.dok-k');
   const s4 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const zap4 = await zapisane();
   ok('nazwy: plik o nazwie INNEGO dokumentu rozpoznany po zawartości i nazwany jak dokument 7; ostrzeżenie w sprawdzeniu', zap4.pliki[6][0] === pdfy[6] && zap4.pliki[0][0] === pdfy[0] && zap4.weryfikacje[6].kontrole.some(c => c.id === 'nazwa' && /to nazwa innego dokumentu \(Polecenie 1\)/.test(c.tekst)), JSON.stringify(zap4.weryfikacje[6].kontrole.filter(c => c.id === 'nazwa')));
   ok('nazwy: skany zapisane jako nazwa dokumentu + .jpg (np. „…03….jpg”), nie „_skan” i nie „IMG_”', [2, 3, 4].every(i => zap4.pliki[i].length === 1 && zap4.pliki[i][0] === pdfy[i].replace(/\.pdf$/i, '.jpg')), JSON.stringify([2, 3, 4].map(i => zap4.pliki[i])));
   ok('wszystkie 7 dokumentów podpisane i sprawdzone (e-podpis PAdES/ECDSA/XAdES i odręczny)', JSON.stringify(s4) === JSON.stringify(Array(7).fill('ok')) && /Wszystkie 7 dokumentów sprawdzone/.test(await p.locator('#podp-licznik').innerText()), JSON.stringify(s4));
-  { const dz = await p.evaluate(() => ({ ...window.__pmtDzwiek.licznik })); ok('dźwięki przy podpisach: każdy sprawdzony dokument gra „ok”, a gdy wszystkie są poprawne — dłuższy akord „wszystkie” (dwa razy: raz po rozliczeniu bez podpisu odręcznego, raz po podpisie elektronicznym zamiast dopisku)', (dz.ok || 0) >= 1 && dz.wszystkie === 2, JSON.stringify(dz)); }
+  { const dz = await p.evaluate(() => ({ ...window.__pmtDzwiek.licznik })); ok('dźwięki przy podpisach: każdy sprawdzony dokument gra „ok”, a gdy wszystkie są poprawne — dłuższy akord „wszystkie” (trzy razy: po rozliczeniu przyjętym jako skan bez podpisu, po rozliczeniu jako PDF bez zmian i po podpisie elektronicznym zamiast dopisku)', (dz.ok || 0) >= 1 && dz.wszystkie === 3, JSON.stringify(dz)); }
   ok('po sprawdzeniu wszystkiego krok 5 „Wyślij” zapala się: przestaje być szary, przycisk jest aktywny i ma akcję', await p.evaluate(() => { const k = document.querySelector('.krok-k.k5'), b = k.querySelector('button'); return k.classList.contains('aktywny') && !k.classList.contains('nieaktywny') && !b.disabled && b.dataset.akcja === 'wyslij' && /Wszystkie dokumenty sprawdzone/.test(k.querySelector('small').innerText); }));
   ok('po sprawdzeniu wszystkiego przycisk „Wyślij” jest w oknie i na kaflu, status „Podpisane”', (await p.locator('[data-akcja="wyslij"]').count()) >= 1 && /Wyślij/.test(await p.locator('#kropla-napis').innerText()) && (await p.locator('#status').innerText()).includes('Podpisane'));
   await p.screenshot({ path: tmp + '/4_wszystko.png' });

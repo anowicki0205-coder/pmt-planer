@@ -1,5 +1,7 @@
 // PMT Planer (web) — archiwum ZIP zahasłowane szyfrem AES-256 (odmiana „WinZip AES”, AE-2), do wysyłki podpisanych dokumentów pocztą.
-// W dokumentach jest PESEL, więc paczka nie może iść jawnie. Otwiera ją 7-Zip, WinRAR i Keka; zwykły Eksplorator Windows często nie umie otworzyć AES-256.
+// W dokumentach jest PESEL, więc paczka nie może iść jawnie. Otwiera ją 7-Zip, WinRAR i Keka; zwykły Eksplorator Windows NIE umie otworzyć AES-256 (błąd 0x80004005).
+// UWAGA: aplikacja NIE używa już tego modułu do wysyłki — odbiorca musi rozpakować paczkę w Eksploratorze bez dodatkowych programów, więc idzie klasyczny ZIP (js/zipklasyczny.js).
+// Moduł zostaje jako wariant zapasowy (mocniejszy szyfr), gdyby odbiorca mógł kiedyś mieć 7-Zip/WinRAR; sprawdza go testy/paczka_test.js.
 // Format (dla każdego pliku osobno): sól 16 B | weryfikator hasła 2 B | dane zaszyfrowane AES-256-CTR (licznik little-endian od 1) | kod uwierzytelniający HMAC-SHA1 (10 B).
 // Klucze: PBKDF2-HMAC-SHA1 (1000 iteracji, tak wymaga format) z hasła i soli → 32 B klucz AES | 32 B klucz HMAC | 2 B weryfikator.
 // Własne SHA-1/HMAC/PBKDF2, bo WebCrypto nie istnieje na stronie otwartej przez zwykłe http, a 1000 iteracji liczy się błyskawicznie.

@@ -7,7 +7,7 @@
 //      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane,
 //   5. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
-import { zipujAes } from './zipaes.js';
+import { zipujKlasycznie } from './zipklasyczny.js';
 import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
 import { dzwiek } from './dzwiek.js';
 import { wczytajKlienta, pobierzKod, wymienKod, utworzSzkic, komunikatBledu } from './outlook.js';
@@ -480,7 +480,7 @@ export function zainstalujPodpis(k) {
     return o;
   }
   let wysylanie = false, ostatniMailto = '', gotowyEml = null, sprawdzPoWyslaniu = null;      // gotowyEml: przygotowana wiadomość czeka na osobne kliknięcie, gdy zwykłe pobranie nie jest już możliwe; sprawdzPoWyslaniu: dane użyte z pamięci, do porównania z serwerem      // ostatniMailto: adres mailto: trzymany tylko w pamięci, żeby przycisk „Otwórz wiadomość” nie niósł adresata w treści strony
-  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
+  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z klasycznym szyfrowaniem (otwiera ją Eksplorator Windows) → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
       Samo kliknięcie jest akceptacją: gdy wiadomość jest gotowa, dokumenty dostają status „wysłane” (karty pokazują „Wysłano”); „Cofnij wysłanie” na pulpicie go przywraca. */
   /** Okno logowania do Outlooka — musi się otworzyć SYNCHRONICZNIE w obsłudze kliknięcia, inaczej przeglądarka je zablokuje (null = zablokowane). */
   function otworzOknoLogowania() {
@@ -547,14 +547,14 @@ export function zainstalujPodpis(k) {
       if (metoda === 'poczta') {      // otwieramy pocztę JAK NAJSZYBCIEJ po kliknięciu (przeglądarka pozwala na to tylko tuż po geście użytkownika), zanim szyfrowanie zajmie procesor
         const mailto = mailtoDo(adres, temat(), trescWiad(zal.length));
         otworzMailto(mailto); stanW('Otwieram pocztę i przygotowuję zahasłowaną paczkę…'); await czekaj(60);
-        const blobP = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo);
+        const blobP = await zipujKlasycznie(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo);
         k.pobierzBlob(blobP, nazwaZip()); await czekaj(450);
         oznaczWyslane();
         ostatniMailto = mailto; stanW(`Otworzyłem pocztę z gotową wiadomością (adresat, temat i treść są już wpisane). Zahasłowana paczka <span class="adr">${esc(nazwaZip())}</span> zapisała się w folderze Pobrane — <span class="adr">dołącz ją do wiadomości</span> (spinacz → ostatnio pobrane albo przeciągnij z paska pobierania) i wyślij. Jeśli poczta się nie otworzyła: <button type="button" class="przycisk maly" id="podp-otworz-poczte" data-akcja="otworz-mailto">Otwórz wiadomość</button>${blobP.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blobP.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : ''}`);
         pokazToast('Poczta otwarta — dołącz paczkę z folderu Pobrane i wyślij');
         return;
       }
-      const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
+      const blob = await zipujKlasycznie(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
       if (metoda === 'outlook') { oknoZostaje = await szkicOutlook(okno, { adres, tem, tr, blob, duza }); return; }
       if (metoda === 'pulpit') {

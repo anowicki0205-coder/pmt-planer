@@ -67,6 +67,40 @@ try: z.read(z.namelist()[0]); print('PRZESZLO')
 except Exception as e: print('odmowa')`, path.join(tmp, 'zmieniony.zip'), haslo) === 'odmowa');
   ok('brak hasła → wyjątek (paczka nigdy nie powstaje jawna)', (() => { try { Z.zipujAes(pliki, ''); return false; } catch (e) { return true; } })());
 
+  /* ---- paczka KLASYCZNA (ZipCrypto + deflate): to ją dostaje odbiorca; ma się otwierać w Eksploratorze Windows bez 7-Zip/WinRAR ---- */
+  { const ZK = await import('../js/zipklasyczny.js');
+    const tekst = enc('%PDF-1.4\n' + 'Delegacja służbowa — Żaneta Gęśla, trasa Warszawa–Radom. '.repeat(3000)), losowy = los(40000);
+    const plikiK = [{ nazwa: 'delegacja_01_Żaneta_Gęśla_październik_2026r.pdf', bajty: tekst }, { nazwa: 'skan (2).jpg', bajty: losowy }, { nazwa: 'pusty.txt', bajty: new Uint8Array(0) }, { nazwa: 'jeden.bin', bajty: Uint8Array.of(7) }];
+    const hasloK = 'Tajne-Haslo#2026 abc';
+    const zk = Buffer.from(await (await ZK.zipujKlasycznie(plikiK, hasloK)).arrayBuffer()); fs.writeFileSync(path.join(tmp, 'klasyczna.zip'), zk); plikiK.forEach((q, i) => fs.writeFileSync(path.join(tmp, `k${i}.bin`), q.bajty));
+    const wk = JSON.parse(py(`
+import sys, json, zipfile
+z = zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode('ascii')); out = {'info': [[i.filename, i.compress_type, i.file_size, i.compress_size, i.flag_bits, i.extract_version] for i in z.infolist()], 'zgodne': [], 'testzip': z.testzip()}
+for i, inf in enumerate(z.infolist()): out['zgodne'].append(z.read(inf) == open(sys.argv[3] + '/k%d.bin' % i, 'rb').read())
+z2 = zipfile.ZipFile(sys.argv[1]); z2.setpassword(b'zle-haslo-12345')
+try: z2.read(z2.infolist()[1]); out['zle'] = 'PRZESZLO'
+except RuntimeError as e: out['zle'] = 'odmowa'
+z3 = zipfile.ZipFile(sys.argv[1])
+try: z3.read(z3.infolist()[1]); out['bez'] = 'PRZESZLO'
+except RuntimeError as e: out['bez'] = 'odmowa'
+print(json.dumps(out))`, path.join(tmp, 'klasyczna.zip'), hasloK, tmp));
+    ok('standardowa biblioteka Pythona (niezależny czytnik) odczytuje wszystkie pliki paczki klasycznej z prawidłowym hasłem co do bajta (także pusty i 1-bajtowy), nazwy z polskimi znakami wracają', wk.zgodne.every(Boolean) && wk.testzip === null && wk.info[0][0] === plikiK[0].nazwa, JSON.stringify(wk.info));
+    ok('zły albo brak hasła: odmowa (kontrola hasła działa na każdym pliku)', wk.zle === 'odmowa' && wk.bez === 'odmowa');
+    ok('każdy wpis ma flagi „zaszyfrowany” (bit 0) i „nazwa w UTF-8” (bit 11), wersję 2.0 — tak, jak oczekuje Eksplorator Windows', wk.info.every(i => i[4] === 0x0801 && i[5] === 20), JSON.stringify(wk.info.map(i => [i[4], i[5]])));
+    ok('tekst jest kompresowany (deflate: ≥ 20× mniej), dane losowe zostają bez kompresji (nie puchną więcej niż o 12 bajtów nagłówka szyfrującego)', wk.info[0][1] === 8 && wk.info[0][3] * 20 < wk.info[0][2] && wk.info[1][1] === 0 && wk.info[1][3] === wk.info[1][2] + 12, JSON.stringify(wk.info.map(i => [i[1], i[2], i[3]])));
+    ok('początek pliku nie występuje w paczce wprost: ani „%PDF-1.” z pierwszego pliku, ani jego tekst jawny (kompresja przed szyfrowaniem)', !zk.includes(Buffer.from('%PDF-1.4')) && !zk.includes(Buffer.from('Delegacja')) && !zk.includes(Buffer.from(losowy.subarray(100, 140))));
+    // bez CompressionStream (stare przeglądarki): pliki idą bez kompresji, ale paczka nadal się otwiera
+    { const orig = globalThis.CompressionStream; globalThis.CompressionStream = undefined; let zb; try { zb = Buffer.from(await (await ZK.zipujKlasycznie(plikiK.slice(0, 1), hasloK)).arrayBuffer()); } finally { globalThis.CompressionStream = orig; } fs.writeFileSync(path.join(tmp, 'bez_kompresji.zip'), zb);
+      const r = py(`
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); i = z.infolist()[0]; print(i.compress_type, z.read(i) == open(sys.argv[3], 'rb').read())`, path.join(tmp, 'bez_kompresji.zip'), hasloK, path.join(tmp, 'k0.bin'));
+      ok('bez CompressionStream paczka powstaje bez kompresji i też się otwiera', r === '0 True', r); }
+    ok('hasło z polską literą (inaczej kodowane przez Eksplorator niż przez przeglądarkę) jest odrzucane z wyjątkiem; zwykłe ASCII przechodzi', await (async () => { try { await ZK.zipujKlasycznie(plikiK.slice(2, 3), 'Zażółć-hasło-123'); return false; } catch (e) { return !ZK.hasloZgodneZEksploratorem('Zażółć-hasło-123') && ZK.hasloZgodneZEksploratorem('Abc-123 !?#@') && !ZK.hasloZgodneZEksploratorem('') && !ZK.hasloZgodneZEksploratorem('tab\there'); } })());
+    ok('brak hasła → wyjątek (paczka nigdy nie powstaje jawna)', await (async () => { try { await ZK.zipujKlasycznie(plikiK, ''); return false; } catch (e) { return true; } })());
+    const sz2 = ['7z', '7za', '7zz'].find(b => { try { execFileSync(b, ['i'], { stdio: 'ignore' }); return true; } catch (e) { return false; } });
+    if (sz2) { const o = (() => { try { return execFileSync(sz2, ['t', '-p' + hasloK, path.join(tmp, 'klasyczna.zip')], { encoding: 'utf8' }); } catch (e) { return String(e.stdout || e); } })(), zleO = (() => { try { execFileSync(sz2, ['t', '-pzle-haslo-12345', path.join(tmp, 'klasyczna.zip')], { stdio: 'ignore' }); return 0; } catch (e) { return e.status; } })();
+      ok('7-Zip też otwiera paczkę klasyczną (test integralności z hasłem) i odmawia przy złym haśle', /Everything is Ok/.test(o) && zleO !== 0, 'zły → kod ' + zleO); } }
+
   /* ---- wiadomość .eml ---- */
   const temat = '[PMT] Delegacje — Żaneta Gęśla-Łódzka — Wrzesień 2026 ' + 'x'.repeat(60), tresc = 'Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami za Wrzesień 2026 (5 plików). Hasło zostało uzgodnione osobno.\n\nPozdrawiam\nŻaneta Gęśla-Łódzka';
   const eml = E.zbudujEml({ adres: 'kierownik@example.com', temat, tresc, zalacznik: { nazwa: 'Dokumenty Żaneta_Gęśla Wrzesień 2026 (1).zip', bajty: new Uint8Array(zip), typ: 'application/zip' } });

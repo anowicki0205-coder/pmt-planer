@@ -104,6 +104,7 @@ export async function pobierzHasloPaczki() {
   const s = odp && odp.status, data = String(odp && odp.wazne_do || '');
   if (s === 'ok') {
     if (typeof odp.haslo !== 'string' || [...odp.haslo].length < 8 || !/^\d{4}-\d{2}-\d{2}$/.test(data)) return { ok: false, powod: 'odpowiedz', komunikat: 'Hasło do paczek ustawione przez administratora jest nieprawidłowe lub za krótkie (minimum 8 znaków). Napisz do administratora.' };
+    if (!/^[\x20-\x7e]+$/.test(odp.haslo)) return { ok: false, powod: 'odpowiedz', komunikat: 'Hasło do paczek ma polskie lub inne znaki spoza podstawowego zestawu (ASCII) — odbiorca nie otworzy takiej paczki w Eksploratorze Windows. Napisz do administratora: hasło ma mieć litery bez polskich znaków, cyfry i znaki specjalne.' };
     const adres = String(odp.adres || '').trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { ok: false, powod: 'odpowiedz', komunikat: 'Administrator nie ustawił poprawnego adresu odbiorcy dokumentów. Napisz do administratora.' };
     return { ok: true, haslo: odp.haslo, wazneDo: data, adres };

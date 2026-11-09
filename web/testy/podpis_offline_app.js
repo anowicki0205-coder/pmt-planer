@@ -173,7 +173,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   // dokument 7 (indeks 6): poprawny podpis zamiast dopisku
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
-  await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+  await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);      // rozliczenie czeka już po scenariuszu „bez podpisu” wyżej (jego plik został zdjęty)
   await p.click('[data-akcja="widok"][data-w="3d"]'); await p.waitForSelector('#k3-scena');
   await p.evaluate(() => { window.__nowe = new Set(); window.__anim = ''; new MutationObserver(() => { document.querySelectorAll('.karta3d.k3-nowy.k3-ok').forEach(k => { window.__nowe.add(Number(k.dataset.i)); const sc = k.querySelector('.da-podpis path'); if (sc) window.__anim = getComputedStyle(sc).animationName; }); }).observe(document.body, { subtree: true, childList: true, attributes: true }); });
   await wgraj(kopiaZ(path.join(tmp, 'e4'), path.join(tmp, 'e4o'), { [pdfy[6]]: pdfy[0] }));      // podpisany dokument 7 wraca pod nazwą dokumentu 1 — ma zostać rozpoznany po zawartości

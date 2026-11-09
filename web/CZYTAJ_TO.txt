@@ -194,7 +194,7 @@ INSTALACJA NA TELEFONIE (PWA) I iOS / SAFARI
 
 DOKUMENTY DO PODPISU: PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
   Okno „Dokumenty do podpisu” (przycisk „Podpisz …” albo probówki w kaflu Dokumenty) prowadzi czterema kolorowymi krokami; pod nimi są karty dokumentów (po jednej na polecenie i rozliczenie).
-  1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. FOLDER „delegacje” (Chrome i Edge na komputerze): niski blok „Folder „delegacje”” z przyciskiem „Wskaż miejsce” — RAZ wskazujesz w oknie wyboru miejsce (np. pulpit),
+  1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. FOLDER „delegacje” (Chrome i Edge na komputerze): blok „Folder „delegacje”” z przyciskiem „Wskaż miejsce” (po zapisie dokumentów zostaje jedna linia: ścieżka, stan obserwacji i mały odnośnik „zmień”; ręczne pobieranie PDF-ów jest wtedy schowane, a „Otwórz gov.pl” to jedyny przycisk) — RAZ wskazujesz w oknie wyboru miejsce (np. pulpit),
      a aplikacja SAMA tworzy w nim folder „delegacje” (gdy wskażesz folder, który już tak się nazywa, używa go bez zagnieżdżania) i od razu zapisuje PDF-y w podfolderze miesiąca, np. „delegacje\wrzesień 2026” (rozliczenie
      wydatków, które podpisu nie wymaga, od razu wchodzi do aplikacji jako przyjęte). Przeglądarka nie pozwala wskazać SAMEGO Pulpitu, Dokumentów ani Pobranych (tylko ich podfolder) — wtedy aplikacja podpowiada:
      w oknie wyboru kliknij „Nowy folder”, nazwij go „delegacje” i wskaż go (pierwsze zdanie z pamięci, NIE sprawdzone na prawdziwej przeglądarce). Podpisujesz polecenia na gov.pl, a podpisane pliki zapisujesz w TYM SAMYM folderze (gov.pl oddaje je pod dowolnymi nazwami —

@@ -217,18 +217,20 @@ export function zainstalujPodpis(k) {
   function htmlFolderu() {
     if (!folderMozliwy()) return '';
     const korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), blad = fol.blad ? `<small class="kk-folder-blad" role="alert">${esc(fol.blad)}</small>` : '';
-    const btn = (akcja, tekst, glowny) => `<button type="button" class="przycisk ${glowny ? 'glowny' : 'maly'}" data-akcja="${akcja}">${tekst}</button>`;
-    let tytul = `Folder „${NAZWA_FOLDERU}”`, opis, przyciski = '';
+    const btn = (akcja, tekst, glowny) => `<button type="button" class="przycisk ${glowny ? 'glowny' : 'maly'}" data-akcja="${akcja}">${tekst}</button>`, zmien = '<button type="button" class="kk-link" data-akcja="folder-zmien">zmień</button>';
+    let tytul = `Folder „${NAZWA_FOLDERU}”`, opis, akcje = '';
     if (fol.stan === 'start') opis = '<small>Sprawdzam…</small>';
-    else if (fol.stan === 'bez-folderu') { opis = `<small>Wskaż RAZ miejsce (np. pulpit) — sam utworzę w nim folder „${NAZWA_FOLDERU}”.</small>${blad}`; przyciski = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
-    else if (fol.stan === 'zgoda') { opis = `<small>Przeglądarka prosi o zgodę na dostęp do folderu „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”.</small>${blad}`; przyciski = btn('folder-wznow', 'Pozwól', true) + btn('folder-zmien', 'Zmień'); }
-    else if (fol.stan === 'gotowy') { opis = `<small>Dokumenty tego miesiąca nie są jeszcze zapisane w folderze.</small>${blad}`; przyciski = btn('folder-zapisz', `${ik('i-pobierz')}Zapisz dokumenty`, true) + btn('folder-zmien', 'Zmień'); }
-    else if (fol.stan === 'zapisany') {
+    else if (fol.stan === 'bez-folderu') { opis = `<small>Wskaż RAZ miejsce (np. pulpit) — sam utworzę w nim folder „${NAZWA_FOLDERU}”.</small>${blad}`; akcje = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
+    else if (fol.stan === 'zgoda') { opis = `<small>Przeglądarka prosi o zgodę na dostęp do folderu „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”.</small>${blad}`; akcje = btn('folder-wznow', 'Pozwól', true) + zmien; }
+    else if (fol.stan === 'gotowy') { opis = `<small>Dokumenty tego miesiąca nie są jeszcze zapisane w folderze.</small>${blad}`; akcje = btn('folder-zapisz', `${ik('i-pobierz')}Zapisz dokumenty`, true) + zmien; }
+    else if (fol.stan === 'zapisany') {      // wszystko dzieje się samo: zostaje jedna linia ze ścieżką i stanem obserwacji (plus mały odnośnik „zmień”)
       tytul = `Folder „${korzen}” › „${pod}”`;
-      opis = `<small>Podpisane pliki zapisz w tym folderze — wczytam je sam.</small><small class="kk-folder-stan" id="kk-folder-stan" aria-live="polite">${fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…'}</small>${blad}`;
-      przyciski = btn('folder-zapisz', 'Zapisz ponownie') + btn('folder-zmien', 'Zmień');
-    } else { opis = `<small>Z folderem jest problem.</small>${blad}`; przyciski = btn('folder-zmien', 'Wskaż od nowa'); }
-    return `<div class="kk-folder" id="kk-folder"><span class="kk-folder-opis"><b>${ik('i-pobierz')}${tytul}</b>${opis}</span>${przyciski ? `<span class="kk-przyciski">${przyciski}</span>` : ''}</div>`;
+      opis = `<small class="kk-folder-stan" id="kk-folder-stan" aria-live="polite">${fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…'}</small>${blad}`; akcje = zmien;
+    } else { opis = `<small>Z folderem jest problem.</small>${blad}`; akcje = btn('folder-zmien', 'Wskaż od nowa'); }
+    const wiersz = `<div class="kk-folder"><span class="kk-folder-opis"><b>${ik('i-pobierz')}${tytul}</b>${opis}</span>${akcje ? `<span class="kk-przyciski">${akcje}</span>` : ''}</div>`;
+    // ręczne pobieranie dokumentów (po jednym PDF-ie) zostaje tylko jako wyjście awaryjne, gdy folderu nie ma; gdy folder działa, nie jest potrzebne
+    const awaryjnie = fol.stan === 'start' || fol.stan === 'zapisany' ? '' : `<details class="kk-osobno"><summary>Albo pobierz dokumenty osobno (pojedynczo, jako PDF)</summary>${wierszePobierania()}</details>`;
+    return `<div class="kk-folder-okno" id="kk-folder">${wiersz}${awaryjnie}</div>`;
   }
   function odswiezFolder() { const e = $('#kk-folder', arkTresc); if (e && widok === 'glowny') { e.outerHTML = htmlFolderu(); odswiezPobieranie(); } }
   /** Przy otwarciu okna: wczytuje zapamiętany folder i sprawdza, czy przeglądarka pamięta zgodę; jeśli dokumenty już są w folderze, zaczyna go obserwować. */
@@ -275,7 +277,11 @@ export function zainstalujPodpis(k) {
       const roz = o.find(x => x.d.rozliczenie); if (roz && !plikiDok(roz.d.i).length) await przyjmij([new File([roz.bajty], bezOgonkow(roz.d.nazwa), { type: 'application/pdf' })]);
     } catch (e) { console.error('zapis w folderze', e); fol.stan = 'blad'; fol.blad = 'Nie udało się zapisać dokumentów w folderze: ' + String((e && e.message) || e).slice(0, 100); odswiezFolder(); }
   }
-  async function zmienFolderRoboczy() { clearInterval(fol.timer); fol.timer = 0; await zapomnijFolder(); fol.uchwyt = null; fol.korzen = null; fol.miesiac = null; fol.stan = 'bez-folderu'; fol.blad = ''; odswiezFolder(); await wskazFolderRoboczy(); }
+  async function zmienFolderRoboczy() {
+    clearInterval(fol.timer); fol.timer = 0; await zapomnijFolder();
+    zapiszStanFolderu(Object.assign(stanFolderu(), { zapisano: false, baza: {} }));      // nowe miejsce: dokumenty tego miesiąca zapiszą się tam od nowa (pliki już wczytane nie wczytają się drugi raz)
+    fol.uchwyt = null; fol.korzen = null; fol.miesiac = null; fol.stan = 'bez-folderu'; fol.blad = ''; odswiezFolder(); await wskazFolderRoboczy();
+  }
   function zacznijObserwowac() { clearInterval(fol.timer); fol.timer = setInterval(odczytajFolder, 2500); odczytajFolder(); }
   /** Jeden obrót obserwacji: nowy albo zmieniony plik (inny odcisk niż oryginały i już wczytane) trzeba zobaczyć w dwóch kolejnych odczytach i nie może być świeżo zapisany — wtedy idzie do zwykłego wgrywania
    *  (to samo, co „Wybierz pliki”: rozpoznanie dokumentu, sprawdzenie podpisu w tle). */
@@ -308,18 +314,19 @@ export function zainstalujPodpis(k) {
     return `<ul class="kk-pliki" aria-label="Dokumenty do pobrania">${k.nazwyDok().map(d => `<li class="kk-plik${pob.has(d.i) ? ' pobrano' : ''}"><span class="kk-plik-nazwa"><b>${d.tytul}</b><small>${d.rozliczenie ? 'podpis niewymagany' : d.opis}</small></span><button type="button" class="przycisk maly" data-akcja="pobierz-dok" data-i="${d.i}" aria-label="Pobierz PDF: ${esc(d.tytul)}">${pob.has(d.i) ? `${ik('i-ok')}Pobrano` : `${ik('i-pobierz')}Pobierz PDF`}</button></li>`).join('')}</ul>`;
   }
   /** „Otwórz gov.pl” działa dopiero po pobraniu choć jednego dokumentu; wcześniej to wyszarzony przycisk bez adresu (nic nie otworzy). */
-  const akcjeGov = () => `<span class="kk-przyciski" id="kk-gov-akcje"><button type="button" class="przycisk" data-akcja="osobno">${ik('i-pobierz')}Pobierz wszystkie</button>${pobrane().size
-    ? `<a class="przycisk glowny" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`
-    : `<button type="button" class="przycisk glowny" id="otworz-gov" disabled aria-disabled="true">Otwórz gov.pl</button>`}</span>${pobrane().size ? '' : '<small class="kk-podp" id="kk-gov-podp">„Otwórz gov.pl” odblokuje się po pobraniu dokumentów.</small>'}`;
+  const akcjeGov = () => {
+    const otworz = pobrane().size ? `<a class="przycisk glowny" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>` : `<button type="button" class="przycisk glowny" id="otworz-gov" disabled aria-disabled="true">Otwórz gov.pl</button>`;
+    if (folderMozliwy()) return `<span class="kk-przyciski" id="kk-gov-akcje">${otworz}</span>`;      // z folderem: dokumenty są zapisywane same, wystarczy „Otwórz gov.pl” (odblokowuje się po zapisaniu)
+    return `<span class="kk-przyciski" id="kk-gov-akcje"><button type="button" class="przycisk" data-akcja="osobno">${ik('i-pobierz')}Pobierz wszystkie</button>${otworz}</span>${pobrane().size ? '' : '<small class="kk-podp" id="kk-gov-podp">„Otwórz gov.pl” odblokuje się po pobraniu dokumentów.</small>'}`;
+  };
   function widokGlowny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
     return `${nagl('Dokumenty do podpisu')}
       <ol class="kroki4">
         <li class="krok-k k2"><span class="kk-nr">1</span><div class="kk-tresc"><b>Podpisz</b>
           <div class="kk-opcje">
-            <div class="kk-opcja kk-gov"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>Profil Zaufany, bezpłatnie. Najpierw pobierz dokumenty (każdy osobno, jako PDF) — strona gov.pl nie przyjmie plików z aplikacji, więc podpisujesz te z dysku. gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small>
-              ${htmlFolderu()}
-              ${folderMozliwy() ? `<details class="kk-osobno"><summary>Albo pobierz dokumenty osobno (pojedynczo, jako PDF)</summary>${wierszePobierania()}</details>` : wierszePobierania()}
+            <div class="kk-opcja kk-gov"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>${folderMozliwy() ? 'Profil Zaufany, bezpłatnie. Podpisane pliki zapisz w folderze poniżej — wczytam je sam.' : 'Profil Zaufany, bezpłatnie. Najpierw pobierz dokumenty (każdy osobno, jako PDF) — strona gov.pl nie przyjmie plików z aplikacji, więc podpisujesz te z dysku.'} gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small>
+              ${folderMozliwy() ? htmlFolderu() : wierszePobierania()}
               ${akcjeGov()}</div>
             <div class="kk-opcja"><b>${ik('i-drukuj')}Odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika” (na rozliczeniu wydatków podpis nie jest wymagany), zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem).</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></div>
           </div></div></li>
@@ -366,8 +373,9 @@ export function zainstalujPodpis(k) {
   /** Po pobraniu: odświeża tylko listę dokumentów i przycisk gov.pl (reszta okna, np. karuzela, zostaje jak była). */
   function odswiezPobieranie() {
     if (widok !== 'glowny') return;
-    const l = $('.kk-gov .kk-pliki', arkTresc), a = $('#kk-gov-akcje', arkTresc); if (!l || !a) return;
-    l.outerHTML = wierszePobierania(); const p = $('#kk-gov-podp', arkTresc); if (p) p.remove(); a.outerHTML = akcjeGov();
+    const l = $('.kk-gov .kk-pliki', arkTresc), a = $('#kk-gov-akcje', arkTresc);      // listy może nie być (gdy folder działa), przycisk gov.pl jest zawsze
+    if (l) l.outerHTML = wierszePobierania();
+    const p = $('#kk-gov-podp', arkTresc); if (p) p.remove(); if (a) a.outerHTML = akcjeGov();
   }
   async function plikDoWydruku() {
     const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return null; }

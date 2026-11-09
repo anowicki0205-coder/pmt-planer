@@ -42,7 +42,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   const topFolder = await p.evaluate(async () => { const k = await navigator.storage.getDirectory(), f = await k.getDirectoryHandle('pmt-folder-testowy'), w = []; for await (const [n, u] of f.entries()) w.push(n + ':' + u.kind); return w; });
   ok('we wskazanym miejscu powstał jeden folder „delegacje” (nic więcej)', JSON.stringify(topFolder) === '["delegacje:directory"]', JSON.stringify(topFolder));
   const f1 = await wFolderze(), nazwaPod = Object.keys(f1)[0];
-  ok('w „delegacje” powstał podfolder miesiąca „wrzesień 2026” z 7 plikami PDF (6 poleceń i rozliczenie)', Object.keys(f1).length === 1 && nazwaPod === 'wrzesień 2026' && f1[nazwaPod].length === 7 && f1[nazwaPod].every(x => /\.pdf$/.test(x.nazwa) && x.rozmiar > 1000), JSON.stringify(f1));
+  ok('w „delegacje” powstał podfolder miesiąca „wrzesień 2026” z 7 plikami PDF (6 poleceń i rozliczenie)', Object.keys(f1).length === 1 && nazwaPod === 'wrzesien 2026' && f1[nazwaPod].length === 7 && f1[nazwaPod].every(x => /\.pdf$/.test(x.nazwa) && x.rozmiar > 1000), JSON.stringify(f1));
   const roz = path.join(tmp, 'pdf'); fs.mkdirSync(roz, { recursive: true });
   for (const x of f1[nazwaPod]) fs.writeFileSync(path.join(roz, x.nazwa), Buffer.from(await czytajZFolderu(nazwaPod, x.nazwa), 'base64'));
   const pdfy = fs.readdirSync(roz).sort();
@@ -85,7 +85,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   await zamknijOkno();
   await p.evaluate(() => { const H = FileSystemHandle.prototype; window.__qp = H.queryPermission; window.__rp = H.requestPermission; H.queryPermission = async () => 'prompt'; H.requestPermission = async () => { H.queryPermission = window.__qp; H.requestPermission = window.__rp; return 'granted'; }; });
   await otworzOkno(); await p.waitForSelector('[data-akcja="folder-wznow"]', { timeout: 20000 });
-  ok('gdy przeglądarka chce ponownej zgody: „Pozwól” (bez ponownego wskazywania folderu), obserwacji jeszcze nie ma', /ponown[^ ]+ zgod/.test(await tekst('#kk-folder')) && (await p.locator('#kk-folder-stan').count()) === 0, (await tekst('#kk-folder')).slice(0, 160));
+  ok('gdy przeglądarka prosi o zgodę: „Pozwól” (bez ponownego wskazywania folderu), obserwacji jeszcze nie ma', /prosi o zgodę na dostęp/.test(await tekst('#kk-folder')) && (await p.locator('#kk-folder-stan').count()) === 0, (await tekst('#kk-folder')).slice(0, 160));
   await p.click('[data-akcja="folder-wznow"]'); await p.waitForSelector('#kk-folder-stan', { timeout: 20000 });
   ok('po „Pozwól” folder jest znów obserwowany', /Obserwuję folder/.test(await tekst('#kk-folder-stan')));
 

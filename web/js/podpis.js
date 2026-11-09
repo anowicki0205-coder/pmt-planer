@@ -220,7 +220,7 @@ export function zainstalujPodpis(k) {
     const btn = (akcja, tekst, glowny) => `<button type="button" class="przycisk ${glowny ? 'glowny' : 'maly'}" data-akcja="${akcja}">${tekst}</button>`;
     let tytul = `Folder „${NAZWA_FOLDERU}”`, opis, przyciski = '';
     if (fol.stan === 'start') opis = '<small>Sprawdzam…</small>';
-    else if (fol.stan === 'bez-folderu') { opis = `<small>Wskaż RAZ miejsce (np. pulpit) — utworzę w nim folder „${NAZWA_FOLDERU}”, a w nim podfoldery miesięcy.</small>${blad}`; przyciski = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
+    else if (fol.stan === 'bez-folderu') { opis = `<small>Wskaż RAZ miejsce (np. pulpit) — sam utworzę w nim folder „${NAZWA_FOLDERU}”.</small>${blad}`; przyciski = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
     else if (fol.stan === 'zgoda') { opis = `<small>Przeglądarka prosi o zgodę na dostęp do folderu „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”.</small>${blad}`; przyciski = btn('folder-wznow', 'Pozwól', true) + btn('folder-zmien', 'Zmień'); }
     else if (fol.stan === 'gotowy') { opis = `<small>Dokumenty tego miesiąca nie są jeszcze zapisane w folderze.</small>${blad}`; przyciski = btn('folder-zapisz', `${ik('i-pobierz')}Zapisz dokumenty`, true) + btn('folder-zmien', 'Zmień'); }
     else if (fol.stan === 'zapisany') {

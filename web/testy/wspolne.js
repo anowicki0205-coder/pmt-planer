@@ -63,6 +63,10 @@ async function otworz({ folder = false, muzykaDomyslna = '0', pocztaDomyslna = '
   // a sam uchwyt czeka w pamięci strony (i jest odtwarzany po odświeżeniu z localStorage) — aplikacja i tak widzi ten sam przepływ: zapamiętaj → wczytaj → sprawdź zgodę.
   if (folder) await ctx.addInitScript(() => {
     window.showDirectoryPicker = async () => { const k = await navigator.storage.getDirectory(); return k.getDirectoryHandle('pmt-folder-testowy', { create: true }); };
+    // drugie ograniczenie prywatnej pamięci przeglądarki (OPFS) w Chromium: katalog o nazwie z polskimi znakami („wrzesień 2026”) zachowuje się jak katalog NADRZĘDNY (pliki lądują o piętro wyżej) — na prawdziwym dysku tak nie jest,
+    // więc w teście nazwy katalogów są zamieniane na ASCII („wrzesien 2026”); aplikacja i test używają tej samej, polskiej nazwy
+    const fold = n => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L'), gdh = FileSystemDirectoryHandle.prototype.getDirectoryHandle;
+    FileSystemDirectoryHandle.prototype.getDirectoryHandle = function (n, o) { return gdh.call(this, fold(n), o); };
     const H = window.__opfsH = {}, put = IDBObjectStore.prototype.put, get = IDBObjectStore.prototype.get;
     IDBObjectStore.prototype.put = function (v, key) { if (typeof FileSystemHandle !== 'undefined' && v instanceof FileSystemHandle) { H[key] = v; try { localStorage.setItem('__opfs_' + key, v.name); } catch (e) {} return put.call(this, { opfs: v.name }, key); } return put.call(this, v, key); };
     IDBObjectStore.prototype.get = function (key) { const r = get.call(this, key); if (H[key]) Object.defineProperty(r, 'result', { get: () => H[key], configurable: true }); return r; };

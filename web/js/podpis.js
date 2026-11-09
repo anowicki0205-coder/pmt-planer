@@ -16,7 +16,7 @@ import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
 import { dzwiek } from './dzwiek.js';
 import { wczytajKlienta, pobierzKod, wymienKod, utworzSzkic, komunikatBledu } from './outlook.js';
 import { karuzela } from './karuzela.js';
-import { obslugiwany as folderMozliwy, wczytajFolder, zapamietajFolder, zapomnijFolder, wskazFolder, zgoda as zgodaFolderu, podfolder, zapiszPlik, wypisz as wypiszFolder } from './folder.js';
+import { obslugiwany as folderMozliwy, wczytajFolder, zapamietajFolder, zapomnijFolder, wskazFolder, zgoda as zgodaFolderu, podfolder, korzenDelegacji, NAZWA_FOLDERU, zapiszPlik, wypisz as wypiszFolder } from './folder.js';
 import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
 import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf, skanBezJpeg } from './podpis_reczny.js';
@@ -208,29 +208,33 @@ export function zainstalujPodpis(k) {
   /* stan: 'start' (sprawdzam) | 'bez-folderu' | 'gotowy' (folder wskazany, dokumenty tego miesiąca jeszcze nie zapisane) | 'zapisany' (dokumenty w folderze, folder jest obserwowany) | 'zgoda' (przeglądarka chce
      ponownej zgody — jedno kliknięcie) | 'blad'. Zapamiętane w pamięci miesiąca (magUst 'folder-…'): odciski plików zapisanych przez aplikację (baza) i już wczytanych (przetworzone) — dzięki temu ani oryginały, ani
      ponownie otwarte okno niczego nie wczytują drugi raz. */
-  const fol = { uchwyt: null, miesiac: null, stan: 'start', blad: '', ostatnio: 0, wykryto: 0, timer: 0, zajety: false, widziane: new Map() };
+  const fol = { uchwyt: null, korzen: null, miesiac: null, stan: 'start', blad: '', ostatnio: 0, wykryto: 0, timer: 0, zajety: false, widziane: new Map() };
   const kluczFolderu = () => 'folder-' + magMiesiace.klucz(M().rok, M().mies);
   const stanFolderu = () => Object.assign({ zapisano: false, baza: {}, przetworzone: [] }, magUst.daj(kluczFolderu(), null) || {});
   const zapiszStanFolderu = st => magUst.ustaw(kluczFolderu(), st);
-  const nazwaPodfolderu = () => `Rozliczenie_${bezOgonkow(k.PROFIL().imie).replace(/\s+/g, '_')}_${bezOgonkow(String(k.MIES[M().mies - 1]))}_${M().rok}`;
+  const nazwaPodfolderu = () => `${String(k.MIES[M().mies - 1]).toLowerCase()} ${M().rok}`;      // np. „wrzesień 2026” — podfolder miesiąca w folderze „delegacje”
   const godz = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
   function htmlFolderu() {
     if (!folderMozliwy()) return '';
-    const nazwa = fol.uchwyt ? esc(fol.uchwyt.name) : '', pod = esc(nazwaPodfolderu()), blad = fol.blad ? `<small class="kk-folder-blad" role="alert">${esc(fol.blad)}</small>` : '';
-    let tresc;
-    if (fol.stan === 'start') tresc = '<small>Sprawdzam folder roboczy…</small>';
-    else if (fol.stan === 'bez-folderu') tresc = `<small>Wskaż RAZ folder na pulpicie (utwórz go w oknie wyboru, np. „PMT” — przeglądarka nie pozwala wskazać samego Pulpitu). Zapiszę w nim dokumenty, a gdy zapiszesz tam podpisane pliki z gov.pl, sam je zauważę, wczytam i sprawdzę.</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk glowny" data-akcja="folder-wskaz">${ik('i-pobierz')}Wskaż folder na pulpicie</button></span>`;
-    else if (fol.stan === 'zgoda') tresc = `<small>Przeglądarka prosi o ponowną zgodę na dostęp do folderu „${nazwa}” (zgoda dotyczy tylko tego folderu).</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk glowny" data-akcja="folder-wznow">Pozwól</button><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span>`;
-    else if (fol.stan === 'gotowy') tresc = `<small>Folder: „${nazwa}”. Dokumenty tego miesiąca zapiszę w podfolderze „${pod}”.</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk glowny" data-akcja="folder-zapisz">${ik('i-pobierz')}Zapisz dokumenty w folderze</button><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span>`;
-    else if (fol.stan === 'zapisany') tresc = `<small>Dokumenty leżą w folderze „${nazwa}” › „${pod}”. Podpisz je na gov.pl i zapisz podpisane pliki w TYM folderze — sam je zauważę, wczytam i sprawdzę.</small><small class="kk-folder-stan" id="kk-folder-stan" aria-live="polite">${fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…'}</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zapisz">Zapisz dokumenty ponownie</button><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span>`;
-    else tresc = `<small>Z folderem roboczym jest problem.</small>${blad}<span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zmien">Wskaż folder od nowa</button></span>`;
-    return `<div class="kk-folder" id="kk-folder"><b>${ik('i-pobierz')}Folder na pulpicie</b>${tresc}</div>`;
+    const korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), blad = fol.blad ? `<small class="kk-folder-blad" role="alert">${esc(fol.blad)}</small>` : '';
+    const btn = (akcja, tekst, glowny) => `<button type="button" class="przycisk ${glowny ? 'glowny' : 'maly'}" data-akcja="${akcja}">${tekst}</button>`;
+    let tytul = `Folder „${NAZWA_FOLDERU}”`, opis, przyciski = '';
+    if (fol.stan === 'start') opis = '<small>Sprawdzam…</small>';
+    else if (fol.stan === 'bez-folderu') { opis = `<small>Wskaż RAZ miejsce (np. pulpit) — utworzę w nim folder „${NAZWA_FOLDERU}”, a w nim podfoldery miesięcy.</small>${blad}`; przyciski = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
+    else if (fol.stan === 'zgoda') { opis = `<small>Przeglądarka prosi o zgodę na dostęp do folderu „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”.</small>${blad}`; przyciski = btn('folder-wznow', 'Pozwól', true) + btn('folder-zmien', 'Zmień'); }
+    else if (fol.stan === 'gotowy') { opis = `<small>Dokumenty tego miesiąca nie są jeszcze zapisane w folderze.</small>${blad}`; przyciski = btn('folder-zapisz', `${ik('i-pobierz')}Zapisz dokumenty`, true) + btn('folder-zmien', 'Zmień'); }
+    else if (fol.stan === 'zapisany') {
+      tytul = `Folder „${korzen}” › „${pod}”`;
+      opis = `<small>Podpisane pliki zapisz w tym folderze — wczytam je sam.</small><small class="kk-folder-stan" id="kk-folder-stan" aria-live="polite">${fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…'}</small>${blad}`;
+      przyciski = btn('folder-zapisz', 'Zapisz ponownie') + btn('folder-zmien', 'Zmień');
+    } else { opis = `<small>Z folderem jest problem.</small>${blad}`; przyciski = btn('folder-zmien', 'Wskaż od nowa'); }
+    return `<div class="kk-folder" id="kk-folder"><span class="kk-folder-opis"><b>${ik('i-pobierz')}${tytul}</b>${opis}</span>${przyciski ? `<span class="kk-przyciski">${przyciski}</span>` : ''}</div>`;
   }
   function odswiezFolder() { const e = $('#kk-folder', arkTresc); if (e && widok === 'glowny') { e.outerHTML = htmlFolderu(); odswiezPobieranie(); } }
   /** Przy otwarciu okna: wczytuje zapamiętany folder i sprawdza, czy przeglądarka pamięta zgodę; jeśli dokumenty już są w folderze, zaczyna go obserwować. */
   async function inicjujFolder() {
     if (!folderMozliwy()) return;
-    clearInterval(fol.timer); fol.timer = 0; fol.uchwyt = null; fol.miesiac = null; fol.blad = ''; fol.stan = 'start'; fol.widziane = new Map(); fol.wykryto = 0; fol.ostatnio = 0;
+    clearInterval(fol.timer); fol.timer = 0; fol.uchwyt = null; fol.korzen = null; fol.miesiac = null; fol.blad = ''; fol.stan = 'start'; fol.widziane = new Map(); fol.wykryto = 0; fol.ostatnio = 0;
     const uchwyt = await wczytajFolder();
     if (!uchwyt) { fol.stan = 'bez-folderu'; return odswiezFolder(); }
     fol.uchwyt = uchwyt; await wznowFolder(false);
@@ -239,9 +243,11 @@ export function zainstalujPodpis(k) {
     fol.blad = '';
     const z = await zgodaFolderu(fol.uchwyt, zadaj);
     if (z !== 'granted') { fol.stan = z === 'denied' && zadaj ? 'blad' : 'zgoda'; if (fol.stan === 'blad') fol.blad = 'Brak zgody na dostęp do folderu.'; return odswiezFolder(); }
-    if (!stanFolderu().zapisano) { fol.stan = 'gotowy'; return odswiezFolder(); }
-    try { fol.miesiac = await podfolder(fol.uchwyt, nazwaPodfolderu()); fol.stan = 'zapisany'; zacznijObserwowac(); }
-    catch (e) { fol.stan = 'blad'; fol.blad = 'Nie mogę otworzyć folderu miesiąca (' + String((e && e.message) || e).slice(0, 100) + ').'; }
+    try {
+      fol.korzen = await korzenDelegacji(fol.uchwyt);      // „delegacje”: wskazany folder albo nowy w jego środku
+      if (!stanFolderu().zapisano) { fol.stan = 'gotowy'; odswiezFolder(); return zapiszDokumentyWFolderze(false); }      // dokumenty tego miesiąca jeszcze nie leżą w folderze: zapisuję je od razu
+      fol.miesiac = await podfolder(fol.korzen, nazwaPodfolderu()); fol.stan = 'zapisany'; zacznijObserwowac();
+    } catch (e) { fol.stan = 'blad'; fol.blad = 'Nie mogę otworzyć folderu „' + NAZWA_FOLDERU + '” (' + String((e && e.message) || e).slice(0, 100) + ').'; }
     odswiezFolder();
   }
   async function wskazFolderRoboczy() {
@@ -250,26 +256,26 @@ export function zainstalujPodpis(k) {
       const u = await wskazFolder(); if (!u) return;      // użytkownik zrezygnował
       await zapamietajFolder(u); fol.uchwyt = u; await wznowFolder(true);
     } catch (e) {
-      fol.blad = e && (e.name === 'SecurityError' || /system|blocked|zablok/i.test(String(e.message))) ? 'Przeglądarka nie pozwala wskazać tego folderu (Pulpit, Dokumenty i Pobrane są zablokowane). Utwórz na pulpicie nowy folder, np. „PMT”, i wskaż jego.' : 'Nie udało się wskazać folderu: ' + String((e && e.message) || e).slice(0, 100);
+      fol.blad = e && (e.name === 'SecurityError' || /system|blocked|zablok/i.test(String(e.message))) ? 'Przeglądarka nie pozwala wskazać samego Pulpitu ani Dokumentów. W oknie wyboru kliknij „Nowy folder”, nazwij go „delegacje” i wskaż go.' : 'Nie udało się wskazać folderu: ' + String((e && e.message) || e).slice(0, 100);
       odswiezFolder();
     }
   }
   /** Zapisuje oryginały wszystkich dokumentów w podfolderze miesiąca i zaczyna obserwować folder. Rozliczenie wydatków (podpisu nie wymaga) od razu wchodzi do aplikacji jako przyjęte. */
-  async function zapiszDokumentyWFolderze() {
+  async function zapiszDokumentyWFolderze(zadaj = true) {
     fol.blad = '';
     try {
-      if ((await zgodaFolderu(fol.uchwyt, true)) !== 'granted') { fol.stan = 'zgoda'; return odswiezFolder(); }
-      const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
-      fol.miesiac = await podfolder(fol.uchwyt, nazwaPodfolderu());
+      if ((await zgodaFolderu(fol.uchwyt, zadaj)) !== 'granted') { fol.stan = 'zgoda'; return odswiezFolder(); }
+      const o = await oryginaly(); if (!o.length) { if (zadaj) pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
+      fol.korzen = fol.korzen || await korzenDelegacji(fol.uchwyt); fol.miesiac = await podfolder(fol.korzen, nazwaPodfolderu());
       const st = stanFolderu(); st.zapisano = true;
       for (const x of o) { const nazwa = bezOgonkow(x.d.nazwa), odc = await zapiszPlik(fol.miesiac, nazwa, x.bajty); st.baza[nazwa] = `${odc.nazwa}|${odc.rozmiar}|${odc.zmiana}`; }
       zapiszStanFolderu(st); oznaczPobrane(o.map(x => x.d.i)); fol.stan = 'zapisany'; fol.widziane = new Map(); zacznijObserwowac();
-      pokazToast(`Zapisano ${o.length} ${liczba(o.length, 'dokument', 'dokumenty', 'dokumentów')} w folderze „${fol.uchwyt.name}” › „${nazwaPodfolderu()}”`);
+      pokazToast(`Zapisano ${o.length} ${liczba(o.length, 'dokument', 'dokumenty', 'dokumentów')} w folderze „${fol.korzen.name}” › „${nazwaPodfolderu()}”`);
       odswiezFolder();
       const roz = o.find(x => x.d.rozliczenie); if (roz && !plikiDok(roz.d.i).length) await przyjmij([new File([roz.bajty], bezOgonkow(roz.d.nazwa), { type: 'application/pdf' })]);
     } catch (e) { console.error('zapis w folderze', e); fol.stan = 'blad'; fol.blad = 'Nie udało się zapisać dokumentów w folderze: ' + String((e && e.message) || e).slice(0, 100); odswiezFolder(); }
   }
-  async function zmienFolderRoboczy() { clearInterval(fol.timer); fol.timer = 0; await zapomnijFolder(); fol.uchwyt = null; fol.miesiac = null; fol.stan = 'bez-folderu'; fol.blad = ''; odswiezFolder(); await wskazFolderRoboczy(); }
+  async function zmienFolderRoboczy() { clearInterval(fol.timer); fol.timer = 0; await zapomnijFolder(); fol.uchwyt = null; fol.korzen = null; fol.miesiac = null; fol.stan = 'bez-folderu'; fol.blad = ''; odswiezFolder(); await wskazFolderRoboczy(); }
   function zacznijObserwowac() { clearInterval(fol.timer); fol.timer = setInterval(odczytajFolder, 2500); odczytajFolder(); }
   /** Jeden obrót obserwacji: nowy albo zmieniony plik (inny odcisk niż oryginały i już wczytane) trzeba zobaczyć w dwóch kolejnych odczytach i nie może być świeżo zapisany — wtedy idzie do zwykłego wgrywania
    *  (to samo, co „Wybierz pliki”: rozpoznanie dokumentu, sprawdzenie podpisu w tle). */

@@ -1,7 +1,8 @@
 // PMT Planer (web) — folder roboczy na dysku użytkownika (File System Access API: Chrome, Edge na komputerze).
-// Po co: dokumenty do podpisu zapisują się w folderze na pulpicie (jak w programie na komputerze), użytkownik podpisuje je na gov.pl i zapisuje podpisane pliki w TYM SAMYM folderze,
-// a aplikacja sama zauważa nowe pliki, wczytuje je i sprawdza (zamiast ręcznego „Wgraj podpisane pliki”). Przeglądarka pozwala na to wyłącznie za zgodą użytkownika: folder wskazuje się RAZ w oknie
-// systemowym (przeglądarka nie pozwala wskazać samego Pulpitu, Dokumentów ani Pobranych — dopiero podfolder, np. Pulpit\PMT), a zgoda dotyczy tylko tego folderu. Uchwyt do folderu pamiętamy w IndexedDB
+// Po co: dokumenty do podpisu zapisują się w folderze „delegacje” (jak w programie na komputerze), w podfolderze miesiąca, użytkownik podpisuje je na gov.pl i zapisuje podpisane pliki w TYM SAMYM folderze,
+// a aplikacja sama zauważa nowe pliki, wczytuje je i sprawdza (zamiast ręcznego „Wgraj podpisane pliki”). Przeglądarka pozwala na to wyłącznie za zgodą użytkownika: miejsce wskazuje się RAZ w oknie
+// systemowym, a folder „delegacje” aplikacja tworzy sama w wskazanym miejscu (albo używa wskazanego, jeśli tak się już nazywa). Przeglądarka nie pozwala wskazać samego Pulpitu, Dokumentów ani Pobranych
+// (dopiero ich podfolder) — wtedy w oknie wyboru trzeba kliknąć „Nowy folder”, nazwać go „delegacje” i wskazać. Zgoda dotyczy tylko tego folderu. Uchwyt do folderu pamiętamy w IndexedDB
 // (to nie jest ścieżka ani dane — przeglądarka sama pyta o ponowne pozwolenie, gdy trzeba). Bez tego API (Firefox, Safari, telefon) aplikacja działa po staremu: pobieranie plików i ręczne wgrywanie.
 // Moduł nie robi nic przy samym imporcie; wszystkie funkcje przyjmują uchwyty, więc w testach można podstawić folder z prywatnej pamięci przeglądarki (OPFS) zamiast okna systemowego.
 
@@ -40,6 +41,11 @@ export async function zgoda(uchwyt, zadaj = false) {
     return s;
   } catch (e) { return 'denied'; }
 }
+
+/** Nazwa folderu głównego z dokumentami. */
+export const NAZWA_FOLDERU = 'delegacje';
+/** Folder „delegacje”: gdy wskazany folder już tak się nazywa (wielkość liter bez znaczenia), używamy go; inaczej tworzymy „delegacje” w jego środku (albo otwieramy, jeśli już tam jest). */
+export const korzenDelegacji = async uchwyt => String(uchwyt.name || '').toLowerCase() === NAZWA_FOLDERU ? uchwyt : uchwyt.getDirectoryHandle(NAZWA_FOLDERU, { create: true });
 
 /** Podfolder (tworzy, jeśli go nie ma) — tu leżą dokumenty jednego miesiąca. */
 export const podfolder = (uchwyt, nazwa) => uchwyt.getDirectoryHandle(nazwa, { create: true });

@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'fb42b832da4d';
+const WERSJA = 'ff4a6a403ea1';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -62,7 +62,7 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "b3542f345a04477a",
+ "./css/aplikacja.css": "0f19faf83956d27c",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
@@ -75,7 +75,7 @@ const SKROTY = {
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
  "./js/dostep.js": "f0e47d1ee7403bc8",
  "./js/dzwiek.js": "10c1e87b432e6721",
- "./js/folder.js": "8db7a119a9b254bb",
+ "./js/folder.js": "b706cb1ab7b81f8c",
  "./js/karuzela.js": "d64507d7e8c41a91",
  "./js/krypto_js.js": "d5adbfd578434c89",
  "./js/magazyn.js": "4b50220968cf07cf",
@@ -83,7 +83,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "f5d318bd1a8e1ddd",
- "./js/podpis.js": "6f0c93d511a9e4ae",
+ "./js/podpis.js": "6b709cfde4548f70",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",

@@ -80,11 +80,13 @@ async function wieczory(p, { tap = false } = {}) {
   await p.waitForFunction(() => document.querySelector('#parametry [data-tryb="wieczory"]').getAttribute('aria-pressed') === 'true', null, { timeout: 30000, polling: 200 });
   await p.waitForTimeout(600);
 }
-/** „Moje dane”: adres jest w pięciu polach (ulica, nr budynku, nr mieszkania, kod, miejscowość). Pomocnik przyjmuje adres jako jeden napis („ul. Testowa 1, 00-001 Warszawa”) i wypełnia pola tak, jak
- *  zrobiłby to użytkownik; napisu, którego nie da się rozdzielić (test błędnych adresów), nie zgaduje — wpisuje całość w pole ulicy. */
-async function wpiszAdres(p, adres) {
+/** „Moje dane”: adres jest w pięciu polach (nazwa ulicy, nr budynku, nr mieszkania, kod, miejscowość) i ma przełącznik rodzaju („Ulica” / „Miejscowość bez ulicy (wieś)”). Pomocnik przyjmuje adres jako jeden napis
+ *  („ul. Testowa 1, 00-001 Warszawa”) i wypełnia pola tak, jak zrobiłby to użytkownik: w polu ulicy ląduje SAMA nazwa („Testowa” — „ul.” dopisuje program). Rodzaj: jawny przedrostek = ulica; napis bez
+ *  przedrostka to domyślnie ulica, a wieś trzeba wskazać trzecim argumentem ('wies'). Napisu, którego nie da się rozdzielić (test błędnych adresów), nie zgaduje — wpisuje całość w pole nazwy. */
+async function wpiszAdres(p, adres, typ) {
   const A = await import(require('url').pathToFileURL(path.join(KORZEN, 'js', 'adres.js')).href);
-  const c = A.rozbierzAdres(adres) || { ulica: String(adres), nr: '', lokal: '', kod: '', miasto: '' };
+  const c = A.rozbierzAdres(adres, typ || 'ulica') || { typ: typ || 'ulica', ulica: String(adres), nr: '', lokal: '', kod: '', miasto: '' };
+  if ((await p.getAttribute(`.adres-typ [data-typ="${c.typ}"]`, 'aria-pressed')) !== 'true') await p.click(`.adres-typ [data-typ="${c.typ}"]`);
   for (const [sel, k] of [['#d-ulica', 'ulica'], ['#d-nr', 'nr'], ['#d-lokal', 'lokal'], ['#d-kod', 'kod'], ['#d-miasto', 'miasto']]) await p.fill(sel, c[k]);
 }
 module.exports = { otworz, serwer, KORZEN, generuj, wieczory, dzisTestow, wpiszAdres };

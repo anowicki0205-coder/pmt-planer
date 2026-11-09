@@ -271,6 +271,21 @@ def api_adres(p):
             "niejednoznaczne": bool(a.get("niejednoznaczne")), "nazwa_do_pytania": a.get("nazwa_do_pytania", "")}
 
 
+def api_adres_mapa(p):
+    """Czy adres da się znaleźć na mapie (OpenStreetMap — tym samym zapytaniem co przy generowaniu tras). Ma wychwycić literówki w ulicy, zanim silnik po cichu przyjmie stolicę województwa za bazę.
+    -> { ok, wynik: 'jest' (serwer zna adres) | 'brak' (serwer odpowiedział, że nie zna) | 'siec' (bez połączenia — nie wiadomo) }. Nie zapisuje pamięci geokodowania na dysk (zapisz_cache=False)."""
+    try:
+        a = S.waliduj_adres(str(p.get("adres", "")).strip(), p.get("wymus_typ"))
+    except ValueError as e:
+        return {"ok": False, "blad": str(e)}
+    klucz = S._klucz_geo(a["adres_geo"])
+    if klucz not in S._wczytaj_geo_braki():
+        S._geo_pytane.discard(klucz)      # wcześniejsza awaria sieci w tej sesji nie może zamykać drogi do ponownego sprawdzenia (silnik zapamiętuje na stałe tylko prawdziwe „nie znam”)
+    if _z_serwera(a["adres_geo"], a["baza_miasto"], zapisz_cache=False):
+        return {"ok": True, "wynik": "jest"}
+    return {"ok": True, "wynik": "brak" if klucz in S._wczytaj_geo_braki() else "siec"}      # „brak” tylko, gdy serwer ODPOWIEDZIAŁ, że nie zna adresu; bez odpowiedzi — „siec”
+
+
 # ================= PLAN WIZYT (odpowiednik PlanerWizytThread i _wczytaj_pozycje_z_pliku) =================
 import re as _re
 

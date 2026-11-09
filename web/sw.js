@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '74a812220183';
+const WERSJA = '1cb1c1830712';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -61,7 +61,7 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "de56661ec814926a",
+ "./css/aplikacja.css": "5380b97e07326aaf",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
@@ -69,8 +69,8 @@ const SKROTY = {
  "./ikony/logo-192.png": "6f1af7c8a362f1aa",
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
- "./js/adres.js": "0f8a8ab804a08600",
- "./js/aplikacja.js": "10d50c55158caf9d",
+ "./js/adres.js": "9d2ac5ab705e450f",
+ "./js/aplikacja.js": "d2ca5f9fcb8699c9",
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
  "./js/dostep.js": "f0e47d1ee7403bc8",
  "./js/dzwiek.js": "10c1e87b432e6721",
@@ -86,8 +86,8 @@ const SKROTY = {
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
  "./js/sejf.js": "c9969d31c10a7ed6",
- "./js/silnik.js": "f359a47bf81defe4",
- "./js/silnik.worker.js": "8ad1cac7450048f3",
+ "./js/silnik.js": "2c8d41b56cd270bf",
+ "./js/silnik.worker.js": "5a9fdea97540dc37",
  "./js/weryfikacja.js": "3f3d2ed71b5ded1e",
  "./js/widowisko.js": "ab48b81882fc992c",
  "./js/zipaes.js": "c1dee26cba7fd40e",
@@ -99,7 +99,7 @@ const SKROTY = {
  "./silnik/boot.py": "3016d346355bb8ed",
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
- "./silnik/most.py": "36f09af5d8c9f09a",
+ "./silnik/most.py": "d120daae17e6486f",
  "./silnik/pmt_silnik.py": "a0f0b50324f8ad45",
  "./silnik/sieci_cel.txt": "d252e908cd50d2e5",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",

@@ -20,6 +20,7 @@ export class Silnik {
   maks(a) { return this._wolaj('maks', a); }
   przygotuj(a) { return this._wolaj('przygotuj', a); }
   adres(a) { return this._wolaj('adres', a); }
+  adresMapa(a) { return this._wolaj('adres_mapa', a); }      // czy adres jest na mapie (OpenStreetMap): { ok, wynik: 'jest' | 'brak' | 'siec' }
   czysc() { return this._wolaj('czysc', {}); }
   eksportPamieci() { return this._wolaj('eksportPamieci', {}); }
   importPamieci(pliki) { return this._wolaj('importPamieci', { pliki }); }

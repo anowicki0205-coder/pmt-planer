@@ -1156,6 +1156,11 @@ button.dz.bez.przelacz .etyk{display:block;font-size:.7rem;color:var(--t2);align
 .adres-siatka .a-kod{grid-column:span 4}.adres-siatka .a-miasto{grid-column:span 8}
 .adres-siatka .pole>span{letter-spacing:.08em}
 .adres-grupa>small{font-size:.78rem;color:var(--t2);min-height:0}.adres-grupa>small:empty{display:none}
+.adres-typ{margin:.05rem 0 .1rem;align-self:flex-start;max-width:100%}
+.adres-typ button{padding:.4rem .9rem;font-size:.86rem}
+.adres-grupa>small.adres-podp{color:var(--a-burs,#ffd37a)}
+.adres-grupa>#adres-mapa.ok{color:var(--a-mieta,#7ff0c0)}.adres-grupa>#adres-mapa.zle{color:var(--a-blad,#ff9bb0);font-weight:600}
+@media (max-width:560px){.adres-typ{align-self:stretch}.adres-typ button{flex:1;padding:.4rem .5rem;font-size:.8rem}}
 /* „Moje dane” ma więcej pól, więc okno bywa wyższe niż ekran (laptop, telefon): pasek z „Zapisz” przykleja się do dołu okna, żeby przycisk było ZAWSZE widać (pasek przewijania w oknach jest ukryty); na telefonie PESEL i stanowisko zostają obok siebie */
 .ark-dol.lepki{position:sticky;bottom:calc(-1 * clamp(18px,3.2vh,30px));z-index:3;margin:0 calc(-1 * clamp(18px,3.2vh,30px)) calc(-1 * clamp(18px,3.2vh,30px));padding:1.2rem clamp(18px,3.2vh,30px) clamp(14px,2.6vh,26px);background:linear-gradient(to top,var(--tinta-dymek) 58%,transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border-radius:0 0 calc(var(--r) + 4px) calc(var(--r) + 4px)}
 @media (max-width:560px){.ark-pola.ark-pola-wasko{grid-template-columns:1fr 1fr}.ark-pola-wasko .pole input,.ark-pola-wasko .pole select{padding:0 .75rem}}

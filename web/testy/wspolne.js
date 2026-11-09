@@ -25,7 +25,7 @@ function serwer(opcje = {}) {
 /** „Dzisiaj” w testach: stałe (PMT_DZIEN albo 15.10.2026 12:00) — i dla aplikacji (new Date() w stronie), i dla testów liczących dni po stronie Node. */
 const dzisTestow = () => new Date(process.env.PMT_DZIEN || '2026-10-15T12:00:00');
 const ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
-async function otworz({ pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
+async function otworz({ muzykaDomyslna = '0', pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h = 900, dsf = 1, motyw = 'dark', mobile = false, bezSieci = true, opcjeSerwera, zalogowany = true, backend, bezVT = false, ruch = 'no-preference', pelnaZorza = false, wycieczka = false, przyklad = false, bezZycia = process.env.ZYCIE !== 'tak' } = {}) {
   backend = backend || new BackendMock();
   const op = opcjeSerwera || {}; if (op.sekret === undefined) op.sekret = 'SEKRET-TESTOWY'; const host = process.env.HTTP_HOST || '';      // HTTP_HOST=pmt.example: aplikacja otwarta pod zwykłym adresem http (nie localhost) — jak na serwerze bez https: brak Web Crypto, service workera i instalacji
   const sv = await serwer(op); if (host) sv.adres = 'http://' + host + ':' + sv.port; const b = await chromium.launch({ args: host ? [...ARGS, `--host-resolver-rules=MAP ${host} 127.0.0.1`] : ARGS });      // obiekt opcji można zmieniać w trakcie testu (np. dołożyć menedzer.txt)
@@ -51,6 +51,9 @@ async function otworz({ pocztaDomyslna = 'plik', widokDok = 'lista', w = 1440, h
   if (widokDok) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-widok-dok') === null) localStorage.setItem('pmt-ui-widok-dok', v); } catch (e) {} }, widokDok);
   // sposób wysyłki dokumentów: aplikacja domyślnie otwiera na komputerze program pocztowy (mailto:); zestaw testów od dawna opisuje plik .eml, więc domyślnie ustawiamy „plik”
   // (tylko gdy wyboru jeszcze nie ma); pocztaDomyslna: null = bez ustawiania (prawdziwy domyślny sposób), 'poczta' / 'outlook' = wybrany sposób
+  // podkład muzyczny jest w aplikacji domyślnie WŁĄCZONY (rusza przy pierwszym kliknięciu); reszta zestawu testów nie ma go słuchać (obciąża procesor i nic nie sprawdza), więc domyślnie ustawiamy „wyłączony”
+  // (tylko gdy wyboru jeszcze nie ma); muzykaDomyslna: null = bez ustawiania (prawdziwy domyślny stan: włączony), '1' = włączony jawnie
+  if (muzykaDomyslna !== null) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-muzyka') === null) localStorage.setItem('pmt-ui-muzyka', v); } catch (e) {} }, muzykaDomyslna);
   if (pocztaDomyslna) await ctx.addInitScript(v => { try { localStorage.setItem('pmt-ui-poczta-v', '2'); if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
   // natywne okno „Zapisz jako” (showSaveFilePicker) nie daje się obsłużyć w przeglądarce bez interfejsu, więc w testach go nie ma — aplikacja wtedy nie oferuje sposobu „pulpit”; test tego sposobu podstawia atrapę
   await ctx.addInitScript(() => { try { Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, writable: true, configurable: true }); } catch (e) {} });

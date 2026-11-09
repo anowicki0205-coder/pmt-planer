@@ -96,7 +96,8 @@ async function podpisz(dane, skrotZ = null) {
 }
 
 /** Hasło do paczek z dokumentami (jest w nich PESEL) nadaje ADMINISTRATOR — w zakładce „Ustawienia” arkusza, razem z ostatnim dniem ważności i adresem odbiorcy. Aplikacja pobiera je tuż przed wysyłką,
-    użytkownik go nie widzi i nie wymyśla własnego; po terminie serwer go nie wydaje. → { ok:true, haslo, wazneDo, adres } albo { ok:false, powod, komunikat }. */
+    użytkownik go nie widzi i nie wymyśla własnego; po terminie serwer go nie wydaje. Administrator wybiera też szyfr paczki (format_paczki): „klasyczny” (domyślny; otwiera go sam Eksplorator Windows, hasło tylko ASCII)
+    albo „aes” (AES-256, mocniejszy; odbiorca potrzebuje 7-Zip/WinRAR, hasło może mieć dowolne znaki). → { ok:true, haslo, wazneDo, adres, format } albo { ok:false, powod, komunikat }. */
 export async function pobierzHasloPaczki() {
   const kod = stan().kod;
   if (!kod || !skrotSesji(kod) || skrotNieaktualny === kod) return { ok: false, powod: 'logowanie', komunikat: 'Wyloguj się i zaloguj ponownie hasłem — wtedy będę mógł pobrać hasło do paczki i wysłać dokumenty.' };
@@ -104,9 +105,11 @@ export async function pobierzHasloPaczki() {
   const s = odp && odp.status, data = String(odp && odp.wazne_do || '');
   if (s === 'ok') {
     if (typeof odp.haslo !== 'string' || [...odp.haslo].length < 8 || !/^\d{4}-\d{2}-\d{2}$/.test(data)) return { ok: false, powod: 'odpowiedz', komunikat: 'Hasło do paczek ustawione przez administratora jest nieprawidłowe lub za krótkie (minimum 8 znaków). Napisz do administratora.' };
+    const format = /^\s*aes/i.test(String(odp.format || '')) ? 'aes' : 'klasyczny';      // brak pola (starszy skrypt) albo coś nieznanego = klasyczny
+    if (format === 'klasyczny' && !/^[\x20-\x7e]+$/.test(odp.haslo)) return { ok: false, powod: 'odpowiedz', komunikat: 'Hasło do paczek ma polskie lub inne znaki spoza podstawowego zestawu (ASCII) — odbiorca nie otworzy takiej paczki w Eksploratorze Windows. Napisz do administratora: hasło ma mieć litery bez polskich znaków, cyfry i znaki specjalne (albo wybrać w arkuszu szyfr „aes”).' };
     const adres = String(odp.adres || '').trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { ok: false, powod: 'odpowiedz', komunikat: 'Administrator nie ustawił poprawnego adresu odbiorcy dokumentów. Napisz do administratora.' };
-    return { ok: true, haslo: odp.haslo, wazneDo: data, adres };
+    return { ok: true, haslo: odp.haslo, wazneDo: data, adres, format };
   }
   if (s === 'brak') return { ok: false, powod: 'brak', komunikat: 'Wysyłka dokumentów nie jest jeszcze włączona — administrator nie ustawił hasła do paczek, jego terminu ważności albo adresu odbiorcy. Napisz do administratora.' };
   if (s === 'wygaslo') return { ok: false, powod: 'wygaslo', komunikat: `Hasło do paczek wygasło ${data.split('-').reverse().join('.')}. Poczekaj, aż administrator ustawi nowe, i spróbuj ponownie.` };

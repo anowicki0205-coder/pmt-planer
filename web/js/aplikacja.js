@@ -1800,7 +1800,7 @@ async function generuj() {
   magUst.ustaw('kwota-' + kl, par.kwota);
   generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
   btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35); dzwiek.efekt('gen-start');
-  const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
+  const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt, naPunkt: (i, n) => dzwiek.punkt(i, n) }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
   wid && wid.start();
   let w;
   try {
@@ -1995,7 +1995,7 @@ async function arkuszPlan() {
 }
 
 /* ====================== dokumenty, podpis, wysyłka ====================== */
-const nazwyDok = () => { const n = M.polecenia.length; return [...M.polecenia.map((p, i) => ({ i, nazwa: p.plik, tytul: `Polecenie ${p.nr}`, opis: `${dwa(p.od)}–${dwa(p.do)}.${dwa(M.mies)} · ${fmt(p.kw)} zł` })), ...(M.rozliczenie ? [{ i: n, nazwa: M.rozliczenie, tytul: 'Rozliczenie', opis: `${n} ${n === 1 ? 'polecenie' : 'polecenia'} · ${fmt(M.suma)} zł` }] : [])]; };
+const nazwyDok = () => { const n = M.polecenia.length; return [...M.polecenia.map((p, i) => ({ i, nazwa: p.plik, tytul: `Polecenie ${p.nr}`, opis: `${dwa(p.od)}–${dwa(p.do)}.${dwa(M.mies)} · ${fmt(p.kw)} zł` })), ...(M.rozliczenie ? [{ i: n, nazwa: M.rozliczenie, rozliczenie: true, tytul: 'Rozliczenie', opis: `${n} ${n === 1 ? 'polecenie' : 'polecenia'} · ${fmt(M.suma)} zł` }] : [])]; };
 const klucz = n => nazwaKlucza(M.rok, M.mies, n);
 const kluczPodp = (n, nazwaPliku) => nazwaKlucza(M.rok, M.mies, 'podpisane/' + n + '/' + nazwaPliku);
 const URL_PODPIS = 'https://www.gov.pl/web/gov/podpisz-dokument-elektronicznie-wykorzystaj-podpis-zaufany';
@@ -2486,7 +2486,7 @@ async function start() {
   kurtyna = startKurtyna();
   szkla.forEach(el => { ro && ro.observe(el); });
   mierz(); ustawSwiatlo(); poMotywieUI();
-  dzwiek.init(doc); zdarzenia();
+  dzwiek.init(doc, { naStartDomyslny: () => pokazToast('Gra podkład muzyczny — wyłączysz go nutką u góry') }); zdarzenia();
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) { /* bez trwałego magazynu też działa */ }      // prosi przeglądarkę, by nie czyściła danych użytkownika (Safari/iOS i Chrome zwykle zgadzają się dla zainstalowanej aplikacji)
   const pomoc = zainstalujPomoc({ $, doc, otworzArkusz, naglowekArkusza, zamknijArkusz, arkTresc, bezZnacznikow, pokazToast, zamknijDymki });
   zainstalujZywe({

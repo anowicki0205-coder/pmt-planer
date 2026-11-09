@@ -7,6 +7,7 @@
 //      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane,
 //   5. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 3 a 4 — tam, gdzie się wgrywa.
 import { zipuj, scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
+import { zipujKlasycznie } from './zipklasyczny.js';
 import { zipujAes } from './zipaes.js';
 import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
 import { dzwiek } from './dzwiek.js';
@@ -58,7 +59,7 @@ export function zainstalujPodpis(k) {
   const CHIP = { czeka: 'czeka na podpis', trwa: 'sprawdzam…', ok: 'podpis sprawdzony', uwaga: 'do sprawdzenia', zle: 'błąd podpisu' };
   function komunikatKarty(i) {
     const w = weryfikacje()[i]; if (!w) return plikiDok(i).length ? 'Sprawdzam plik…' : 'Wgraj podpisany plik tego dokumentu';
-    if (M().podpisane[i]) return w.potwierdzone ? 'Podpis potwierdzony przez Ciebie' : w.rodzaj === 'odreczny' ? 'Widzę podpis w miejscu „podpis pracownika”' : `Podpisał(a): ${esc(w.sygnatariusz || '—')}${w.czas ? ' · ' + czasPl(new Date(w.czas)) : ''}`;
+    if (M().podpisane[i]) return w.potwierdzone ? 'Podpis potwierdzony przez Ciebie' : w.bezWymogu ? 'Rozliczenie przyjęte — podpis odręczny nie jest na nim wymagany' : w.rodzaj === 'odreczny' ? 'Widzę podpis w miejscu „podpis pracownika”' : `Podpisał(a): ${esc(w.sygnatariusz || '—')}${w.czas ? ' · ' + czasPl(new Date(w.czas)) : ''}`;
     const zly = (w.kontrole.find(c => c.stan === 'zle') || w.kontrole.find(c => c.stan === 'uwaga')); return zly ? esc(zly.tekst) : 'Wymaga sprawdzenia';
   }
   function szczegoly(d) {
@@ -67,7 +68,7 @@ export function zainstalujPodpis(k) {
     return `<div class="dok-szcz"><ul class="kontrole">${w.kontrole.map(c => `<li class="kt-${c.stan}">${ik(IKONA_STANU[c.stan] || 'i-info')}<span>${esc(c.tekst)}</span></li>`).join('')}</ul>
       ${w.podglad ? `<figure class="podglad-podpisu"><img src="${w.podglad}" alt="Wycinek skanu z miejscem na podpis"><figcaption>Tak widzę miejsce „podpis pracownika” na skanie</figcaption></figure>` : ''}
       <small class="dok-plik">Plik: ${esc(pliki.join(', '))}</small>
-      <div class="dok-akcje">${mozna ? `<button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}Potwierdzam, że podpis jest</button>` : ''}<button type="button" class="przycisk maly" data-akcja="cofnij" data-i="${d.i}">${ik('i-cofnij')}Wgraj inny plik</button><button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Zwiń</button></div></div>`;
+      <div class="dok-akcje">${mozna ? `<button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}${w.bezWymogu ? 'Potwierdzam, że to właściwy dokument' : 'Potwierdzam, że podpis jest'}</button>` : ''}<button type="button" class="przycisk maly" data-akcja="cofnij" data-i="${d.i}">${ik('i-cofnij')}Wgraj inny plik</button><button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Zwiń</button></div></div>`;
   }
   let fokusI = null;              // dokument wskazany z probówki na pulpicie: jego karta na liście mruga (znacznik przeżywa ponowne rysowanie listy)
   let widziane = {};              // stan każdej karty z ostatniego narysowania: efekty (podpis „rysuje się”, zły dokument drży) tylko przy ZMIANIE stanu, nie przy każdym odświeżeniu
@@ -151,7 +152,7 @@ export function zainstalujPodpis(k) {
   /** Krok 5. Hasło do paczek, termin jego ważności i adres odbiorcy ustawia administrator w arkuszu (zakładka „Ustawienia”); aplikacja pobiera je, gdy wszystkie dokumenty są podpisane.
       Do czasu, aż wszystko jest wgrane i sprawdzone, przycisk jest wyszarzony i NIE niesie data-akcja (nic go nie uruchomi). */
   let daneWysylkiTs = 0;          // kiedy pobrano daneWysylki (ms) — świeże dane pozwalają kliknięciu „Wyślij” nie czekać na serwer
-  let daneWysylki;                // undefined = jeszcze nie pobrano; { ok:true, haslo, wazneDo, adres } albo { ok:false, powod, komunikat }
+  let daneWysylki;                // undefined = jeszcze nie pobrano; { ok:true, haslo, wazneDo, adres, format } albo { ok:false, powod, komunikat }
   let pobieranieDanych = false;
   let stanWysylki = '';           // komunikat pod krokiem 5 po kliknięciu „Wyślij” (html)
   const KONCOWE = ['brak', 'wygaslo', 'dostep'];      // przy tych powodach ponowna próba nic nie da, dopóki administrator czegoś nie zmieni
@@ -202,7 +203,7 @@ export function zainstalujPodpis(k) {
         <li class="krok-k k2"><span class="kk-nr">2</span><div class="kk-tresc"><b>Podpisz</b>
           <div class="kk-opcje">
             <div class="kk-opcja"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>Profil Zaufany, bezpłatnie. gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small><a class="przycisk" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a></div>
-            <div class="kk-opcja"><b>${ik('i-drukuj')}Odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika”, zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem).</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></div>
+            <div class="kk-opcja"><b>${ik('i-drukuj')}Odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika” (na rozliczeniu wydatków podpis nie jest wymagany), zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem).</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></div>
           </div></div></li>
         <li class="krok-k k3"><span class="kk-nr">3</span><div class="kk-tresc"><b>Wgraj podpisane pliki</b><small>Wszystkie naraz: PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia. Sam dopasuję je do dokumentów.</small></div>
           <span class="kk-akcje"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span></li>
@@ -316,26 +317,30 @@ export function zainstalujPodpis(k) {
 
   /* ---------------------------------- sprawdzanie jednego dokumentu ---------------------------------- */
   const zapiszWeryfikacje = (i, w) => { const m = M(); m.weryfikacje = Object.assign({}, rec().weryfikacje || {}, m.weryfikacje || {}, { [i]: w }); m.podpisane[i] = w.stan === 'ok' || !!w.potwierdzone; k.zapiszRekord(); };
+  /** Podpis odręczny jest WYMAGANY tylko na poleceniach wyjazdu służbowego (delegacjach). Rozliczenie wydatków podpisu odręcznego nie potrzebuje: brak podpisu pod tabelą nie jest błędem
+   *  (nie świeci się na czerwono i nie trzeba go potwierdzać) — sprawdzam wtedy tylko, czy plik da się odczytać. Podpis elektroniczny (PAdES/XAdES) sprawdzany jest tak samo na każdym dokumencie. */
   async function ocenOdreczny(d, pliki) {
-    const kontrole = [], dodaj = (id, stan, tekst) => kontrole.push({ id, stan, tekst });
+    const kontrole = [], dodaj = (id, stan, tekst) => kontrole.push({ id, stan, tekst }), wymagany = !d.rozliczenie;
     const strony = []; let powod = '';
     for (const p of pliki) { const s = await stronyZeSkanu(p.bajty, p.nazwa); strony.push(...s.strony); if (s.powod) powod = s.powod; }
     const sp = strefaPodpisu(miejscaPodpisu(d));
-    dodaj('podpis', 'info', 'Podpis odręczny (skan albo zdjęcie dokumentu)');
+    dodaj('podpis', 'info', wymagany ? 'Podpis odręczny (skan albo zdjęcie dokumentu)' : 'Skan albo zdjęcie dokumentu — rozliczenie wydatków nie wymaga podpisu odręcznego');
     let podglad = '';
-    if (!strony.length) dodaj('miejsce', 'uwaga', (powod || 'Nie umiem odczytać obrazu') + ' — obejrzyj plik sam i potwierdź podpis');
-    else if (!sp) dodaj('miejsce', 'uwaga', 'Ten miesiąc wygenerowano starszą wersją programu — nie znam miejsca podpisu. Obejrzyj skan sam i potwierdź podpis');
+    if (!strony.length) dodaj('miejsce', 'uwaga', (powod || 'Nie umiem odczytać obrazu') + (wymagany ? ' — obejrzyj plik sam i potwierdź podpis' : ' — obejrzyj plik sam i potwierdź, że to właściwy dokument'));
+    else if (!sp && wymagany) dodaj('miejsce', 'uwaga', 'Ten miesiąc wygenerowano starszą wersją programu — nie znam miejsca podpisu. Obejrzyj skan sam i potwierdź podpis');
+    else if (!sp) dodaj('miejsce', 'ok', 'Rozliczenie wydatków nie wymaga podpisu odręcznego');
     else {
       const bm = strony[Math.min(Math.max(0, sp.strona - 1), strony.length - 1)];
-      if (sp.strona > strony.length) dodaj('strony', 'uwaga', `Dokument ma ${sp.strona} ${liczba(sp.strona, 'stronę', 'strony', 'stron')}, a we wgranym pliku jest ich ${strony.length} — sprawdzam ostatnią`);
-      const o = szukajPodpisu(bm, sp.strefa); podglad = o.podglad || '';
-      if (o.stan === 'jest') dodaj('miejsce', 'ok', `Widzę ślad podpisu w miejscu „${sp.opis}”`);
+      if (wymagany && sp.strona > strony.length) dodaj('strony', 'uwaga', `Dokument ma ${sp.strona} ${liczba(sp.strona, 'stronę', 'strony', 'stron')}, a we wgranym pliku jest ich ${strony.length} — sprawdzam ostatnią`);
+      const o = szukajPodpisu(bm, sp.strefa); podglad = wymagany ? (o.podglad || '') : '';      // wycinek do obejrzenia tylko tam, gdzie podpis jest wymagany
+      if (!wymagany) dodaj('miejsce', 'ok', o.stan === 'jest' ? 'Widzę ślad podpisu pod tabelą — na rozliczeniu wydatków podpis odręczny nie jest wymagany' : 'Rozliczenie wydatków nie wymaga podpisu odręcznego — brak podpisu pod tabelą jest w porządku');
+      else if (o.stan === 'jest') dodaj('miejsce', 'ok', `Widzę ślad podpisu w miejscu „${sp.opis}”`);
       else if (o.stan === 'brak') dodaj('miejsce', 'zle', `Nie widzę podpisu w miejscu „${sp.opis}” — podpisz długopisem i zeskanuj ponownie (albo potwierdź, jeśli podpis tam jest)`);
       else dodaj('miejsce', 'uwaga', o.powod || 'Nie umiem ocenić skanu');
     }
-    dodaj('osoba', 'info', `Imię i nazwisko na dokumencie: ${k.PROFIL().imie} (wydrukowane z Twoich danych). Odręcznego podpisu nie umiem odczytać — porównaj sam`);
+    if (wymagany) dodaj('osoba', 'info', `Imię i nazwisko na dokumencie: ${k.PROFIL().imie} (wydrukowane z Twoich danych). Odręcznego podpisu nie umiem odczytać — porównaj sam`);
     const stan = kontrole.some(c => c.stan === 'zle') ? 'zle' : kontrole.some(c => c.stan === 'uwaga') ? 'uwaga' : 'ok';
-    return { rodzaj: 'odreczny', kontrole, stan, sygnatariusz: '', czas: null, podglad };
+    return { rodzaj: 'odreczny', kontrole, stan, sygnatariusz: '', czas: null, podglad, bezWymogu: !wymagany };
   }
   /** Czy plik wrócił pod właściwą nazwą: jeśli nie, aplikacja rozpoznała dokument i nazwała plik tak, jak przy generowaniu. */
   function kontroleNazwy(d, pliki) {
@@ -372,7 +377,12 @@ export function zainstalujPodpis(k) {
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
   }
   /** Dokumenty z plikami, ale bez wyniku (sprawdzanie przerwane odświeżeniem strony, zamknięciem karty albo zmianą miesiąca) — inaczej wisiałyby na „sprawdzam…”. */
-  async function dokonczSprawdzanie() { for (const d of k.nazwyDok()) if (plikiDok(d.i).length && !weryfikacje()[d.i] && !sprawdzane.has(d.i)) await sprawdz(d.i); }
+  async function dokonczSprawdzanie() {
+    for (const d of k.nazwyDok()) {
+      const w = weryfikacje()[d.i], stary = !!(d.rozliczenie && w && w.rodzaj === 'odreczny' && !w.bezWymogu && !w.potwierdzone);      // rozliczenie ocenione, zanim przestało wymagać podpisu odręcznego: sprawdzam je jeszcze raz (z zapisanego pliku), żeby nie wisiało na czerwono
+      if (plikiDok(d.i).length && (!w || stary) && !sprawdzane.has(d.i)) await sprawdz(d.i);
+    }
+  }
   function potwierdz(i) {
     const w = weryfikacje()[i]; if (!w) return;
     zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
@@ -469,18 +479,20 @@ export function zainstalujPodpis(k) {
   }
   const temat = () => `[PMT] Delegacje — ${k.PROFIL().imie} — ${k.MIES[M().mies - 1]} ${M().rok}`;      // stały początek „[PMT]” pozwala odbiorcy ustawić regułę poczty (osobny folder)
   const miesiacTekst = () => { const m = String(k.MIES[M().mies - 1]); return m.charAt(0).toUpperCase() + m.slice(1); };
-  const trescWiad = n => `Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami delegacyjnymi za ${miesiacTekst()} ${M().rok} (${n} ${liczba(n, 'plik', 'pliki', 'plików')}). Hasło zostało przekazane osobno.\n\nPozdrawiam\n${k.PROFIL().imie}`;
+  const trescWiad = (n, format) => `Dzień dobry,\n\nw załączeniu zahasłowana paczka (ZIP) z podpisanymi dokumentami delegacyjnymi za ${miesiacTekst()} ${M().rok} (${n} ${liczba(n, 'plik', 'pliki', 'plików')}). Hasło zostało przekazane osobno.${format === 'aes' ? ' Paczka jest szyfrowana AES-256 — otworzysz ją w 7-Zip, WinRAR lub podobnym programie (zwykły Eksplorator Windows jej nie rozpakuje).' : ''}\n\nPozdrawiam\n${k.PROFIL().imie}`;
   const stanW = (html, zle = false) => { stanWysylki = html ? (zle ? `<span class="zle">${html}</span>` : html) : ''; const s = $('#podp-wyslij-stan', arkTresc); if (s) s.innerHTML = stanWysylki; };
+  /** Paczka ZIP w szyfrze wybranym przez administratora: klasyczny (domyślny, otwiera go Eksplorator Windows) albo AES-256 (7-Zip/WinRAR). */
+  const zrobPaczke = async (pliki, h) => (h.format === 'aes' ? zipujAes(pliki, h.haslo) : zipujKlasycznie(pliki, h.haslo));
   /** Hasło, termin i adres odbiorcy nadaje administrator (nie użytkownik): pobieramy je z serwera; bez internetu wystarcza zapamiętane, o ile hasło jeszcze nie wygasło. */
   async function hasloDoPaczki() {
     const o = await k.hasloPaczki();
-    if (o.ok) { magUst.ustaw('paczka', { haslo: o.haslo, wazne_do: o.wazneDo, adres: o.adres }); return o; }
-    if (o.powod === 'siec') { const c = magUst.daj('paczka', null); if (c && c.haslo && c.adres && c.wazne_do >= k.isoDzis()) return { ok: true, haslo: c.haslo, wazneDo: c.wazne_do, adres: c.adres }; }
+    if (o.ok) { magUst.ustaw('paczka', { haslo: o.haslo, wazne_do: o.wazneDo, adres: o.adres, format: o.format }); return o; }
+    if (o.powod === 'siec') { const c = magUst.daj('paczka', null); if (c && c.haslo && c.adres && c.wazne_do >= k.isoDzis()) return { ok: true, haslo: c.haslo, wazneDo: c.wazne_do, adres: c.adres, format: c.format === 'aes' ? 'aes' : 'klasyczny' }; }
     if (o.powod === 'brak' || o.powod === 'wygaslo') magUst.ustaw('paczka', null);
     return o;
   }
   let wysylanie = false, ostatniMailto = '', gotowyEml = null, sprawdzPoWyslaniu = null;      // gotowyEml: przygotowana wiadomość czeka na osobne kliknięcie, gdy zwykłe pobranie nie jest już możliwe; sprawdzPoWyslaniu: dane użyte z pamięci, do porównania z serwerem      // ostatniMailto: adres mailto: trzymany tylko w pamięci, żeby przycisk „Otwórz wiadomość” nie niósł adresata w treści strony
-  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z AES-256 → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
+  /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z klasycznym szyfrowaniem (otwiera ją Eksplorator Windows) → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
       Samo kliknięcie jest akceptacją: gdy wiadomość jest gotowa, dokumenty dostają status „wysłane” (karty pokazują „Wysłano”); „Cofnij wysłanie” na pulpicie go przywraca. */
   /** Okno logowania do Outlooka — musi się otworzyć SYNCHRONICZNIE w obsłudze kliknięcia, inaczej przeglądarka je zablokuje (null = zablokowane). */
   function otworzOknoLogowania() {
@@ -545,16 +557,16 @@ export function zainstalujPodpis(k) {
       stanW('Przygotowuję zahasłowaną paczkę…'); await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
       const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
       if (metoda === 'poczta') {      // otwieramy pocztę JAK NAJSZYBCIEJ po kliknięciu (przeglądarka pozwala na to tylko tuż po geście użytkownika), zanim szyfrowanie zajmie procesor
-        const mailto = mailtoDo(adres, temat(), trescWiad(zal.length));
+        const mailto = mailtoDo(adres, temat(), trescWiad(zal.length, h.format));
         otworzMailto(mailto); stanW('Otwieram pocztę i przygotowuję zahasłowaną paczkę…'); await czekaj(60);
-        const blobP = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo);
+        const blobP = await zrobPaczke(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h);
         k.pobierzBlob(blobP, nazwaZip()); await czekaj(450);
         oznaczWyslane();
         ostatniMailto = mailto; stanW(`Otworzyłem pocztę z gotową wiadomością (adresat, temat i treść są już wpisane). Zahasłowana paczka <span class="adr">${esc(nazwaZip())}</span> zapisała się w folderze Pobrane — <span class="adr">dołącz ją do wiadomości</span> (spinacz → ostatnio pobrane albo przeciągnij z paska pobierania) i wyślij. Jeśli poczta się nie otworzyła: <button type="button" class="przycisk maly" id="podp-otworz-poczte" data-akcja="otworz-mailto">Otwórz wiadomość</button>${blobP.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blobP.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : ''}`);
         pokazToast('Poczta otwarta — dołącz paczkę z folderu Pobrane i wyślij');
         return;
       }
-      const blob = zipujAes(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h.haslo), tr = trescWiad(zal.length), tem = temat();
+      const blob = await zrobPaczke(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h), tr = trescWiad(zal.length, h.format), tem = temat();
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
       if (metoda === 'outlook') { oknoZostaje = await szkicOutlook(okno, { adres, tem, tr, blob, duza }); return; }
       if (metoda === 'pulpit') {
@@ -591,7 +603,7 @@ export function zainstalujPodpis(k) {
     }
     finally {
       wysylanie = false; const uzyte = sprawdzPoWyslaniu; sprawdzPoWyslaniu = null;
-      if (uzyte && wyslane()) hasloDoPaczki().then(o => { daneWysylki = o; daneWysylkiTs = Date.now(); if (o.ok && (o.haslo !== uzyte.haslo || o.adres !== uzyte.adres)) stanW('<span class="zle">Uwaga: administrator zmienił właśnie hasło do paczek — ta paczka ma poprzednie hasło. Kliknij „Cofnij wysłanie” na pulpicie i wyślij jeszcze raz.</span>'); }).catch(() => { /* bez sieci zostają dane z pamięci */ });
+      if (uzyte && wyslane()) hasloDoPaczki().then(o => { daneWysylki = o; daneWysylkiTs = Date.now(); if (o.ok && (o.haslo !== uzyte.haslo || o.adres !== uzyte.adres || o.format !== uzyte.format)) stanW('<span class="zle">Uwaga: administrator zmienił właśnie hasło do paczek (albo ich szyfr) — ta paczka ma poprzednie ustawienia. Kliknij „Cofnij wysłanie” na pulpicie i wyślij jeszcze raz.</span>'); }).catch(() => { /* bez sieci zostają dane z pamięci */ });
       if (okno && !oknoZostaje) { try { okno.close(); } catch (e) { /* zamknięte */ } } if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
   }
   function oznaczWyslane() { dzwiek.efekt('wyslano'); const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); }

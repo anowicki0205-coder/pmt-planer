@@ -8,7 +8,7 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   const STRONA = `<!doctype html><meta charset="utf-8"><title>dźwięk</title>
     <button id="dzwiek" aria-pressed="true"><svg><use href="#i-glosnik"/></svg></button><button id="muzyka" aria-pressed="false"></button>
     <label><input type="range" id="glosnosc" min="0" max="100" step="5" value="70"><output></output></label><button id="zwykly">Zwykły</button><button id="zam" data-zamknij>Zamknij</button><button class="p-znak" id="znak">Znak</button><button id="wyl" disabled>Wyłączony</button>
-    <script type="module">import { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI, PETLA } from '/js/dzwiek.js'; window.D = { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, EFEKTY, TAKT, GLOSNOSC_MUZYKI, PETLA }; dzwiek.init(document); window.gotowe = true;</script>`;
+    <script type="module">import { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, nutaPunktu, akordTaktu, EFEKTY, TAKT, KROK, GLOSNOSC_MUZYKI, PETLA } from '/js/dzwiek.js'; window.D = { dzwiek, zbudujEfekt, zbudujMuzyke, zbudujTor, przygluszMuzyke, nutaPunktu, akordTaktu, EFEKTY, TAKT, KROK, GLOSNOSC_MUZYKI, PETLA }; dzwiek.init(document, { naStartDomyslny: () => { window.podpowiedzi = (window.podpowiedzi || 0) + 1; } }); window.gotowe = true;</script>`;
   const sv = http.createServer((q, o) => {
     if (q.url === '/') { o.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return o.end(STRONA); }
     const f = path.join(WEB, q.url.split('?')[0]); if (!f.startsWith(WEB) || !fs.existsSync(f)) { o.writeHead(404); return o.end(); }
@@ -41,6 +41,29 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   ok('efekty są krótkie (do 2,2 s), „klik” krócej niż 0,1 s', nazwy.every(n => analiza[n].dl > 0 && analiza[n].dl <= 2.2) && analiza.klik.dl < .1, nazwy.map(n => n + ':' + analiza[n].dl.toFixed(2)).join(' '));
   { const a = analiza.ok; ok('efekt „ok” brzmi na zamierzonych nutach (E5 ≈ 659 Hz i H5 ≈ 988 Hz mocniejsze ≥ 5× niż 800 i 1200 Hz)', a.p659 > 5 * a.p800 && a.p988 > 5 * a.p1200 && a.p659 > 5 * a.p1200, JSON.stringify({ p659: a.p659.toExponential(1), p988: a.p988.toExponential(1), p800: a.p800.toExponential(1), p1200: a.p1200.toExponential(1) })); }
   ok('nieznany efekt nic nie robi i nie rzuca wyjątku', await p.evaluate(async () => { const oc = new OfflineAudioContext(1, 4410, 44100); return D.zbudujEfekt(oc, oc.destination, 'nie-ma-takiego', 0) === 0; }));
+
+  /* ---------- synteza: nuty punktów trasy (pokaz generowania) ---------- */
+  const pt = await p.evaluate(async () => {
+    const SR = 44100, mid = n => 440 * Math.pow(2, (n - 69) / 12), wyn = { akordy: [] };
+    const gz = (d, f, od, dl) => { const w = 2 * Math.PI * f / SR; let s1 = 0, s2 = 0; const c = 2 * Math.cos(w); for (let i = od; i < od + dl; i++) { const s = d[i] + c * s1 - s2; s2 = s1; s1 = s; } return (s1 * s1 + s2 * s2 - c * s1 * s2) / dl; };
+    const AKORDY = { Am: [57, 60, 64], F: [53, 57, 60], C: [55, 60, 64], G: [55, 59, 62], E: [52, 56, 59] }, NAZWY = ['Am', 'F', 'C', 'G', 'E'];
+    for (const nz of ['Am', 'F', 'C', 'G', 'E']) {
+      const ton = AKORDY[nz], oczek = [ton[0] + 12, ton[1] + 12, ton[2] + 12, ton[0] + 24, ton[1] + 24, ton[2] + 24, ton[0] + 36], wiersz = { nz, pk: 0, nan: false, tail: 0, dl: [], dobre: [] };
+      for (let i = 0; i < 7; i++) {
+        const oc = new OfflineAudioContext(1, SR * 3, SR), w = oc.createGain(); w.connect(oc.destination);
+        const akord = D.akordTaktu({ Am: 0, F: 1, C: 2, G: 3, E: 15 }[nz]), dl = D.nutaPunktu(oc, w, .01, i, akord), buf = await oc.startRendering(), d = buf.getChannelData(0);
+        for (let k = 0; k < d.length; k++) { const a = Math.abs(d[k]); if (!(a === a)) wiersz.nan = true; if (a > wiersz.pk) wiersz.pk = a; }
+        const kon = Math.floor((.01 + dl + .25) * SR); wiersz.tail = Math.max(wiersz.tail, Math.sqrt(d.slice(kon, kon + Math.floor(SR * .1)).reduce((s, x) => s + x * x, 0) / Math.floor(SR * .1)));
+        wiersz.dl.push(dl);
+        const moce = oczek.map(n => gz(d, mid(n), Math.floor(.01 * SR), Math.floor(SR * .4))), naj = moce.indexOf(Math.max(...moce)); wiersz.dobre.push(naj === i);
+      }
+      wyn.akordy.push(wiersz);
+    }
+    return wyn;
+  });
+  ok('punkty trasy: 7 nut z każdego akordu podkładu (Am, F, C, G, E) — brak NaN, słyszalne (szczyt ≥ 0,02), bez przesterowania (≤ 0,55), wygasają do ciszy (< 0,002)', pt.akordy.every(a => !a.nan && a.pk >= .02 && a.pk <= .55 && a.tail < .002), pt.akordy.map(a => a.nz + ':' + a.pk.toFixed(2)).join(' '));
+  ok('punkty trasy: kolejne punkty brzmią na zamierzonych nutach akordu i WYŻEJ (linia wznosząca się przez trzy oktawy: 3 tony, 3 tony oktawę wyżej, ton najwyższy)', pt.akordy.every(a => a.dobre.every(Boolean)), pt.akordy.map(a => a.nz + ':' + a.dobre.map(x => x ? '✓' : '✗').join('')).join(' '));
+  ok('punkty trasy: nuta trwa do ok. 0,6 s, ostatnia (7.) dłużej — do 1,1 s', pt.akordy.every(a => a.dl.slice(0, 6).every(x => x > .3 && x <= .65) && a.dl[6] > .8 && a.dl[6] <= 1.15), pt.akordy[0].dl.map(x => x.toFixed(2)).join(' '));
 
   /* ---------- synteza: podkład ---------- */
   const mu = await p.evaluate(async () => {
@@ -94,10 +117,11 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
 
   /* ---------- sterowanie ---------- */
   const st0 = await p.evaluate(() => ({ efekty: D.dzwiek.efektyWl(), muzyka: D.dzwiek.muzykaWl(), gra: D.dzwiek.muzykaGra(), ctx: D.dzwiek.stan(), a1: document.querySelector('#dzwiek').getAttribute('aria-pressed'), a2: document.querySelector('#muzyka').getAttribute('aria-pressed') }));
-  ok('domyślnie efekty są włączone, podkład wyłączony; kontekst audio powstaje dopiero po geście użytkownika (wcześniej „brak”)', st0.efekty === true && st0.muzyka === false && st0.gra === false && st0.ctx === 'brak' && st0.a1 === 'true' && st0.a2 === 'false', JSON.stringify(st0));
+  ok('domyślnie efekty i podkład są włączone (przycisk nutki wciśnięty), ale nic jeszcze nie gra: kontekst audio powstaje dopiero po geście użytkownika (wcześniej „brak”)', st0.efekty === true && st0.muzyka === true && st0.gra === false && st0.ctx === 'brak' && st0.a1 === 'true' && st0.a2 === 'true', JSON.stringify(st0));
   await p.click('#zwykly'); await p.waitForTimeout(300);
   const st1 = await p.evaluate(() => ({ ctx: D.dzwiek.stan(), log: [...D.dzwiek.log] }));
   ok('zwykły przycisk: po pierwszym kliknięciu powstaje kontekst audio; efekt „klik” zapisany w dzienniku', st1.ctx !== 'brak' && st1.log.includes('klik') || st1.log.length === 0 && st1.ctx !== 'brak', JSON.stringify(st1));
+  ok('podkład włączony domyślnie rusza przy pierwszym geście (kliknięciu gdziekolwiek), przycisk nutki pokazuje „włączona”, a użytkownik dostaje JEDNĄ podpowiedź, że gra muzyka i jak ją wyłączyć', await p.evaluate(() => D.dzwiek.muzykaGra() === true && window.podpowiedzi === 1 && localStorage.getItem('pmt-ui-muzyka-info') === '1' && localStorage.getItem('pmt-ui-muzyka') === null && /włączona/.test(document.querySelector('#muzyka').getAttribute('aria-label'))));
   await p.evaluate(() => { D.dzwiek.log.length = 0; });
   await p.waitForTimeout(80); await p.click('#zwykly'); await p.waitForTimeout(80); await p.click('#zam'); await p.waitForTimeout(80); await p.click('#znak'); await p.waitForTimeout(80); await p.click('#wyl', { force: true }).catch(() => {});
   ok('klik gra przy zwykłym przycisku, a NIE przy „zamknij”, znaku odhaczenia ani przycisku wyłączonym (te mają własny dźwięk albo milczą)', JSON.stringify(await p.evaluate(() => D.dzwiek.log.filter(x => x === 'klik'))) === '["klik"]', JSON.stringify(await p.evaluate(() => D.dzwiek.log)));
@@ -111,23 +135,44 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   ok('po wyciszeniu żaden efekt się nie zapisuje ani nie gra (także kliknięcia)', await p.evaluate(() => D.dzwiek.log.length === 0));
   await p.click('#dzwiek'); await p.waitForTimeout(150);
   ok('ponowne włączenie przywraca efekty (i zapamiętuje to)', await p.evaluate(() => D.dzwiek.efektyWl() === true && localStorage.getItem('pmt-ui-dzwiek') === '1' && document.querySelector('#dzwiek use').getAttribute('href') === '#i-glosnik'));
-  // podkład
+  // podkład (po pierwszym geście już gra — domyślnie włączony)
+  await p.click('#muzyka'); await p.waitForTimeout(300);
+  const m0 = await p.evaluate(() => ({ gra: D.dzwiek.muzykaGra(), wl: D.dzwiek.muzykaWl(), a2: document.querySelector('#muzyka').getAttribute('aria-pressed'), mag: localStorage.getItem('pmt-ui-muzyka'), label: document.querySelector('#muzyka').getAttribute('aria-label') }));
+  ok('kliknięcie nutki przy grającym podkładzie wyłącza go (przycisk niewciśnięty, opis „wyłączona”, wybór zapamiętany: pmt-ui-muzyka=0)', !m0.gra && !m0.wl && m0.a2 === 'false' && m0.mag === '0' && /wyłączona/.test(m0.label), JSON.stringify(m0));
   await p.click('#muzyka'); await p.waitForTimeout(1500);
   const m1 = await p.evaluate(() => ({ gra: D.dzwiek.muzykaGra(), wl: D.dzwiek.muzykaWl(), a2: document.querySelector('#muzyka').getAttribute('aria-pressed'), takty: D.dzwiek.taktow(), mag: localStorage.getItem('pmt-ui-muzyka'), ctx: D.dzwiek.stan() }));
-  ok('włączenie podkładu: gra, przycisk wciśnięty, kolejne takty są planowane z wyprzedzeniem, wybór zapamiętany (pmt-ui-muzyka=1)', m1.gra && m1.wl && m1.a2 === 'true' && m1.takty >= 1 && m1.mag === '1', JSON.stringify(m1));
+  ok('ponowne włączenie podkładu: gra, przycisk wciśnięty, kolejne takty są planowane z wyprzedzeniem, wybór zapamiętany (pmt-ui-muzyka=1)', m1.gra && m1.wl && m1.a2 === 'true' && m1.takty >= 1 && m1.mag === '1', JSON.stringify(m1));
   await p.waitForTimeout(3200);
   const m2 = await p.evaluate(() => D.dzwiek.taktow());
   ok('podkład działa w pętli: po kolejnych sekundach zaplanowano więcej taktów (nie urywa się po pierwszym)', m2 > m1.takty || m1.ctx !== 'running', `${m1.takty} → ${m2} (kontekst: ${m1.ctx})`);
+
+  /* ---------- nuty punktów trasy: w rytmie podkładu, a bez podkładu — same ---------- */
+  const rytm = await p.evaluate(async () => {
+    D.dzwiek.log.length = 0; const przed = D.dzwiek.licznik.punkt || 0, kroki = [], ost = 2 * D.KROK, s0 = D.dzwiek.siatkaPoczatek();
+    for (let i = 0; i < 7; i++) { D.dzwiek.punkt(i, 7); kroki.push(D.dzwiek.ostatniPunktCzas()); }      // wszystkie siedem naraz (jak przy skoku postępu): mają ustawić się kolejno na siatce
+    return { razem: (D.dzwiek.licznik.punkt || 0) - przed, log: D.dzwiek.log.filter(x => x === 'punkt').length, naSiatce: kroki.every(t => Math.abs((t - s0) / ost - Math.round((t - s0) / ost)) < 1e-6), rosnaco: kroki.every((t, i) => i === 0 || Math.abs(t - kroki[i - 1] - ost) < 1e-6 || t - kroki[i - 1] >= ost - 1e-6), rozstaw: kroki.slice(1).map((t, i) => +(t - kroki[i]).toFixed(3)) };
+  });
+  ok('gra podkład: siedem punktów zgłoszonych naraz → siedem nut w dzienniku, każda na SIATCE ósemek podkładu (w rytm), jedna po drugiej co najmniej o ósemkę (arpeggio, nie jeden zlany dźwięk)', rytm.razem === 7 && rytm.log === 7 && rytm.naSiatce && rytm.rosnaco, JSON.stringify(rytm));
   await p.click('#muzyka'); await p.waitForTimeout(200);
   const m3 = await p.evaluate(() => ({ gra: D.dzwiek.muzykaGra(), a2: document.querySelector('#muzyka').getAttribute('aria-pressed'), mag: localStorage.getItem('pmt-ui-muzyka') })); const tk = await p.evaluate(() => D.dzwiek.taktow()); await p.waitForTimeout(1200);
   ok('wyłączenie podkładu: przestaje grać, planowanie się zatrzymuje, wybór zapamiętany (pmt-ui-muzyka=0)', !m3.gra && m3.a2 === 'false' && m3.mag === '0' && (await p.evaluate(() => D.dzwiek.taktow())) === tk, JSON.stringify(m3));
+  const solo = await p.evaluate(async () => {
+    D.dzwiek.log.length = 0; const kroki = []; for (let i = 0; i < 4; i++) { D.dzwiek.punkt(i, 7); kroki.push(D.dzwiek.ostatniPunktCzas()); }
+    D.dzwiek.ustawEfekty(false, false); D.dzwiek.log.length = 0; const wyl = D.dzwiek.punkt(0, 7), wDzienniku = D.dzwiek.log.length; D.dzwiek.ustawEfekty(true, false);
+    return { log: D.dzwiek.log.length, rozstaw: kroki.slice(1).map((t, i) => t - kroki[i]), wyl, wDzienniku };
+  });
+  ok('bez podkładu punkty grają od razu i same (kolejne co ≥ 0,12 s, bez siatki); przy wyciszonych efektach nie grają ani nie wpisują się do dziennika', solo.rozstaw.every(x => x >= .119) && solo.wyl === false && solo.wDzienniku === 0, JSON.stringify(solo));
   // zapamiętany podkład rusza dopiero po geście na nowej stronie
   await p.evaluate(() => localStorage.setItem('pmt-ui-muzyka', '1')); await p.reload(); await p.waitForFunction(() => window.gotowe);
   const r0 = await p.evaluate(() => ({ wl: D.dzwiek.muzykaWl(), gra: D.dzwiek.muzykaGra() }));
   ok('zapamiętany podkład po odświeżeniu NIE rusza sam (przeglądarka by go zablokowała, a użytkownik nie jest zaskakiwany w ciszy)', r0.wl === true && r0.gra === false, JSON.stringify(r0));
   await p.click('#zwykly'); await p.waitForTimeout(600);
-  ok('…ale rusza przy pierwszym geście (kliknięciu gdziekolwiek), bo użytkownik miał go włączony', await p.evaluate(() => D.dzwiek.muzykaGra() === true));
-  await p.evaluate(() => { D.dzwiek.ustawMuzyke(false); localStorage.removeItem('pmt-ui-muzyka'); localStorage.removeItem('pmt-ui-dzwiek'); });
+  ok('…ale rusza przy pierwszym geście (kliknięciu gdziekolwiek), bo użytkownik miał go włączony; podpowiedź „gra muzyka” NIE wraca (pokazana raz, a wybór był już zrobiony)', await p.evaluate(() => D.dzwiek.muzykaGra() === true && window.podpowiedzi === undefined));
+  // kto wyłączył podkład, ma go wyłączonego także po odświeżeniu i pierwszym geście
+  await p.evaluate(() => { D.dzwiek.ustawMuzyke(false); }); await p.reload(); await p.waitForFunction(() => window.gotowe);
+  await p.click('#zwykly'); await p.waitForTimeout(500);
+  ok('wyłączony przez użytkownika podkład po odświeżeniu i kliknięciu NIE rusza (pmt-ui-muzyka=0 jest respektowane)', await p.evaluate(() => D.dzwiek.muzykaWl() === false && D.dzwiek.muzykaGra() === false && document.querySelector('#muzyka').getAttribute('aria-pressed') === 'false' && window.podpowiedzi === undefined));
+  await p.evaluate(() => { D.dzwiek.ustawMuzyke(false); localStorage.removeItem('pmt-ui-muzyka'); localStorage.removeItem('pmt-ui-muzyka-info'); localStorage.removeItem('pmt-ui-dzwiek'); });
 
   /* ---------- głośność ---------- */
   await p.evaluate(() => { document.querySelector('#glosnosc').dispatchEvent(new Event('input')); });

@@ -171,9 +171,16 @@ HASŁO DO PACZEK Z DOKUMENTAMI (wysyłka pocztą z aplikacji web)
      wdrożenie też zakłada zakładkę, gdy ktoś pierwszy raz poprosi o hasło;
      starszą zakładkę uzupełnia o brakujący wiersz.)
   2. W zakładce „Ustawienia”:  haslo_paczki → wpisz hasło (min. 8 znaków,
-     nie zaczynaj od = + - @; komórkę warto ustawić jako zwykły tekst),
+     najlepiej 12+ losowych; TYLKO litery bez polskich znaków, cyfry i znaki
+     specjalne z klawiatury — odbiorca rozpakowuje paczkę w Eksploratorze
+     Windows, który nie przyjmie hasła z „ą”, „ł” itp.; aplikacja odmówi
+     wysyłki z takim hasłem; nie zaczynaj od = + - @; komórkę warto ustawić
+     jako zwykły tekst),
      haslo_paczki_wazne_do → ostatni dzień ważności, np. 2026-12-31,
-     adres_odbiorcy → adres e-mail, na który aplikacja przygotowuje wiadomość.
+     adres_odbiorcy → adres e-mail, na który aplikacja przygotowuje wiadomość,
+     format_paczki → klasyczny (domyślny; paczkę otwiera sam Eksplorator Windows,
+     hasło tylko z ASCII) albo aes (AES-256: mocniejszy, ale odbiorca potrzebuje
+     7-Zip lub WinRAR; hasło może mieć dowolne znaki). Puste = klasyczny.
   3. Hasło przekaż odbiorcy poczty POZA pocztą (telefon, komunikator).
   Termin ważności jest obowiązkowy. Po tej dacie skrypt hasła NIE wydaje
   (aplikacja pokazuje „hasło wygasło”, a wysyłka stoi), dopóki nie wpiszesz

@@ -129,6 +129,21 @@ globalThis.fetch = async (url, o = {}) => {
   ok('„Serwer zajety” przy haśle paczki: komunikat „spróbuj ponownie”, nie „wyloguj się”', hp3.powod === 'siec' && /Serwer zajety/.test(hp3.komunikat) && !/Wyloguj/.test(hp3.komunikat), JSON.stringify(hp3));
   const hp4 = await D.pobierzHasloPaczki();
   ok('…i nie oznacza skrótu jako nieaktualnego (następna próba idzie normalnie)', hp4.ok, JSON.stringify(hp4));
+  /* hasło paczki z polską literą: Eksplorator Windows zamienia wpisane hasło na bajty wg strony kodowej systemu, przeglądarka wg UTF-8 — paczka by się nie otworzyła, więc wysyłka ma odmówić z wyjaśnieniem */
+  const paczkaPrzed = B.paczka; B.paczka = { haslo: 'Zażółć-hasło-1234', wazne_do: '2099-12-31', adres: 'kierownik@firma.pl' };
+  const hp5 = await D.pobierzHasloPaczki();
+  ok('hasło paczki z polskimi znakami: odmowa (powód „odpowiedz”) z komunikatem o znakach spoza ASCII, bez hasła w wyniku', !hp5.ok && hp5.powod === 'odpowiedz' && /ASCII/.test(hp5.komunikat) && !hp5.haslo && !/Zażółć/.test(hp5.komunikat), JSON.stringify(hp5));
+  B.paczka = { haslo: 'Dobre-Haslo_#7!x', wazne_do: '2099-12-31', adres: 'kierownik@firma.pl' };
+  const hp6 = await D.pobierzHasloPaczki();
+  ok('hasło ze znakami specjalnymi, ale w ASCII, przechodzi', hp6.ok && hp6.haslo === 'Dobre-Haslo_#7!x', JSON.stringify(hp6));
+  ok('…i niesie szyfr „klasyczny”, gdy administrator go nie wybrał (starszy skrypt nie ma pola)', hp6.format === 'klasyczny', JSON.stringify(hp6));
+  B.paczka = { haslo: 'Zażółć-hasło-1234', wazne_do: '2099-12-31', adres: 'kierownik@firma.pl', format: 'aes' };
+  const hp7 = await D.pobierzHasloPaczki();
+  ok('szyfr „aes” wybrany przez administratora: hasło z polskimi literami przechodzi (AES nie ma problemu ze stroną kodową), odpowiedź niesie format „aes”', hp7.ok && hp7.format === 'aes' && hp7.haslo === 'Zażółć-hasło-1234', JSON.stringify(hp7));
+  B.paczka = { haslo: 'Zażółć-hasło-1234', wazne_do: '2099-12-31', adres: 'kierownik@firma.pl', format: 'klasyczny' };
+  const hp8 = await D.pobierzHasloPaczki();
+  ok('szyfr „klasyczny” podany jawnie: hasło z polskimi literami nadal odrzucone', !hp8.ok && hp8.powod === 'odpowiedz' && /aes/i.test(hp8.komunikat), JSON.stringify(hp8));
+  B.paczka = paczkaPrzed;
   D.wyloguj();
 
   console.log(kod ? 'BŁĘDY' : 'WSZYSTKO OK'); process.exit(kod);

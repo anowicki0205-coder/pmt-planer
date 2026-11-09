@@ -16,7 +16,7 @@ class BackendMock {
       '22222': { imie: 'Anna Nowa', telefon: '501502503', hash: '', wazne_do: '2099-12-31' },
       '33333': { imie: 'Ewa Wygasla', telefon: '700800900', hash: hash('33333', 'haslo123'), wazne_do: '2020-01-01' },
     };
-    this.paczka = opcje.paczka || null;           // wysyłka dokumentów, ustawiana przez administratora w zakładce „Ustawienia” arkusza: { haslo, wazne_do, adres }
+    this.paczka = opcje.paczka || null;           // wysyłka dokumentów, ustawiana przez administratora w zakładce „Ustawienia” arkusza: { haslo, wazne_do, adres, format? }
     this.pobraniaHasla = 0;
     this.log = []; this.sesje = []; this.pulsy = []; this.proby = {};
   }
@@ -38,7 +38,7 @@ class BackendMock {
     const p = this.paczka; if (!p || !String(p.haslo || '').trim() || !p.wazne_do || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(p.adres || '').trim())) return { status: 'brak' };
     if (p.wazne_do < iso(new Date())) return { status: 'wygaslo', wazne_do: p.wazne_do };
     this.pobraniaHasla++; this.zapisz(String(d.kod), 'haslo_paczki', `wazne do ${p.wazne_do}`);
-    return { status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do, adres: String(p.adres).trim() };
+    return Object.assign({ status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do, adres: String(p.adres).trim() }, p.format ? { format: p.format } : {});      // format: szyfr paczki („klasyczny” albo „aes”) — brak pola = jak starszy skrypt
   }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
   /** Jak _json w .gs: każda odpowiedź niesie czas serwera. */

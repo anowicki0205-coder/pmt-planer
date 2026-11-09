@@ -150,6 +150,15 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   await wgraj(lista(ponSkan));
   const s3b = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'zle']), zap3b = await zapisane();
   ok('ponowny skan po „Nie widzę podpisu” (bez „Wgraj inny plik”) zastępuje stary skan zamiast dokładać kolejną stronę', JSON.stringify(s3b) === '["ok","ok","ok","ok","ok","ok","zle"]' && zap3b.pliki[4].length === 1 && /Widzę podpis/.test(await komunikat(4)), JSON.stringify([s3b, zap3b.pliki[4]]));
+  // rozliczenie wydatków (dokument 7, indeks 6): podpis odręczny NIE jest tam wymagany — skan bez podpisu pod tabelą nie świeci się na czerwono (na poleceniach — jak wyżej — dalej tak)
+  { const p7 = {}; pdfy.forEach(f => { p7[f] = 'pominiety'; }); p7[pdfy[6]] = 'bez'; fs.writeFileSync(path.join(tmp, 'plan7.json'), JSON.stringify(p7)); py('skanuj_pliki.py', roz, path.join(tmp, 'miejsca.json'), path.join(tmp, 's7'), path.join(tmp, 'plan7.json'));
+    await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+    await wgraj(lista(path.join(tmp, 's7'))); const s7 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
+    ok('rozliczenie wydatków: skan BEZ podpisu odręcznego jest przyjęty (stan poprawny, nie czerwony), a komunikat mówi, że podpis nie jest tam wymagany', JSON.stringify(s7) === '["ok","ok","ok","ok","ok","ok","ok"]' && /nie jest na nim wymagany/.test(await komunikat(6)) && !/Nie widzę podpisu/.test(await komunikat(6)), await komunikat(6));
+    await otworzSzczegoly(6);
+    const sz7 = await p.evaluate(() => ({ kontrole: document.querySelector('.dok-k.otwarta .kontrole').innerText, podglad: !!document.querySelector('.dok-k.otwarta .podglad-podpisu'), przycisk: !!document.querySelector('.dok-k.otwarta [data-akcja="potwierdz"]') }));
+    ok('szczegóły rozliczenia: „nie wymaga podpisu odręcznego”, bez wycinka „miejsce podpisu” i bez przycisku „Potwierdzam, że podpis jest”', /nie wymaga podpisu odręcznego/.test(sz7.kontrole) && !/porównaj sam/.test(sz7.kontrole) && !sz7.podglad && !sz7.przycisk, JSON.stringify(sz7).slice(0, 300));
+    await p.click('.dok-k.otwarta [data-akcja="szczegoly"]'); }
   // dokument 7 (indeks 6): poprawny podpis zamiast dopisku
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
@@ -166,13 +175,13 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   ok('nazwy: plik o nazwie INNEGO dokumentu rozpoznany po zawartości i nazwany jak dokument 7; ostrzeżenie w sprawdzeniu', zap4.pliki[6][0] === pdfy[6] && zap4.pliki[0][0] === pdfy[0] && zap4.weryfikacje[6].kontrole.some(c => c.id === 'nazwa' && /to nazwa innego dokumentu \(Polecenie 1\)/.test(c.tekst)), JSON.stringify(zap4.weryfikacje[6].kontrole.filter(c => c.id === 'nazwa')));
   ok('nazwy: skany zapisane jako nazwa dokumentu + .jpg (np. „…03….jpg”), nie „_skan” i nie „IMG_”', [2, 3, 4].every(i => zap4.pliki[i].length === 1 && zap4.pliki[i][0] === pdfy[i].replace(/\.pdf$/i, '.jpg')), JSON.stringify([2, 3, 4].map(i => zap4.pliki[i])));
   ok('wszystkie 7 dokumentów podpisane i sprawdzone (e-podpis PAdES/ECDSA/XAdES i odręczny)', JSON.stringify(s4) === JSON.stringify(Array(7).fill('ok')) && /Wszystkie 7 dokumentów sprawdzone/.test(await p.locator('#podp-licznik').innerText()), JSON.stringify(s4));
-  { const dz = await p.evaluate(() => ({ ...window.__pmtDzwiek.licznik })); ok('dźwięki przy podpisach: każdy sprawdzony dokument gra „ok”, a ostatni (wszystkie poprawne) gra dłuższy akord „wszystkie” — raz', (dz.ok || 0) >= 1 && dz.wszystkie === 1, JSON.stringify(dz)); }
+  { const dz = await p.evaluate(() => ({ ...window.__pmtDzwiek.licznik })); ok('dźwięki przy podpisach: każdy sprawdzony dokument gra „ok”, a gdy wszystkie są poprawne — dłuższy akord „wszystkie” (dwa razy: raz po rozliczeniu bez podpisu odręcznego, raz po podpisie elektronicznym zamiast dopisku)', (dz.ok || 0) >= 1 && dz.wszystkie === 2, JSON.stringify(dz)); }
   ok('po sprawdzeniu wszystkiego krok 5 „Wyślij” zapala się: przestaje być szary, przycisk jest aktywny i ma akcję', await p.evaluate(() => { const k = document.querySelector('.krok-k.k5'), b = k.querySelector('button'); return k.classList.contains('aktywny') && !k.classList.contains('nieaktywny') && !b.disabled && b.dataset.akcja === 'wyslij' && /Wszystkie dokumenty sprawdzone/.test(k.querySelector('small').innerText); }));
   ok('po sprawdzeniu wszystkiego przycisk „Wyślij” jest w oknie i na kaflu, status „Podpisane”', (await p.locator('[data-akcja="wyslij"]').count()) >= 1 && /Wyślij/.test(await p.locator('#kropla-napis').innerText()) && (await p.locator('#status').innerText()).includes('Podpisane'));
   await p.screenshot({ path: tmp + '/4_wszystko.png' });
 
   /* ---- wysyłka: moduł w kroku 5 TEGO SAMEGO okna; hasło do paczki, termin jego ważności i adres odbiorcy nadaje administrator (zakładka „Ustawienia” w arkuszu) ---- */
-  const PYZ = process.env.PYZ_PYTHON || ['/tmp/pzvenv/bin/python', 'python3'].find(b => cp.spawnSync(b, ['-c', 'import pyzipper']).status === 0);
+  const PYZ = process.env.PYZ_PYTHON || ['/tmp/pzvenv/bin/python', 'python3'].find(b => cp.spawnSync(b, ['-c', 'import zipfile']).status === 0);
   const stanW = () => p.locator('#podp-wyslij-stan').innerText();
   const bezAdresu = async () => { const t = await p.evaluate(() => document.documentElement.outerHTML + '\n' + document.body.innerText + '\n' + [...document.querySelectorAll('[title],[aria-label],[href],[value]')].map(e => ['title', 'aria-label', 'href', 'value'].map(a => e.getAttribute(a) || '').join(' ')).join(' ')); return !/odbiorca@|example\.com/i.test(t); };      // adres odbiorcy zna tylko administrator: nie ma go ani w tekście, ani w HTML, ani w odnośnikach okna
   const opisK5 = () => p.locator('#podp-wyslij-opis').innerText();
@@ -180,9 +189,9 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   const wyslijSel = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
   const ponownieOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900); };
   const emlOtwarty = (plik) => JSON.parse(cp.spawnSync(PYZ, ['-I', '-c', `
-import sys, json, email, email.policy, io, os, pyzipper
+import sys, json, email, email.policy, io, os, zipfile
 raw = open(sys.argv[1], 'rb').read(); m = email.message_from_bytes(raw, policy=email.policy.default)
-cz = list(m.iter_attachments()); z = pyzipper.AESZipFile(io.BytesIO(cz[0].get_content())); z.setpassword(sys.argv[2].encode())
+cz = list(m.iter_attachments()); z = zipfile.ZipFile(io.BytesIO(cz[0].get_content())); z.setpassword(sys.argv[2].encode())
 tr = m.get_body(preferencelist=('plain',)).get_content()
 os.makedirs(sys.argv[3], exist_ok=True); z.extractall(sys.argv[3])
 print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr, 'zal': len(cz), 'nazwa': cz[0].get_filename(), 'pliki': z.namelist(), 'ascii': all(b < 128 for b in raw), 'jawne': any(s in raw for s in (b'Jan Testowy', b'90010112349', b'Admin-Haslo'))}))`, plik, HASLO, path.join(tmp, 'z' + Date.now())], { encoding: 'utf8' }).stdout);
@@ -316,7 +325,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const sklejone = ms.zalaczniki.length ? Buffer.from(ms.zalaczniki[0].contentBytes, 'base64') : Buffer.alloc(0);
   ok('mała paczka (poniżej 3 MB) poszła jednym zapytaniem jako załącznik pliku: nazwa Dokumenty_….zip, typ ZIP, bez sesji wysyłania i bez kawałków', ms.zalaczniki.length === 1 && !ms.sesja && ms.kawalki.length === 0 && ms.zalaczniki[0]['@odata.type'] === '#microsoft.graph.fileAttachment' && /^Dokumenty_.*\.zip$/.test(ms.zalaczniki[0].name) && ms.zalaczniki[0].contentType === 'application/zip' && sklejone.length > 1000, `bajtów: ${sklejone.length}`);
   const zipOut = path.join(tmp, 'z_outlook.zip'); fs.writeFileSync(zipOut, sklejone);
-  const zipOutlookOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipOut, HASLO], { encoding: 'utf8' }).stdout.trim();
+  const zipOutlookOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipOut, HASLO], { encoding: 'utf8' }).stdout.trim();
   ok('to, co trafiło do Outlooka, jest tą samą zahasłowaną paczką: otwiera się hasłem administratora, ≥ 7 plików', Number(zipOutlookOk) >= 7, zipOutlookOk);
   ok('okno logowania przeszło na gotowy szkic (adres Outlooka), status „Wysłane” ustawiony sam, w kroku 5 jest odnośnik „Otwórz szkic” na wypadek zablokowanego przekierowania', /outlook\.office365\.com\/owa\//.test(oknoOk.url()) && (await p.locator('#status').innerText()).includes('Wysłane') && (await p.locator('#podp-wyslij-stan a[href^="https://outlook.office365.com/"]').count()) === 1 && /Kliknij tam „Wyślij”/.test(await stanW()), oknoOk.url());
   ok('token ani kod autoryzacji nie zostają w pamięci przeglądarki (localStorage, sessionStorage, strona)', !(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.documentElement.outerHTML)).match(/TOKEN-TEST-Outlook|KOD-TEST-Outlook/));
@@ -339,7 +348,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const zipPoczta = await pobierz(wyslijSel2); await p.waitForTimeout(600);
   const mailto = await p.evaluate(() => window.__mailto), mm = /^mailto:([^?]+)\?subject=([^&]*)&body=(.*)$/s.exec(mailto[0] || ''), temM = mm ? decodeURIComponent(mm[2]) : '', trM = mm ? decodeURIComponent(mm[3]) : '';
   ok('jedno kliknięcie: poczta otwarta dokładnie raz, adres z arkusza z „@” wprost (bez %40), temat „[PMT] Delegacje — Jan Testowy — …”, treść o zahasłowanej paczce z nowymi wierszami CRLF i podpisem; bez hasła, PESEL-u i bez dopisków w nawiasach', mailto.length === 1 && !!mm && mm[1] === ADRES && /^\[PMT\] Delegacje — Jan Testowy — \S+ 20\d\d$/.test(temM) && /zahasłowana paczka \(ZIP\)/.test(trM) && /\r\n/.test(trM) && /Jan Testowy\s*$/.test(trM) && !trM.includes(HASLO) && !mailto[0].includes('90010112349') && !/\(Dołącz/.test(trM), mailto[0]);
-  const zipPocztaOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipPoczta.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
+  const zipPocztaOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipPoczta.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
   ok('paczka zapisała się do Pobranych sama (nazwa Dokumenty_….zip), otwiera się hasłem administratora, ≥ 7 plików', /^Dokumenty_.*\.zip$/.test(zipPoczta.nazwa) && Number(zipPocztaOk) >= 7, zipPoczta.nazwa + ' / ' + zipPocztaOk);
   ok('komunikat: „Otworzyłem pocztę z gotową wiadomością…”, nazwa paczki, instrukcja „dołącz ją do wiadomości”; adresu odbiorcy nie ma w oknie, a przycisk „Otwórz wiadomość” nie niesie go w odnośniku; status „Wysłane” ustawiony sam; nie otwarto okna logowania ani pliku .eml', /Otworzyłem pocztę z gotową wiadomością/.test(await stanW()) && /dołącz ją do wiadomości/.test(await stanW()) && (await p.locator('#podp-otworz-poczte').evaluate(e => e.tagName + '|' + (e.getAttribute('href') || ''))) === 'BUTTON|' && (await bezAdresu()) && (await p.locator('#status').innerText()).includes('Wysłane') && !/\.eml/.test(zipPoczta.nazwa));
   await p.click('#podp-otworz-poczte'); await p.waitForTimeout(200);
@@ -407,6 +416,27 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   await pobierz(wyslijSel2); await czekajStan(/administrator zmienił właśnie hasło/);
   ok('zmiana hasła przez administratora w trakcie pracy okna: po wysyłce ostrzeżenie „administrator zmienił właśnie hasło… Cofnij wysłanie i wyślij jeszcze raz”', /Cofnij wysłanie/.test(await stanW()), await stanW());
   t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };
+  /* [K] administrator wybiera w arkuszu szyfr AES-256 (format_paczki = aes): paczka jest w AES (metoda 99), hasło może mieć polskie litery, a wiadomość uprzedza odbiorcę o 7-Zip/WinRAR; szyfr klasyczny to ustawienie domyślne */
+  const HASLO_AES = 'Zażółć-hasło-AES-2026'; t.backend.paczka = { haslo: HASLO_AES, wazne_do: '2099-12-31', adres: ADRES, format: 'aes' };      // ustawienie administratora PRZED otwarciem okna: okno pobiera je przy otwarciu
+  await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
+  const emlAes = await pobierz(wyslijSel2);
+  const aesJson = cp.spawnSync(PYZ, ['-I', '-c', `
+import sys, json, email, email.policy, io
+try:
+    import pyzipper
+except ImportError:
+    print(json.dumps({'brak': True})); raise SystemExit
+m = email.message_from_bytes(open(sys.argv[1], 'rb').read(), policy=email.policy.default); cz = list(m.iter_attachments()); dane = cz[0].get_content()
+z = pyzipper.AESZipFile(io.BytesIO(dane)); z.setpassword(sys.argv[2].encode('utf-8'))
+print(json.dumps({'metoda': int.from_bytes(dane[8:10], 'little'), 'ok': z.testzip() is None, 'pliki': len(z.namelist()), 'tresc': m.get_body(preferencelist=('plain',)).get_content()}))`, emlAes.sciezka, HASLO_AES], { encoding: 'utf-8' });
+  const aes = aesJson.status === 0 ? JSON.parse(aesJson.stdout) : { blad: aesJson.stderr };
+  if (aes.brak) console.log('  UWAGA brak pyzipper — pominięto odczyt paczki AES (zestaw: /tmp/pzvenv)');
+  else ok('szyfr „aes” z arkusza: paczka w AES-256 (metoda 99) otwiera się hasłem z polskimi literami, wszystkie pliki; wiadomość uprzedza odbiorcę, że potrzebny 7-Zip/WinRAR', aes.metoda === 99 && aes.ok === true && aes.pliki >= 7 && /AES-256/.test(aes.tresc) && /7-Zip/.test(aes.tresc), JSON.stringify(aes).slice(0, 300));
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };
+  const emlKl = await (async () => { await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500); return pobierz(wyslijSel2); })();
+  const klJson = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, email, email.policy, io, zipfile, json\nm = email.message_from_bytes(open(sys.argv[1], "rb").read(), policy=email.policy.default); d = list(m.iter_attachments())[0].get_content(); z = zipfile.ZipFile(io.BytesIO(d)); i = z.infolist()[0]; print(json.dumps({"flag": i.flag_bits, "metoda": i.compress_type, "tresc": m.get_body(preferencelist=("plain",)).get_content()}))', emlKl.sciezka], { encoding: 'utf-8' });
+  const kl = klJson.status === 0 ? JSON.parse(klJson.stdout) : { blad: klJson.stderr };
+  ok('bez ustawienia szyfru (domyślnie): paczka klasyczna — zaszyfrowana (bit 0), nazwy UTF-8 (bit 11), kompresja deflate (8) albo brak (0), a wiadomość NIE mówi o 7-Zip (Eksplorator wystarcza)', (kl.flag & 1) === 1 && (kl.flag & 0x800) !== 0 && [0, 8].includes(kl.metoda) && !/7-Zip|AES/.test(kl.tresc), JSON.stringify(kl).slice(0, 300));
   // minęło zbyt dużo czasu od kliknięcia (aktywność użytkownika wygasła): zamiast pobrania, które Chromium uznałby za niebezpieczne, jest przycisk „Zapisz wiadomość”
   await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
   const pobraniaPrzed = pobraniePrzyZapisie;
@@ -425,7 +455,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   await p.evaluate(() => { const mm = window.matchMedia.bind(window); window.matchMedia = q => /pointer:\s*coarse/.test(q) ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q); navigator.canShare = () => true; window.__udostepniono = false; navigator.share = () => { window.__udostepniono = true; return Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); }; window.__mailto = []; window.__przechwycMailto = u => window.__mailto.push(u); });
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900);
   const zipTel = await pobierz(wyslijSel); await p.waitForTimeout(800);
-  const zipTelOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipTel.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
+  const zipTelOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipTel.sciezka, HASLO], { encoding: 'utf8' }).stdout.trim();
   ok('telefon: zawsze pobrana zahasłowana paczka (otwiera się hasłem administratora) + poczta z gotowym adresatem, tematem i treścią (mailto:), bo udostępnianie systemowe nie wpisuje adresata; adresu nie widać w oknie; status „Wysłane”', /^Dokumenty_.*\.zip$/.test(zipTel.nazwa) && Number(zipTelOk) >= 7 && /Pobrałem zahasłowaną paczkę/.test(await stanW()) && /adresat, temat i treść są już wpisane/.test(await stanW()) && !(await p.evaluate(() => window.__udostepniono)) && (await p.evaluate(() => window.__mailto.length)) === 1 && (await p.evaluate(() => /^mailto:odbiorca@example\.com\?subject=/.test(window.__mailto[0]) && /Dołącz pobrany plik Dokumenty_/.test(decodeURIComponent(window.__mailto[0])))) && (await bezAdresu()) && (await p.locator('#podp-otworz-poczte').evaluate(e => e.tagName)) === 'BUTTON' && (await p.locator('#status').innerText()).includes('Wysłane'), `${zipTel.nazwa}, ${zipTelOk} plików — ${await stanW()}`);
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
 
@@ -453,7 +483,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const zap5 = await zapisane();
   ok('nazwy: dwa zdjęcia jednego dokumentu → „…_str01.jpg” i „…_str02.jpg” (rozszerzenie JPEG ujednolicone do jpg)', JSON.stringify(zap5.pliki[4]) === JSON.stringify([baza4 + '_str01.jpg', baza4 + '_str02.jpg']) && Object.values(zap5.pierwotne[4]).sort().join('|') === [baza4 + '_a.jpg', baza4 + '_b.JPEG'].sort().join('|'), JSON.stringify(zap5.pliki[4]));
   const duzy = path.join(tmp, 'duzy'); fs.mkdirSync(duzy, { recursive: true });
-  const jpg = fs.readFileSync(lista(path.join(tmp, 's2'))[2]); fs.writeFileSync(path.join(duzy, norm(pdfy[4]).replace(/\.pdf$/, '') + '_skan.jpg'), Buffer.concat([jpg, Buffer.alloc(21 * 1048576)]));
+  const jpg = fs.readFileSync(lista(path.join(tmp, 's2'))[2]); fs.writeFileSync(path.join(duzy, norm(pdfy[4]).replace(/\.pdf$/, '') + '_skan.jpg'), Buffer.concat([jpg, require('crypto').randomBytes(21 * 1048576)]));
   await wgrajInny(4); await czekajStany(['ok', 'ok', 'ok', 'ok', 'czeka', 'ok', 'ok']);
   await wgraj(lista(duzy)); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const duzyEml = await pobierz(wyslijSel);
@@ -467,7 +497,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const razemMs = ms.kawalki.length ? ms.kawalki[0].razemMs : 0, kawalkiPosort = ms.kawalki.slice().sort((a, b) => a.od - b.od), sklejoneDuze = Buffer.concat(kawalkiPosort.map(x => x.bajty));
   ok('duża paczka poszła przez sesję wysyłania: kawałki idą po kolei bez dziur i nakładania, razem tyle, ile zapowiedziała sesja, bez nagłówka Authorization w wysyłaniu; jeden załącznik, bez zapytania „załącznik”; nazwa i typ ZIP', ms.zalaczniki.length === 0 && !!ms.sesja && ms.sesja.AttachmentItem.size === razemMs && razemMs === sklejoneDuze.length && razemMs > 20 * 1048576 && ms.kawalki.length >= 5 && kawalkiPosort.every((x, i, w) => i === 0 ? x.od === 0 : x.od === w[i - 1].do + 1) && kawalkiPosort[kawalkiPosort.length - 1].do + 1 === razemMs && !ms.putZAutoryzacja && /^Dokumenty_.*\.zip$/.test(ms.sesja.AttachmentItem.name) && ms.sesja.AttachmentItem.contentType === 'application/zip', `kawałków: ${ms.kawalki.length}, razem: ${razemMs}`);
   const zipDuzy = path.join(tmp, 'z_outlook_duzy.zip'); fs.writeFileSync(zipDuzy, sklejoneDuze);
-  const zipDuzyOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, pyzipper\nz = pyzipper.AESZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipDuzy, HASLO], { encoding: 'utf8' }).stdout.trim();
+  const zipDuzyOk = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1]); z.setpassword(sys.argv[2].encode()); print(len(z.namelist()) if z.testzip() is None else 0)', zipDuzy, HASLO], { encoding: 'utf8' }).stdout.trim();
   ok('sklejone kawałki to ta sama zahasłowana paczka: otwiera się hasłem administratora, ≥ 7 plików; w komunikacie jest ostrzeżenie o limicie poczty (> 20 MB)', Number(zipDuzyOk) >= 7 && /20–25 MB/.test(await stanW()), zipDuzyOk);
   await oknoDuze.close(); wlaczMs(false);
   await cofnijIOtworz(); await ustawMetode('plik'); await pobierz(wyslijSel2); await p.waitForTimeout(400);      // wracamy do pliku .eml i stanu „Wysłane”, jak przed tym scenariuszem

@@ -791,6 +791,7 @@ function zmienHaslo(dane) {
 var USTAWIENIE_HASLO_PACZKI = "haslo_paczki";
 var USTAWIENIE_HASLO_PACZKI_DO = "haslo_paczki_wazne_do";
 var USTAWIENIE_ADRES_ODBIORCY = "adres_odbiorcy";
+var USTAWIENIE_FORMAT_PACZKI = "format_paczki";
 
 function _ustawieniaPaczki(ss) {
   var sh = _zakladka(ss, ZAKLADKA_USTAWIENIA, ["Klucz", "Wartosc", "Opis"]);
@@ -807,6 +808,8 @@ function _ustawieniaPaczki(ss) {
     "Ostatni dzien waznosci hasla, np. 2026-12-31 (po tej dacie aplikacja nie wysle paczki, dopoki nie wpiszesz nowego hasla i nowej daty)."]);
   if (!klucze[USTAWIENIE_ADRES_ODBIORCY]) sh.appendRow([USTAWIENIE_ADRES_ODBIORCY, "",
     "Adres e-mail, na ktory aplikacja przygotowuje wiadomosc z zahaslowana paczka dokumentow (odbiorca czyta paczki od wszystkich uzytkownikow jednym haslem)."]);
+  if (!klucze[USTAWIENIE_FORMAT_PACZKI]) sh.appendRow([USTAWIENIE_FORMAT_PACZKI, "klasyczny",
+    "Szyfr paczki: klasyczny (domyslny; otwiera go sam Eksplorator Windows, ale jest slabszy — haslo tylko ze znakow ASCII, bez polskich liter) albo aes (AES-256, mocniejszy; odbiorca potrzebuje 7-Zip lub WinRAR)."]);
   return sh;
 }
 /* Data z komórki: data (arkusz rozpoznał wpis) albo tekst. Tekst „RRRR-MM-DD” i polski „DD.MM.RRRR” czytamy wprost —
@@ -863,19 +866,20 @@ function hasloPaczki(dane) {
   var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
   if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
   var sU = _ustawieniaPaczki(ss), u = sU.getLastRow() > 1 ? sU.getRange(2, 1, sU.getLastRow() - 1, 2).getValues() : [];
-  var haslo = "", doDaty = "", adres = "";
+  var haslo = "", doDaty = "", adres = "", format = "klasyczny";
   for (var j = 0; j < u.length; j++) {
     var k = String(u[j][0]).trim();
     if (k === USTAWIENIE_HASLO_PACZKI) haslo = _hasloZKomorki(ss, u[j][1]);
     else if (k === USTAWIENIE_HASLO_PACZKI_DO) { _dataKomorki(ss, "Ustawienia", USTAWIENIE_HASLO_PACZKI_DO, u[j][1]); doDaty = _dataIso(u[j][1]); }
     else if (k === USTAWIENIE_ADRES_ODBIORCY) adres = String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1]).trim();
+    else if (k === USTAWIENIE_FORMAT_PACZKI) format = /^\s*aes/i.test(String(u[j][1] === null || u[j][1] === undefined ? "" : u[j][1])) ? "aes" : "klasyczny";      // puste albo cokolwiek innego = klasyczny (otwierany w Eksploratorze)
   }
   // Wysyłka jest włączona dopiero, gdy wpisane są wszystkie trzy rzeczy: hasło, termin jego ważności i poprawny adres odbiorcy.
   if (!haslo || !doDaty || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return { status: "brak" };
   var ostatni = new Date(doDaty + "T00:00:00");
   if (ostatni < dzis) return { status: "wygaslo", wazne_do: doDaty };      // po terminie hasła nie wydajemy
   _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty, "wazne");
-  return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres };
+  return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres, format: format };
 }
 
 

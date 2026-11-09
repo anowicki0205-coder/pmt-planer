@@ -101,7 +101,7 @@ Backend (arkusz Google) zna login, imię, rejon, ważność dostępu, nieobecno�
       które pozwala utworzyć szkic z załącznikiem. Aplikacja używa go TYLKO do utworzenia jednej wiadomości w „Wersjach roboczych” i dołączenia do niej paczki; skrzynki nie czyta ani nie przegląda.
     · Logowanie: kod autoryzacji z PKCE w osobnym oknie; w stronie nie ma żadnego sekretu aplikacji ani hasła Microsoft. Token żyje tylko w pamięci karty (bez „offline_access”, bez zapisu na dysku,
       bez odświeżania w tle) i znika po zamknięciu karty; kod z adresu powrotu nie jest zapisywany, a strona powrotu usuwa go z paska adresu. Przy kolejnej wysyłce logowanie powtarza się.
-    · Paczka w skrzynce użytkownika jest ZAHASŁOWANA (AES-256) tak samo jak w pliku .eml; hasło nadal nie trafia do wiadomości. Szkic zostaje w skrzynce, dopóki użytkownik go nie wyśle albo nie usunie.
+    · Paczka w skrzynce użytkownika jest ZAHASŁOWANA (klasyczny szyfr ZIP, zob. „Wysyłka podpisanych dokumentów”) tak samo jak w pliku .eml; hasło nadal nie trafia do wiadomości. Szkic zostaje w skrzynce, dopóki użytkownik go nie wyśle albo nie usunie.
     · Strona zezwala na połączenia z login.microsoftonline.com, graph.microsoft.com, outlook.office.com i outlook.office365.com (polityka CSP w index.html) — tylko do tego celu.
     · Wycofanie: usuń zmienną PMT_MS_KLIENT i wdroż stronę ponownie; użytkownik cofa zgodę w ustawieniach konta Microsoft, administrator firmy w Entra → Aplikacje przedsiębiorstwa.
 
@@ -139,8 +139,13 @@ PRZENIESIENIE DANYCH Z PROGRAMU NA KOMPUTERZE (plik .pmtdane)
   Program niczego nie wysyła do sieci przy eksporcie; plik powstaje tylko tam, gdzie użytkownik go zapisze. Niezależna kontrola: web/testy/przeniesienie_test.js (dwa osobne zapisy tego samego szyfru).
 
 WYSYŁKA PODPISANYCH DOKUMENTÓW POCZTĄ (zahasłowana paczka)
-  Dokumenty zawierają PESEL, więc do poczty idą wyłącznie w paczce ZIP z szyfrowaniem AES-256 (format WinZip AES-2: klucz z hasła przez PBKDF2-HMAC-SHA1 i losową sól na plik, AES-CTR, kod HMAC-SHA1 —
-  zmieniony bajt jest wykrywany). Paczkę robi przeglądarka na urządzeniu użytkownika; dokumenty nie przechodzą przez nasz serwer.
+  Dokumenty zawierają PESEL, więc do poczty idą wyłącznie w zahasłowanej paczce ZIP. Szyfr to KLASYCZNE szyfrowanie ZIP („ZipCrypto”, js/zipklasyczny.js), poprzedzone kompresją deflate — bo odbiorca ma rozpakować
+  załącznik wprost w Eksploratorze Windows, bez 7-Zip i WinRAR (Eksplorator nie obsługuje AES-256: kopiowanie z takiej paczki kończy się błędem 0x80004005). CENA, WPROST: ZipCrypto jest dużo słabszy niż AES-256.
+  Kto przechwyci samą paczkę i zna początek któregoś pliku (PDF zaczyna się od „%PDF-1.”), odzyska klucze bez hasła znanym atakiem na tekst jawny (publiczne narzędzia); sam szyfr nie wykrywa też zmiany zawartości.
+  Paczka chroni więc przed przypadkowym wglądem, skanerami poczty i osobami postronnymi, ale NIE przed celowym atakiem kogoś, kto przejmie wiadomość. Łagodzą to: kompresja przed szyfrowaniem (początek pliku w paczce
+  nie jest dosłownie „%PDF-1.”), hasło przekazywane innym kanałem niż paczka i krótki termin ważności hasła. Hasło musi być w ASCII (Eksplorator koduje je wg strony kodowej systemu, przeglądarka wg UTF-8) —
+  aplikacja odmawia wysyłki z hasłem zawierającym polskie litery. Mocniejszy wariant z AES-256 (WinZip AES-2: PBKDF2-HMAC-SHA1, AES-CTR, HMAC-SHA1; js/zipaes.js) włącza administrator w arkuszu (Ustawienia → format_paczki = aes) — wtedy odbiorca potrzebuje 7-Zip lub WinRAR.
+  Paczkę robi przeglądarka na urządzeniu użytkownika; dokumenty nie przechodzą przez nasz serwer.
   Hasło nadaje ADMINISTRATOR (zakładka „Ustawienia” w arkuszu, z obowiązkowym terminem ważności); jedno hasło dla wszystkich paczek, odbiorca dostaje je od administratora POZA pocztą, więc przejęcie
   skrzynki z załącznikiem nie ujawnia dokumentów. Skrypt wydaje hasło tylko istniejącemu kontu z ważną sesją, które potwierdzi się podpisem SWOJEGO hasła (sam 5-cyfrowy kod nie wystarcza), i nie wydaje go
   po terminie ważności; każde wydanie jest w zakładce Log. Użytkownik nie widzi hasła ani nie wymyśla własnego. Ograniczenia: aplikacja trzyma pobrane hasło zaszyfrowane na urządzeniu (żeby wysłać dokumenty

@@ -144,7 +144,7 @@ WYSYŁKA PODPISANYCH DOKUMENTÓW POCZTĄ (zahasłowana paczka)
   Kto przechwyci samą paczkę i zna początek któregoś pliku (PDF zaczyna się od „%PDF-1.”), odzyska klucze bez hasła znanym atakiem na tekst jawny (publiczne narzędzia); sam szyfr nie wykrywa też zmiany zawartości.
   Paczka chroni więc przed przypadkowym wglądem, skanerami poczty i osobami postronnymi, ale NIE przed celowym atakiem kogoś, kto przejmie wiadomość. Łagodzą to: kompresja przed szyfrowaniem (początek pliku w paczce
   nie jest dosłownie „%PDF-1.”), hasło przekazywane innym kanałem niż paczka i krótki termin ważności hasła. Hasło musi być w ASCII (Eksplorator koduje je wg strony kodowej systemu, przeglądarka wg UTF-8) —
-  aplikacja odmawia wysyłki z hasłem zawierającym polskie litery. Wariant zapasowy z AES-256 (WinZip AES-2: PBKDF2-HMAC-SHA1, AES-CTR, HMAC-SHA1) leży w js/zipaes.js i jest przetestowany, ale nieużywany.
+  aplikacja odmawia wysyłki z hasłem zawierającym polskie litery. Mocniejszy wariant z AES-256 (WinZip AES-2: PBKDF2-HMAC-SHA1, AES-CTR, HMAC-SHA1; js/zipaes.js) włącza administrator w arkuszu (Ustawienia → format_paczki = aes) — wtedy odbiorca potrzebuje 7-Zip lub WinRAR.
   Paczkę robi przeglądarka na urządzeniu użytkownika; dokumenty nie przechodzą przez nasz serwer.
   Hasło nadaje ADMINISTRATOR (zakładka „Ustawienia” w arkuszu, z obowiązkowym terminem ważności); jedno hasło dla wszystkich paczek, odbiorca dostaje je od administratora POZA pocztą, więc przejęcie
   skrzynki z załącznikiem nie ujawnia dokumentów. Skrypt wydaje hasło tylko istniejącemu kontu z ważną sesją, które potwierdzi się podpisem SWOJEGO hasła (sam 5-cyfrowy kod nie wystarcza), i nie wydaje go

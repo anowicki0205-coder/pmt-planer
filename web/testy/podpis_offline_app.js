@@ -150,6 +150,15 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   await wgraj(lista(ponSkan));
   const s3b = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'zle']), zap3b = await zapisane();
   ok('ponowny skan po „Nie widzę podpisu” (bez „Wgraj inny plik”) zastępuje stary skan zamiast dokładać kolejną stronę', JSON.stringify(s3b) === '["ok","ok","ok","ok","ok","ok","zle"]' && zap3b.pliki[4].length === 1 && /Widzę podpis/.test(await komunikat(4)), JSON.stringify([s3b, zap3b.pliki[4]]));
+  // rozliczenie wydatków (dokument 7, indeks 6): podpis odręczny NIE jest tam wymagany — skan bez podpisu pod tabelą nie świeci się na czerwono (na poleceniach — jak wyżej — dalej tak)
+  { const p7 = {}; pdfy.forEach(f => { p7[f] = 'pominiety'; }); p7[pdfy[6]] = 'bez'; fs.writeFileSync(path.join(tmp, 'plan7.json'), JSON.stringify(p7)); py('skanuj_pliki.py', roz, path.join(tmp, 'miejsca.json'), path.join(tmp, 's7'), path.join(tmp, 'plan7.json'));
+    await wgrajInny(6); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'czeka']);
+    await wgraj(lista(path.join(tmp, 's7'))); const s7 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
+    ok('rozliczenie wydatków: skan BEZ podpisu odręcznego jest przyjęty (stan poprawny, nie czerwony), a komunikat mówi, że podpis nie jest tam wymagany', JSON.stringify(s7) === '["ok","ok","ok","ok","ok","ok","ok"]' && /nie jest na nim wymagany/.test(await komunikat(6)) && !/Nie widzę podpisu/.test(await komunikat(6)), await komunikat(6));
+    await otworzSzczegoly(6);
+    const sz7 = await p.evaluate(() => ({ kontrole: document.querySelector('.dok-k.otwarta .kontrole').innerText, podglad: !!document.querySelector('.dok-k.otwarta .podglad-podpisu'), przycisk: !!document.querySelector('.dok-k.otwarta [data-akcja="potwierdz"]') }));
+    ok('szczegóły rozliczenia: „nie wymaga podpisu odręcznego”, bez wycinka „miejsce podpisu” i bez przycisku „Potwierdzam, że podpis jest”', /nie wymaga podpisu odręcznego/.test(sz7.kontrole) && !/porównaj sam/.test(sz7.kontrole) && !sz7.podglad && !sz7.przycisk, JSON.stringify(sz7).slice(0, 300));
+    await p.click('.dok-k.otwarta [data-akcja="szczegoly"]'); }
   // dokument 7 (indeks 6): poprawny podpis zamiast dopisku
   const wejscie4 = path.join(tmp, 'tylko7'); fs.mkdirSync(wejscie4, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[6]), path.join(wejscie4, pdfy[6]));
   fs.writeFileSync(path.join(tmp, 'plan4.json'), JSON.stringify({ [pdfy[6]]: 'jan' })); py('podpisz_pliki.py', wejscie4, path.join(tmp, 'e4'), path.join(tmp, 'plan4.json'));
@@ -407,6 +416,27 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   await pobierz(wyslijSel2); await czekajStan(/administrator zmienił właśnie hasło/);
   ok('zmiana hasła przez administratora w trakcie pracy okna: po wysyłce ostrzeżenie „administrator zmienił właśnie hasło… Cofnij wysłanie i wyślij jeszcze raz”', /Cofnij wysłanie/.test(await stanW()), await stanW());
   t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };
+  /* [K] administrator wybiera w arkuszu szyfr AES-256 (format_paczki = aes): paczka jest w AES (metoda 99), hasło może mieć polskie litery, a wiadomość uprzedza odbiorcę o 7-Zip/WinRAR; szyfr klasyczny to ustawienie domyślne */
+  await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
+  const HASLO_AES = 'Zażółć-hasło-AES-2026'; t.backend.paczka = { haslo: HASLO_AES, wazne_do: '2099-12-31', adres: ADRES, format: 'aes' };
+  const emlAes = await pobierz(wyslijSel2);
+  const aesJson = cp.spawnSync(PYZ, ['-I', '-c', `
+import sys, json, email, email.policy, io
+try:
+    import pyzipper
+except ImportError:
+    print(json.dumps({'brak': True})); raise SystemExit
+m = email.message_from_bytes(open(sys.argv[1], 'rb').read(), policy=email.policy.default); cz = list(m.iter_attachments()); dane = cz[0].get_content()
+z = pyzipper.AESZipFile(io.BytesIO(dane)); z.setpassword(sys.argv[2].encode('utf-8'))
+print(json.dumps({'metoda': z.infolist()[0].compress_type, 'ok': z.testzip() is None, 'pliki': len(z.namelist()), 'tresc': m.get_body(preferencelist=('plain',)).get_content()}))`, emlAes.sciezka, HASLO_AES], { encoding: 'utf-8' });
+  const aes = aesJson.status === 0 ? JSON.parse(aesJson.stdout) : { blad: aesJson.stderr };
+  if (aes.brak) console.log('  UWAGA brak pyzipper — pominięto odczyt paczki AES (zestaw: /tmp/pzvenv)');
+  else ok('szyfr „aes” z arkusza: paczka w AES-256 (metoda 99) otwiera się hasłem z polskimi literami, wszystkie pliki; wiadomość uprzedza odbiorcę, że potrzebny 7-Zip/WinRAR', aes.metoda === 99 && aes.ok === true && aes.pliki >= 7 && /AES-256/.test(aes.tresc) && /7-Zip/.test(aes.tresc), JSON.stringify(aes).slice(0, 300));
+  t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };
+  const emlKl = await (async () => { await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500); return pobierz(wyslijSel2); })();
+  const klJson = cp.spawnSync(PYZ, ['-I', '-c', 'import sys, email, email.policy, io, zipfile, json\nm = email.message_from_bytes(open(sys.argv[1], "rb").read(), policy=email.policy.default); d = list(m.iter_attachments())[0].get_content(); z = zipfile.ZipFile(io.BytesIO(d)); i = z.infolist()[0]; print(json.dumps({"flag": i.flag_bits, "metoda": i.compress_type, "tresc": m.get_body(preferencelist=("plain",)).get_content()}))', emlKl.sciezka], { encoding: 'utf-8' });
+  const kl = klJson.status === 0 ? JSON.parse(klJson.stdout) : { blad: klJson.stderr };
+  ok('bez ustawienia szyfru (domyślnie): paczka klasyczna — zaszyfrowana (bit 0), nazwy UTF-8 (bit 11), kompresja deflate (8) albo brak (0), a wiadomość NIE mówi o 7-Zip (Eksplorator wystarcza)', (kl.flag & 1) === 1 && (kl.flag & 0x800) !== 0 && [0, 8].includes(kl.metoda) && !/7-Zip|AES/.test(kl.tresc), JSON.stringify(kl).slice(0, 300));
   // minęło zbyt dużo czasu od kliknięcia (aktywność użytkownika wygasła): zamiast pobrania, które Chromium uznałby za niebezpieczne, jest przycisk „Zapisz wiadomość”
   await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
   const pobraniaPrzed = pobraniePrzyZapisie;

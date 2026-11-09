@@ -11,15 +11,16 @@ const ogranicz = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const el = (nazwa, klasa, tekst) => { const e = document.createElement(nazwa); if (klasa) e.className = klasa; if (tekst !== undefined) e.textContent = tekst; return e; };
 const svg = (nazwa, atr = {}) => { const e = document.createElementNS(NS, nazwa); for (const k in atr) e.setAttribute(k, atr[k]); return e; };
 
-/** opcje: { fmt: liczba → tekst („1 234,50”) }. Zwraca { start(), postep(tekst, v), zakoncz(dane) → Promise, przerwij() }. dane: { polecenia: [{ nr, kw }], suma }. */
+/** opcje: { fmt: liczba → tekst („1 234,50”), naPunkt: (i, n) → () — wywoływane raz dla każdego zapalonego punktu trasy (i-ty z n) }. Zwraca { start(), postep(tekst, v), zakoncz(dane) → Promise, przerwij() }. dane: { polecenia: [{ nr, kw }], suma }. */
 export function widowisko(opcje = {}) {
   const fmt = opcje.fmt || (x => Number(x).toFixed(2).replace('.', ','));
   let root = null, sciezka = null, kropki = [], faza = null, proc = null, razem = null, wachlarz = null;
-  let vRzecz = 0, vWid = 0, zegar = 0, pominiete = false, czekanie = null, liczenie = null;
+  let vRzecz = 0, vWid = 0, zegar = 0, pominiete = false, czekanie = null, liczenie = null, zapalone = 0;
 
   function rysuj() {
     if (!root) return;
     const jasne = Math.ceil(ogranicz(vWid / PROGI[1]) * PUNKTY);
+    for (; zapalone < jasne; zapalone++) { try { if (opcje.naPunkt) opcje.naPunkt(zapalone, PUNKTY); } catch (e) { /* dźwięk nie psuje pokazu */ } }      // każdy nowo zapalony punkt trasy zgłasza się wywołującemu (dźwięk)
     kropki.forEach((c, i) => c.classList.toggle('on', i < jasne));
     sciezka.style.strokeDashoffset = String(1 - ogranicz((vWid - PROGI[0]) / (PROGI[2] - PROGI[0])));
     proc.textContent = Math.round(ogranicz(vWid) * 100) + '%';
@@ -51,7 +52,7 @@ export function widowisko(opcje = {}) {
     plansza.append(rys, stos, wachlarz); panel.append(gora, plansza, dol); root.append(el('div', 'gen-tlo'), panel); document.body.appendChild(root);
     const dl = sciezka.getTotalLength ? sciezka.getTotalLength() : 0;      // punkty leżą na ścieżce (długość da się zmierzyć dopiero po wstawieniu do strony)
     for (let i = 0; i < PUNKTY; i++) { const p = dl ? sciezka.getPointAtLength(dl * i / (PUNKTY - 1)) : { x: 18 + i * 81, y: 70 }; const c = svg('circle', { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: '5.5' }); punkty.appendChild(c); kropki.push(c); }
-    vRzecz = vWid = 0; pominiete = false; rysuj(); zegar = setInterval(krok, 90);
+    vRzecz = vWid = 0; zapalone = 0; pominiete = false; rysuj(); zegar = setInterval(krok, 90);
   }
   function postep(tekst, v) {
     if (!root) return;

@@ -4,7 +4,7 @@
 //
 // Dwie części:
 //   1) czysta synteza — zbudujEfekt(), zbudujMuzyke(): przyjmują dowolny kontekst (także OfflineAudioContext), dzięki czemu testy renderują dźwięk do liczb i sprawdzają ciszę/przesterowanie;
-//   2) sterowanie — obiekt „dzwiek”: ustawienia na urządzeniu (pmt-ui-dzwiek: efekty, domyślnie włączone; pmt-ui-muzyka: podkład, domyślnie wyłączony), przyciski w nagłówku i w menu konta.
+//   2) sterowanie — obiekt „dzwiek”: ustawienia na urządzeniu (pmt-ui-dzwiek: efekty, domyślnie włączone; pmt-ui-muzyka: podkład, domyślnie WŁĄCZONY — rusza przy pierwszym geście użytkownika, bo wcześniej przeglądarka blokuje dźwięk; kto go wyłączy, ma wybór zapamiętany), przyciski w nagłówku i w menu konta.
 // Moduł nie robi nic przy samym imporcie (bezpieczny w teście w Node): wszystko startuje w dzwiek.init().
 
 const mid = n => 440 * Math.pow(2, (n - 69) / 12);      // numer nuty MIDI → częstotliwość
@@ -87,7 +87,7 @@ export function zbudujTor(c, cel) {
 export function przygluszMuzyke(duck, t, dl) {
   duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(.6, t, .025); duck.gain.setTargetAtTime(1, t + Math.min(dl, 1.3) * .6, .28);
 }
-const Z_POGLOSEM = new Set(['okno', 'okno-zam', 'motyw', 'ok', 'wszystkie', 'wyslano', 'gen-start', 'gen-koniec']);      // dzwonki i „ruchy okien”; klik, odhaczenie i błąd zostają suche
+const Z_POGLOSEM = new Set(['okno', 'okno-zam', 'motyw', 'ok', 'wszystkie', 'wyslano', 'gen-start', 'gen-koniec', 'punkt']);      // dzwonki i „ruchy okien”; klik, odhaczenie i błąd zostają suche
 /** Do której magistrali tora trafia efekt: z pogłosem (dzwonki, okna) albo suchej (klik, odhaczenie, błąd). */
 export const magistralaEfektu = (tor, nazwa) => (Z_POGLOSEM.has(nazwa) ? tor.efR : tor.ef);
 
@@ -103,6 +103,18 @@ const Am = { baz: 45, ton: [57, 60, 64], lead: [[0, 76], [6, 72], [10, 69]] }, F
 export const PETLA = 16;
 const PROGRESJA = [Am, F, C, G, Am, F, C, G, F, C, G, Am, F, G, Am, E];
 const WZOR_ARP = [0, 1, 2, 3, 2, 1, 2, 3];
+/** Akord grany w takcie o danym numerze (numer liczony od początku podkładu). */
+export const akordTaktu = takt => PROGRESJA[((takt % PETLA) + PETLA) % PETLA];
+export const PUNKTOW_TRASY = 7;      // tyle kropek zapala się w pokazie generowania (js/widowisko.js)
+/** Dźwięk jednego punktu trasy podczas generowania: dzwonek z tonów akordu. Kolejne punkty brzmią wyżej (linia wznosi się przez trzy oktawy akordu), ostatni — jasno i najdłużej.
+ *  Nuty są zawsze z akordu, który gra w tym takcie, więc nakładają się na podkład zgodnie z harmonią; bez podkładu grają same (akord Am). Zwraca czas trwania w sekundach. */
+export function nutaPunktu(c, wyj, t, i, ak = Am) {
+  const tony = [0, 1, 2].map(k => ak.ton[k] + 12).concat([0, 1, 2].map(k => ak.ton[k] + 24), [ak.ton[0] + 36]);
+  const n = tony[Math.max(0, Math.min(i, tony.length - 1))], ostatni = i >= tony.length - 1;
+  dzwonek(c, wyj, t, n, { g: ostatni ? .085 : .07, d: ostatni ? .95 : .5 });
+  ton(c, wyj, { t, f: mid(n - 12), d: .09, g: .018, a: .003, typ: 'triangle' });      // miękki „stuk” oktawę niżej: nuta ma wyraźny atak także na małych głośnikach
+  return ostatni ? 1.1 : .6;
+}
 /** Buduje tor podkładu i zwraca { bus, duck, planTakt(numerTaktu, czasPoczatku) }. pog (opcjonalnie): węzeł wysyłki do pogłosu (zbudujTor().pogMuzyki).
  *  Pętla 8 taktów: akordy Am–F–C–G dwa razy; w drugiej czwórce melodia z vibrato. Brzmienie: szeroki pad (każda nuta w innym miejscu panoramy), arpeggio z echem „ping-pong”,
  *  bas, cicha perkusja, „pompowanie” padu i arpeggia w rytm stopy (jak sidechain w muzyce klubowej), filtr, który otwiera się w ciągu pętli, krótkie wypełnienie przed powrotem. */
@@ -156,7 +168,7 @@ export function zbudujMuzyke(c, cel, pog) {
 }
 
 /* ------------------------------ sterowanie ------------------------------ */
-const KLUCZ_EFEKTY = 'pmt-ui-dzwiek', KLUCZ_MUZYKA = 'pmt-ui-muzyka', KLUCZ_GLOSNOSC = 'pmt-ui-glosnosc';
+const KLUCZ_EFEKTY = 'pmt-ui-dzwiek', KLUCZ_MUZYKA = 'pmt-ui-muzyka', KLUCZ_GLOSNOSC = 'pmt-ui-glosnosc', KLUCZ_INFO = 'pmt-ui-muzyka-info';
 const GLOSNOSC_DOMYSLNA = 70, GLOSNOSC_MAX = 100;      // suwak 0–100%; 70% = poziom wzorcowy (wzmocnienie 0,8), 100% to ok. +3 dB (limiter pilnuje przesterowania)
 const BEZ_KLIKU = '.p-znak,[data-zamknij],.ark-zam,#motyw,[data-motyw],#dzwiek,#muzyka,[data-dzwiek]';      // te elementy mają własny dźwięk albo działają cicho
 const KLIKALNE = 'button,[role="button"],a.przycisk,label.przycisk,[data-akcja]';
@@ -165,8 +177,8 @@ const odczyt = k => { try { return localStorage.getItem(k); } catch (e) { return
 const zapis = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* bez pamięci przeglądarki ustawienie obowiązuje do zamknięcia karty */ } };
 
 function utworz() {
-  let doc = null, c = null, tor = null, mus = null, timer = 0, takt = 0, nastepny = 0, init = false;
-  let efektyWl = odczyt(KLUCZ_EFEKTY) !== '0', muzykaWl = odczyt(KLUCZ_MUZYKA) === '1';
+  let doc = null, c = null, tor = null, mus = null, timer = 0, takt = 0, nastepny = 0, siatka0 = 0, ostatniPunkt = 0, init = false, naStartDomyslny = null;
+  let efektyWl = odczyt(KLUCZ_EFEKTY) !== '0', muzykaWl = odczyt(KLUCZ_MUZYKA) !== '0';      // domyślnie włączony: wyłącza ten, kto go sam wyłączył
   let glosnosc = (() => { const v = Number(odczyt(KLUCZ_GLOSNOSC)); return odczyt(KLUCZ_GLOSNOSC) !== null && Number.isFinite(v) ? Math.max(0, Math.min(GLOSNOSC_MAX, Math.round(v))) : GLOSNOSC_DOMYSLNA; })();
   const wzmocnienieGlowne = () => .8 * glosnosc / GLOSNOSC_DOMYSLNA;
   const log = [], licznik = {}, ostatnio = {}, sluchacze = [];
@@ -190,6 +202,22 @@ function utworz() {
     const teraz = Date.now(), min = ODSTEP_MS[nazwa] || 0; if (min && ostatnio[nazwa] && teraz - ostatnio[nazwa] < min) return false; ostatnio[nazwa] = teraz;
     try { const t = c.currentTime + .005, dl = zbudujEfekt(c, magistralaEfektu(tor, nazwa), nazwa, t); if (dl > 0 && mus && nazwa !== 'klik') przygluszMuzyke(mus.duck, t, dl); return dl > 0; } catch (e) { return false; }
   }
+  /** Punkt trasy zapalony w pokazie generowania (i-ty z n): nuta z akordu. Gdy gra podkład, nuta wpada na najbliższą ósemkę jego siatki, więc jest w rytmie; bez podkładu gra od razu.
+   *  Kilka punktów zapalonych naraz brzmi jak krótkie arpeggio (każdy na następnej ósemce albo co 0,12 s), nie jak jeden zlany dźwięk. */
+  function punkt(i, n = PUNKTOW_TRASY) {
+    if (!efektyWl) return false;
+    log.push('punkt'); if (log.length > 80) log.shift(); licznik.punkt = (licznik.punkt || 0) + 1;
+    if (!c || c.state !== 'running' || (doc && doc.hidden)) return false;
+    try {
+      const teraz = c.currentTime + .02, ost = KROK * 2, wRytmie = !!mus;
+      let t = wRytmie ? siatka0 + Math.ceil((teraz - siatka0) / ost - 1e-6) * ost : teraz;
+      if (t < ostatniPunkt + (wRytmie ? ost : .12) - 1e-6) t = ostatniPunkt + (wRytmie ? ost : .12);
+      ostatniPunkt = t;
+      const ak = wRytmie ? akordTaktu(Math.floor((t - siatka0 + 1e-6) / TAKT)) : undefined;
+      const stopien = n > 1 ? Math.round(i * (PUNKTOW_TRASY - 1) / (n - 1)) : 0;      // przy innej liczbie punktów niż 7 drabinka dźwięków rozciąga się równo
+      return nutaPunktu(c, magistralaEfektu(tor, 'punkt'), t, stopien, ak) > 0;
+    } catch (e) { return false; }
+  }
   function tik() {
     if (!mus || !c) return;
     while (nastepny < c.currentTime + .7) { mus.planTakt(takt, nastepny); takt++; nastepny += TAKT; }
@@ -199,7 +227,7 @@ function utworz() {
     const k = kontekst(true); if (!k) return false;
     mus = zbudujMuzyke(k, tor.master, tor.pogMuzyki); const t = k.currentTime;
     mus.bus.gain.cancelScheduledValues(t); mus.bus.gain.setValueAtTime(0.0001, t); mus.bus.gain.exponentialRampToValueAtTime(GLOSNOSC_MUZYKI, t + 1.6);
-    takt = 0; nastepny = t + .12; tik(); timer = setInterval(tik, 90); return true;
+    takt = 0; nastepny = siatka0 = t + .12; tik(); timer = setInterval(tik, 90); return true;
   }
   function stopMuzyki() {
     if (!mus) return; const m = mus; mus = null; clearInterval(timer); timer = 0;
@@ -208,11 +236,11 @@ function utworz() {
   function odswiezPrzyciski() {
     if (!doc) return;
     doc.querySelectorAll('#dzwiek,[data-dzwiek="efekty"]').forEach(b => { b.setAttribute('aria-pressed', String(efektyWl)); });
-    doc.querySelectorAll('#muzyka,[data-dzwiek="muzyka"]').forEach(b => { b.setAttribute('aria-pressed', String(muzykaWl && !!mus)); });
+    doc.querySelectorAll('#muzyka,[data-dzwiek="muzyka"]').forEach(b => { b.setAttribute('aria-pressed', String(muzykaWl)); });
     const g = doc.querySelector('#dzwiek use'); if (g) g.setAttribute('href', efektyWl ? '#i-glosnik' : '#i-glosnik-wyl');
     const e = doc.querySelector('#dzwiek'); if (e) e.setAttribute('aria-label', efektyWl ? 'Dźwięki: włączone — kliknij, żeby wyciszyć' : 'Dźwięki: wyciszone — kliknij, żeby włączyć');
     doc.querySelectorAll('#glosnosc').forEach(r => { if (Number(r.value) !== glosnosc) r.value = String(glosnosc); const o = r.parentElement && r.parentElement.querySelector('output'); if (o) o.textContent = glosnosc + '%'; });
-    const m = doc.querySelector('#muzyka'); if (m) m.setAttribute('aria-label', muzykaWl && mus ? 'Muzyka w tle: gra — kliknij, żeby wyłączyć' : 'Muzyka w tle: wyłączona — kliknij, żeby włączyć');
+    const m = doc.querySelector('#muzyka'); if (m) m.setAttribute('aria-label', muzykaWl ? 'Muzyka w tle: włączona — kliknij, żeby wyłączyć' : 'Muzyka w tle: wyłączona — kliknij, żeby włączyć');
   }
   function ustawGlosnosc(v, zapisz = true) {
     glosnosc = Math.max(0, Math.min(GLOSNOSC_MAX, Math.round(Number(v) || 0))); if (zapisz) zapis(KLUCZ_GLOSNOSC, String(glosnosc));
@@ -232,7 +260,10 @@ function utworz() {
   /** Pierwszy prawdziwy gest użytkownika: powstaje kontekst audio; zapamiętany podkład rusza dopiero teraz (wcześniej przeglądarka by go zablokowała). */
   function odblokuj(e) {
     if (!e.isTrusted) return; const k = kontekst(true); if (!k) return;
-    if (muzykaWl && !mus) { startMuzyki(); odswiezPrzyciski(); powiadom(); }
+    if (muzykaWl && !mus) {
+      startMuzyki(); odswiezPrzyciski(); powiadom();
+      if (mus && naStartDomyslny && odczyt(KLUCZ_MUZYKA) === null && odczyt(KLUCZ_INFO) === null) { zapis(KLUCZ_INFO, '1'); try { naStartDomyslny(); } catch (e) { /* podpowiedź nie psuje dźwięku */ } }      // raz: podpowiedź, że gra podkład i jak go wyłączyć
+    }
   }
   function podepnij(d) {
     doc = d;
@@ -245,7 +276,7 @@ function utworz() {
     }, true);
     const sw = (sel, f) => doc.querySelectorAll(sel).forEach(b => b.addEventListener('click', e => { if (e.isTrusted) f(); }));
     sw('#dzwiek,[data-dzwiek="efekty"]', () => ustawEfekty(!efektyWl));
-    sw('#muzyka,[data-dzwiek="muzyka"]', () => ustawMuzyke(!(muzykaWl && !!mus)));
+    sw('#muzyka,[data-dzwiek="muzyka"]', () => ustawMuzyke(!muzykaWl));      // przełącznik zależy od wyboru (włączona/wyłączona), a nie od tego, czy już gra: przed pierwszym gestem podkład czeka, a pierwsze kliknięcie nutki ma go wyłączyć
     doc.querySelectorAll('#glosnosc').forEach(r => { r.addEventListener('input', () => { ustawGlosnosc(r.value, false); }); r.addEventListener('change', () => { ustawGlosnosc(r.value); kontekst(true); efekt('ok', { wymus: true }); }); });      // przy puszczeniu suwaka krótki dźwięk próbny
     doc.addEventListener('visibilitychange', () => {
       if (!c) return;
@@ -255,12 +286,12 @@ function utworz() {
     odswiezPrzyciski();
   }
   return {
-    init(d) { if (init || !d) return; init = true; podepnij(d); },
-    efekt, ustawEfekty, ustawMuzyke, ustawGlosnosc, odswiezPrzyciski, glosnosc: () => glosnosc, wzmocnienie: () => (tor ? tor.master.gain.value : null),
+    init(d, opcje = {}) { if (init || !d) return; init = true; naStartDomyslny = opcje.naStartDomyslny || null; podepnij(d); },
+    efekt, punkt, ustawEfekty, ustawMuzyke, ustawGlosnosc, odswiezPrzyciski, glosnosc: () => glosnosc, wzmocnienie: () => (tor ? tor.master.gain.value : null),
     efektyWl: () => efektyWl, muzykaWl: () => muzykaWl, muzykaGra: () => !!mus, stan: () => (c ? c.state : 'brak'),
     naZmiane: f => sluchacze.push(f), log, licznik,      // dziennik ostatnich efektów i liczniki od początku (dla testów)
     // tylko do testów: ile taktów podkładu już zaplanowano
-    taktow: () => takt
+    taktow: () => takt, siatkaPoczatek: () => siatka0, ostatniPunktCzas: () => ostatniPunkt
   };
 }
 export const dzwiek = utworz();

@@ -63,6 +63,18 @@ const { otworz, generuj } = require('./wspolne');
   ok('przerwij() w trakcie pokazu wyników rozwiązuje obietnicę zakoncz() (nic nie wisi) i sprząta scenę', wisi === 'koniec' && (await p.locator('#gen-scena').count()) === 0, wisi);
   ok('bez błędów w konsoli (część 1)', t.bledy.length === 0, t.bledy.slice(0, 2).join(' | '));
 
+  /* ---- punkty trasy zgłaszają się wywołującemu (dźwięk): raz na punkt, po kolei, tylko gdy naprawdę się zapalają ---- */
+  const wp = await p.evaluate(async () => {
+    const { widowisko } = await import('/js/widowisko.js'), czekaj = ms => new Promise(r => setTimeout(r, ms)), zgl = [];
+    const w = widowisko({ naPunkt: (i, n) => zgl.push([i, n]) }); w.start(); const na0 = zgl.length;
+    w.postep('GPS', 0.10); await czekaj(900); const przy10 = zgl.length;
+    w.postep('Trasy', 0.40); await czekaj(1600); const przy40 = zgl.length; w.postep('PDF', 0.85); await czekaj(500); const koniec = zgl.length;
+    w.przerwij(); const w2 = widowisko({ naPunkt: () => { throw new Error('dźwięk padł'); } }); w2.start(); w2.postep('x', 0.4); await czekaj(1200); const dzialaMimoBledu = !!document.querySelector('#gen-scena'); w2.przerwij();
+    return { na0, przy10, przy40, koniec, zgl: JSON.stringify(zgl), dzialaMimoBledu };
+  });
+  ok('punkty trasy: przy starcie nic nie gra, potem punkty zgłaszają się po jednym (0…6 z 7), po drodze 10% tylko część, po 40% wszystkie siedem — i żaden dwa razy', wp.na0 === 0 && wp.przy10 > 0 && wp.przy10 < 7 && wp.przy40 === 7 && wp.koniec === 7 && wp.zgl === JSON.stringify([0, 1, 2, 3, 4, 5, 6].map(i => [i, 7])), JSON.stringify(wp));
+  ok('błąd w wywołaniu dźwięku nie psuje pokazu (scena działa dalej)', wp.dzialaMimoBledu);
+
   /* ---- część 2: prawdziwe generowanie z „życiem” ---- */
   await dane(p);
   await p.evaluate(() => {      // rejestrator: MutationObserver łapie KAŻDĄ zmianę napisu i fazy (próbkowanie co 100 ms gubiło krótkie napisy przy obciążonej stronie)

@@ -453,7 +453,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const zap5 = await zapisane();
   ok('nazwy: dwa zdjęcia jednego dokumentu → „…_str01.jpg” i „…_str02.jpg” (rozszerzenie JPEG ujednolicone do jpg)', JSON.stringify(zap5.pliki[4]) === JSON.stringify([baza4 + '_str01.jpg', baza4 + '_str02.jpg']) && Object.values(zap5.pierwotne[4]).sort().join('|') === [baza4 + '_a.jpg', baza4 + '_b.JPEG'].sort().join('|'), JSON.stringify(zap5.pliki[4]));
   const duzy = path.join(tmp, 'duzy'); fs.mkdirSync(duzy, { recursive: true });
-  const jpg = fs.readFileSync(lista(path.join(tmp, 's2'))[2]); fs.writeFileSync(path.join(duzy, norm(pdfy[4]).replace(/\.pdf$/, '') + '_skan.jpg'), Buffer.concat([jpg, Buffer.alloc(21 * 1048576)]));
+  const jpg = fs.readFileSync(lista(path.join(tmp, 's2'))[2]); fs.writeFileSync(path.join(duzy, norm(pdfy[4]).replace(/\.pdf$/, '') + '_skan.jpg'), Buffer.concat([jpg, require('crypto').randomBytes(21 * 1048576)]));
   await wgrajInny(4); await czekajStany(['ok', 'ok', 'ok', 'ok', 'czeka', 'ok', 'ok']);
   await wgraj(lista(duzy)); await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const duzyEml = await pobierz(wyslijSel);

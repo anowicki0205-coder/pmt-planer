@@ -220,7 +220,7 @@ export function zainstalujPodpis(k) {
     const btn = (akcja, tekst, glowny) => `<button type="button" class="przycisk ${glowny ? 'glowny' : 'maly'}" data-akcja="${akcja}">${tekst}</button>`, zmien = '<button type="button" class="kk-link" data-akcja="folder-zmien">zmień</button>';
     let tytul = `Folder „${NAZWA_FOLDERU}”`, opis, akcje = '';
     if (fol.stan === 'start') opis = '<small>Sprawdzam…</small>';
-    else if (fol.stan === 'bez-folderu') { opis = `<small>Wskaż RAZ miejsce (np. pulpit) — sam utworzę w nim folder „${NAZWA_FOLDERU}”.</small>${blad}`; akcje = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
+    else if (fol.stan === 'bez-folderu') { opis = `<small>Okno wyboru otworzy się na pulpicie: kliknij „Nowy folder”, nazwij go „${NAZWA_FOLDERU}” i wskaż go — RAZ, resztę zrobię sam.</small>${blad}`; akcje = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
     else if (fol.stan === 'zgoda') { opis = `<small>Przeglądarka prosi o zgodę na dostęp do folderu „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”.</small>${blad}`; akcje = btn('folder-wznow', 'Pozwól', true) + zmien; }
     else if (fol.stan === 'gotowy') { opis = `<small>Dokumenty tego miesiąca nie są jeszcze zapisane w folderze.</small>${blad}`; akcje = btn('folder-zapisz', `${ik('i-pobierz')}Zapisz dokumenty`, true) + zmien; }
     else if (fol.stan === 'zapisany') {      // wszystko dzieje się samo: zostaje jedna linia ze ścieżką i stanem obserwacji (plus mały odnośnik „zmień”)

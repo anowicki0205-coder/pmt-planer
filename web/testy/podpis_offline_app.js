@@ -428,7 +428,7 @@ except ImportError:
     print(json.dumps({'brak': True})); raise SystemExit
 m = email.message_from_bytes(open(sys.argv[1], 'rb').read(), policy=email.policy.default); cz = list(m.iter_attachments()); dane = cz[0].get_content()
 z = pyzipper.AESZipFile(io.BytesIO(dane)); z.setpassword(sys.argv[2].encode('utf-8'))
-print(json.dumps({'metoda': z.infolist()[0].compress_type, 'ok': z.testzip() is None, 'pliki': len(z.namelist()), 'tresc': m.get_body(preferencelist=('plain',)).get_content()}))`, emlAes.sciezka, HASLO_AES], { encoding: 'utf-8' });
+print(json.dumps({'metoda': int.from_bytes(dane[8:10], 'little'), 'ok': z.testzip() is None, 'pliki': len(z.namelist()), 'tresc': m.get_body(preferencelist=('plain',)).get_content()}))`, emlAes.sciezka, HASLO_AES], { encoding: 'utf-8' });
   const aes = aesJson.status === 0 ? JSON.parse(aesJson.stdout) : { blad: aesJson.stderr };
   if (aes.brak) console.log('  UWAGA brak pyzipper — pominięto odczyt paczki AES (zestaw: /tmp/pzvenv)');
   else ok('szyfr „aes” z arkusza: paczka w AES-256 (metoda 99) otwiera się hasłem z polskimi literami, wszystkie pliki; wiadomość uprzedza odbiorcę, że potrzebny 7-Zip/WinRAR', aes.metoda === 99 && aes.ok === true && aes.pliki >= 7 && /AES-256/.test(aes.tresc) && /7-Zip/.test(aes.tresc), JSON.stringify(aes).slice(0, 300));

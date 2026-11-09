@@ -3,7 +3,7 @@
 // NODE_PATH=/opt/node22/lib/node_modules node dzwiek_app.js
 const { otworz, generuj } = require('./wspolne');
 (async () => {
-  const t = await otworz({ w: 1440, h: 900, bezZycia: true, muzykaDomyslna: null });      // muzykaDomyslna: null — prawdziwy domyślny stan podkładu (włączony) const p = t.p; let kod = 0;
+  const t = await otworz({ w: 1440, h: 900, bezZycia: true, muzykaDomyslna: null }), p = t.p; let kod = 0;      // muzykaDomyslna: null — prawdziwy domyślny stan podkładu (włączony)
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const log = () => p.evaluate(() => [...window.__pmtDzwiek.log]), czysc = () => p.evaluate(() => { window.__pmtDzwiek.log.length = 0; });
   await p.goto(t.adres + '/index.html'); await p.waitForSelector('#arkusz-tlo.otwarty', { timeout: 120000 });

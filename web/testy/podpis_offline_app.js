@@ -175,7 +175,7 @@ const { otworz, generuj } = require('./wspolne'); const fs = require('fs'), os =
   ok('nazwy: plik o nazwie INNEGO dokumentu rozpoznany po zawartości i nazwany jak dokument 7; ostrzeżenie w sprawdzeniu', zap4.pliki[6][0] === pdfy[6] && zap4.pliki[0][0] === pdfy[0] && zap4.weryfikacje[6].kontrole.some(c => c.id === 'nazwa' && /to nazwa innego dokumentu \(Polecenie 1\)/.test(c.tekst)), JSON.stringify(zap4.weryfikacje[6].kontrole.filter(c => c.id === 'nazwa')));
   ok('nazwy: skany zapisane jako nazwa dokumentu + .jpg (np. „…03….jpg”), nie „_skan” i nie „IMG_”', [2, 3, 4].every(i => zap4.pliki[i].length === 1 && zap4.pliki[i][0] === pdfy[i].replace(/\.pdf$/i, '.jpg')), JSON.stringify([2, 3, 4].map(i => zap4.pliki[i])));
   ok('wszystkie 7 dokumentów podpisane i sprawdzone (e-podpis PAdES/ECDSA/XAdES i odręczny)', JSON.stringify(s4) === JSON.stringify(Array(7).fill('ok')) && /Wszystkie 7 dokumentów sprawdzone/.test(await p.locator('#podp-licznik').innerText()), JSON.stringify(s4));
-  { const dz = await p.evaluate(() => ({ ...window.__pmtDzwiek.licznik })); ok('dźwięki przy podpisach: każdy sprawdzony dokument gra „ok”, a ostatni (wszystkie poprawne) gra dłuższy akord „wszystkie” — raz', (dz.ok || 0) >= 1 && dz.wszystkie === 1, JSON.stringify(dz)); }
+  { const dz = await p.evaluate(() => ({ ...window.__pmtDzwiek.licznik })); ok('dźwięki przy podpisach: każdy sprawdzony dokument gra „ok”, a gdy wszystkie są poprawne — dłuższy akord „wszystkie” (dwa razy: raz po rozliczeniu bez podpisu odręcznego, raz po podpisie elektronicznym zamiast dopisku)', (dz.ok || 0) >= 1 && dz.wszystkie === 2, JSON.stringify(dz)); }
   ok('po sprawdzeniu wszystkiego krok 5 „Wyślij” zapala się: przestaje być szary, przycisk jest aktywny i ma akcję', await p.evaluate(() => { const k = document.querySelector('.krok-k.k5'), b = k.querySelector('button'); return k.classList.contains('aktywny') && !k.classList.contains('nieaktywny') && !b.disabled && b.dataset.akcja === 'wyslij' && /Wszystkie dokumenty sprawdzone/.test(k.querySelector('small').innerText); }));
   ok('po sprawdzeniu wszystkiego przycisk „Wyślij” jest w oknie i na kaflu, status „Podpisane”', (await p.locator('[data-akcja="wyslij"]').count()) >= 1 && /Wyślij/.test(await p.locator('#kropla-napis').innerText()) && (await p.locator('#status').innerText()).includes('Podpisane'));
   await p.screenshot({ path: tmp + '/4_wszystko.png' });
@@ -417,8 +417,8 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('zmiana hasła przez administratora w trakcie pracy okna: po wysyłce ostrzeżenie „administrator zmienił właśnie hasło… Cofnij wysłanie i wyślij jeszcze raz”', /Cofnij wysłanie/.test(await stanW()), await stanW());
   t.backend.paczka = { haslo: HASLO, wazne_do: '2099-12-31', adres: ADRES };
   /* [K] administrator wybiera w arkuszu szyfr AES-256 (format_paczki = aes): paczka jest w AES (metoda 99), hasło może mieć polskie litery, a wiadomość uprzedza odbiorcę o 7-Zip/WinRAR; szyfr klasyczny to ustawienie domyślne */
+  const HASLO_AES = 'Zażółć-hasło-AES-2026'; t.backend.paczka = { haslo: HASLO_AES, wazne_do: '2099-12-31', adres: ADRES, format: 'aes' };      // ustawienie administratora PRZED otwarciem okna: okno pobiera je przy otwarciu
   await cofnijIOtworz(); await ustawMetode('plik'); await p.waitForTimeout(1500);
-  const HASLO_AES = 'Zażółć-hasło-AES-2026'; t.backend.paczka = { haslo: HASLO_AES, wazne_do: '2099-12-31', adres: ADRES, format: 'aes' };
   const emlAes = await pobierz(wyslijSel2);
   const aesJson = cp.spawnSync(PYZ, ['-I', '-c', `
 import sys, json, email, email.policy, io

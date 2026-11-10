@@ -5,7 +5,7 @@
 const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const PY = process.env.PYTHON_PODPISY || '/tmp/phvenv/bin/python', DANE = path.join(__dirname, 'dane');
-  const t = await otworz({ w: 1440, h: 900, folder: true }); const p = t.p; let kod = 0; p.on('crash', () => console.log('!! strona padła (crash)')); p.on('close', () => console.log('!! strona zamknięta')); p.context().browser().on('disconnected', () => console.log('!! przeglądarka rozłączona'));
+  const t = await otworz({ w: 1440, h: 900, folder: true, pocztaDomyslna: null }); const p = t.p; let kod = 0; p.on('crash', () => console.log('!! strona padła (crash)')); p.on('close', () => console.log('!! strona zamknięta')); p.context().browser().on('disconnected', () => console.log('!! przeglądarka rozłączona'));
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'folder-'));
   t.backend.paczka = { haslo: 'Admin-Haslo-Paczki#2026', wazne_do: '2099-12-31', adres: 'odbiorca@example.com' };
@@ -47,6 +47,13 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   for (const x of f1[nazwaPod]) fs.writeFileSync(path.join(roz, x.nazwa), Buffer.from(await czytajZFolderu(nazwaPod, x.nazwa), 'base64'));
   const pdfy = fs.readdirSync(roz).sort();
   ok('zapisane pliki to prawdziwe PDF-y o nazwach dokumentów', pdfy.every(f => fs.readFileSync(path.join(roz, f)).subarray(0, 5).toString() === '%PDF-') && /^delegacja_01_/.test(pdfy[0]), pdfy[0]);
+  /* nagłówek polecenia: pieczątka podpisu zaufanego z gov.pl wchodzi w prawy górny róg pierwszej strony (do ok. 28 mm od góry, x od ok. 165 mm) — numer centrum kosztów i napis „Centrum” nie mogą pod nią wchodzić */
+  const bbox = cp.spawnSync('pdftotext', ['-bbox', '-f', '1', '-l', '1', path.join(roz, pdfy[0]), '-'], { encoding: 'utf8' });
+  if (bbox.status === 0) {
+    const mm = pt => pt * 25.4 / 72, slowa = [...bbox.stdout.matchAll(/<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)<\/word>/g)].map(m => ({ x: mm(+m[1]), y: mm(+m[2]), t: m[5] }));
+    const prawe = slowa.filter(w => w.x > 150), centrum = prawe.find(w => w.t === 'Centrum'), numer = prawe.find(w => w.t === '6');
+    ok('numer centrum kosztów i napis „Centrum” zaczynają się poniżej pieczątki podpisu zaufanego (ponad 28 mm od góry strony), a w prawym górnym rogu nad nimi nic nie ma', !!centrum && !!numer && numer.y >= 28 && centrum.y >= 28 && prawe.every(w => w === numer || w === centrum || w.y >= 28), JSON.stringify({ numer, centrum }));
+  } else console.log('  (pominięto kontrolę układu nagłówka: brak pdftotext)');
   ok('po zapisie „Otwórz gov.pl” jest odblokowane (link), a okno mówi, że folder jest obserwowany i gdzie zapisać podpisane pliki', (await p.locator('a#otworz-gov[href*="gov.pl"]').count()) === 1 && /Obserwuję folder/.test(await tekst('#kk-folder-stan')) && /zapisz w folderze poniżej/.test(await tekst('.kk-gov')));
   ok('gdy folder działa, nie ma zbędnych elementów: żadnego „Zapisz ponownie”, „Pobierz wszystkie”, rozwijanej listy pobierania ani podpowiedzi — w bloku zostaje ścieżka, stan i odnośnik „zmień”; w kroku „Podpisz” jedyny przycisk to „Otwórz gov.pl”', (await p.locator('details.kk-osobno, [data-akcja="folder-zapisz"], [data-akcja="osobno"], #kk-gov-podp, .kk-plik').count()) === 0 && (await p.locator('#kk-folder [data-akcja="folder-zmien"]').count()) === 1 && (await p.locator('#kk-gov-akcje button, #kk-gov-akcje a').count()) === 1, (await tekst('.kk-gov')).replace(/\n/g, ' | '));
   ok('rozliczenie wydatków (nie wymaga podpisu) weszło do aplikacji od razu jako przyjęte; polecenia czekają na podpis', JSON.stringify(await stany()) === '["czeka","czeka","czeka","czeka","czeka","czeka","ok"]' && /nie jest na nim wymagany/.test(await tekst('.dok-k[data-i="6"] .dok-kom')), JSON.stringify(await stany()));
@@ -102,6 +109,17 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   const przed = JSON.stringify((await zapisane()).pliki);
   await p.click('#kk-folder [data-akcja="folder-zmien"]'); await p.waitForSelector('#kk-folder-stan', { timeout: 40000 }); await p.waitForTimeout(8000);
   ok('po „zmień” blok znów pokazuje folder, a stany i wczytane pliki dokumentów się nie zmieniły (nic nie wczytało się drugi raz)', /Folder „delegacje” › „wrzesień 2026”/.test(await tekst('#kk-folder')) && JSON.stringify(await stany()) === '["ok","ok","ok","ok","ok","ok","ok"]' && JSON.stringify((await zapisane()).pliki) === przed, JSON.stringify(await stany()));
+  /* wysyłka: z działającym folderem DOMYŚLNY sposób to „folder” — wiadomość .eml trafia wprost do „delegacje”, bez pobierania (Chromium oznacza POBRANY .eml jako „potencjalnie niebezpieczny”) */
+  let pobrano = 0; p.on('download', () => pobrano++);
+  await p.waitForSelector('.krok-k.k5.aktywny [data-akcja="wyslij"][data-metoda="folder"]', { timeout: 20000 });
+  ok('z folderem domyślnym sposobem wysyłki jest „wiadomość w folderze „delegacje””, a opis kroku mówi, że poczta otworzy się po dwukliku', /wiadomość w folderze „delegacje”/.test(await tekst('.wyslij-sposob')) && /zapisze w folderze „delegacje” gotową wiadomość/.test(await tekst('#podp-wyslij-opis')), await tekst('.wyslij-sposob'));
+  await p.click('.krok-k.k5 [data-akcja="wyslij"]');
+  await p.waitForFunction(() => /Wiadomość gotowa w folderze/.test((document.querySelector('#podp-wyslij-stan') || {}).innerText || ''), null, { timeout: 60000, polling: 250 }).catch(async () => console.log('STAN WYSYŁKI:', await tekst('#podp-wyslij-stan')));
+  const stanW = await tekst('#podp-wyslij-stan');
+  const eml = await p.evaluate(async () => { const k = await navigator.storage.getDirectory(), d = await (await k.getDirectoryHandle('pmt-folder-testowy')).getDirectoryHandle('delegacje'); try { return await (await (await d.getFileHandle('PMT_wiadomosc_do_wyslania.eml')).getFile()).text(); } catch (e) { return ''; } });
+  ok('„Wyślij” zapisało w folderze „delegacje” plik PMT_wiadomosc_do_wyslania.eml: nagłówki szkicu (X-Unsent, Subject, To) i zahasłowana paczka ZIP jako załącznik', /X-Unsent: 1/.test(eml) && /^To: .+@/m.test(eml) && /^Subject: /m.test(eml) && /filename="[^"]+\.zip"/.test(eml) && /Content-Transfer-Encoding: base64\r?\n\r?\nUEsDB/.test(eml.split('Content-Disposition: attachment')[1] ? 'Content-Transfer-Encoding: base64\r\n\r\n' + eml.split('Content-Disposition: attachment')[1].split('\r\n\r\n')[1] : ''), eml.length + ' znaków');
+  ok('nic nie zostało POBRANE (przeglądarka nie ma okazji ostrzegać o „niebezpiecznym pliku”), a komunikat mówi, gdzie kliknąć dwukrotnie — bez adresu odbiorcy', pobrano === 0 && /Kliknij ją dwukrotnie/.test(stanW) && !/@/.test(stanW), stanW.replace(/\n/g, ' | '));
+  ok('po wysyłce przycisk pokazuje „Wysłano”, a plik wiadomości nie wchodzi do obserwacji folderu (nie jest wczytywany jak podpisany dokument)', /Wysłano/.test(await tekst('.krok-k.k5 .przycisk')) && JSON.stringify(await stany()) === '["ok","ok","ok","ok","ok","ok","ok"]');
   ok('bez błędów w konsoli', t.bledy.length === 0, JSON.stringify(t.bledy.slice(0, 3)));
   await t.zamknij(); console.log(kod ? 'WYNIK: są błędy' : 'WYNIK: wszystko dobrze'); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.message); process.exit(2); });

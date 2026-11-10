@@ -5,7 +5,7 @@
 const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 (async () => {
   const PY = process.env.PYTHON_PODPISY || '/tmp/phvenv/bin/python', DANE = path.join(__dirname, 'dane');
-  const t = await otworz({ w: 1440, h: 900, folder: true }); const p = t.p; let kod = 0; p.on('crash', () => console.log('!! strona padła (crash)')); p.on('close', () => console.log('!! strona zamknięta')); p.context().browser().on('disconnected', () => console.log('!! przeglądarka rozłączona'));
+  const t = await otworz({ w: 1440, h: 900, folder: true, pocztaDomyslna: null }); const p = t.p; let kod = 0; p.on('crash', () => console.log('!! strona padła (crash)')); p.on('close', () => console.log('!! strona zamknięta')); p.context().browser().on('disconnected', () => console.log('!! przeglądarka rozłączona'));
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'folder-'));
   t.backend.paczka = { haslo: 'Admin-Haslo-Paczki#2026', wazne_do: '2099-12-31', adres: 'odbiorca@example.com' };
@@ -109,6 +109,17 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   const przed = JSON.stringify((await zapisane()).pliki);
   await p.click('#kk-folder [data-akcja="folder-zmien"]'); await p.waitForSelector('#kk-folder-stan', { timeout: 40000 }); await p.waitForTimeout(8000);
   ok('po „zmień” blok znów pokazuje folder, a stany i wczytane pliki dokumentów się nie zmieniły (nic nie wczytało się drugi raz)', /Folder „delegacje” › „wrzesień 2026”/.test(await tekst('#kk-folder')) && JSON.stringify(await stany()) === '["ok","ok","ok","ok","ok","ok","ok"]' && JSON.stringify((await zapisane()).pliki) === przed, JSON.stringify(await stany()));
+  /* wysyłka: z działającym folderem DOMYŚLNY sposób to „folder” — wiadomość .eml trafia wprost do „delegacje”, bez pobierania (Chromium oznacza POBRANY .eml jako „potencjalnie niebezpieczny”) */
+  let pobrano = 0; p.on('download', () => pobrano++);
+  await p.waitForSelector('.krok-k.k5.aktywny [data-akcja="wyslij"][data-metoda="folder"]', { timeout: 20000 });
+  ok('z folderem domyślnym sposobem wysyłki jest „wiadomość w folderze „delegacje””, a opis kroku mówi, że poczta otworzy się po dwukliku', /wiadomość w folderze „delegacje”/.test(await tekst('.wyslij-sposob')) && /zapisze w folderze „delegacje” gotową wiadomość/.test(await tekst('#podp-wyslij-opis')), await tekst('.wyslij-sposob'));
+  await p.click('.krok-k.k5 [data-akcja="wyslij"]');
+  await p.waitForFunction(() => /Wiadomość gotowa w folderze/.test((document.querySelector('#podp-wyslij-stan') || {}).innerText || ''), null, { timeout: 60000, polling: 250 }).catch(async () => console.log('STAN WYSYŁKI:', await tekst('#podp-wyslij-stan')));
+  const stanW = await tekst('#podp-wyslij-stan');
+  const eml = await p.evaluate(async () => { const k = await navigator.storage.getDirectory(), d = await (await k.getDirectoryHandle('pmt-folder-testowy')).getDirectoryHandle('delegacje'); try { return await (await (await d.getFileHandle('PMT_wiadomosc_do_wyslania.eml')).getFile()).text(); } catch (e) { return ''; } });
+  ok('„Wyślij” zapisało w folderze „delegacje” plik PMT_wiadomosc_do_wyslania.eml: nagłówki szkicu (X-Unsent, Subject, To) i zahasłowana paczka ZIP jako załącznik', /X-Unsent: 1/.test(eml) && /^To: .+@/m.test(eml) && /^Subject: /m.test(eml) && /filename="[^"]+\.zip"/.test(eml) && /Content-Transfer-Encoding: base64\r?\n\r?\nUEsDB/.test(eml.split('Content-Disposition: attachment')[1] ? 'Content-Transfer-Encoding: base64\r\n\r\n' + eml.split('Content-Disposition: attachment')[1].split('\r\n\r\n')[1] : ''), eml.length + ' znaków');
+  ok('nic nie zostało POBRANE (przeglądarka nie ma okazji ostrzegać o „niebezpiecznym pliku”), a komunikat mówi, gdzie kliknąć dwukrotnie — bez adresu odbiorcy', pobrano === 0 && /Kliknij ją dwukrotnie/.test(stanW) && !/@/.test(stanW), stanW.replace(/\n/g, ' | '));
+  ok('po wysyłce przycisk pokazuje „Wysłano”, a plik wiadomości nie wchodzi do obserwacji folderu (nie jest wczytywany jak podpisany dokument)', /Wysłano/.test(await tekst('.krok-k.k5 .przycisk')) && JSON.stringify(await stany()) === '["ok","ok","ok","ok","ok","ok","ok"]');
   ok('bez błędów w konsoli', t.bledy.length === 0, JSON.stringify(t.bledy.slice(0, 3)));
   await t.zamknij(); console.log(kod ? 'WYNIK: są błędy' : 'WYNIK: wszystko dobrze'); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.message); process.exit(2); });

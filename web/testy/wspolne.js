@@ -54,7 +54,7 @@ async function otworz({ folder = false, muzykaDomyslna = '0', pocztaDomyslna = '
   // podkład muzyczny jest w aplikacji domyślnie WŁĄCZONY (rusza przy pierwszym kliknięciu); reszta zestawu testów nie ma go słuchać (obciąża procesor i nic nie sprawdza), więc domyślnie ustawiamy „wyłączony”
   // (tylko gdy wyboru jeszcze nie ma); muzykaDomyslna: null = bez ustawiania (prawdziwy domyślny stan: włączony), '1' = włączony jawnie
   if (muzykaDomyslna !== null) await ctx.addInitScript(v => { try { if (localStorage.getItem('pmt-ui-muzyka') === null) localStorage.setItem('pmt-ui-muzyka', v); } catch (e) {} }, muzykaDomyslna);
-  if (pocztaDomyslna) await ctx.addInitScript(v => { try { localStorage.setItem('pmt-ui-poczta-v', '2'); if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
+  if (pocztaDomyslna) await ctx.addInitScript(v => { try { localStorage.setItem('pmt-ui-poczta-v', '3'); if (localStorage.getItem('pmt-ui-poczta') === null) localStorage.setItem('pmt-ui-poczta', v); } catch (e) {} }, pocztaDomyslna);
   // natywne okno „Zapisz jako” (showSaveFilePicker) nie daje się obsłużyć w przeglądarce bez interfejsu, więc w testach go nie ma — aplikacja wtedy nie oferuje sposobu „pulpit”; test tego sposobu podstawia atrapę
   await ctx.addInitScript(() => { try { Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, writable: true, configurable: true }); } catch (e) {} });
   // folder roboczy na pulpicie (showDirectoryPicker): okna systemowego nie da się obsłużyć w przeglądarce bez interfejsu, więc domyślnie go nie ma (aplikacja działa wtedy po staremu: pobieranie plików i ręczne wgrywanie);

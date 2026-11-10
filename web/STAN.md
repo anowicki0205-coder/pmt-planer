@@ -282,6 +282,11 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       focus/visibilitychange; plik starszy niż 4 s bez czekania na drugi odczyt); po sprawdzeniu wszystkich okno przewija do „Wyślij”; opcjonalna jednolinijkowa podpowiedź (znika po „Ukryj” i po pierwszym wczytanym pliku):
       ustaw raz w przeglądarce „Pobrane → Lokalizacja” na folder „delegacje” — wtedy podpisane pliki z gov.pl trafiają tam same (strona nie może tego zmienić, a przeglądarka nie pozwala czytać folderu Pobrane; firma może
       zablokować zmianę — NIE sprawdzone na prawdziwej przeglądarce). Test: testy/folder_app.js. Bez folderu (telefon, Firefox, Safari) — bez zmian, cztery kroki.
+      ASYSTENT PODPISU (prośba właściciela 10.11: „dalej zbyt dużo klikania, laik nie wie co zrobić”): w przeglądarkach z folderem okno „Dokumenty do podpisu” to jeden asystent (js/podpis.js: htmlAsystenta) — pasek
+      „Folder · Podpis · Wysyłka”, tytuł, 2–3 krótkie kroki, JEDEN duży przycisk („Wskaż folder” → „Otwórz gov.pl” → „Wyślij”) i postęp na żywo („Wczytano 2 z 6 podpisanych poleceń”, nazwy plików do wybrania na gov.pl
+      w turach po 5). Stan wynika z tego, co aplikacja sama wykryła; nic się nie przełącza ręcznie. Odręcznie, ręczne wgrywanie, pobieranie osobno, sposób wysyłki i zmiana folderu są pod „Inne sposoby i szczegóły”.
+      Karty dokumentów zostają pod spodem. Bez folderu (telefon, Firefox, Safari) — dawne cztery kroki (widokKlasyczny). BŁĄD NAPRAWIONY przy okazji: poprzednia podpowiedź kazała ustawić pobieranie na folder „delegacje”,
+      a aplikacja obserwowała tylko podfolder miesiąca — teraz obserwuje oba (folder główny i miesiąc). Test: testy/folder_app.js (38 kontroli; PMT_ZRZUTY=katalog zapisuje zrzuty stanów).
       Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
       Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.
 - [x] EDGE OTWIERAŁ POCZTĘ BEZ ZAŁĄCZNIKA (zgłoszenie właściciela 5.11, po poprawce pobierania): najprawdopodobniej zapamiętany w Edge sposób „otwarcie poczty” (mailto: nie umie dołączyć pliku) — wybór jest osobny w każdej

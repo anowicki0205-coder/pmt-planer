@@ -2047,6 +2047,16 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .kk-opcja .kk-folder .kk-przyciski{flex:none;gap:.35rem}
 .kk-opcja .kk-folder .kk-folder-stan{color:#0E7040;font-weight:600}
 .kk-opcja .kk-folder .kk-folder-blad{color:#B3203F;font-weight:600}
+.krok-k[hidden],.krok-strefa[hidden]{display:none!important}
+.kk-link-jasny{color:inherit;opacity:.85}
+.kk-pobrane{display:flex;flex-direction:column;gap:.25rem;width:100%;padding:.4rem .6rem;border-radius:11px;background:rgb(255 244 214/.6);box-shadow:inset 0 0 0 1px rgb(200 150 20/.25);font-size:.74rem;line-height:1.35;color:#5A4A12}
+.kk-pobrane .kk-jak>summary{cursor:pointer;font-weight:600;color:#7A5A06;list-style:revert}
+.kk-pobrane .kk-jak ol{margin:.3rem 0 .2rem 1.1rem;padding:0;display:grid;gap:.25rem}
+.kk-opcja .kk-pobrane b{display:inline;font-size:inherit}
+.kk-pobrane>span{display:block}
+.kk-pobrane-dol{display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem}
+.kk-pobrane-dol .kk-jak{flex:1 1 auto;min-width:0}
+.kk-pobrane-dol .kk-link{flex:none}
 .kk-osobno{width:100%}
 .kk-osobno>summary{cursor:pointer;font-size:.8rem;color:#5A4AB0;font-weight:600;padding:.2rem 0;list-style:revert}
 .kk-osobno[open]>summary{margin-bottom:.3rem}

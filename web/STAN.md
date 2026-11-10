@@ -276,6 +276,12 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       klika plik dwukrotnie w folderze (Chromium oznacza zapisany plik znacznikiem pochodzenia z internetu, jak pobrany). Bez folderu zostaje pobranie .eml + wskazówka „wskaż folder”. Znacznik wyboru sposobu
       pmt-ui-poczta-v = 3 (jednorazowe wyzerowanie, żeby nowy domyślny sposób obowiązywał wszystkich). Test: testy/folder_app.js (plik w OPFS: nagłówki szkicu, ZIP w załączniku, zero zdarzeń „download”, bez adresu
       w komunikacie), paczka_test.js. NIE sprawdzone na prawdziwym Edge (otwarcie .eml z folderu w Outlooku/Poczcie Windows — też dopiero właściciel).
+      UPROSZCZENIE PRZEPŁYWU Z FOLDEREM (prośba właściciela 10.11: „zbyt dużo przeskakiwania i kroków dla laika”, wariant A): w przeglądarkach z folderem (Chrome/Edge na komputerze) okno podpisu ma TRZY kroki (1 Podpisz,
+      2 Sprawdzenie, 3 Wyślij) — ręczne wgrywanie (skany, pliki z innego miejsca) jest schowane pod linkiem „Wgraj ręcznie”; jedna główna akcja naraz (najpierw „Wskaż miejsce”, po zapisie dokumentów „Otwórz gov.pl”, bez
+      wyszarzonych przycisków); opis mówi, które pliki wybrać na gov.pl (tylko polecenia — rozliczenie bez podpisu — i w jakich turach po 5); podpisane pliki są wczytywane od razu po powrocie na kartę (zdarzenia
+      focus/visibilitychange; plik starszy niż 4 s bez czekania na drugi odczyt); po sprawdzeniu wszystkich okno przewija do „Wyślij”; opcjonalna jednolinijkowa podpowiedź (znika po „Ukryj” i po pierwszym wczytanym pliku):
+      ustaw raz w przeglądarce „Pobrane → Lokalizacja” na folder „delegacje” — wtedy podpisane pliki z gov.pl trafiają tam same (strona nie może tego zmienić, a przeglądarka nie pozwala czytać folderu Pobrane; firma może
+      zablokować zmianę — NIE sprawdzone na prawdziwej przeglądarce). Test: testy/folder_app.js. Bez folderu (telefon, Firefox, Safari) — bez zmian, cztery kroki.
       Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
       Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.
 - [x] EDGE OTWIERAŁ POCZTĘ BEZ ZAŁĄCZNIKA (zgłoszenie właściciela 5.11, po poprawce pobierania): najprawdopodobniej zapamiętany w Edge sposób „otwarcie poczty” (mailto: nie umie dołączyć pliku) — wybór jest osobny w każdej

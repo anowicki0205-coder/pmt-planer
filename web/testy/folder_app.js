@@ -30,7 +30,12 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   /* ---------- pierwsze otwarcie: trzeba wskazać folder ---------- */
   await otworzOkno();
   ok('w przeglądarce z dostępem do folderów krok „Podpisz” oferuje folder „delegacje”: „Wskaż miejsce”; pobieranie osobnych PDF-ów jest schowane („Albo pobierz dokumenty osobno”)', (await p.locator('#kk-folder [data-akcja="folder-wskaz"]').count()) === 1 && (await p.locator('details.kk-osobno').count()) === 1 && !(await p.locator('details.kk-osobno').evaluate(d => d.open)));
-  ok('przed zapisaniem dokumentów „Otwórz gov.pl” jest wyszarzone', await p.locator('#otworz-gov').isDisabled());
+  ok('przed wskazaniem folderu jest JEDNA główna akcja („Wskaż miejsce”, bez wyszarzonego „Otwórz gov.pl”), a opis mówi, które pliki wybrać na gov.pl: tylko polecenia (rozliczenie bez podpisu), tury po 5', (await p.locator('#otworz-gov').count()) === 0 && (await p.locator('#kk-folder .przycisk.glowny').count()) === 1 && /tylko pliki poleceń/.test(await tekst('.kk-gov')) && /polecenia 1–5, potem 6/.test(await tekst('.kk-gov')), (await tekst('.kk-gov')).replace(/\n/g, ' | ').slice(0, 330));
+  const numery = () => p.evaluate(() => [...document.querySelectorAll('.kroki4 > .krok-k')].filter(e => !e.hidden).map(e => e.querySelector('.kk-nr').textContent));
+  ok('w trybie z folderem są trzy kroki (1 Podpisz, 2 Sprawdzenie, 3 Wyślij), a ręczne wgrywanie jest schowane pod linkiem „Wgraj ręcznie”', JSON.stringify(await numery()) === '["1","2","3"]' && (await p.locator('.krok-k.k3').isHidden()) && (await p.locator('.krok-strefa').isHidden()) && (await p.locator('[data-akcja="reczne"]').count()) === 1, JSON.stringify(await numery()));
+  await p.click('[data-akcja="reczne"]');
+  ok('„Wgraj ręcznie” pokazuje dawny krok wgrywania (przycisk „Wybierz pliki” i strefę przeciągania) — dla skanów i plików z innego miejsca; drugie kliknięcie chowa', (await p.locator('.krok-k.k3').isVisible()) && (await p.locator('.krok-strefa').isVisible()) && (await p.locator('#plik-wgraj').count()) === 1);
+  await p.click('[data-akcja="reczne"]'); await p.waitForTimeout(100);
   /* przeglądarka może odmówić (sam Pulpit, Dokumenty i Pobrane są zablokowane): czytelny komunikat („Nowy folder” → „delegacje”), nic się nie psuje, można spróbować ponownie */
   await p.evaluate(() => { window.__pickerOrig = window.showDirectoryPicker; window.showDirectoryPicker = async () => { throw new DOMException('Can\'t open this folder because it contains system files.', 'SecurityError'); }; });
   await p.click('[data-akcja="folder-wskaz"]'); await p.waitForSelector('.kk-folder-blad', { timeout: 10000 });
@@ -38,7 +43,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   await p.evaluate(() => { window.showDirectoryPicker = window.__pickerOrig; });
   /* ---------- wskazanie miejsca: aplikacja SAMA tworzy „delegacje” i podfolder miesiąca i od razu zapisuje dokumenty ---------- */
   await p.click('[data-akcja="folder-wskaz"]'); await p.waitForSelector('#kk-folder-stan', { timeout: 40000 }).catch(async e => { console.log('STAN FOLDERU:', (await tekst('#kk-folder')).replace(/\n/g, ' | '), JSON.stringify(t.bledy)); throw e; }); await p.waitForTimeout(1500);
-  ok('po wskazaniu miejsca blok jest niski i mówi, gdzie leżą dokumenty: „Folder „delegacje” › „wrzesień 2026””; bez dodatkowego klikania („Zapisz dokumenty” nie jest potrzebne)', /Folder „delegacje” › „wrzesień 2026”/.test(await tekst('#kk-folder')) && (await p.locator('#kk-folder [data-akcja="folder-wskaz"]').count()) === 0 && (await p.locator('#kk-folder').evaluate(e => e.getBoundingClientRect().height)) < 75, (await tekst('#kk-folder')).replace(/\n/g, ' | ') + ' · wysokość ' + Math.round(await p.locator('#kk-folder').evaluate(e => e.getBoundingClientRect().height)));
+  ok('po wskazaniu miejsca blok jest niski i mówi, gdzie leżą dokumenty: „Folder „delegacje” › „wrzesień 2026””; bez dodatkowego klikania („Zapisz dokumenty” nie jest potrzebne)', /Folder „delegacje” › „wrzesień 2026”/.test(await tekst('#kk-folder')) && (await p.locator('#kk-folder [data-akcja="folder-wskaz"]').count()) === 0 && (await p.locator('#kk-folder .kk-folder').evaluate(e => e.getBoundingClientRect().height)) < 75, (await tekst('#kk-folder')).replace(/\n/g, ' | ') + ' · wysokość ' + Math.round(await p.locator('#kk-folder .kk-folder').evaluate(e => e.getBoundingClientRect().height)));
   const topFolder = await p.evaluate(async () => { const k = await navigator.storage.getDirectory(), f = await k.getDirectoryHandle('pmt-folder-testowy'), w = []; for await (const [n, u] of f.entries()) w.push(n + ':' + u.kind); return w; });
   ok('we wskazanym miejscu powstał jeden folder „delegacje” (nic więcej)', JSON.stringify(topFolder) === '["delegacje:directory"]', JSON.stringify(topFolder));
   const f1 = await wFolderze(), nazwaPod = Object.keys(f1)[0];
@@ -54,20 +59,35 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
     const prawe = slowa.filter(w => w.x > 150), centrum = prawe.find(w => w.t === 'Centrum'), numer = prawe.find(w => w.t === '6');
     ok('numer centrum kosztów i napis „Centrum” zaczynają się poniżej pieczątki podpisu zaufanego (ponad 28 mm od góry strony), a w prawym górnym rogu nad nimi nic nie ma', !!centrum && !!numer && numer.y >= 28 && centrum.y >= 28 && prawe.every(w => w === numer || w === centrum || w.y >= 28), JSON.stringify({ numer, centrum }));
   } else console.log('  (pominięto kontrolę układu nagłówka: brak pdftotext)');
-  ok('po zapisie „Otwórz gov.pl” jest odblokowane (link), a okno mówi, że folder jest obserwowany i gdzie zapisać podpisane pliki', (await p.locator('a#otworz-gov[href*="gov.pl"]').count()) === 1 && /Obserwuję folder/.test(await tekst('#kk-folder-stan')) && /zapisz w folderze poniżej/.test(await tekst('.kk-gov')));
+  ok('po zapisie „Otwórz gov.pl” jest odblokowane (link), a okno mówi, że folder jest obserwowany i gdzie zapisać podpisane pliki', (await p.locator('a#otworz-gov[href*="gov.pl"]').count()) === 1 && /Obserwuję folder/.test(await tekst('#kk-folder-stan')) && /zapisz w tym samym folderze/.test(await tekst('.kk-gov')));
   ok('gdy folder działa, nie ma zbędnych elementów: żadnego „Zapisz ponownie”, „Pobierz wszystkie”, rozwijanej listy pobierania ani podpowiedzi — w bloku zostaje ścieżka, stan i odnośnik „zmień”; w kroku „Podpisz” jedyny przycisk to „Otwórz gov.pl”', (await p.locator('details.kk-osobno, [data-akcja="folder-zapisz"], [data-akcja="osobno"], #kk-gov-podp, .kk-plik').count()) === 0 && (await p.locator('#kk-folder [data-akcja="folder-zmien"]').count()) === 1 && (await p.locator('#kk-gov-akcje button, #kk-gov-akcje a').count()) === 1, (await tekst('.kk-gov')).replace(/\n/g, ' | '));
   ok('rozliczenie wydatków (nie wymaga podpisu) weszło do aplikacji od razu jako przyjęte; polecenia czekają na podpis', JSON.stringify(await stany()) === '["czeka","czeka","czeka","czeka","czeka","czeka","ok"]' && /nie jest na nim wymagany/.test(await tekst('.dok-k[data-i="6"] .dok-kom')), JSON.stringify(await stany()));
   await p.waitForTimeout(6500);
   ok('oryginały zapisane przez aplikację NIE są wczytywane z powrotem jako „nowe pliki” (po kilku obrotach obserwacji nic nie wykryto)', !/wczytane pliki/.test(await tekst('#kk-folder-stan')) && JSON.stringify(await stany()) === '["czeka","czeka","czeka","czeka","czeka","czeka","ok"]', await tekst('#kk-folder-stan'));
+
+  ok('po zapisie dokumentów kroki to nadal 1–3, a pod blokiem folderu jest jednolinijkowa, zwinięta podpowiedź „Pobrane → Lokalizacja”', JSON.stringify(await numery()) === '["1","2","3"]' && (await p.locator('#kk-pobrane-rada').count()) === 1 && /Lokalizacja/.test(await tekst('#kk-pobrane-rada')) && !(await p.locator('#kk-pobrane-rada details').evaluate(d => d.open)));
+  await p.click('#kk-pobrane-rada summary');
+  ok('„Jak to zrobić?” pokazuje adres ustawień pobierania przeglądarki z przyciskiem „Kopiuj” i uwagą o blokadzie przez firmę', /settings\/downloads/.test(await tekst('#kk-pobrane-rada')) && (await p.locator('[data-akcja="pobrane-kopiuj"]').count()) === 1 && /Firma może to blokować/.test(await tekst('#kk-pobrane-rada')));
+  await p.click('[data-akcja="pobrane-rada-ok"]');
+  ok('„Ukryj” chowa podpowiedź i pamięta wybór na urządzeniu', (await p.locator('#kk-pobrane-rada').count()) === 0 && (await p.evaluate(() => localStorage.getItem('pmt-ui-pobrane-rada'))) === '1');
+  await p.evaluate(() => localStorage.removeItem('pmt-ui-pobrane-rada')); await zamknijOkno(); await otworzOkno(); await p.waitForSelector('#kk-folder-stan', { timeout: 20000 });      // podpowiedź ma wrócić, dopóki pliki nie zaczną docierać (znikła tylko przez „Ukryj”, które właśnie cofnęliśmy)
+  ok('po cofnięciu „Ukryj” podpowiedź znów jest (znika dopiero po pierwszym wczytanym pliku)', (await p.locator('#kk-pobrane-rada').count()) === 1);
 
   /* ---------- „podpis na gov.pl”: podpisane pliki pojawiają się w folderze, aplikacja sama je wczytuje i sprawdza ---------- */
   fs.writeFileSync(path.join(tmp, 'plan1.json'), JSON.stringify({ [pdfy[0]]: 'jan', [pdfy[1]]: 'jan' }));
   const tylko01 = path.join(tmp, 'tylko01'); fs.mkdirSync(tylko01); for (const f of [pdfy[0], pdfy[1]]) fs.copyFileSync(path.join(roz, f), path.join(tylko01, f));
   py('podpisz_pliki.py', tylko01, path.join(tmp, 'e1'), path.join(tmp, 'plan1.json'));
   await zapiszDoFolderu(nazwaPod, 'Podpisany dokument (1).pdf', fs.readFileSync(path.join(tmp, 'e1', pdfy[0])));      // gov.pl oddaje pliki pod przypadkowymi nazwami
+  /* powrót na kartę aplikacji (zdarzenie focus): plik starszy niż 4 s jest brany od razu, bez czekania na drugi obrót obserwacji (2,5 s) — czas przesuwamy sztucznie, bo plik testowy jest świeży */
+  await p.waitForTimeout(300);
+  await p.evaluate(() => { const n = Date.now.bind(Date); window.__n = n; Date.now = () => n() + 6000; window.dispatchEvent(new Event('focus')); });
+  const szybko = await p.waitForFunction(() => /Wykryto 1|wczytane pliki: 1/.test((document.querySelector('#kk-folder-stan') || {}).textContent || ''), null, { timeout: 2000, polling: 100 }).then(() => true).catch(() => false);
+  await p.evaluate(() => { Date.now = window.__n; });
+  ok('po powrocie na kartę plik starszy niż 4 s jest wczytywany od razu (w ciągu 2 s, zanim zdążyłby drugi obrót obserwacji)', szybko, await tekst('#kk-folder-stan'));
   await zapiszDoFolderu(nazwaPod, pdfy[1], fs.readFileSync(path.join(tmp, 'e1', pdfy[1])));      // albo podpisany plik zastępuje oryginał o tej samej nazwie
   const s1 = await czekajStany(['ok', 'ok', 'czeka', 'czeka', 'czeka', 'czeka', 'ok'], 90000);
   ok('dwa podpisane pliki zapisane w folderze (jeden pod obcą nazwą, drugi w miejsce oryginału) zostały SAME wczytane, rozpoznane i sprawdzone — bez „Wybierz pliki”', JSON.stringify(s1) === '["ok","ok","czeka","czeka","czeka","czeka","ok"]', JSON.stringify(s1));
+  ok('po pierwszym wczytanym pliku podpowiedź o lokalizacji pobierania znika (podpisane pliki już docierają)', (await p.locator('#kk-pobrane-rada').count()) === 0);
   ok('okno mówi, ile plików wczytano z folderu', /wczytane pliki: 2/.test(await tekst('#kk-folder-stan')), await tekst('#kk-folder-stan'));
   const z1 = await zapisane();
   ok('każdy z dwóch dokumentów ma dokładnie JEDEN wczytany plik (nic nie wczytało się dwa razy)', z1.pliki[0].length === 1 && z1.pliki[1].length === 1 && z1.weryfikacje[0].stan === 'ok' && z1.weryfikacje[1].stan === 'ok' && z1.weryfikacje[0].rodzaj !== 'odreczny', JSON.stringify(z1.pliki) + ' ' + JSON.stringify([z1.weryfikacje[0].rodzaj, z1.weryfikacje[0].stan, z1.weryfikacje[1].rodzaj, z1.weryfikacje[1].stan]));
@@ -104,7 +124,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   const s3 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok'], 120000);
   ok('pozostałe cztery podpisane pliki też weszły same (podpis innej osoby zastąpiony poprawnym) — wszystkie 7 dokumentów sprawdzone', JSON.stringify(s3) === '["ok","ok","ok","ok","ok","ok","ok"]', JSON.stringify(s3));
   await p.waitForSelector('.krok-k.k5.aktywny [data-akcja="wyslij"]', { timeout: 30000 });
-  ok('„Wyślij” (krok 4) zapalił się — można wysłać zahasłowaną paczkę z podpisanymi PDF-ami', (await p.locator('.krok-k.k5.aktywny [data-akcja="wyslij"]').count()) === 1);
+  ok('„Wyślij” (krok 3) zapalił się — można wysłać zahasłowaną paczkę z podpisanymi PDF-ami', (await p.locator('.krok-k.k5.aktywny [data-akcja="wyslij"]').count()) === 1);
   /* „zmień”: ponowne wskazanie miejsca (tu to samo) — dokumenty zapisują się od nowa, a już wczytane podpisane pliki nie wczytują się drugi raz */
   const przed = JSON.stringify((await zapisane()).pliki);
   await p.click('#kk-folder [data-akcja="folder-zmien"]'); await p.waitForSelector('#kk-folder-stan', { timeout: 40000 }); await p.waitForTimeout(8000);

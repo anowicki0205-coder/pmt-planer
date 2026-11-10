@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:56c20a17f335abe3
+# źródło: PMT_Delegacje.py sha256:2cbafb8ac91c4268
 
 import sys
 
@@ -4008,7 +4008,9 @@ def generuj_pdfy(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesi
         pdf = PDFReport(); pdf.add_page(); pdf.set_margins(10, 8, 10)
         pdf.set_font("Arial",'B',10); pdf.cell(0,4,firma_nazwa,new_x="LMARGIN",new_y="NEXT")
         pdf.set_font("Arial",'',9); pdf.cell(0,4,"ul. Ptasia 10, 60-319 Poznań",new_x="LMARGIN",new_y="NEXT")
-        pdf.cell(0,4,nip_dlugi,new_x="LMARGIN",new_y="NEXT"); pdf.ln(3)
+        # Przerwa 10 mm (dawniej 3): pieczątka podpisu zaufanego z gov.pl wchodzi w prawy górny róg pierwszej strony (do ok. 28 mm od góry) i zasłaniała
+        # numer centrum kosztów oraz napis „Centrum” — wszystko od tytułu w dół zaczyna się teraz poniżej pieczątki.
+        pdf.cell(0,4,nip_dlugi,new_x="LMARGIN",new_y="NEXT"); pdf.ln(10)
         pdf.set_font("Arial",'B',13); pdf.cell(100,6,"Rozliczenie delegacji",border=0)
         pdf.set_font("Arial",'B',10); pdf.cell(90,6,"6",border=0,new_x="LMARGIN",new_y="NEXT",align='R')
         pdf.set_font("Arial",'',8); pdf.set_xy(pdf.get_x()+130, pdf.get_y()-2); pdf.cell(60,3,"Centrum",border=0,new_x="LMARGIN",new_y="NEXT",align='R'); pdf.ln(3)

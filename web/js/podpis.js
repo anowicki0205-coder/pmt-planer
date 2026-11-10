@@ -212,31 +212,23 @@ export function zainstalujPodpis(k) {
   /* stan: 'start' (sprawdzam) | 'bez-folderu' | 'gotowy' (folder wskazany, dokumenty tego miesiąca jeszcze nie zapisane) | 'zapisany' (dokumenty w folderze, folder jest obserwowany) | 'zgoda' (przeglądarka chce
      ponownej zgody — jedno kliknięcie) | 'blad'. Zapamiętane w pamięci miesiąca (magUst 'folder-…'): odciski plików zapisanych przez aplikację (baza) i już wczytanych (przetworzone) — dzięki temu ani oryginały, ani
      ponownie otwarte okno niczego nie wczytują drugi raz. */
-  const fol = { uchwyt: null, korzen: null, miesiac: null, stan: 'start', blad: '', ostatnio: 0, wykryto: 0, timer: 0, zajety: false, widziane: new Map() };
+  const fol = { sluchacze: false, uchwyt: null, korzen: null, miesiac: null, stan: 'start', blad: '', ostatnio: 0, wykryto: 0, timer: 0, zajety: false, widziane: new Map() };
   const kluczFolderu = () => 'folder-' + magMiesiace.klucz(M().rok, M().mies);
   const stanFolderu = () => Object.assign({ zapisano: false, baza: {}, przetworzone: [] }, magUst.daj(kluczFolderu(), null) || {});
   const zapiszStanFolderu = st => magUst.ustaw(kluczFolderu(), st);
   const nazwaPodfolderu = () => `${String(k.MIES[M().mies - 1]).toLowerCase()} ${M().rok}`;      // np. „wrzesień 2026” — podfolder miesiąca w folderze „delegacje”
   const godz = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
-  function htmlFolderu() {
-    if (!folderMozliwy()) return '';
-    const korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), blad = fol.blad ? `<small class="kk-folder-blad" role="alert">${esc(fol.blad)}</small>` : '';
-    const btn = (akcja, tekst, glowny) => `<button type="button" class="przycisk ${glowny ? 'glowny' : 'maly'}" data-akcja="${akcja}">${tekst}</button>`, zmien = '<button type="button" class="kk-link" data-akcja="folder-zmien">zmień</button>';
-    let tytul = `Folder „${NAZWA_FOLDERU}”`, opis, akcje = '';
-    if (fol.stan === 'start') opis = '<small>Sprawdzam…</small>';
-    else if (fol.stan === 'bez-folderu') { opis = `<small>Okno wyboru otworzy się na pulpicie: kliknij „Nowy folder”, nazwij go „${NAZWA_FOLDERU}” i wskaż go — RAZ, resztę zrobię sam.</small>${blad}`; akcje = btn('folder-wskaz', `${ik('i-pobierz')}Wskaż miejsce`, true); }
-    else if (fol.stan === 'zgoda') { opis = `<small>Przeglądarka prosi o zgodę na dostęp do folderu „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”.</small>${blad}`; akcje = btn('folder-wznow', 'Pozwól', true) + zmien; }
-    else if (fol.stan === 'gotowy') { opis = `<small>Dokumenty tego miesiąca nie są jeszcze zapisane w folderze.</small>${blad}`; akcje = btn('folder-zapisz', `${ik('i-pobierz')}Zapisz dokumenty`, true) + zmien; }
-    else if (fol.stan === 'zapisany') {      // wszystko dzieje się samo: zostaje jedna linia ze ścieżką i stanem obserwacji (plus mały odnośnik „zmień”)
-      tytul = `Folder „${korzen}” › „${pod}”`;
-      opis = `<small class="kk-folder-stan" id="kk-folder-stan" aria-live="polite">${fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…'}</small>${blad}`; akcje = zmien;
-    } else { opis = `<small>Z folderem jest problem.</small>${blad}`; akcje = btn('folder-zmien', 'Wskaż od nowa'); }
-    const wiersz = `<div class="kk-folder"><span class="kk-folder-opis"><b>${ik('i-pobierz')}${tytul}</b>${opis}</span>${akcje ? `<span class="kk-przyciski">${akcje}</span>` : ''}</div>`;
-    // ręczne pobieranie dokumentów (po jednym PDF-ie) zostaje tylko jako wyjście awaryjne, gdy folderu nie ma; gdy folder działa, nie jest potrzebne
-    const awaryjnie = fol.stan === 'start' || fol.stan === 'zapisany' ? '' : `<details class="kk-osobno"><summary>Albo pobierz dokumenty osobno (pojedynczo, jako PDF)</summary>${wierszePobierania()}</details>`;
-    return `<div class="kk-folder-okno" id="kk-folder">${wiersz}${awaryjnie}</div>`;
+  /* Jednolinijkowa, opcjonalna podpowiedź: gov.pl oddaje podpisane pliki do folderu Pobrane (strona nie może tego zmienić, a przeglądarka nie pozwala aplikacji czytać Pobranych). Gdy raz ustawi się
+     „Pobrane → Lokalizacja” na folder „delegacje”, podpisane pliki trafiają tam same i aplikacja je wczytuje — bez przenoszenia. Znika po pierwszym wczytanym pliku, po „Ukryj” i gdy wszystko jest podpisane. */
+  const radaPobraneUkryta = () => { try { return localStorage.getItem('pmt-ui-pobrane-rada') === '1'; } catch (e) { return false; } };
+  function radaPobrane() {
+    if (radaPobraneUkryta() || fol.wykryto > 0 || wszystkoPodpisane()) return '';
+    const adres = (przegladarka() === 'edge' ? 'edge' : 'chrome') + '://settings/downloads';
+    return `<div class="kk-pobrane" id="kk-pobrane-rada"><span>Raz ustaw w przeglądarce <b>Pobrane → Lokalizacja</b> na ten folder — podpisane pliki z gov.pl trafią tu same, bez przenoszenia.</span>
+      <div class="kk-pobrane-dol"><details class="kk-jak"><summary>Jak to zrobić?</summary><ol><li>Skopiuj adres <span class="adr">${adres}</span> <button type="button" class="przycisk maly" data-akcja="pobrane-kopiuj" data-adres="${adres}">Kopiuj</button> i wklej go w pasku adresu przeglądarki.</li><li>Przy „Lokalizacja” kliknij „Zmień” i wskaż folder „${NAZWA_FOLDERU}” (na Pulpicie).</li></ol><small>Firma może to blokować — wtedy po podpisaniu przeciągnij pliki z Pobranych do folderu albo użyj „Wgraj ręcznie”.</small></details>
+      <button type="button" class="kk-link" data-akcja="pobrane-rada-ok">Ukryj</button></div></div>`;
   }
-  function odswiezFolder() { const e = $('#kk-folder', arkTresc); if (e && widok === 'glowny') { e.outerHTML = htmlFolderu(); odswiezPobieranie(); } }
+  function odswiezFolder() { if (widok !== 'glowny') return; odswiezAsystenta(); odswiezPobieranie(); }
   /** Przy otwarciu okna: wczytuje zapamiętany folder i sprawdza, czy przeglądarka pamięta zgodę; jeśli dokumenty już są w folderze, zaczyna go obserwować. */
   async function inicjujFolder() {
     if (!folderMozliwy()) return;
@@ -286,7 +278,10 @@ export function zainstalujPodpis(k) {
     zapiszStanFolderu(Object.assign(stanFolderu(), { zapisano: false, baza: {} }));      // nowe miejsce: dokumenty tego miesiąca zapiszą się tam od nowa (pliki już wczytane nie wczytają się drugi raz)
     fol.uchwyt = null; fol.korzen = null; fol.miesiac = null; fol.stan = 'bez-folderu'; fol.blad = ''; odswiezFolder(); await wskazFolderRoboczy();
   }
-  function zacznijObserwowac() { clearInterval(fol.timer); fol.timer = setInterval(odczytajFolder, 2500); odczytajFolder(); }
+  function zacznijObserwowac() {
+    clearInterval(fol.timer); fol.timer = setInterval(odczytajFolder, 2500); odczytajFolder();
+    if (!fol.sluchacze) { fol.sluchacze = true; const odrazu = () => { if (fol.stan === 'zapisany' && !document.hidden) odczytajFolder(); }; document.addEventListener('visibilitychange', odrazu); window.addEventListener('focus', odrazu); }      // wracasz z gov.pl na kartę aplikacji — pliki wczytują się od razu, bez czekania na kolejny obrót
+  }
   /** Jeden obrót obserwacji: nowy albo zmieniony plik (inny odcisk niż oryginały i już wczytane) trzeba zobaczyć w dwóch kolejnych odczytach i nie może być świeżo zapisany — wtedy idzie do zwykłego wgrywania
    *  (to samo, co „Wybierz pliki”: rozpoznanie dokumentu, sprawdzenie podpisu w tle). */
   async function odczytajFolder() {
@@ -294,12 +289,14 @@ export function zainstalujPodpis(k) {
     if (document.hidden || fol.zajety || fol.stan !== 'zapisany' || !fol.miesiac) return;
     fol.zajety = true;
     try {
-      const lista = await wypiszFolder(fol.miesiac); fol.ostatnio = Date.now();
+      /* podpisane pliki mogą trafić do podfolderu miesiąca (zapisane tam) ALBO do folderu głównego „delegacje” (gdy pobieranie w przeglądarce ustawiono na ten folder) — patrzymy w oba */
+      const lista = [...(await wypiszFolder(fol.miesiac)).map(f => ({ ...f, zr: 'm' })), ...(fol.korzen ? (await wypiszFolder(fol.korzen)).map(f => ({ ...f, zr: 'k' })) : [])]; fol.ostatnio = Date.now();
       const st = stanFolderu(), znane = new Set([...Object.values(st.baza), ...st.przetworzone]), nowe = [];
       for (const f of lista) {
         if (znane.has(f.odcisk)) continue;
-        if (fol.widziane.get(f.nazwa) !== f.odcisk) { fol.widziane.set(f.nazwa, f.odcisk); continue; }      // pierwszy odczyt: poczekaj, czy plik jest już zapisany do końca
-        if (Date.now() - f.zmiana < 1500) continue;
+        const wiek = Date.now() - f.zmiana, widzianyJuz = fol.widziane.get(f.zr + f.nazwa) === f.odcisk; fol.widziane.set(f.zr + f.nazwa, f.odcisk);
+        if (!widzianyJuz && wiek < 4000) continue;      // świeży plik: poczekaj na drugi odczyt (czy zapis skończony); starszy niż 4 s (np. przeniesiony z Pobranych) — bierzemy od razu
+        if (wiek < 1500) continue;
         nowe.push(f);
       }
       if (nowe.length) {
@@ -307,6 +304,7 @@ export function zainstalujPodpis(k) {
         st.przetworzone.push(...nowe.map(f => f.odcisk)); zapiszStanFolderu(st); fol.wykryto += nowe.length;
         const s = $('#kk-folder-stan', arkTresc); if (s) s.textContent = `Wykryto ${nowe.length} ${liczba(nowe.length, 'nowy plik', 'nowe pliki', 'nowych plików')} — wczytuję i sprawdzam…`;
         await przyjmij(pliki);
+        const rada = $('#kk-pobrane-rada', arkTresc); if (rada) rada.remove();      // podpisane pliki już docierają — podpowiedź o lokalizacji pobierania niepotrzebna
       }
       const s = $('#kk-folder-stan', arkTresc); if (s) s.textContent = `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}`;
     } catch (e) { fol.blad = 'Folder przestał odpowiadać (' + String((e && e.message) || e).slice(0, 80) + '). Wskaż go ponownie.'; fol.stan = 'blad'; clearInterval(fol.timer); fol.timer = 0; odswiezFolder(); }
@@ -318,19 +316,99 @@ export function zainstalujPodpis(k) {
     return `<ul class="kk-pliki" aria-label="Dokumenty do pobrania">${k.nazwyDok().map(d => `<li class="kk-plik${pob.has(d.i) ? ' pobrano' : ''}"><span class="kk-plik-nazwa"><b>${d.tytul}</b><small>${d.rozliczenie ? 'podpis niewymagany' : d.opis}</small></span><button type="button" class="przycisk maly" data-akcja="pobierz-dok" data-i="${d.i}" aria-label="Pobierz PDF: ${esc(d.tytul)}">${pob.has(d.i) ? `${ik('i-ok')}Pobrano` : `${ik('i-pobierz')}Pobierz PDF`}</button></li>`).join('')}</ul>`;
   }
   /** „Otwórz gov.pl” działa dopiero po pobraniu choć jednego dokumentu; wcześniej to wyszarzony przycisk bez adresu (nic nie otworzy). */
-  const akcjeGov = () => {
-    const otworz = pobrane().size ? `<a class="przycisk glowny" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>` : `<button type="button" class="przycisk glowny" id="otworz-gov" disabled aria-disabled="true">Otwórz gov.pl</button>`;
-    if (folderMozliwy()) return `<span class="kk-przyciski" id="kk-gov-akcje">${otworz}</span>`;      // z folderem: dokumenty są zapisywane same, wystarczy „Otwórz gov.pl” (odblokowuje się po zapisaniu)
-    return `<span class="kk-przyciski" id="kk-gov-akcje"><button type="button" class="przycisk" data-akcja="osobno">${ik('i-pobierz')}Pobierz wszystkie</button>${otworz}</span>${pobrane().size ? '' : '<small class="kk-podp" id="kk-gov-podp">„Otwórz gov.pl” odblokuje się po pobraniu dokumentów.</small>'}`;
-  };
-  function widokGlowny() {
+  const akcjeGov = () => `<span class="kk-przyciski" id="kk-gov-akcje"><button type="button" class="przycisk" data-akcja="osobno">${ik('i-pobierz')}Pobierz wszystkie</button>${pobrane().size
+    ? `<a class="przycisk glowny" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`
+    : `<button type="button" class="przycisk glowny" id="otworz-gov" disabled aria-disabled="true">Otwórz gov.pl</button>`}</span>${pobrane().size ? '' : '<small class="kk-podp" id="kk-gov-podp">„Otwórz gov.pl” odblokuje się po pobraniu dokumentów.</small>'}`;
+  /* ---------------------------------- asystent podpisu (tryb z folderem: Chrome, Edge na komputerze) ---------------------------------- */
+  /* Laik ma widzieć JEDNĄ rzecz do zrobienia: pasek „Folder · Podpis · Wysyłka”, tytuł, kilka krótkich zdań, jeden duży przycisk i na żywo postęp. Stan wynika z tego, co aplikacja sama wykryła
+     (folder wskazany, dokumenty zapisane, ile podpisanych poleceń wczytano) — nic nie trzeba przełączać. Wszystko inne (odręcznie, ręczne wgrywanie, zmiana folderu, sposób wysyłki) jest pod
+     „Inne sposoby i szczegóły”. Bez folderu (telefon, Firefox, Safari) okno wygląda po staremu (widokKlasyczny). */
+  const ileDoPodpisu = () => { const d = k.nazwyDok().filter(x => !x.rozliczenie), ok = d.filter(x => M().podpisane[x.i]).length; return { n: d.length, ok, czeka: d.filter(x => !M().podpisane[x.i]) }; };
+  /** Następna tura na gov.pl: do 5 jeszcze niepodpisanych poleceń — „delegacja_01, 02, 03” (nazwy plików do wybrania w oknie gov.pl). */
+  function nastepnaTura() {
+    const tura = ileDoPodpisu().czeka.slice(0, LIMIT_GOV), nazwy = tura.map((d, i) => { const m = /^delegacja_(\d+)/i.exec(d.nazwa); return m ? (i ? m[1] : 'delegacja_' + m[1]) : d.nazwa; });
+    return { ile: tura.length, tekst: nazwy.join(', ') };
+  }
+  /* Sposób podpisu: 'gov' (Profil Zaufany na gov.pl) albo 'reczny' (wydruk, podpis długopisem, skan). Zapamiętany na urządzeniu; gdy jeszcze nie wybrano, asystent pyta jednym ekranem z dwiema kartami
+     (a gdy coś już wczytano — wnioskuje: skan z podpisem odręcznym → odręcznie, inaczej gov.pl). Oba sposoby kończą się tak samo: pliki trafiają do folderu „delegacje”, aplikacja je wczytuje i sprawdza. */
+  const SPOSOBY_PODPISU = ['gov', 'reczny'];
+  let sposobPodpisu = (() => { try { const v = localStorage.getItem('pmt-ui-sposob-podpisu'); return SPOSOBY_PODPISU.includes(v) ? v : ''; } catch (e) { return ''; } })();
+  const ustawSposobPodpisu = v => { sposobPodpisu = SPOSOBY_PODPISU.includes(v) ? v : ''; try { if (sposobPodpisu) localStorage.setItem('pmt-ui-sposob-podpisu', sposobPodpisu); else localStorage.removeItem('pmt-ui-sposob-podpisu'); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } };
+  const sposobPodpisuTeraz = () => sposobPodpisu || (!ileDoPodpisu().ok ? '' : Object.values(weryfikacje()).some(w => w && w.rodzaj === 'odreczny') ? 'reczny' : 'gov');
+  const statusObserwacji = () => fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…';
+  function htmlAsystenta() {
+    const { n, ok } = ileDoPodpisu(), korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), wyk = wszystkoPodpisane(), wys = wyslane();
+    const blad = fol.blad ? `<p class="as-blad kk-folder-blad" role="alert">${esc(fol.blad)}</p>` : '';
+    const krok = wys || wyk ? 3 : fol.stan === 'zapisany' ? 2 : 1;
+    const chipy = ['Folder', 'Podpis', 'Wysyłka'].map((t, i) => `<li class="${i + 1 < krok ? 'zrobione' : i + 1 === krok ? 'teraz' : ''}"><i>${i + 1 < krok ? '✓' : i + 1}</i>${t}</li>`).join('');
+    const duzy = (akcja, tekst, ikona) => `<button type="button" class="przycisk glowny as-duzy" data-akcja="${akcja}">${ikona ? ik(ikona) : ''}${tekst}</button>`;
+    let tytul, opis = '', akcja = '', status = '';
+    if (wys) { tytul = 'Wysyłka przygotowana ✔'; opis = `<div id="podp-wyslij-stan" class="as-stan" aria-live="polite">${stanWysylki || opisWyslij()}</div>`; }
+    else if (wyk) {
+      if (zablokowana()) { tytul = 'Wysyłka jest teraz niedostępna'; opis = `<p>${esc(daneWysylki.komunikat)}</p>`; }
+      else {
+        tytul = 'Wszystko podpisane i sprawdzone ✔'; opis = `<p>Kliknij „Wyślij” — przygotuję wiadomość z zahasłowaną paczką.</p><div id="podp-wyslij-stan" class="as-stan" aria-live="polite">${stanWysylki}</div>`;
+        akcja = `<span id="podp-wyslij-akcje"><button type="button" class="przycisk glowny as-duzy" data-akcja="wyslij" data-metoda="${metodaWysylki()}"${wysylanie ? ' disabled' : ''}>${ik('i-wyslij')}Wyślij</button></span>`;
+      }
+    }
+    else if (fol.stan === 'zapisany') {
+      const sp = sposobPodpisuTeraz(), proc = n ? Math.round(ok / n * 100) : 0, gdzie = `<p class="as-gdzie">Dokumenty czekają w folderze „${korzen}” › „${pod}”.</p>`;
+      const pasek = czekam => `<div class="as-status"><div class="as-pasek" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${ok}"><i style="width:${proc}%"></i></div><b>${ok ? `Wczytano ${ok} z ${n} podpisanych poleceń` : `${czekam} · 0 z ${n}`}</b><small id="kk-folder-stan" aria-live="polite">${statusObserwacji()}</small></div>`;
+      const przelacz = inny => `<button type="button" class="kk-link as-przelacz" data-akcja="sposob" data-sposob="${inny}">${inny === 'gov' ? 'Wolę podpisać elektronicznie (gov.pl)' : 'Wolę podpisać odręcznie (wydruk i skan)'}</button>`;
+      if (!sp) {
+        tytul = 'Jak chcesz podpisać dokumenty?';
+        opis = `${gdzie}<div class="as-wybory"><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="gov"><b>${ik('i-pioro')}Elektronicznie — gov.pl</b><small>Bez drukowania. Potrzebny Profil Zaufany (bezpłatny).</small></button><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="reczny"><b>${ik('i-drukuj')}Odręcznie — wydruk i skan</b><small>Drukujesz, podpisujesz długopisem i skanujesz. Nie potrzeba żadnych kont.</small></button></div>`;
+      } else if (sp === 'reczny') {
+        tytul = 'Podpisz odręcznie';
+        opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Wydrukuj dokumenty”</b> i wydrukuj je (rozliczenia wydatków nie podpisujesz).</li><li>Podpisz długopisem każde polecenie w miejscu <b>„podpis pracownika”</b>.</li><li>Zeskanuj podpisane strony (aplikacją skanującą w telefonie albo skanerem — nie zdjęciem pod kątem) i <b>zapisz skany w folderze „${korzen}”</b> albo przeciągnij je tutaj. Resztę zrobię sam.</li></ol>`;
+        akcja = `<button type="button" class="przycisk glowny as-duzy" data-akcja="drukuj">${ik('i-drukuj')}Wydrukuj dokumenty</button><button type="button" class="kk-link" data-akcja="pdf-wydruk">albo pobierz PDF do wydruku</button>`;
+        status = `<button type="button" class="podp-strefa as-strefa" data-strefa data-akcja="wybierz-pliki"><span>Skany możesz też przeciągnąć tutaj albo kliknąć i wybrać</span></button>${pasek('Czekam na skany podpisanych poleceń')}${blad}${przelacz('gov')}`;
+      } else {
+        const t = nastepnaTura();
+        tytul = 'Podpisz dokumenty na gov.pl';
+        opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — wrócisz tu, a resztę zrobię sam.</li></ol>`;
+        akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
+        status = `${pasek('Czekam na podpisane pliki')}${radaPobrane()}${blad}${przelacz('reczny')}`;
+      }
+    }
+    else if (fol.stan === 'zgoda') { tytul = 'Pozwól na dostęp do folderu'; opis = `<p>Przeglądarka pyta o zgodę na folder „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”. Kliknij <b>„Pozwól”</b>, a potem <b>„Edytuj pliki”</b> w oknie przeglądarki.</p>${blad}`; akcja = duzy('folder-wznow', 'Pozwól'); }
+    else if (fol.stan === 'gotowy') { tytul = 'Zapisuję dokumenty w folderze…'; opis = `<p>To trwa chwilę. Jeśli nic się nie dzieje, kliknij „Zapisz dokumenty”.</p>${blad}`; akcja = duzy('folder-zapisz', 'Zapisz dokumenty', 'i-pobierz'); }
+    else if (fol.stan === 'blad') { tytul = 'Problem z folderem'; opis = blad || '<p>Nie mogę korzystać z wybranego folderu.</p>'; akcja = duzy('folder-zmien', 'Wskaż folder od nowa', 'i-pobierz'); }
+    else if (fol.stan === 'start') { tytul = 'Sprawdzam folder…'; }
+    else {
+      tytul = 'Wskaż folder na dokumenty';
+      opis = `<p>Robisz to tylko raz. Po kliknięciu otworzy się okno wyboru folderu:</p><ol class="as-lista"><li>Kliknij <b>„Nowy folder”</b>.</li><li>Wpisz nazwę <b>${NAZWA_FOLDERU}</b>.</li><li>Kliknij <b>„Wybierz folder”</b> (a jeśli przeglądarka zapyta o zgodę — <b>„Edytuj pliki”</b>).</li></ol>${blad}`;
+      akcja = duzy('folder-wskaz', 'Wskaż folder', 'i-pobierz');
+    }
+    return `<ol class="as-kroki" aria-label="Postęp">${chipy}</ol><div class="as-karta"><h3 class="as-tytul">${tytul}</h3>${opis}${akcja ? `<div class="as-akcja">${akcja}</div>` : ''}${status}</div>`;
+  }
+  function odswiezAsystenta() { const e = $('#asystent', arkTresc); if (e && widok === 'glowny') e.innerHTML = htmlAsystenta(); }
+  /** „Sposób wysyłki” pod „Inne sposoby”: na komputerze jest kilka dróg (plik w folderze, plik .eml, poczta…); domyślna działa sama, tu można ją zmienić. */
+  const htmlSposobu = () => dostepneMetody().length > 1 ? `Sposób: <b>${NAZWA_METODY[metodaWysylki()]}</b> <button type="button" class="kk-link" data-akcja="zmien-poczte">Zmień sposób</button>` : `Sposób: <b>${NAZWA_METODY[metodaWysylki()]}</b>`;
+  function widokAsystenta() {
+    return `${nagl('Dokumenty do podpisu')}
+      <div class="asystent" id="asystent">${htmlAsystenta()}</div>
+      <div id="podp-odrzucone" aria-live="polite"></div>
+      <details class="asyst-inne"><summary>Inne sposoby i szczegóły</summary>
+        <div class="asyst-inne-tresc">
+          <section><b>${ik('i-skan')}Wgraj podpisane pliki ręcznie</b><small>PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia (wszystkie naraz). Sam dopasuję je do dokumentów.</small><span class="kk-przyciski"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></section>
+          <section><b>${ik('i-pobierz')}Pobierz dokumenty osobno</b><small>Gdy folder nie działa: każdy PDF osobno do folderu Pobrane.</small>${wierszePobierania()}</section>
+          <section><b>Wysyłka</b><small id="asyst-sposob">${htmlSposobu()}</small></section>
+          <section><b>Folder</b><small>Dokumenty leżą w folderze „${esc((fol.korzen || { name: NAZWA_FOLDERU }).name)}”.</small><span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span></section>
+        </div></details>
+      <div id="dok-obszar">${przelacznikWidoku()}${obszarKart()}</div>
+      <div id="podp-wyniki"></div>
+      <div class="ark-dol" id="podp-dol"><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
+  }
+  function widokGlowny() { return folderMozliwy() ? widokAsystenta() : widokKlasyczny(); }
+  function widokKlasyczny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
     return `${nagl('Dokumenty do podpisu')}
       <ol class="kroki4">
         <li class="krok-k k2"><span class="kk-nr">1</span><div class="kk-tresc"><b>Podpisz</b>
           <div class="kk-opcje">
-            <div class="kk-opcja kk-gov"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>${folderMozliwy() ? 'Profil Zaufany, bezpłatnie. Podpisane pliki zapisz w folderze poniżej — wczytam je sam.' : 'Profil Zaufany, bezpłatnie. Najpierw pobierz dokumenty (każdy osobno, jako PDF) — strona gov.pl nie przyjmie plików z aplikacji, więc podpisujesz te z dysku.'} gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small>
-              ${folderMozliwy() ? htmlFolderu() : wierszePobierania()}
+            <div class="kk-opcja kk-gov"><b>${ik('i-pioro')}Elektronicznie (gov.pl)</b><small>Profil Zaufany, bezpłatnie. Najpierw pobierz dokumenty (każdy osobno, jako PDF) — strona gov.pl nie przyjmie plików z aplikacji, więc podpisujesz te z dysku. gov.pl przyjmuje naraz do ${LIMIT_GOV} plików po 25 MB${tury > 1 ? ` — przy ${razem} dokumentach podpisz w ${tury} ${liczba(tury, 'turze', 'turach', 'turach')}` : ''}.</small>
+              ${wierszePobierania()}
               ${akcjeGov()}</div>
             <div class="kk-opcja"><b>${ik('i-drukuj')}Odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika” (na rozliczeniu wydatków podpis nie jest wymagany), zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem).</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></div>
           </div></div></li>
@@ -350,6 +428,7 @@ export function zainstalujPodpis(k) {
     if (widok !== 'glowny') return;
     odswiezKarty();
     const l = $('#podp-licznik', arkTresc); if (l) l.innerHTML = podsumowanie();
+    if (folderMozliwy()) { odswiezAsystenta(); const sp = $('#asyst-sposob', arkTresc); if (sp) sp.innerHTML = htmlSposobu(); }
     const k5 = $('.krok-k.k5', arkTresc);
     if (k5) { const akt = mozeWyslac(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).innerHTML = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
     pokazWyniki(); if (wszystkoPodpisane() && !wyslane()) wczytajDane();
@@ -377,7 +456,7 @@ export function zainstalujPodpis(k) {
   /** Po pobraniu: odświeża tylko listę dokumentów i przycisk gov.pl (reszta okna, np. karuzela, zostaje jak była). */
   function odswiezPobieranie() {
     if (widok !== 'glowny') return;
-    const l = $('.kk-gov .kk-pliki', arkTresc), a = $('#kk-gov-akcje', arkTresc);      // listy może nie być (gdy folder działa), przycisk gov.pl jest zawsze
+    const l = $('.kk-pliki', arkTresc), a = $('#kk-gov-akcje', arkTresc);      // listy może nie być (gdy folder działa), przycisk gov.pl jest zawsze
     if (l) l.outerHTML = wierszePobierania();
     const p = $('#kk-gov-podp', arkTresc); if (p) p.remove(); if (a) a.outerHTML = akcjeGov();
   }
@@ -523,11 +602,12 @@ export function zainstalujPodpis(k) {
       if (plikiDok(d.i).length && (!w || stary) && !sprawdzane.has(d.i)) await sprawdz(d.i);
     }
   }
+  const przewinDoWyslania = () => { const e = $('.krok-k.k5, #asystent', arkTresc); if (e && widok === 'glowny' && e.scrollIntoView) e.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };      // wszystko sprawdzone: „Wyślij” ma być na widoku
   function potwierdz(i) {
     const w = weryfikacje()[i]; if (!w) return;
     zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
-    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać dokumenty'); }
+    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać dokumenty'); przewinDoWyslania(); }
   }
 
   /* ---------------------------------- wgrywanie ---------------------------------- */
@@ -593,7 +673,7 @@ export function zainstalujPodpis(k) {
     if (!tenSam()) return;
     const ok = [...dotkniete].filter(i => M().podpisane[i]).length;
     if (k.zorza() && ok) k.zorza().flara(.22);
-    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać dokumenty'); }
+    if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane i sprawdzone — możesz wysłać dokumenty'); przewinDoWyslania(); }
     else if (!dotkniete.size) pokazToast('Żaden plik nie został przyjęty — powody są pod krokami');
     else pokazToast(ok === dotkniete.size ? `Sprawdzono ${ok} ${liczba(ok, 'dokument', 'dokumenty', 'dokumentów')} — podpisy w porządku` : `Sprawdzono ${dotkniete.size}: ${ok} w porządku, ${dotkniete.size - ok} do poprawy — szczegóły w kartach dokumentów`);
   }
@@ -718,7 +798,7 @@ export function zainstalujPodpis(k) {
         const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
         await zapiszPlik(fol.korzen, EML, eml);      // wprost do folderu (File System Access API): bez pobierania, więc bez ostrzeżenia o „niebezpiecznym pliku”
         oznaczWyslane();
-        stanW(`Wiadomość gotowa w folderze „${esc(fol.korzen.name)}”: <span class="adr">${EML}</span> (adresat, temat, treść i zahasłowana paczka w jednym pliku). <span class="adr">Kliknij ją dwukrotnie</span> — otworzy się poczta; kliknij tam „Wyślij”. Przeglądarka niczego nie pobiera, więc nie ostrzega przed „niebezpiecznym plikiem”.${duza}`);
+        stanW(`<b>Wiadomość gotowa w folderze „${esc(fol.korzen.name)}”.</b> Zostały dwa kliknięcia:<ol class="as-lista"><li>Otwórz folder „${esc(fol.korzen.name)}” (na Pulpicie) i <b>kliknij dwukrotnie</b> plik <span class="adr">${EML}</span> — otworzy się poczta z gotową wiadomością i paczką.</li><li>W poczcie kliknij <b>„Wyślij”</b>.</li></ol>${duza}`);
         pokazToast('Wiadomość czeka w folderze „' + fol.korzen.name + '” — kliknij ją dwukrotnie');
         return;
       }
@@ -773,6 +853,10 @@ export function zainstalujPodpis(k) {
     else if (a === 'folder-zapisz') zapiszDokumentyWFolderze();
     else if (a === 'folder-wznow') wznowFolder(true);
     else if (a === 'folder-zmien') zmienFolderRoboczy();
+    else if (a === 'sposob') { ustawSposobPodpisu(b.dataset.sposob); odswiezAsystenta(); }
+    else if (a === 'wybierz-pliki') { const inp = $('#plik-wgraj', arkTresc); if (inp) inp.click(); }
+    else if (a === 'pobrane-rada-ok') { try { localStorage.setItem('pmt-ui-pobrane-rada', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#kk-pobrane-rada', arkTresc); if (r) r.remove(); }
+    else if (a === 'pobrane-kopiuj') { try { await navigator.clipboard.writeText(b.dataset.adres); pokazToast('Skopiowano — wklej adres w pasku adresu przeglądarki'); } catch (e) { pokazToast('Nie udało się skopiować — zaznacz adres i skopiuj go ręcznie'); } }
     else if (a === 'glowny') pokaz('glowny');
     else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null, m === 'pulpit' ? zapytajOMiejsceZapisu() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
     else if (a === 'wyslij-plik') wyslij('plik', null);

@@ -276,6 +276,23 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       klika plik dwukrotnie w folderze (Chromium oznacza zapisany plik znacznikiem pochodzenia z internetu, jak pobrany). Bez folderu zostaje pobranie .eml + wskazówka „wskaż folder”. Znacznik wyboru sposobu
       pmt-ui-poczta-v = 3 (jednorazowe wyzerowanie, żeby nowy domyślny sposób obowiązywał wszystkich). Test: testy/folder_app.js (plik w OPFS: nagłówki szkicu, ZIP w załączniku, zero zdarzeń „download”, bez adresu
       w komunikacie), paczka_test.js. NIE sprawdzone na prawdziwym Edge (otwarcie .eml z folderu w Outlooku/Poczcie Windows — też dopiero właściciel).
+      UPROSZCZENIE PRZEPŁYWU Z FOLDEREM (prośba właściciela 10.11: „zbyt dużo przeskakiwania i kroków dla laika”, wariant A): w przeglądarkach z folderem (Chrome/Edge na komputerze) okno podpisu ma TRZY kroki (1 Podpisz,
+      2 Sprawdzenie, 3 Wyślij) — ręczne wgrywanie (skany, pliki z innego miejsca) jest schowane pod linkiem „Wgraj ręcznie”; jedna główna akcja naraz (najpierw „Wskaż miejsce”, po zapisie dokumentów „Otwórz gov.pl”, bez
+      wyszarzonych przycisków); opis mówi, które pliki wybrać na gov.pl (tylko polecenia — rozliczenie bez podpisu — i w jakich turach po 5); podpisane pliki są wczytywane od razu po powrocie na kartę (zdarzenia
+      focus/visibilitychange; plik starszy niż 4 s bez czekania na drugi odczyt); po sprawdzeniu wszystkich okno przewija do „Wyślij”; opcjonalna jednolinijkowa podpowiedź (znika po „Ukryj” i po pierwszym wczytanym pliku):
+      ustaw raz w przeglądarce „Pobrane → Lokalizacja” na folder „delegacje” — wtedy podpisane pliki z gov.pl trafiają tam same (strona nie może tego zmienić, a przeglądarka nie pozwala czytać folderu Pobrane; firma może
+      zablokować zmianę — NIE sprawdzone na prawdziwej przeglądarce). Test: testy/folder_app.js. Bez folderu (telefon, Firefox, Safari) — bez zmian, cztery kroki.
+      ASYSTENT PODPISU (prośba właściciela 10.11: „dalej zbyt dużo klikania, laik nie wie co zrobić”): w przeglądarkach z folderem okno „Dokumenty do podpisu” to jeden asystent (js/podpis.js: htmlAsystenta) — pasek
+      „Folder · Podpis · Wysyłka”, tytuł, 2–3 krótkie kroki, JEDEN duży przycisk („Wskaż folder” → „Otwórz gov.pl” → „Wyślij”) i postęp na żywo („Wczytano 2 z 6 podpisanych poleceń”, nazwy plików do wybrania na gov.pl
+      w turach po 5). Stan wynika z tego, co aplikacja sama wykryła; nic się nie przełącza ręcznie. Odręcznie, ręczne wgrywanie, pobieranie osobno, sposób wysyłki i zmiana folderu są pod „Inne sposoby i szczegóły”.
+      Karty dokumentów zostają pod spodem. Bez folderu (telefon, Firefox, Safari) — dawne cztery kroki (widokKlasyczny). BŁĄD NAPRAWIONY przy okazji: poprzednia podpowiedź kazała ustawić pobieranie na folder „delegacje”,
+      a aplikacja obserwowała tylko podfolder miesiąca — teraz obserwuje oba (folder główny i miesiąc). Test: testy/folder_app.js (38 kontroli; PMT_ZRZUTY=katalog zapisuje zrzuty stanów).
+      PODPIS ODRĘCZNY W ASYSTENCIE (uwaga właściciela 10.11: „rozmawiamy tylko o gov.pl, a chciałbym analogicznego rozwiązania dla podpisu ręcznego”): po folderze asystent pyta JEDNYM ekranem „Jak chcesz podpisać
+      dokumenty?” (dwie karty: Elektronicznie — gov.pl / Odręcznie — wydruk i skan); wybór jest zapamiętany na urządzeniu (pmt-ui-sposob-podpisu), a odnośniki „Wolę podpisać …” przełączają w obie strony. Ścieżka odręczna
+      ma tę samą budowę co gov.pl: trzy krótkie kroki (wydruk — rozliczenia nie podpisujesz; podpis długopisem w miejscu „podpis pracownika”; skan zapisany w folderze „delegacje” albo przeciągnięty), JEDEN duży
+      przycisk „Wydrukuj dokumenty” (+ „pobierz PDF do wydruku”), strefa na skany i postęp na żywo; skany z folderu aplikacja sama wczytuje i sprawdza (rozpoznanie podpisu odręcznego jak przy ręcznym wgraniu).
+      Dawna sekcja „Wolę podpisać odręcznie” z „Inne sposoby” zniknęła (to zwykła ścieżka). Test: testy/folder_reczny_app.js (sztuczne skany z dane/skanuj_pliki.py zapisane do folderu), folder_app.js. NIE sprawdzone
+      na prawdziwym skanerze/aplikacji skanującej (skany ze zdjęć pod kątem są odrzucane tak jak dotąd).
       Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
       Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.
 - [x] EDGE OTWIERAŁ POCZTĘ BEZ ZAŁĄCZNIKA (zgłoszenie właściciela 5.11, po poprawce pobierania): najprawdopodobniej zapamiętany w Edge sposób „otwarcie poczty” (mailto: nie umie dołączyć pliku) — wybór jest osobny w każdej

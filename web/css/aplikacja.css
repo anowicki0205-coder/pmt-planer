@@ -2072,6 +2072,16 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .as-status small{color:#0E7040;font-weight:600;font-size:.76rem}
 .as-blad{color:#B3203F;font-weight:600}
 .as-stan{font-size:.98rem;line-height:1.5}
+.as-wybory{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;width:100%}
+@media (max-width:640px){.as-wybory{grid-template-columns:1fr}}
+.as-wybor{display:grid;gap:.3rem;justify-items:start;text-align:left;padding:1rem 1.1rem;border-radius:18px;border:1.6px solid #C9C1F5;background:#F6F4FF;color:#1B1840;cursor:pointer;font:inherit;transition:background .2s,border-color .2s,transform .15s}
+.as-wybor:hover,.as-wybor:focus-visible{background:#EDE8FF;border-color:#7A3FE0;transform:translateY(-1px)}
+.as-wybor b{display:flex;align-items:center;gap:.5rem;font-size:1.08rem;font-weight:720;color:#2A1180}
+.as-wybor small{font-size:.88rem;line-height:1.4;color:#4A4670}
+.as-karta .as-strefa{width:100%;min-height:3.4rem;background:#F3F4FC;border:1.6px dashed #B3ABEE;color:#4A1FB8;box-shadow:none;font:inherit;font-size:.9rem}
+.as-karta .as-strefa:hover,.as-karta .as-strefa.nad{background:#E9E6FF;border-color:#7A3FE0;color:#2A1180}
+.as-przelacz{justify-self:start;margin-top:.1rem}
+.as-akcja{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
 .asyst-inne{margin:.15rem 0 .2rem;color:#fff}
 .asyst-inne>summary{cursor:pointer;font-size:.88rem;font-weight:650;padding:.3rem .2rem;list-style:revert;opacity:.92}
 .asyst-inne-tresc{display:grid;gap:.5rem;margin-top:.35rem}

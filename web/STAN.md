@@ -287,6 +287,12 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       w turach po 5). Stan wynika z tego, co aplikacja sama wykryła; nic się nie przełącza ręcznie. Odręcznie, ręczne wgrywanie, pobieranie osobno, sposób wysyłki i zmiana folderu są pod „Inne sposoby i szczegóły”.
       Karty dokumentów zostają pod spodem. Bez folderu (telefon, Firefox, Safari) — dawne cztery kroki (widokKlasyczny). BŁĄD NAPRAWIONY przy okazji: poprzednia podpowiedź kazała ustawić pobieranie na folder „delegacje”,
       a aplikacja obserwowała tylko podfolder miesiąca — teraz obserwuje oba (folder główny i miesiąc). Test: testy/folder_app.js (38 kontroli; PMT_ZRZUTY=katalog zapisuje zrzuty stanów).
+      PODPIS ODRĘCZNY W ASYSTENCIE (uwaga właściciela 10.11: „rozmawiamy tylko o gov.pl, a chciałbym analogicznego rozwiązania dla podpisu ręcznego”): po folderze asystent pyta JEDNYM ekranem „Jak chcesz podpisać
+      dokumenty?” (dwie karty: Elektronicznie — gov.pl / Odręcznie — wydruk i skan); wybór jest zapamiętany na urządzeniu (pmt-ui-sposob-podpisu), a odnośniki „Wolę podpisać …” przełączają w obie strony. Ścieżka odręczna
+      ma tę samą budowę co gov.pl: trzy krótkie kroki (wydruk — rozliczenia nie podpisujesz; podpis długopisem w miejscu „podpis pracownika”; skan zapisany w folderze „delegacje” albo przeciągnięty), JEDEN duży
+      przycisk „Wydrukuj dokumenty” (+ „pobierz PDF do wydruku”), strefa na skany i postęp na żywo; skany z folderu aplikacja sama wczytuje i sprawdza (rozpoznanie podpisu odręcznego jak przy ręcznym wgraniu).
+      Dawna sekcja „Wolę podpisać odręcznie” z „Inne sposoby” zniknęła (to zwykła ścieżka). Test: testy/folder_reczny_app.js (sztuczne skany z dane/skanuj_pliki.py zapisane do folderu), folder_app.js. NIE sprawdzone
+      na prawdziwym skanerze/aplikacji skanującej (skany ze zdjęć pod kątem są odrzucane tak jak dotąd).
       Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
       Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.
 - [x] EDGE OTWIERAŁ POCZTĘ BEZ ZAŁĄCZNIKA (zgłoszenie właściciela 5.11, po poprawce pobierania): najprawdopodobniej zapamiętany w Edge sposób „otwarcie poczty” (mailto: nie umie dołączyć pliku) — wybór jest osobny w każdej

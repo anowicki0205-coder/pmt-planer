@@ -329,6 +329,12 @@ export function zainstalujPodpis(k) {
     const tura = ileDoPodpisu().czeka.slice(0, LIMIT_GOV), nazwy = tura.map((d, i) => { const m = /^delegacja_(\d+)/i.exec(d.nazwa); return m ? (i ? m[1] : 'delegacja_' + m[1]) : d.nazwa; });
     return { ile: tura.length, tekst: nazwy.join(', ') };
   }
+  /* Sposób podpisu: 'gov' (Profil Zaufany na gov.pl) albo 'reczny' (wydruk, podpis długopisem, skan). Zapamiętany na urządzeniu; gdy jeszcze nie wybrano, asystent pyta jednym ekranem z dwiema kartami
+     (a gdy coś już wczytano — wnioskuje: skan z podpisem odręcznym → odręcznie, inaczej gov.pl). Oba sposoby kończą się tak samo: pliki trafiają do folderu „delegacje”, aplikacja je wczytuje i sprawdza. */
+  const SPOSOBY_PODPISU = ['gov', 'reczny'];
+  let sposobPodpisu = (() => { try { const v = localStorage.getItem('pmt-ui-sposob-podpisu'); return SPOSOBY_PODPISU.includes(v) ? v : ''; } catch (e) { return ''; } })();
+  const ustawSposobPodpisu = v => { sposobPodpisu = SPOSOBY_PODPISU.includes(v) ? v : ''; try { if (sposobPodpisu) localStorage.setItem('pmt-ui-sposob-podpisu', sposobPodpisu); else localStorage.removeItem('pmt-ui-sposob-podpisu'); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } };
+  const sposobPodpisuTeraz = () => sposobPodpisu || (!ileDoPodpisu().ok ? '' : Object.values(weryfikacje()).some(w => w && w.rodzaj === 'odreczny') ? 'reczny' : 'gov');
   const statusObserwacji = () => fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…';
   function htmlAsystenta() {
     const { n, ok } = ileDoPodpisu(), korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), wyk = wszystkoPodpisane(), wys = wyslane();
@@ -346,12 +352,24 @@ export function zainstalujPodpis(k) {
       }
     }
     else if (fol.stan === 'zapisany') {
-      const t = nastepnaTura(), proc = n ? Math.round(ok / n * 100) : 0;
-      tytul = 'Podpisz dokumenty na gov.pl';
-      opis = `<p class="as-gdzie">Dokumenty czekają w folderze „${korzen}” › „${pod}”.</p>
-        <ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — wrócisz tu, a resztę zrobię sam.</li></ol>`;
-      akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
-      status = `<div class="as-status"><div class="as-pasek" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${ok}"><i style="width:${proc}%"></i></div><b>${ok ? `Wczytano ${ok} z ${n} podpisanych poleceń` : `Czekam na podpisane pliki · 0 z ${n}`}</b><small id="kk-folder-stan" aria-live="polite">${statusObserwacji()}</small></div>${radaPobrane()}${blad}`;
+      const sp = sposobPodpisuTeraz(), proc = n ? Math.round(ok / n * 100) : 0, gdzie = `<p class="as-gdzie">Dokumenty czekają w folderze „${korzen}” › „${pod}”.</p>`;
+      const pasek = czekam => `<div class="as-status"><div class="as-pasek" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${ok}"><i style="width:${proc}%"></i></div><b>${ok ? `Wczytano ${ok} z ${n} podpisanych poleceń` : `${czekam} · 0 z ${n}`}</b><small id="kk-folder-stan" aria-live="polite">${statusObserwacji()}</small></div>`;
+      const przelacz = inny => `<button type="button" class="kk-link as-przelacz" data-akcja="sposob" data-sposob="${inny}">${inny === 'gov' ? 'Wolę podpisać elektronicznie (gov.pl)' : 'Wolę podpisać odręcznie (wydruk i skan)'}</button>`;
+      if (!sp) {
+        tytul = 'Jak chcesz podpisać dokumenty?';
+        opis = `${gdzie}<div class="as-wybory"><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="gov"><b>${ik('i-pioro')}Elektronicznie — gov.pl</b><small>Bez drukowania. Potrzebny Profil Zaufany (bezpłatny).</small></button><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="reczny"><b>${ik('i-drukuj')}Odręcznie — wydruk i skan</b><small>Drukujesz, podpisujesz długopisem i skanujesz. Nie potrzeba żadnych kont.</small></button></div>`;
+      } else if (sp === 'reczny') {
+        tytul = 'Podpisz odręcznie';
+        opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Wydrukuj dokumenty”</b> i wydrukuj je (rozliczenia wydatków nie podpisujesz).</li><li>Podpisz długopisem każde polecenie w miejscu <b>„podpis pracownika”</b>.</li><li>Zeskanuj podpisane strony (aplikacją skanującą w telefonie albo skanerem — nie zdjęciem pod kątem) i <b>zapisz skany w folderze „${korzen}”</b> albo przeciągnij je tutaj. Resztę zrobię sam.</li></ol>`;
+        akcja = `<button type="button" class="przycisk glowny as-duzy" data-akcja="drukuj">${ik('i-drukuj')}Wydrukuj dokumenty</button><button type="button" class="kk-link" data-akcja="pdf-wydruk">albo pobierz PDF do wydruku</button>`;
+        status = `<button type="button" class="podp-strefa as-strefa" data-strefa data-akcja="wybierz-pliki"><span>Skany możesz też przeciągnąć tutaj albo kliknąć i wybrać</span></button>${pasek('Czekam na skany podpisanych poleceń')}${blad}${przelacz('gov')}`;
+      } else {
+        const t = nastepnaTura();
+        tytul = 'Podpisz dokumenty na gov.pl';
+        opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — wrócisz tu, a resztę zrobię sam.</li></ol>`;
+        akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
+        status = `${pasek('Czekam na podpisane pliki')}${radaPobrane()}${blad}${przelacz('reczny')}`;
+      }
     }
     else if (fol.stan === 'zgoda') { tytul = 'Pozwól na dostęp do folderu'; opis = `<p>Przeglądarka pyta o zgodę na folder „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”. Kliknij <b>„Pozwól”</b>, a potem <b>„Edytuj pliki”</b> w oknie przeglądarki.</p>${blad}`; akcja = duzy('folder-wznow', 'Pozwól'); }
     else if (fol.stan === 'gotowy') { tytul = 'Zapisuję dokumenty w folderze…'; opis = `<p>To trwa chwilę. Jeśli nic się nie dzieje, kliknij „Zapisz dokumenty”.</p>${blad}`; akcja = duzy('folder-zapisz', 'Zapisz dokumenty', 'i-pobierz'); }
@@ -373,7 +391,6 @@ export function zainstalujPodpis(k) {
       <div id="podp-odrzucone" aria-live="polite"></div>
       <details class="asyst-inne"><summary>Inne sposoby i szczegóły</summary>
         <div class="asyst-inne-tresc">
-          <section><b>${ik('i-drukuj')}Wolę podpisać odręcznie</b><small>Wydrukuj, podpisz długopisem w miejscu „podpis pracownika” (na rozliczeniu wydatków podpis nie jest wymagany), zeskanuj (aplikacja skanująca, nie zdjęcie pod kątem) i wgraj poniżej.</small><span class="kk-przyciski"><button type="button" class="przycisk" data-akcja="drukuj">Wydrukuj</button><button type="button" class="przycisk" data-akcja="pdf-wydruk">Pobierz PDF</button></span></section>
           <section><b>${ik('i-skan')}Wgraj podpisane pliki ręcznie</b><small>PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia (wszystkie naraz). Sam dopasuję je do dokumentów.</small><span class="kk-przyciski"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></section>
           <section><b>${ik('i-pobierz')}Pobierz dokumenty osobno</b><small>Gdy folder nie działa: każdy PDF osobno do folderu Pobrane.</small>${wierszePobierania()}</section>
           <section><b>Wysyłka</b><small id="asyst-sposob">${htmlSposobu()}</small></section>
@@ -836,6 +853,8 @@ export function zainstalujPodpis(k) {
     else if (a === 'folder-zapisz') zapiszDokumentyWFolderze();
     else if (a === 'folder-wznow') wznowFolder(true);
     else if (a === 'folder-zmien') zmienFolderRoboczy();
+    else if (a === 'sposob') { ustawSposobPodpisu(b.dataset.sposob); odswiezAsystenta(); }
+    else if (a === 'wybierz-pliki') { const inp = $('#plik-wgraj', arkTresc); if (inp) inp.click(); }
     else if (a === 'pobrane-rada-ok') { try { localStorage.setItem('pmt-ui-pobrane-rada', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#kk-pobrane-rada', arkTresc); if (r) r.remove(); }
     else if (a === 'pobrane-kopiuj') { try { await navigator.clipboard.writeText(b.dataset.adres); pokazToast('Skopiowano — wklej adres w pasku adresu przeglądarki'); } catch (e) { pokazToast('Nie udało się skopiować — zaznacz adres i skopiuj go ręcznie'); } }
     else if (a === 'glowny') pokaz('glowny');

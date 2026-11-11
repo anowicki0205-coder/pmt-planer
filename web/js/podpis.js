@@ -9,7 +9,7 @@
 //      a przy podpisie odręcznym — czy na skanie widać podpis w miejscu „podpis pracownika”. Dopiero sprawdzone dokumenty liczą się jako podpisane. ROZLICZENIE WYDATKÓW podpisu nie wymaga
 //      (przyjmuję je z podpisem i bez; plik pobrany bez zmian też jest w porządku),
 //   4. Wyślij: zahasłowana paczka i gotowa wiadomość na wskazany adres (hasło nadaje administrator — js/dostep.js pobierzHasloPaczki). Pole „albo przeciągnij tu podpisane pliki” leży między krokiem 2 a 3 — tam, gdzie się wgrywa.
-import { scalPdf, dopasujPliki, rozpakujZip } from './pliki.js';
+import { scalPdf, dopasujPliki, rozpakujZip, zawieraOryginal, normalizujNazwe } from './pliki.js';
 import { zipujKlasycznie } from './zipklasyczny.js';
 import { zipujAes } from './zipaes.js';
 import { zbudujEml, wczytajSposobWysylki } from './poczta.js';
@@ -20,6 +20,7 @@ import { obslugiwany as folderMozliwy, wczytajFolder, zapamietajFolder, zapomnij
 import { atrapaHtml, daneDelegacji, daneRozliczenia } from './dokument_atrapa.js';
 import { ocenPodpisElektroniczny, podpisyWPdf, czasPl, xadesDotyczy } from './weryfikacja.js';
 import { stronyZeSkanu, szukajPodpisu, strefaPodpisu, obrazyZPdf, skanBezJpeg } from './podpis_reczny.js';
+import { wpisyZUpuszczenia, przejdzWpisy, obslugiwanyPlik } from './upuszczanie.js';
 
 const TYPY = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', heic: 'image/heic', heif: 'image/heif', webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff',
   xades: 'application/xml', xml: 'application/xml', sig: 'application/octet-stream', p7s: 'application/pkcs7-signature', p7m: 'application/pkcs7-mime' };
@@ -49,6 +50,11 @@ export function zainstalujPodpis(k) {
   let wgrane = [];                // pliki z ostatnich wgrań: { plik, bajty, i, jak, powod, rodzaj }
   let partia = new Set();         // pierwotne nazwy plików z ostatniego wgrania (pliki dokumentu spoza niego to starsze wersje, które nowy podpis może zastąpić)
   let widok = 'glowny', otwarte = new Set(); const sprawdzane = new Set();
+  /* Dwa wyglądy okna: ASYSTENT (domyślny w każdej przeglądarce: jedna rzecz do zrobienia naraz) i KLASYCZNY (wszystkie cztery kroki naraz — dla kogoś, kto woli widzieć całość; przełącznik na dole asystenta
+     i okna klasycznego, wybór pamiętany na urządzeniu). Przeglądarki z dostępem do folderów (Chrome, Edge na komputerze) mają zawsze asystenta — klasycznego okna tam nie ma. */
+  let widokPodpisu = (() => { try { return localStorage.getItem('pmt-ui-widok-podpisu') === 'klasyczny' ? 'klasyczny' : 'asystent'; } catch (e) { return 'asystent'; } })();
+  const uzywaAsystenta = () => folderMozliwy() || widokPodpisu !== 'klasyczny';
+  const ustawWidokPodpisu = w => { widokPodpisu = w === 'klasyczny' ? 'klasyczny' : 'asystent'; try { localStorage.setItem('pmt-ui-widok-podpisu', widokPodpisu); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } pokaz('glowny'); };
 
   /* ---------------------------------- pomocnicze ---------------------------------- */
   const nagl = (tytul, wstecz) => `<div class="ark-gora">${wstecz ? `<button type="button" class="ark-wstecz" data-akcja="glowny" aria-label="Wstecz">${ik('i-lewo')}</button>` : ''}<h2 id="ark-tyt">${tytul}</h2><button type="button" class="ark-zam" data-zamknij aria-label="Zamknij">${ik('i-zamknij')}</button></div>`;
@@ -228,7 +234,7 @@ export function zainstalujPodpis(k) {
       <div class="kk-pobrane-dol"><details class="kk-jak"><summary>Jak to zrobić?</summary><ol><li>Skopiuj adres <span class="adr">${adres}</span> <button type="button" class="przycisk maly" data-akcja="pobrane-kopiuj" data-adres="${adres}">Kopiuj</button> i wklej go w pasku adresu przeglądarki.</li><li>Przy „Lokalizacja” kliknij „Zmień” i wskaż folder „${NAZWA_FOLDERU}” (na Pulpicie).</li></ol><small>Firma może to blokować — wtedy po podpisaniu przeciągnij pliki z Pobranych do folderu albo użyj „Wgraj ręcznie”.</small></details>
       <button type="button" class="kk-link" data-akcja="pobrane-rada-ok">Ukryj</button></div></div>`;
   }
-  function odswiezFolder() { if (widok !== 'glowny') return; odswiezAsystenta(); odswiezPobieranie(); }
+  function odswiezFolder() { if (widok !== 'glowny') return; odswiezPobieranie(); }
   /** Przy otwarciu okna: wczytuje zapamiętany folder i sprawdza, czy przeglądarka pamięta zgodę; jeśli dokumenty już są w folderze, zaczyna go obserwować. */
   async function inicjujFolder() {
     if (!folderMozliwy()) return;
@@ -265,13 +271,20 @@ export function zainstalujPodpis(k) {
       if ((await zgodaFolderu(fol.uchwyt, zadaj)) !== 'granted') { fol.stan = 'zgoda'; return odswiezFolder(); }
       const o = await oryginaly(); if (!o.length) { if (zadaj) pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
       fol.korzen = fol.korzen || await korzenDelegacji(fol.uchwyt); fol.miesiac = await podfolder(fol.korzen, nazwaPodfolderu());
-      const st = stanFolderu(); st.zapisano = true;
+      zaznaczOd(); const st = stanFolderu(); st.zapisano = true;
       for (const x of o) { const nazwa = bezOgonkow(x.d.nazwa), odc = await zapiszPlik(fol.miesiac, nazwa, x.bajty); st.baza[nazwa] = `${odc.nazwa}|${odc.rozmiar}|${odc.zmiana}`; }
       zapiszStanFolderu(st); oznaczPobrane(o.map(x => x.d.i)); fol.stan = 'zapisany'; fol.widziane = new Map(); zacznijObserwowac();
       pokazToast(`Zapisano ${o.length} ${liczba(o.length, 'dokument', 'dokumenty', 'dokumentów')} w folderze „${fol.korzen.name}” › „${nazwaPodfolderu()}”`);
       odswiezFolder();
-      const roz = o.find(x => x.d.rozliczenie); if (roz && !plikiDok(roz.d.i).length) await przyjmij([new File([roz.bajty], bezOgonkow(roz.d.nazwa), { type: 'application/pdf' })]);
+      await przyjmijRozliczenie();
     } catch (e) { console.error('zapis w folderze', e); fol.stan = 'blad'; fol.blad = 'Nie udało się zapisać dokumentów w folderze: ' + String((e && e.message) || e).slice(0, 100); odswiezFolder(); }
+  }
+  /** Rozliczenie wydatków nie wymaga podpisu: aplikacja przyjmuje je sama (plik bez zmian), bez wgrywania i bez śladu na liście „dopasowanych plików”. */
+  async function przyjmijRozliczenie() {
+    const d = k.nazwyDok().find(x => x.rozliczenie); if (!d || plikiDok(d.i).length) return;
+    const b = await oryginal(d); if (!b) return;
+    const plik = new File([b], bezOgonkow(d.nazwa), { type: 'application/pdf' });
+    await przyjmij([plik]); wgrane = wgrane.filter(w => w.plik !== plik); pokazWyniki();
   }
   async function zmienFolderRoboczy() {
     clearInterval(fol.timer); fol.timer = 0; await zapomnijFolder();
@@ -286,7 +299,7 @@ export function zainstalujPodpis(k) {
    *  (to samo, co „Wybierz pliki”: rozpoznanie dokumentu, sprawdzenie podpisu w tle). */
   async function odczytajFolder() {
     if (!arkTresc.isConnected || !$('#dok-obszar', arkTresc) || widok !== 'glowny') { clearInterval(fol.timer); fol.timer = 0; return; }
-    if (document.hidden || fol.zajety || fol.stan !== 'zapisany' || !fol.miesiac) return;
+    if (fol.zajety || fol.stan !== 'zapisany' || !fol.miesiac) return;      // także gdy karta jest w tle (użytkownik podpisuje na gov.pl): po powrocie wszystko jest już wczytane i sprawdzone
     fol.zajety = true;
     try {
       /* podpisane pliki mogą trafić do podfolderu miesiąca (zapisane tam) ALBO do folderu głównego „delegacje” (gdy pobieranie w przeglądarce ustawiono na ten folder) — patrzymy w oba */
@@ -304,6 +317,7 @@ export function zainstalujPodpis(k) {
         st.przetworzone.push(...nowe.map(f => f.odcisk)); zapiszStanFolderu(st); fol.wykryto += nowe.length;
         const s = $('#kk-folder-stan', arkTresc); if (s) s.textContent = `Wykryto ${nowe.length} ${liczba(nowe.length, 'nowy plik', 'nowe pliki', 'nowych plików')} — wczytuję i sprawdzam…`;
         await przyjmij(pliki);
+        if (document.hidden) { const { n, ok } = ileDoPodpisu(); oznaczKarte(`✔ ${ok}/${n}`); }      // karta w tle: znacznik w tytule karty pokazuje, że podpisane pliki już są
         const rada = $('#kk-pobrane-rada', arkTresc); if (rada) rada.remove();      // podpisane pliki już docierają — podpowiedź o lokalizacji pobierania niepotrzebna
       }
       const s = $('#kk-folder-stan', arkTresc); if (s) s.textContent = `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}`;
@@ -336,12 +350,36 @@ export function zainstalujPodpis(k) {
   const ustawSposobPodpisu = v => { sposobPodpisu = SPOSOBY_PODPISU.includes(v) ? v : ''; try { if (sposobPodpisu) localStorage.setItem('pmt-ui-sposob-podpisu', sposobPodpisu); else localStorage.removeItem('pmt-ui-sposob-podpisu'); } catch (e) { /* bez pamięci przeglądarki wybór obowiązuje do zamknięcia okna */ } };
   const sposobPodpisuTeraz = () => sposobPodpisu || (!ileDoPodpisu().ok ? '' : Object.values(weryfikacje()).some(w => w && w.rodzaj === 'odreczny') ? 'reczny' : 'gov');
   const statusObserwacji = () => fol.ostatnio ? `Obserwuję folder · ostatnio sprawdziłem ${godz(fol.ostatnio)}${fol.wykryto ? ` · wczytane pliki: ${fol.wykryto}` : ''}` : 'Obserwuję folder…';
+  /* Od kiedy pliki w wybranym folderze (np. „Pobrane”) uznajemy za nowe: pierwsze pobranie, wydruk albo zapis dokumentów w tym miesiącu (z 2 min zapasu na różnice zegarów). */
+  const kluczOd = () => 'od-' + magMiesiace.klucz(M().rok, M().mies);
+  const odKiedy = () => Number(magUst.daj(kluczOd(), 0)) || Date.now() - 21 * 86400000;
+  const zaznaczOd = () => { if (!Number(magUst.daj(kluczOd(), 0))) magUst.ustaw(kluczOd(), Date.now() - 120000); };
+  const dotyk = () => matchMedia('(pointer:coarse)').matches;
+  let infoWgrania = '';           // komunikat po wskazaniu folderu albo upuszczeniu plików („nie znalazłem nowych podpisanych plików…”); znika przy kolejnym wgraniu
+  let pobieranieTrwa = false;     // trwa pobieranie dokumentów do podpisu (przycisk jest wtedy wyszarzony)
+  const radaPrzegladarkiUkryta = () => { try { return localStorage.getItem('pmt-ui-rada-przegladarki') === '1'; } catch (e) { return false; } };
+  /** Podpowiedź (tylko na komputerze w przeglądarce bez dostępu do folderów): najwygodniej jest w Edge albo Chrome — tam aplikacja zapisuje i wczytuje pliki sama. Zamykana, wybór pamiętany. */
+  function radaPrzegladarki() {
+    if (folderMozliwy() || dotyk() || radaPrzegladarkiUkryta()) return '';
+    const pr = przegladarka(), brave = !!(navigator.brave && navigator.brave.isBrave);
+    if (!brave && (pr === 'chrome' || pr === 'edge')) return '';
+    const co = brave ? 'Brave domyślnie blokuje dostęp aplikacji do folderów' : `W ${pr === 'firefox' ? 'Firefoksie' : pr === 'safari' ? 'Safari' : 'tej przeglądarce'} pliki pobierasz i wskazujesz ręcznie — przeglądarka nie pozwala aplikacji zapisywać ich w folderze`;
+    return `<p class="as-rada-przegl" id="as-rada-przegl"><span>${co}. <b>W Microsoft Edge albo Google Chrome na komputerze robię to za Ciebie</b> — wystarczy raz wskazać folder.${brave ? ' (W Brave włączysz to w adresie brave://flags/#file-system-access-api.)' : ''}</span><button type="button" class="kk-link kk-link-jasny" data-akcja="rada-przegladarki-ok">Rozumiem</button></p>`;
+  }
   function htmlAsystenta() {
-    const { n, ok } = ileDoPodpisu(), korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), wyk = wszystkoPodpisane(), wys = wyslane();
+    const tryb = folderMozliwy() ? 'folder' : 'pobieranie', { n, ok } = ileDoPodpisu(), proc = n ? Math.round(ok / n * 100) : 0, sp = sposobPodpisuTeraz();
+    const korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), wyk = wszystkoPodpisane(), wys = wyslane();
     const blad = fol.blad ? `<p class="as-blad kk-folder-blad" role="alert">${esc(fol.blad)}</p>` : '';
-    const krok = wys || wyk ? 3 : fol.stan === 'zapisany' ? 2 : 1;
-    const chipy = ['Folder', 'Podpis', 'Wysyłka'].map((t, i) => `<li class="${i + 1 < krok ? 'zrobione' : i + 1 === krok ? 'teraz' : ''}"><i>${i + 1 < krok ? '✓' : i + 1}</i>${t}</li>`).join('');
-    const duzy = (akcja, tekst, ikona) => `<button type="button" class="przycisk glowny as-duzy" data-akcja="${akcja}">${ikona ? ik(ikona) : ''}${tekst}</button>`;
+    const krok = wys || wyk ? 3 : tryb === 'folder' ? (fol.stan === 'zapisany' ? 2 : 1) : (sp && (sp === 'reczny' || (pobrane().size && !pobieranieTrwa)) ? 2 : 1);
+    const chipy = (tryb === 'folder' ? ['Folder', 'Podpis', 'Wysyłka'] : ['Dokumenty', 'Podpis', 'Wysyłka']).map((t, i) => `<li class="${i + 1 < krok ? 'zrobione' : i + 1 === krok ? 'teraz' : ''}"><i>${i + 1 < krok ? '✓' : i + 1}</i>${t}</li>`).join('');
+    const duzy = (akcja, tekst, ikona, wylacz) => `<button type="button" class="przycisk glowny as-duzy" data-akcja="${akcja}"${wylacz ? ' disabled' : ''}>${ikona ? ik(ikona) : ''}${tekst}</button>`;
+    const pasek = czekam => `<div class="as-status"><div class="as-pasek" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${ok}"><i style="width:${proc}%"></i></div><b>${ok ? `Wczytano ${ok} z ${n} podpisanych poleceń` : `${czekam} · 0 z ${n}`}</b>${tryb === 'folder' ? `<small id="kk-folder-stan" aria-live="polite">${statusObserwacji()}</small>` : ''}</div>`;
+    const przelacz = inny => `<button type="button" class="kk-link as-przelacz" data-akcja="sposob" data-sposob="${inny}">${inny === 'gov' ? 'Wolę podpisać elektronicznie (gov.pl)' : 'Wolę podpisać odręcznie (wydruk i skan)'}</button>`;
+    const info = infoWgrania ? `<p class="as-info" role="status">${esc(infoWgrania)}</p>` : '';
+    const linkFolderu = `<button type="button" class="kk-link as-folder-link" data-akcja="wybierz-folder">${tryb === 'folder' ? 'Podpisane pliki trafiły gdzie indziej (np. do „Pobrane”)? Wskaż ten folder — znajdę je sam' : 'Wolę wskazać cały folder (np. „Pobrane”) — znajdę podpisane pliki sam'}</button>`;
+    const strefaPlikow = () => dotyk() ? `<button type="button" class="przycisk as-wybierz" data-akcja="wybierz-pliki">${ik('i-skan')}Wybierz podpisane pliki</button>` : `<button type="button" class="podp-strefa as-strefa as-strefa-duza" data-strefa data-akcja="wybierz-pliki"><b>Przeciągnij tu podpisane pliki</b><span>albo kliknij i wybierz je z listy</span></button>`;
+    const wybory = gdzie => `${gdzie}<div class="as-wybory"><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="gov"><b>${ik('i-pioro')}Elektronicznie — gov.pl</b><small>Bez drukowania. Potrzebny Profil Zaufany (bezpłatny).</small></button><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="reczny"><b>${ik('i-drukuj')}Odręcznie — wydruk i skan</b><small>Drukujesz, podpisujesz długopisem i skanujesz. Nie potrzeba żadnych kont.</small></button></div>`;
+    const bezWydruku = (t) => `<ol class="as-lista"><li>Kliknij <b>„Wydrukuj dokumenty”</b> i wydrukuj je (rozliczenia wydatków nie podpisujesz).</li><li>Podpisz długopisem każde polecenie w miejscu <b>„podpis pracownika”</b>.</li><li>${t}</li></ol>`;
     let tytul, opis = '', akcja = '', status = '';
     if (wys) { tytul = 'Wysyłka przygotowana ✔'; opis = `<div id="podp-wyslij-stan" class="as-stan" aria-live="polite">${stanWysylki || opisWyslij()}</div>`; }
     else if (wyk) {
@@ -351,27 +389,43 @@ export function zainstalujPodpis(k) {
         akcja = `<span id="podp-wyslij-akcje"><button type="button" class="przycisk glowny as-duzy" data-akcja="wyslij" data-metoda="${metodaWysylki()}"${wysylanie ? ' disabled' : ''}>${ik('i-wyslij')}Wyślij</button></span>`;
       }
     }
-    else if (fol.stan === 'zapisany') {
-      const sp = sposobPodpisuTeraz(), proc = n ? Math.round(ok / n * 100) : 0, gdzie = `<p class="as-gdzie">Dokumenty czekają w folderze „${korzen}” › „${pod}”.</p>`;
-      const pasek = czekam => `<div class="as-status"><div class="as-pasek" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${ok}"><i style="width:${proc}%"></i></div><b>${ok ? `Wczytano ${ok} z ${n} podpisanych poleceń` : `${czekam} · 0 z ${n}`}</b><small id="kk-folder-stan" aria-live="polite">${statusObserwacji()}</small></div>`;
-      const przelacz = inny => `<button type="button" class="kk-link as-przelacz" data-akcja="sposob" data-sposob="${inny}">${inny === 'gov' ? 'Wolę podpisać elektronicznie (gov.pl)' : 'Wolę podpisać odręcznie (wydruk i skan)'}</button>`;
-      if (!sp) {
-        tytul = 'Jak chcesz podpisać dokumenty?';
-        opis = `${gdzie}<div class="as-wybory"><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="gov"><b>${ik('i-pioro')}Elektronicznie — gov.pl</b><small>Bez drukowania. Potrzebny Profil Zaufany (bezpłatny).</small></button><button type="button" class="as-wybor" data-akcja="sposob" data-sposob="reczny"><b>${ik('i-drukuj')}Odręcznie — wydruk i skan</b><small>Drukujesz, podpisujesz długopisem i skanujesz. Nie potrzeba żadnych kont.</small></button></div>`;
-      } else if (sp === 'reczny') {
+    else if (tryb === 'pobieranie') {      // przeglądarka bez dostępu do folderów (Firefox, Safari, telefon): pliki idą przez folder Pobrane, a asystent prowadzi: pobierz → podpisz → wskaż lub przeciągnij podpisane pliki
+      if (!sp) { tytul = 'Jak chcesz podpisać dokumenty?'; opis = wybory(''); }
+      else if (sp === 'reczny') {
         tytul = 'Podpisz odręcznie';
-        opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Wydrukuj dokumenty”</b> i wydrukuj je (rozliczenia wydatków nie podpisujesz).</li><li>Podpisz długopisem każde polecenie w miejscu <b>„podpis pracownika”</b>.</li><li>Zeskanuj podpisane strony (aplikacją skanującą w telefonie albo skanerem — nie zdjęciem pod kątem) i <b>zapisz skany w folderze „${korzen}”</b> albo przeciągnij je tutaj. Resztę zrobię sam.</li></ol>`;
+        opis = bezWydruku(`Zeskanuj podpisane strony (${dotyk() ? 'aplikacją skanującą w telefonie' : 'skanerem albo aplikacją skanującą w telefonie'} — nie zdjęciem pod kątem) i <b>wgraj skany tutaj</b>. Resztę zrobię sam.`);
         akcja = `<button type="button" class="przycisk glowny as-duzy" data-akcja="drukuj">${ik('i-drukuj')}Wydrukuj dokumenty</button><button type="button" class="kk-link" data-akcja="pdf-wydruk">albo pobierz PDF do wydruku</button>`;
-        status = `<button type="button" class="podp-strefa as-strefa" data-strefa data-akcja="wybierz-pliki"><span>Skany możesz też przeciągnąć tutaj albo kliknąć i wybrać</span></button>${pasek('Czekam na skany podpisanych poleceń')}${blad}${przelacz('gov')}`;
+        status = `${strefaPlikow()}${dotyk() ? '' : linkFolderu}${pasek('Czekam na skany podpisanych poleceń')}${info}${przelacz('gov')}`;
+      } else if (!pobrane().size || pobieranieTrwa) {      // także w trakcie pobierania: karta zmienia się dopiero, gdy wszystkie pliki poszły
+        tytul = 'Pobierz dokumenty do podpisu';
+        opis = `<p>Strona gov.pl nie przyjmuje plików prosto z aplikacji, więc najpierw zapisz dokumenty na dysku. Kliknij przycisk — pliki trafią do folderu <b>Pobrane</b>.</p><p class="as-gdzie">Przeglądarka może zapytać o zgodę na pobranie kilku plików — kliknij „Zezwól”.</p>`;
+        akcja = duzy('pobierz-do-podpisu', pobieranieTrwa ? 'Pobieram…' : 'Pobierz dokumenty', 'i-pobierz', pobieranieTrwa);
+        status = przelacz('reczny');
+      } else {
+        const t = nastepnaTura();
+        tytul = 'Podpisz dokumenty na gov.pl';
+        opis = `<p class="as-gdzie">Dokumenty są w folderze <b>Pobrane</b>. <button type="button" class="kk-link" data-akcja="pobierz-do-podpisu">Pobierz je jeszcze raz</button></p><ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu <b>Pobrane</b> pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — potem wróć tutaj i <b>wgraj je</b> (${dotyk() ? 'dotknij „Wybierz podpisane pliki”' : 'przeciągnij je albo wybierz'}). Resztę zrobię sam.</li></ol>`;
+        akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
+        status = `${strefaPlikow()}${dotyk() ? '' : linkFolderu}${pasek('Czekam na podpisane pliki')}${info}${przelacz('reczny')}`;
+      }
+    }
+    else if (fol.stan === 'zapisany') {
+      const gdzie = `<p class="as-gdzie">Dokumenty czekają w folderze „${korzen}” › „${pod}”.</p>`;
+      if (!sp) { tytul = 'Jak chcesz podpisać dokumenty?'; opis = wybory(gdzie); }
+      else if (sp === 'reczny') {
+        tytul = 'Podpisz odręcznie';
+        opis = `${gdzie}` + bezWydruku(`Zeskanuj podpisane strony (aplikacją skanującą w telefonie albo skanerem — nie zdjęciem pod kątem) i <b>zapisz skany w folderze „${korzen}”</b> albo przeciągnij je tutaj. Resztę zrobię sam.`);
+        akcja = `<button type="button" class="przycisk glowny as-duzy" data-akcja="drukuj">${ik('i-drukuj')}Wydrukuj dokumenty</button><button type="button" class="kk-link" data-akcja="pdf-wydruk">albo pobierz PDF do wydruku</button>`;
+        status = `<button type="button" class="podp-strefa as-strefa" data-strefa data-akcja="wybierz-pliki"><span>Skany możesz też przeciągnąć tutaj albo kliknąć i wybrać</span></button>${pasek('Czekam na skany podpisanych poleceń')}${info}${blad}${linkFolderu}${przelacz('gov')}`;
       } else {
         const t = nastepnaTura();
         tytul = 'Podpisz dokumenty na gov.pl';
         opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — wrócisz tu, a resztę zrobię sam.</li></ol>`;
         akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
-        status = `${pasek('Czekam na podpisane pliki')}${radaPobrane()}${blad}${przelacz('reczny')}`;
+        status = `${pasek('Czekam na podpisane pliki')}${radaPobrane()}${info}${blad}${linkFolderu}${przelacz('reczny')}`;
       }
     }
-    else if (fol.stan === 'zgoda') { tytul = 'Pozwól na dostęp do folderu'; opis = `<p>Przeglądarka pyta o zgodę na folder „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”. Kliknij <b>„Pozwól”</b>, a potem <b>„Edytuj pliki”</b> w oknie przeglądarki.</p>${blad}`; akcja = duzy('folder-wznow', 'Pozwól'); }
+    else if (fol.stan === 'zgoda') { tytul = 'Pozwól na dostęp do folderu'; opis = `<p>Przeglądarka pyta o zgodę na folder „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”. Kliknij <b>„Pozwól”</b>, a w oknie przeglądarki wybierz <b>„Zezwalaj przy każdej wizycie”</b> (albo „Edytuj pliki”) — wtedy to pytanie już nie wróci.</p>${blad}`; akcja = duzy('folder-wznow', 'Pozwól'); }
     else if (fol.stan === 'gotowy') { tytul = 'Zapisuję dokumenty w folderze…'; opis = `<p>To trwa chwilę. Jeśli nic się nie dzieje, kliknij „Zapisz dokumenty”.</p>${blad}`; akcja = duzy('folder-zapisz', 'Zapisz dokumenty', 'i-pobierz'); }
     else if (fol.stan === 'blad') { tytul = 'Problem z folderem'; opis = blad || '<p>Nie mogę korzystać z wybranego folderu.</p>'; akcja = duzy('folder-zmien', 'Wskaż folder od nowa', 'i-pobierz'); }
     else if (fol.stan === 'start') { tytul = 'Sprawdzam folder…'; }
@@ -380,27 +434,34 @@ export function zainstalujPodpis(k) {
       opis = `<p>Robisz to tylko raz. Po kliknięciu otworzy się okno wyboru folderu:</p><ol class="as-lista"><li>Kliknij <b>„Nowy folder”</b>.</li><li>Wpisz nazwę <b>${NAZWA_FOLDERU}</b>.</li><li>Kliknij <b>„Wybierz folder”</b> (a jeśli przeglądarka zapyta o zgodę — <b>„Edytuj pliki”</b>).</li></ol>${blad}`;
       akcja = duzy('folder-wskaz', 'Wskaż folder', 'i-pobierz');
     }
-    return `<ol class="as-kroki" aria-label="Postęp">${chipy}</ol><div class="as-karta"><h3 class="as-tytul">${tytul}</h3>${opis}${akcja ? `<div class="as-akcja">${akcja}</div>` : ''}${status}</div>`;
+    return `<ol class="as-kroki" aria-label="Postęp">${chipy}</ol><div class="as-karta"><h3 class="as-tytul">${tytul}</h3>${opis}${akcja ? `<div class="as-akcja">${akcja}</div>` : ''}${status}</div>${radaPrzegladarki()}`;
   }
+  /* Znacznik w tytule karty przeglądarki („✔ 2/6 · PMT Planer”), gdy podpisane pliki wczytały się, gdy użytkownik był na innej karcie (gov.pl); znika po powrocie na kartę aplikacji. */
+  let tytulKarty = '';
+  function oznaczKarte(znacznik) { try { tytulKarty = tytulKarty || document.title.replace(/^✔ [^·]*· /, ''); document.title = `${znacznik} · ${tytulKarty}`; } catch (e) { /* tytuł niedostępny */ } }
+  function przywrocTytul() { if (tytulKarty && !document.hidden) { document.title = tytulKarty; } }
+  document.addEventListener('visibilitychange', przywrocTytul); window.addEventListener('focus', przywrocTytul);
   function odswiezAsystenta() { const e = $('#asystent', arkTresc); if (e && widok === 'glowny') e.innerHTML = htmlAsystenta(); }
   /** „Sposób wysyłki” pod „Inne sposoby”: na komputerze jest kilka dróg (plik w folderze, plik .eml, poczta…); domyślna działa sama, tu można ją zmienić. */
   const htmlSposobu = () => dostepneMetody().length > 1 ? `Sposób: <b>${NAZWA_METODY[metodaWysylki()]}</b> <button type="button" class="kk-link" data-akcja="zmien-poczte">Zmień sposób</button>` : `Sposób: <b>${NAZWA_METODY[metodaWysylki()]}</b>`;
   function widokAsystenta() {
+    const folder = folderMozliwy();
     return `${nagl('Dokumenty do podpisu')}
       <div class="asystent" id="asystent">${htmlAsystenta()}</div>
       <div id="podp-odrzucone" aria-live="polite"></div>
       <details class="asyst-inne"><summary>Inne sposoby i szczegóły</summary>
         <div class="asyst-inne-tresc">
-          <section><b>${ik('i-skan')}Wgraj podpisane pliki ręcznie</b><small>PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia (wszystkie naraz). Sam dopasuję je do dokumentów.</small><span class="kk-przyciski"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label></span><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></section>
-          <section><b>${ik('i-pobierz')}Pobierz dokumenty osobno</b><small>Gdy folder nie działa: każdy PDF osobno do folderu Pobrane.</small>${wierszePobierania()}</section>
+          <section><b>${ik('i-skan')}Wgraj podpisane pliki ręcznie</b><small>PDF z podpisem, plik .xades, paczka ZIP z gov.pl, skany i zdjęcia (wszystkie naraz). Sam dopasuję je do dokumentów. Możesz też przeciągnąć je w dowolne miejsce tego okna — także cały folder.</small><span class="kk-przyciski"><label class="przycisk glowny podp-wgraj">${ik('i-skan')}Wybierz pliki<input type="file" id="plik-wgraj" multiple accept="${AKCEPT}" data-wgraj hidden></label><button type="button" class="przycisk" data-akcja="wybierz-folder">Wskaż folder (np. Pobrane)</button><input type="file" id="plik-folder" webkitdirectory multiple data-wgraj-folder hidden></span><label class="podp-strefa" for="plik-wgraj" data-strefa><span>albo przeciągnij tu podpisane pliki</span></label></section>
+          <section><b>${ik('i-pobierz')}Pobierz dokumenty osobno</b><small>${folder ? 'Gdy folder nie działa: każdy PDF osobno do folderu Pobrane.' : 'Każdy PDF osobno do folderu Pobrane.'}</small>${wierszePobierania()}</section>
           <section><b>Wysyłka</b><small id="asyst-sposob">${htmlSposobu()}</small></section>
-          <section><b>Folder</b><small>Dokumenty leżą w folderze „${esc((fol.korzen || { name: NAZWA_FOLDERU }).name)}”.</small><span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span></section>
+          ${folder ? `<section><b>Folder</b><small>Dokumenty leżą w folderze „${esc((fol.korzen || { name: NAZWA_FOLDERU }).name)}”.</small><span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="folder-zmien">Zmień folder</button></span></section>`
+            : `<section><b>Wygląd okna</b><small>Wolisz widzieć wszystkie kroki naraz, bez prowadzenia za rękę?</small><span class="kk-przyciski"><button type="button" class="przycisk maly" data-akcja="widok-podpisu" data-w="klasyczny">Pokaż wszystkie kroki naraz</button></span></section>`}
         </div></details>
       <div id="dok-obszar">${przelacznikWidoku()}${obszarKart()}</div>
       <div id="podp-wyniki"></div>
       <div class="ark-dol" id="podp-dol"><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
   }
-  function widokGlowny() { return folderMozliwy() ? widokAsystenta() : widokKlasyczny(); }
+  function widokGlowny() { return uzywaAsystenta() ? widokAsystenta() : widokKlasyczny(); }
   function widokKlasyczny() {
     const razem = k.razemDok(), tury = Math.ceil(razem / LIMIT_GOV);
     return `${nagl('Dokumenty do podpisu')}
@@ -422,13 +483,13 @@ export function zainstalujPodpis(k) {
       <div id="podp-odrzucone" aria-live="polite"></div>
       <div id="dok-obszar">${przelacznikWidoku()}${obszarKart()}</div>
       <div id="podp-wyniki"></div>
-      <div class="ark-dol" id="podp-dol"><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
+      <div class="ark-dol" id="podp-dol"><button type="button" class="kk-link kk-link-jasny" data-akcja="widok-podpisu" data-w="asystent">Wróć do asystenta (jedna rzecz naraz)</button><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
   }
   function odswiezWidok() {
     if (widok !== 'glowny') return;
     odswiezKarty();
     const l = $('#podp-licznik', arkTresc); if (l) l.innerHTML = podsumowanie();
-    if (folderMozliwy()) { odswiezAsystenta(); const sp = $('#asyst-sposob', arkTresc); if (sp) sp.innerHTML = htmlSposobu(); }
+    if (uzywaAsystenta()) { odswiezAsystenta(); const sp = $('#asyst-sposob', arkTresc); if (sp) sp.innerHTML = htmlSposobu(); }
     const k5 = $('.krok-k.k5', arkTresc);
     if (k5) { const akt = mozeWyslac(); k5.classList.toggle('aktywny', akt); k5.classList.toggle('nieaktywny', !akt); $('#podp-wyslij-opis', k5).innerHTML = opisWyslij(); $('#podp-wyslij-akcje', k5).innerHTML = przyciskWyslij(); }
     pokazWyniki(); if (wszystkoPodpisane() && !wyslane()) wczytajDane();
@@ -444,18 +505,21 @@ export function zainstalujPodpis(k) {
   async function pobierzDokument(i) {
     const d = k.nazwyDok().find(x => x.i === i); if (!d) return;
     const b = await oryginal(d); if (!b) { pokazToast('Nie znalazłem dokumentu — wygeneruj go ponownie'); return; }
-    k.pobierzBlob(k.blobPdf(b), bezOgonkow(d.nazwa)); oznaczPobrane([i]); odswiezPobieranie();
+    zaznaczOd(); k.pobierzBlob(k.blobPdf(b), bezOgonkow(d.nazwa)); oznaczPobrane([i]); odswiezPobieranie();
   }
   /** Wszystkie dokumenty po kolei, każdy jako osobny PDF (przeglądarki mogą zapytać o zgodę na kilka pobrań). */
-  async function pobierzOsobno() {
-    const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
-    for (const x of o) { k.pobierzBlob(k.blobPdf(x.bajty), bezOgonkow(x.d.nazwa)); oznaczPobrane([x.d.i]); await czekaj(450); }      // pauza: przeglądarki gubią pobrania uruchomione w tej samej chwili
+  async function pobierzOsobno(tylkoDoPodpisu = false) {      // tylkoDoPodpisu: bez rozliczenia wydatków (nie wymaga podpisu, więc nie ma po co go podpisywać na gov.pl)
+    const o = (await oryginaly()).filter(x => !(tylkoDoPodpisu && x.d.rozliczenie)); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
+    if (pobieranieTrwa) return; pobieranieTrwa = true; zaznaczOd(); odswiezPobieranie();
+    try { for (const x of o) { k.pobierzBlob(k.blobPdf(x.bajty), bezOgonkow(x.d.nazwa)); oznaczPobrane([x.d.i]); await czekaj(450); } }      // pauza: przeglądarki gubią pobrania uruchomione w tej samej chwili
+    finally { pobieranieTrwa = false; }
     odswiezPobieranie();
     pokazToast(`Pobrano ${o.length} ${liczba(o.length, 'plik', 'pliki', 'plików')} do folderu Pobrane (przeglądarka mogła zapytać o zgodę na kilka pobrań)`);
   }
   /** Po pobraniu: odświeża tylko listę dokumentów i przycisk gov.pl (reszta okna, np. karuzela, zostaje jak była). */
   function odswiezPobieranie() {
     if (widok !== 'glowny') return;
+    odswiezAsystenta();
     const l = $('.kk-pliki', arkTresc), a = $('#kk-gov-akcje', arkTresc);      // listy może nie być (gdy folder działa), przycisk gov.pl jest zawsze
     if (l) l.outerHTML = wierszePobierania();
     const p = $('#kk-gov-podp', arkTresc); if (p) p.remove(); if (a) a.outerHTML = akcjeGov();
@@ -465,8 +529,8 @@ export function zainstalujPodpis(k) {
     try { return k.blobPdf(scalPdf(o.map(x => x.bajty))); }
     catch (e) { console.error('scalanie PDF', e); pokazToast('Nie udało się połączyć dokumentów w jeden plik — pobieram je osobno'); await pobierzOsobno(); return null; }
   }
-  async function drukuj() { const b = await plikDoWydruku(); if (!b) return; const u = URL.createObjectURL(b), w = window.open(u, '_blank'); if (!w) k.pobierzBlob(b, 'Dokumenty_do_wydruku.pdf'); setTimeout(() => URL.revokeObjectURL(u), 120000); }
-  async function pobierzWydruk() { const b = await plikDoWydruku(); b && k.pobierzBlob(b, 'Dokumenty_do_wydruku.pdf'); }
+  async function drukuj() { zaznaczOd(); const b = await plikDoWydruku(); if (!b) return; const u = URL.createObjectURL(b), w = window.open(u, '_blank'); if (!w) k.pobierzBlob(b, 'Dokumenty_do_wydruku.pdf'); setTimeout(() => URL.revokeObjectURL(u), 120000); }
+  async function pobierzWydruk() { zaznaczOd(); const b = await plikDoWydruku(); b && k.pobierzBlob(b, 'Dokumenty_do_wydruku.pdf'); }
 
   /* ---------------------------------- przypisanie plików do dokumentów ---------------------------------- */
   /** Nazwy, pod jakimi zapisuję pliki dokumentu: dokładnie takie, jak przy generowaniu (PDF, PDF.xades, a skany: nazwa dokumentu + numer strony). */
@@ -633,6 +697,7 @@ export function zainstalujPodpis(k) {
   }
   /** Wgrywanie bez obsługi błędu przepadałoby po cichu (np. upuszczony folder, brak miejsca na urządzeniu) — dlatego błąd zawsze kończy się komunikatem. */
   async function przyjmij(lista) {
+    infoWgrania = '';
     try { await przyjmijPliki(lista); }
     catch (e) { console.error('wgrywanie', e); pokazToast('Nie udało się przyjąć plików: ' + (e.message || e)); k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok(); }
   }
@@ -688,6 +753,48 @@ export function zainstalujPodpis(k) {
     const wiersze = reszta.map(w => { const n = wgrane.indexOf(w), nowa = zapisana(w); return `<div class="wynik${w.i === null ? ' brak' : ''}"><span class="wn">${esc(w.plik.name)}${nowa ? `<em class="nowa-nazwa" title="Nazwa pliku zmieniona na taką, jak przy generowaniu">→ ${esc(nowa)}</em>` : ''}</span><select data-przypisz="${n}" aria-label="Dokument dla pliku ${esc(w.plik.name)}"><option value="">— nie przypisuj —</option>${dok.map(d => `<option value="${d.i}"${w.i === d.i ? ' selected' : ''}>${d.tytul}</option>`).join('')}</select>${w.jak ? `<small class="${niepewne(w.jak) ? 'uwaga' : ''}">${OPIS_JAK[w.jak]}</small>` : (w.i === null ? '<small class="uwaga">brak wolnego dokumentu — wybierz ręcznie</small>' : '')}</div>`; }).join('');
     const doSprawdzenia = reszta.filter(w => w.i === null || niepewne(w.jak)).length, ile = reszta.length;
     c.innerHTML = ile ? `<details class="wyniki-det"${doSprawdzenia || wynikiOtwarte ? ' open' : ''}><summary>${doSprawdzenia ? `Dopasowanie plików do sprawdzenia: ${doSprawdzenia} z ${ile}` : `${ik('i-ok')}Pliki dopasowane do dokumentów (${ile})`}<span>${doSprawdzenia || wynikiOtwarte ? '' : 'zmień przypisanie'}</span></summary><div class="wyniki">${wiersze}</div></details>` : '';
+  }
+
+  /* ---------------------------------- wskazany folder i upuszczone pliki ---------------------------------- */
+  /** Z listy plików wskazanego albo upuszczonego folderu (np. „Pobrane”, gdzie leży też mnóstwo cudzych plików) zostawia tylko te, które wyglądają na podpisane dokumenty TEGO miesiąca — po cichu, bez
+      komunikatów o reszcie: plik nie starszy niż pierwsze pobranie/wydruk, a przy podpisie elektronicznym — zawierający jeden z naszych dokumentów (albo noszący jego nazwę). Skany (obrazy i PDF-y
+      bez podpisu) bierzemy tylko przy podpisie odręcznym; przy gov.pl pomijamy je, bo mogłyby być przypadkowymi plikami. */
+  async function odsiejZFolderu(lista) {
+    const od = odKiedy(), sp = sposobPodpisuTeraz(), dok = k.nazwyDok(), org = new Map(), dobre = [], widziane = new Set();
+    for (const d of dok) org.set(d.i, await oryginal(d));
+    const nazwyDok = dok.map(d => normalizujNazwe(d.nazwa)).filter(Boolean);
+    const znanaNazwa = nazwa => { const n = normalizujNazwe(nazwa); return nazwyDok.some(x => n.includes(x)) || /(?:polecenie|delegacja)\s*0*\d+/.test(n); };
+    const naszDokument = bajty => [...org.values()].some(o => o && zawieraOryginal(bajty, o));
+    for (const f of [...lista].sort((a, b) => a.name.localeCompare(b.name, 'pl', { numeric: true }))) {
+      if (!obslugiwanyPlik(f.name) || (f.lastModified && f.lastModified < od)) continue;
+      const klucz = `${f.name}|${f.size}|${f.lastModified}`; if (widziane.has(klucz)) continue; widziane.add(klucz);
+      if (/\.zip$/i.test(f.name)) { if (f.name !== nazwaZip()) dobre.push(f); continue; }      // paczka z gov.pl; własnej zahasłowanej paczki aplikacji nie wczytujemy
+      if (INNY_PODPIS.test(f.name)) continue;
+      let bajty; try { bajty = new Uint8Array(await f.arrayBuffer()); } catch (e) { continue; }
+      if (!bajty.length) continue;
+      if (XADES.test(f.name)) { const t = new TextDecoder('utf-8').decode(bajty); if (dok.some(d => org.get(d.i) && xadesDotyczy(t, org.get(d.i)))) dobre.push(f); continue; }
+      if (OBRAZ.test(f.name)) { if (sp !== 'gov') dobre.push(f); continue; }
+      if (podpisyWPdf(bajty).length) { if (naszDokument(bajty) || znanaNazwa(f.name)) dobre.push(f); continue; }
+      if (rozliczenieBezZmian(dok, org, bajty) || naszDokument(bajty)) continue;      // niepodpisany oryginał z naszego pobrania
+      if (sp !== 'gov' && (skanBezJpeg(bajty) || obrazyZPdf(bajty).length)) dobre.push(f);
+    }
+    return dobre;
+  }
+  const JAK_NIE_ZNALEZIONO = 'Nie widzę tu nowych podpisanych plików z tego miesiąca. Sprawdź, czy to właściwy folder (pliki z gov.pl trafiają zwykle do „Pobrane”) i czy podpisane pliki zostały pobrane.';
+  async function wczytajZFolderu(lista) {
+    const dobre = await odsiejZFolderu(lista);
+    if (!dobre.length) { infoWgrania = lista.length ? JAK_NIE_ZNALEZIONO : 'Ten folder jest pusty.'; odswiezAsystenta(); pokazToast('Nie znalazłem nowych podpisanych plików'); return; }
+    await przyjmij(dobre);
+  }
+  /** Upuszczenie na okno: pliki wprost trafiają do zwykłego wgrywania, a z upuszczonych folderów — tylko wyglądające na podpisane dokumenty (jak przy wskazaniu folderu). */
+  async function przyjmijUpuszczone(zrodla) {
+    try {
+      const { pliki, obciete } = await przejdzWpisy(zrodla), wprost = pliki.filter(x => !x.zFolderu).map(x => x.plik), zFolderu = pliki.filter(x => x.zFolderu).map(x => x.plik);
+      const wybrane = zFolderu.length ? await odsiejZFolderu(zFolderu) : [], wszystkie = [...wprost, ...wybrane];
+      if (!wszystkie.length) { infoWgrania = zFolderu.length ? JAK_NIE_ZNALEZIONO : 'Nie widzę tu plików do wczytania.'; odswiezAsystenta(); pokazToast(zFolderu.length ? 'Nie znalazłem nowych podpisanych plików w tym folderze' : 'Nie upuszczono żadnego pliku'); return; }
+      if (obciete) pokazToast('Folder ma bardzo dużo plików — przejrzałem pierwsze 600');
+      await przyjmij(wszystkie);
+    } catch (e) { console.error('upuszczanie', e); pokazToast('Nie udało się odczytać upuszczonych plików: ' + (e.message || e)); }
   }
 
   /* ---------------------------------- wysyłka ---------------------------------- */
@@ -855,6 +962,10 @@ export function zainstalujPodpis(k) {
     else if (a === 'folder-zmien') zmienFolderRoboczy();
     else if (a === 'sposob') { ustawSposobPodpisu(b.dataset.sposob); odswiezAsystenta(); }
     else if (a === 'wybierz-pliki') { const inp = $('#plik-wgraj', arkTresc); if (inp) inp.click(); }
+    else if (a === 'wybierz-folder') { const inp = $('#plik-folder', arkTresc); if (inp) inp.click(); }
+    else if (a === 'pobierz-do-podpisu') pobierzOsobno(true);
+    else if (a === 'widok-podpisu') ustawWidokPodpisu(b.dataset.w);
+    else if (a === 'rada-przegladarki-ok') { try { localStorage.setItem('pmt-ui-rada-przegladarki', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#as-rada-przegl', arkTresc); if (r) r.remove(); }
     else if (a === 'pobrane-rada-ok') { try { localStorage.setItem('pmt-ui-pobrane-rada', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#kk-pobrane-rada', arkTresc); if (r) r.remove(); }
     else if (a === 'pobrane-kopiuj') { try { await navigator.clipboard.writeText(b.dataset.adres); pokazToast('Skopiowano — wklej adres w pasku adresu przeglądarki'); } catch (e) { pokazToast('Nie udało się skopiować — zaznacz adres i skopiuj go ręcznie'); } }
     else if (a === 'glowny') pokaz('glowny');
@@ -886,6 +997,8 @@ export function zainstalujPodpis(k) {
   arkTresc.addEventListener('change', async e => {
     const inp = e.target.closest('[data-wgraj]');
     if (inp) { const pliki = [...inp.files]; inp.value = ''; await przyjmij(pliki); return; }
+    const inpF = e.target.closest('[data-wgraj-folder]');
+    if (inpF) { const pliki = [...inpF.files]; inpF.value = ''; await wczytajZFolderu(pliki); return; }
     const sel = e.target.closest('[data-przypisz]');
     if (sel) {
       const w = wgrane[Number(sel.dataset.przypisz)]; if (!w) return; const cel = sel.value === '' ? null : Number(sel.value);
@@ -897,13 +1010,22 @@ export function zainstalujPodpis(k) {
   });
   for (const ev of ['dragover', 'dragenter']) arkTresc.addEventListener(ev, e => { const s = e.target.closest && e.target.closest('.podp-strefa'); if (s) { e.preventDefault(); s.classList.add('nad'); } });
   for (const ev of ['dragleave', 'drop']) arkTresc.addEventListener(ev, e => { const s = e.target.closest && e.target.closest('.podp-strefa'); if (s) s.classList.remove('nad'); });
-  arkTresc.addEventListener('drop', e => { const s = e.target.closest && e.target.closest('.podp-strefa'); if (!s) return; e.preventDefault(); przyjmij(e.dataTransfer.files); });
+  /* Pliki i foldery można upuścić w DOWOLNYM miejscu okna podpisu (nie tylko w przerywanym polu): z Eksploratora, z paska pobierania przeglądarki albo z folderu „Pobrane”. */
+  const przenoszonePliki = e => { const dt = e.dataTransfer; if (!dt) return false; return dt.types ? Array.from(dt.types).includes('Files') : !!(dt.files && dt.files.length); };      // Array.from: w starszym Safari types to lista DOMStringList
+  const oknoPodpisuAktywne = () => arkTresc.isConnected && widok === 'glowny' && !!$('#dok-obszar', arkTresc);
+  let wChwycone = 0;
+  const zgasUpuszczanie = () => { wChwycone = 0; arkTresc.classList.remove('upusc-pliki'); };
+  arkTresc.addEventListener('dragenter', e => { if (!oknoPodpisuAktywne() || !przenoszonePliki(e)) return; e.preventDefault(); wChwycone++; arkTresc.classList.add('upusc-pliki'); });
+  arkTresc.addEventListener('dragover', e => { if (!oknoPodpisuAktywne() || !przenoszonePliki(e)) return; e.preventDefault(); try { e.dataTransfer.dropEffect = 'copy'; } catch (x) { /* zdarzenie bez możliwości ustawienia */ } });
+  arkTresc.addEventListener('dragleave', () => { if (!arkTresc.classList.contains('upusc-pliki')) return; wChwycone = Math.max(0, wChwycone - 1); if (!wChwycone) zgasUpuszczanie(); });      // licznik: dragenter/dragleave odpalają się też dla elementów wewnątrz okna
+  window.addEventListener('dragend', zgasUpuszczanie); window.addEventListener('drop', zgasUpuszczanie, true);
+  arkTresc.addEventListener('drop', e => { zgasUpuszczanie(); if (!oknoPodpisuAktywne() || !przenoszonePliki(e)) return; e.preventDefault(); przyjmijUpuszczone(wpisyZUpuszczenia(e.dataTransfer)); });      // wpisy trzeba pobrać synchronicznie
 
   /* ---------------------------------- wejścia ---------------------------------- */
   return {
     /** fokus (opcjonalnie): numer dokumentu, od którego okno ma zacząć — z probówki na pulpicie: karuzela ustawia go z przodu, na liście karta mignie i przewinie się na środek. */
     otworz(fokus) { wczytajKlientaMs(); const cel = Number.isInteger(fokus) && fokus >= 0 && fokus < k.razemDok() ? fokus : null; widok = 'glowny'; wgrane = []; otwarte = new Set(); stanWysylki = ''; daneWysylki = undefined; gotowyEml = null; widziane = {}; podgladI = null; fokusI = cel; if (cel !== null) { przodI = cel; setTimeout(() => { if (fokusI === cel) fokusI = null; }, 1600); } zapamietajStany(); k.otworzArkusz(widokGlowny(), null, { szeroki: true }); uruchomKaruzele(); inicjujFolder();
-      if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(dokonczSprawdzanie).then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
+      if (cel !== null && widokKart === 'lista') { const c = $(`.dok-k[data-i="${cel}"]`, arkTresc); if (c) c.scrollIntoView({ block: 'center' }); } if (wszystkoPodpisane() && !wyslane()) wczytajDane(); ujednolicStare().then(() => !folderMozliwy() && uzywaAsystenta() ? przyjmijRozliczenie() : null).then(dokonczSprawdzanie).then(odswiezWidok).catch(e => console.error('nazwy plików', e)); },
     otworzWyslij() { this.otworz(); },      // „Wyślij” jest krokiem 5 w tym samym oknie co pobieranie, podpis i wgrywanie
   };
 }

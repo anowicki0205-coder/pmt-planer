@@ -2064,7 +2064,7 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .as-lista li::marker{font-weight:740;color:#7A3FE0}
 .as-lista b{color:#2A1180}
 .as-akcja{margin-top:.15rem}
-.as-duzy{font-size:1.12rem;padding:.8rem 1.8rem;min-height:3.25rem}
+.as-duzy{font-size:1.12rem;padding:.8rem 1.8rem;min-height:3.25rem;min-height:max(3.25rem,50px)}
 .as-status{width:100%;display:grid;gap:.3rem}
 .as-status b{font-size:1rem}
 .as-pasek{height:.6rem;border-radius:999px;background:#E6E3F8;overflow:hidden}
@@ -2094,6 +2094,19 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .asyst-inne-tresc .kk-pliki{width:100%}
 .krok-k[hidden],.krok-strefa[hidden]{display:none!important}
 .kk-link-jasny{color:inherit;opacity:.85}
+/* asystent w przeglądarkach bez dostępu do folderów: duża strefa na pliki, informacja po wskazaniu folderu, podpowiedź o najlepszej przeglądarce, upuszczanie plików w dowolnym miejscu okna */
+.as-karta .as-strefa-duza{min-height:5.2rem;gap:.15rem;padding:.9rem 1rem}
+.as-karta .as-strefa-duza b{font-size:1.02rem;color:#2A1180}
+.as-karta .as-strefa-duza span{font-size:.86rem;color:#4A4670}
+.as-wybierz{background:#EEF0FF;color:#3B1FA8;box-shadow:inset 0 0 0 1px rgb(90 60 220/.28);min-height:48px;font-size:1rem}
+.as-karta .as-info{padding:.5rem .75rem;border-radius:12px;background:#FFF4D6;box-shadow:inset 0 0 0 1px rgb(200 150 20/.3);color:#5A4206;font-size:.9rem;font-weight:600}
+.as-folder-link{justify-self:start;text-align:left}
+.as-rada-przegl{display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;margin:.55rem 0 0;padding:.55rem .8rem;border-radius:14px;background:rgb(255 255 255/.14);color:#fff;font-size:.84rem;line-height:1.45}
+.as-rada-przegl b{color:#fff}
+.as-rada-przegl .kk-link{color:#fff}
+#arkusz-tresc.upusc-pliki{box-shadow:inset 0 0 0 3px #fff,inset 0 0 0 7px #7A3FE0;border-radius:18px;background:rgb(122 63 224/.16)}
+#arkusz-tresc.upusc-pliki::after{content:'Upuść tutaj podpisane pliki albo cały folder';position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;max-width:80%;padding:1rem 1.6rem;border-radius:18px;background:#2A1180;color:#fff;font-weight:700;font-size:1.1rem;text-align:center;box-shadow:0 20px 50px -20px rgb(20 10 90/.9);pointer-events:none}
+
 .kk-pobrane{display:flex;flex-direction:column;gap:.25rem;width:100%;padding:.4rem .6rem;border-radius:11px;background:rgb(255 244 214/.6);box-shadow:inset 0 0 0 1px rgb(200 150 20/.25);font-size:.74rem;line-height:1.35;color:#5A4A12}
 .kk-pobrane .kk-jak>summary{cursor:pointer;font-weight:600;color:#7A5A06;list-style:revert}
 .kk-pobrane .kk-jak ol{margin:.3rem 0 .2rem 1.1rem;padding:0;display:grid;gap:.25rem}

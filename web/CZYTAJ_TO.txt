@@ -193,6 +193,10 @@ INSTALACJA NA TELEFONIE (PWA) I iOS / SAFARI
   pobieranie PDF z karty „Pliki”) — to trzeba zobaczyć na prawdziwym urządzeniu. Minimum praktyczne: iOS 16.4+.
 
 DOKUMENTY DO PODPISU: PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
+  AKTUALNIE (11.11): okno to ASYSTENT w KAŻDEJ przeglądarce — jedna rzecz do zrobienia naraz, jeden duży przycisk, pasek postępu. Poniższy opis „czterech kroków” dotyczy widoku klasycznego
+  (przełącznik „Pokaż wszystkie kroki naraz” pod „Inne sposoby i szczegóły”). Najwygodniej w Microsoft Edge albo Google Chrome na komputerze: aplikacja sama zapisuje dokumenty w folderze „delegacje” i sama
+  wczytuje podpisane pliki. W Firefoksie, Safari i na telefonie: „Pobierz dokumenty” → podpis → przeciągnij podpisane pliki (albo CAŁY folder, np. „Pobrane”) w dowolne miejsce okna albo „Wybierz podpisane pliki” /
+  „Wskaż folder” — aplikacja sama odsieje cudze pliki. Rozliczenie wydatków (bez podpisu) przyjmuje się samo.
   Okno „Dokumenty do podpisu” (przycisk „Podpisz …” albo probówki w kaflu Dokumenty) prowadzi czterema kolorowymi krokami; pod nimi są karty dokumentów (po jednej na polecenie i rozliczenie).
   1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. FOLDER „delegacje” (Chrome i Edge na komputerze): blok „Folder „delegacje”” z przyciskiem „Wskaż miejsce” (po zapisie dokumentów zostaje jedna linia: ścieżka, stan obserwacji i mały odnośnik „zmień”; ręczne pobieranie PDF-ów jest wtedy schowane, a „Otwórz gov.pl” to jedyny przycisk) — RAZ wskazujesz w oknie wyboru miejsce (np. pulpit),
      a aplikacja SAMA tworzy w nim folder „delegacje” (gdy wskażesz folder, który już tak się nazywa, używa go bez zagnieżdżania) i od razu zapisuje PDF-y w podfolderze miesiąca, np. „delegacje\wrzesień 2026” (rozliczenie

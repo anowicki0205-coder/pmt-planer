@@ -117,14 +117,25 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   await zamknijOkno();
   await p.evaluate(() => { const H = FileSystemHandle.prototype; window.__qp = H.queryPermission; window.__rp = H.requestPermission; H.queryPermission = async () => 'prompt'; H.requestPermission = async () => { H.queryPermission = window.__qp; H.requestPermission = window.__rp; return 'granted'; }; });
   await otworzOkno(); await p.waitForSelector('[data-akcja="folder-wznow"]', { timeout: 20000 });
-  ok('gdy przeglądarka prosi o zgodę: „Pozwól” (bez ponownego wskazywania folderu), obserwacji jeszcze nie ma', /pyta o zgodę na folder/.test(await tekst('#asystent')) && (await p.locator('#kk-folder-stan').count()) === 0, (await tekst('#asystent')).slice(0, 160));
+  ok('gdy przeglądarka prosi o zgodę: „Pozwól” (bez ponownego wskazywania folderu) z podpowiedzią „Zezwalaj przy każdej wizycie” (wtedy pytanie nie wraca), obserwacji jeszcze nie ma', /pyta o zgodę na folder/.test(await tekst('#asystent')) && /Zezwalaj przy każdej wizycie/.test(await tekst('#asystent')) && (await p.locator('#kk-folder-stan').count()) === 0, (await tekst('#asystent')).slice(0, 160));
   await p.click('[data-akcja="folder-wznow"]'); await p.waitForSelector('#kk-folder-stan', { timeout: 20000 });
   ok('po „Pozwól” folder jest znów obserwowany', /Obserwuję folder/.test(await tekst('#kk-folder-stan')));
 
   /* ---------- reszta poleceń: wszystkie podpisane → „Wyślij” się zapala ---------- */
   const reszta = path.join(tmp, 'reszta'); fs.mkdirSync(reszta); for (const f of pdfy.slice(2, 6)) fs.copyFileSync(path.join(roz, f), path.join(reszta, f));
   fs.writeFileSync(path.join(tmp, 'plan3.json'), '{}'); py('podpisz_pliki.py', reszta, path.join(tmp, 'e3'), path.join(tmp, 'plan3.json'));      // domyślnie „jan”: poprawny podpis
-  for (const f of pdfy.slice(2, 6)) await zapiszDoKorzenia('gov_' + f, fs.readFileSync(path.join(tmp, 'e3', f)));      // tym razem do folderu GŁÓWNEGO (nie do podfolderu miesiąca), jak przy pobieraniu ustawionym na „delegacje”
+  /* karta w tle (użytkownik jest na gov.pl): aplikacja wczytuje podpisany plik, zanim wróci, a w tytule karty zostaje znacznik „✔ 3/6” (znika po powrocie) */
+  const tytulPrzed = await p.title();
+  ok('w oknie asystenta jest też odnośnik „Podpisane pliki trafiły gdzie indziej (np. do „Pobrane”)? Wskaż ten folder” (przeglądarka nie pozwala czytać „Pobranych” sama, ale zwykły wybór folderu tak)', (await p.locator('#asystent [data-akcja="wybierz-folder"]').count()) === 1 && /Pobrane/.test(await tekst('#asystent [data-akcja="wybierz-folder"]')));
+  await p.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await zapiszDoKorzenia('gov_' + pdfy[2], fs.readFileSync(path.join(tmp, 'e3', pdfy[2])));
+  const wTle = await czekajStany(['ok', 'ok', 'ok', 'czeka', 'czeka', 'czeka', 'ok'], 60000);
+  await p.waitForFunction(() => /^✔ /.test(document.title), null, { timeout: 10000 }).catch(() => {});
+  const tytulWTle = await p.title();
+  ok('gdy karta aplikacji jest w tle, podpisany plik z folderu i tak się wczytuje, a tytuł karty dostaje znacznik „✔ 3/6”', JSON.stringify(wTle) === '["ok","ok","ok","czeka","czeka","czeka","ok"]' && /^✔ 3\/6 · /.test(tytulWTle), JSON.stringify(wTle) + ' ' + tytulWTle);
+  await p.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
+  ok('po powrocie na kartę znacznik znika i tytuł wraca do zwykłego', (await p.title()) === tytulPrzed, await p.title());
+  for (const f of pdfy.slice(3, 6)) await zapiszDoKorzenia('gov_' + f, fs.readFileSync(path.join(tmp, 'e3', f)));      // tym razem do folderu GŁÓWNEGO (nie do podfolderu miesiąca), jak przy pobieraniu ustawionym na „delegacje”
   const s3 = await czekajStany(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok'], 120000);
   ok('pozostałe cztery podpisane pliki zapisane w folderze GŁÓWNYM „delegacje” (jak przy pobieraniu ustawionym na ten folder) też weszły same (podpis innej osoby zastąpiony poprawnym) — wszystkie 7 dokumentów sprawdzone', JSON.stringify(s3) === '["ok","ok","ok","ok","ok","ok","ok"]', JSON.stringify(s3));
   await p.waitForSelector('#asystent [data-akcja="wyslij"]', { timeout: 30000 });

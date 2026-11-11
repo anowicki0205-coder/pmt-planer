@@ -293,6 +293,25 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       przycisk „Wydrukuj dokumenty” (+ „pobierz PDF do wydruku”), strefa na skany i postęp na żywo; skany z folderu aplikacja sama wczytuje i sprawdza (rozpoznanie podpisu odręcznego jak przy ręcznym wgraniu).
       Dawna sekcja „Wolę podpisać odręcznie” z „Inne sposoby” zniknęła (to zwykła ścieżka). Test: testy/folder_reczny_app.js (sztuczne skany z dane/skanuj_pliki.py zapisane do folderu), folder_app.js. NIE sprawdzone
       na prawdziwym skanerze/aplikacji skanującej (skany ze zdjęć pod kątem są odrzucane tak jak dotąd).
+      ASYSTENT W KAŻDEJ PRZEGLĄDARCE + WYCIŚNIĘCIE RESZTY (zlecenie właściciela 11.11: „wyciśnij z tego wszystko, pamiętaj, że użytkownicy mogą mieć różne przeglądarki; podpowiedz, która jest najlepsza”):
+      • Firefox, Safari, telefon (bez dostępu do folderów) dostają TEN SAM asystent (dawne cztery kroki są pod przełącznikiem „Pokaż wszystkie kroki naraz”, pmt-ui-widok-podpisu = klasyczny; w Chrome/Edge
+        asystent jest zawsze). Pasek „Dokumenty · Podpis · Wysyłka”; gov.pl: „Pobierz dokumenty do podpisu” (jeden przycisk, pobiera same polecenia — rozliczenie podpisu nie wymaga) → „Podpisz dokumenty na
+        gov.pl” (link, pliki tury, duża strefa na podpisane pliki, pasek „0 z 6”); odręcznie: „Wydrukuj dokumenty” → skany. Na telefonie zamiast pola przeciągania jest przycisk „Wybierz podpisane pliki”.
+        Rozliczenie wydatków przyjmuje się samo (też w Chrome/Edge: bez śladu na liście dopasowań).
+      • „Wskaż folder (np. Pobrane)”: zwykły wybór folderu (<input webkitdirectory>, działa w Chrome, Edge, Firefox, Safari na komputerze) — aplikacja z całego folderu odsiewa po cichu tylko podpisane dokumenty
+        TEGO miesiąca (plik nie starszy niż pierwsze pobranie/wydruk, 21 dni gdy nie było; podpisany PDF musi zawierać nasz oryginał albo nosić nazwę dokumentu; .xades musi dotyczyć naszego dokumentu; skany i obrazy
+        tylko przy podpisie odręcznym; niepodpisane oryginały, cudze podpisane PDF-y, notatki i pliki Worda pomijane bez komunikatów). Gdy nic nie pasuje — informacja „Nie widzę tu nowych podpisanych plików…”.
+        Odnośnik jest też w Chrome/Edge (gdy firma blokuje zmianę „Pobrane → Lokalizacja”).
+      • Upuszczanie plików i FOLDERÓW w DOWOLNYM miejscu okna (js/upuszczanie.js: webkitGetAsEntry, odczyt partiami, głębokość 4, limit 600; wpisy pobierane synchronicznie w drop): pliki wprost idą do zwykłego
+        wgrywania, z upuszczonego folderu — tylko wyglądające na podpisane dokumenty (jak wyżej). Podświetlenie całego okna „Upuść tutaj…”.
+      • Chrome/Edge: obserwacja folderu działa także, gdy karta aplikacji jest w tle (użytkownik na gov.pl) — po powrocie wszystko jest wczytane, a w tytule karty jest znacznik „✔ 3/6” (znika po powrocie);
+        przy prośbie o zgodę podpowiedź „Zezwalaj przy każdej wizycie” (pytanie nie wraca).
+      • Podpowiedź o przeglądarce (tylko komputer, tylko przeglądarki bez folderów, zamykana): „W Microsoft Edge albo Google Chrome na komputerze robię to za Ciebie — wystarczy raz wskazać folder”; Brave
+        domyślnie blokuje dostęp do folderów (brave://flags/#file-system-access-api).
+      Testy: testy/asystent_pobieranie_app.js (26 kontroli: UA Firefoksa, pobranie, folder „Pobrane” z odsiewem, skany, upuszczenie pliku i folderu, widok klasyczny, wysyłka), testy/asystent_telefon_app.js
+      (10: telefon 390 px), testy/upuszczanie_test.js (8: wpisy folderów), testy/folder_app.js (42: praca w tle, tytuł karty). Zestaw testów domyślnie ustawia widok klasyczny (opcja widokPodpisu w wspolne.js;
+      widokPodpisu: null = prawdziwy domyślny asystent). NIE sprawdzone: prawdziwy Firefox i Safari (w tym środowisku nie ma ich silników — logika stoi na standardowych interfejsach: webkitGetAsEntry,
+      webkitdirectory, DataTransfer), prawdziwe okno wyboru folderu „Pobrane” w Chrome/Edge (przeglądarka może odmówić wskazania folderu z „wrażliwych” miejsc), polityki firmowe.
       Wycieczka po aplikacji („samouczek”): flaga „pokazana” zapisywana przy pierwszym samoczynnym wyświetleniu (wcześniej dopiero po zamknięciu — kto wylogował się bez zamknięcia, widział ją przy każdym logowaniu).
       Testy: podpis_offline_app.js (wolny serwer, zmiana hasła, brak aktywności użytkownika), zywe_app.js.
 - [x] EDGE OTWIERAŁ POCZTĘ BEZ ZAŁĄCZNIKA (zgłoszenie właściciela 5.11, po poprawce pobierania): najprawdopodobniej zapamiętany w Edge sposób „otwarcie poczty” (mailto: nie umie dołączyć pliku) — wybór jest osobny w każdej

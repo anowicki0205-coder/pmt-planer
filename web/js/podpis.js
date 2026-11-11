@@ -480,10 +480,11 @@ export function zainstalujPodpis(k) {
         <li class="krok-k k5 ${wszystkoPodpisane() ? 'aktywny' : 'nieaktywny'}"><span class="kk-nr">4</span><div class="kk-tresc"><b>Wyślij</b><small id="podp-wyslij-opis">${opisWyslij()}</small><small class="podp-stan" id="podp-wyslij-stan" aria-live="polite">${stanWysylki}</small></div>
           <span class="kk-akcje" id="podp-wyslij-akcje">${przyciskWyslij()}</span></li>
       </ol>
+      <p class="klasyk-wroc"><button type="button" class="kk-link kk-link-jasny" data-akcja="widok-podpisu" data-w="asystent">Wróć do asystenta (jedna rzecz naraz)</button></p>
       <div id="podp-odrzucone" aria-live="polite"></div>
       <div id="dok-obszar">${przelacznikWidoku()}${obszarKart()}</div>
       <div id="podp-wyniki"></div>
-      <div class="ark-dol" id="podp-dol"><button type="button" class="kk-link kk-link-jasny" data-akcja="widok-podpisu" data-w="asystent">Wróć do asystenta (jedna rzecz naraz)</button><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
+      <div class="ark-dol" id="podp-dol"><button type="button" class="przycisk" data-zamknij>Zamknij</button></div>`;
   }
   function odswiezWidok() {
     if (widok !== 'glowny') return;

@@ -2102,6 +2102,26 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .as-karta .as-info{padding:.5rem .75rem;border-radius:12px;background:#FFF4D6;box-shadow:inset 0 0 0 1px rgb(200 150 20/.3);color:#5A4206;font-size:.9rem;font-weight:600}
 .as-folder-link{justify-self:start;text-align:left}
 .klasyk-wroc{margin:.2rem 0 .1rem;text-align:right}
+/* wąski ekran i powiększona czcionka telefonu: nic w oknie podpisu nie może wychodzić poza prawą krawędź (zrzut z telefonu: karta ucięta, „Pobierz PDF” i opisy niewidoczne) — kolumny siatki bez „min-content”, długie
+   przyciski i słowa się zawijają */
+.asystent{grid-template-columns:minmax(0,1fr);min-width:0}
+.as-kroki,.as-karta{min-width:0;max-width:100%}
+.as-karta{grid-template-columns:minmax(0,1fr);overflow-wrap:anywhere}
+.as-karta>*{min-width:0;max-width:100%}
+.as-karta .przycisk,.asyst-inne-tresc .przycisk{white-space:normal;height:auto;min-height:2.9rem;padding-top:.5rem;padding-bottom:.5rem;text-align:center;line-height:1.25}
+.as-karta .as-duzy{min-height:max(3.25rem,50px)}
+.as-karta .as-wybierz{min-height:48px}
+.as-wybor,.as-wybor *{min-width:0;overflow-wrap:anywhere}
+.krok-k,.kk-tresc,.kk-opcja{min-width:0;max-width:100%}
+.kk-opcje{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:640px){.kk-opcje{grid-template-columns:minmax(0,1fr)}}
+.kk-opcja{overflow-wrap:anywhere}
+.kk-opcja .przycisk,.kk-akcje .przycisk{white-space:normal;height:auto;min-height:2.5rem;line-height:1.25;text-align:center}
+.kk-plik{flex-wrap:wrap}
+.kk-plik .przycisk{white-space:nowrap;height:auto}
+.kk-akcje,.kk-przyciski{min-width:0;max-width:100%}
+
+.nowa-wersja{position:fixed;left:50%;bottom:calc(1rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:.8rem;padding:.55rem .6rem .55rem 1.1rem;border-radius:999px;background:#2A1180;color:#fff;font-size:.95rem;font-weight:650;box-shadow:0 18px 40px -16px rgb(10 5 70/.9);max-width:calc(100vw - 1.5rem)}
 .as-rada-przegl{display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;margin:.55rem 0 0;padding:.55rem .8rem;border-radius:14px;background:rgb(255 255 255/.14);color:#fff;font-size:.84rem;line-height:1.45}
 .as-rada-przegl b{color:#fff}
 .as-rada-przegl .kk-link{color:#fff}

@@ -4,7 +4,8 @@
 const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs = require('fs');
 (async () => {
   const wyj = process.env.PMT_ZRZUTY || ''; if (wyj) fs.mkdirSync(wyj, { recursive: true });
-  const t = await otworz({ w: 390, h: 844, dsf: 2, mobile: true, widokPodpisu: null }); const p = t.p; let kod = 0;
+  const W = Number(process.argv[2]) || 390;      // szerokość telefonu w pikselach CSS (np. 360, 390, 412)
+  const t = await otworz({ w: W, h: 844, dsf: 2, mobile: true, widokPodpisu: null }); const p = t.p; let kod = 0;
   const ok = (opis, w, szcz = '') => { console.log((w ? '  OK   ' : '  BŁĄD ') + opis + (szcz ? ' — ' + szcz : '')); if (!w) kod = 1; };
   const tekst = s => p.locator(s).innerText();
   const zrzut = async n => { if (wyj) await p.screenshot({ path: `${wyj}/telefon_${n}.png` }); };
@@ -39,6 +40,20 @@ const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs
   await p.tap('#asystent .as-przelacz');
   ok('odręcznie na telefonie: „Podpisz odręcznie”, zeskanowanie aplikacją w telefonie i przycisk „Wybierz podpisane pliki”', /Podpisz odręcznie/.test(await tekst('#asystent .as-tytul')) && /w telefonie/.test(await tekst('#asystent .as-lista')) && (await p.locator('#asystent .as-wybierz').isVisible()));
   await zrzut('3_odrecznie');
+  /* widok klasyczny (cztery kroki naraz) pod przełącznikiem: na wąskim ekranie też nie może się ucinać po prawej (zrzut z telefonu: „Pobierz PDF” i opisy były ucięte) */
+  await p.tap('#asystent details.asyst-inne > summary, details.asyst-inne > summary'); await p.tap('details.asyst-inne [data-akcja="widok-podpisu"][data-w="klasyczny"]'); await p.waitForSelector('.kroki4', { timeout: 10000 }); await p.waitForTimeout(800);
+  await zrzut('4_klasyczny');
+  const ciete = await p.evaluate(() => { const a = document.querySelector('#arkusz-tresc') || document.querySelector('#arkusz'), r = a.getBoundingClientRect(); return [...a.querySelectorAll('.kroki4 *')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > r.right + 1; }).map(e => e.className || e.tagName).slice(0, 5); });
+  ok('widok klasyczny na telefonie: żaden element nie wychodzi poza prawą krawędź okna', ciete.length === 0 && await bezPrzewijaniaWbok(), JSON.stringify(ciete));
+  /* telefon z powiększoną czcionką (Ustawienia → Wyświetlanie → Rozmiar czcionki): rem rośnie, a nic nie może wychodzić poza okno — ani w asystencie, ani w widoku klasycznym */
+  for (const [nazwa, pokaz] of [['klasyczny', null], ['asystent', async () => { await p.tap('[data-akcja="widok-podpisu"][data-w="asystent"]'); await p.waitForSelector('#asystent', { timeout: 10000 }); }]]) {
+    if (pokaz) await pokaz();
+    await p.evaluate(() => { document.documentElement.style.fontSize = '135%'; }); await p.waitForTimeout(500);
+    const wyjscie = await p.evaluate(() => { const a = document.querySelector('#arkusz-tresc') || document.querySelector('#arkusz'), r = a.getBoundingClientRect(), sel = document.querySelector('.kroki4') ? '.kroki4 *' : '#asystent *'; return [...a.querySelectorAll(sel)].filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > r.right + 1; }).map(e => (e.className && String(e.className).slice(0, 30)) || e.tagName).slice(0, 6); });
+    await zrzut('5_czcionka_' + nazwa);
+    ok(`powiększona czcionka (135%), widok „${nazwa}”: nic nie wychodzi poza prawą krawędź okna`, wyjscie.length === 0 && await bezPrzewijaniaWbok(), JSON.stringify(wyjscie));
+    await p.evaluate(() => { document.documentElement.style.fontSize = ''; });
+  }
   ok('bez błędów w konsoli', t.bledy.length === 0, JSON.stringify(t.bledy.slice(0, 3)));
   await t.zamknij(); console.log(kod ? 'WYNIK: są błędy' : 'WYNIK: wszystko dobrze'); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e.message); process.exit(2); });

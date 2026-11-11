@@ -2569,7 +2569,23 @@ async function start() {
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     const mielSw = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').catch(() => {});
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (mielSw) pokazToast('Jest nowa wersja aplikacji — odśwież stronę, aby z niej skorzystać'); });
+    /* Nowa wersja instaluje się w tle i przejmuje stronę dopiero po odświeżeniu — do tej pory telefon pokazywał jeszcze starą wersję i było to łatwo przeoczyć (komunikat znikał po 3 s).
+       Teraz: gdy aplikacja nic nie robi (żadne okno nie jest otwarte, nic się nie generuje, żadne pole nie jest edytowane), odświeża się sama po chwili; w przeciwnym razie na dole zostaje
+       stały pasek „Jest nowa wersja aplikacji” z przyciskiem „Odśwież”. Dane są zapisywane na bieżąco, a jedno samoczynne odświeżenie na minutę chroni przed pętlą. */
+    const spokoj = () => !arkTlo.classList.contains('otwarty') && !generowanie && !doc.hidden && !/^(INPUT|TEXTAREA|SELECT)$/.test((doc.activeElement || {}).tagName || '');
+    const pokazBanerAktualizacji = () => {
+      if ($('#nowa-wersja')) return;
+      const b = doc.createElement('div'); b.id = 'nowa-wersja'; b.className = 'nowa-wersja'; b.setAttribute('role', 'status');
+      b.innerHTML = '<span>Jest nowa wersja aplikacji.</span><button type="button" class="przycisk maly glowny" id="nowa-wersja-odswiez">Odśwież</button>';
+      doc.body.appendChild(b); $('#nowa-wersja-odswiez').addEventListener('click', () => location.reload());
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!mielSw) return;
+      let niedawno = false; try { niedawno = Date.now() - Number(sessionStorage.getItem('pmt-auto-odswiez') || 0) < 60000; } catch (e) { /* bez pamięci karty */ }
+      if (!spokoj() || niedawno) { pokazBanerAktualizacji(); return; }
+      pokazToast('Aktualizuję aplikację do nowej wersji…');
+      setTimeout(() => { if (spokoj()) { try { sessionStorage.setItem('pmt-auto-odswiez', String(Date.now())); } catch (e) { /* bez pamięci karty */ } location.reload(); } else pokazBanerAktualizacji(); }, 1500);
+    });
   }
 }
 

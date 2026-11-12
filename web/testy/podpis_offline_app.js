@@ -99,7 +99,18 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   await otworzSzczegoly(2);
   const szcz = await p.locator('.dok-k.otwarta .kontrole').innerText();
   ok('szczegóły błędnego podpisu: lista kontroli (jest podpis, całość, ten sam dokument, nie zmieniony, matematyka, KTO podpisał)', /Jest podpis elektroniczny/.test(szcz) && /obejmuje cały dokument/.test(szcz) && /nie został zmieniony/.test(szcz) && /matematycznie poprawny/.test(szcz) && /Podpisała inna osoba/.test(szcz), szcz.replace(/\n/g, ' | ').slice(0, 220));
-  ok('podpisu innej osoby NIE da się potwierdzić ręcznie (trzeba podpisać ponownie)', (await p.locator('.dok-k.otwarta [data-akcja="potwierdz"]').count()) === 0 && (await p.locator('.dok-k.otwarta [data-akcja="cofnij"]').count()) === 1);
+  ok('podpis innej osoby: jednym kliknięciem NIE da się go potwierdzić — jest tylko „Potwierdź ręcznie mimo ostrzeżenia…” (i „Wgraj inny plik”)', (await p.locator('.dok-k.otwarta [data-akcja="potwierdz"]').count()) === 0 && (await p.locator('.dok-k.otwarta [data-akcja="uzbroj-reczne"]').count()) === 1 && (await p.locator('.dok-k.otwarta [data-akcja="cofnij"]').count()) === 1);
+  const sPrzed = await stany();
+  await p.click('.dok-k.otwarta [data-akcja="uzbroj-reczne"]'); await p.waitForSelector('.dok-k.otwarta .dok-ostrz');
+  ok('po kliknięciu pokazuje się ostrzeżenie z przyciskami „Tak, potwierdzam podpis” i „Anuluj” (dopiero drugie kliknięcie potwierdza)', /Program nie potwierdza tego podpisu/.test(await p.locator('.dok-k.otwarta .dok-ostrz').innerText()) && (await p.locator('.dok-k.otwarta .dok-ostrz [data-akcja="potwierdz"]').count()) === 1 && (await p.locator('.dok-k.otwarta .dok-ostrz [data-akcja="anuluj-reczne"]').count()) === 1 && JSON.stringify(await stany()) === JSON.stringify(sPrzed), JSON.stringify(await stany()));
+  await p.click('.dok-k.otwarta [data-akcja="anuluj-reczne"]'); await p.waitForFunction(() => !document.querySelector('.dok-k.otwarta .dok-ostrz'));
+  ok('„Anuluj” zdejmuje ostrzeżenie, dokument nadal NIE jest podpisany', (await p.locator('.dok-k.otwarta [data-akcja="uzbroj-reczne"]').count()) === 1 && JSON.stringify(await stany()) === JSON.stringify(sPrzed) && sPrzed[2] === 'zle', JSON.stringify(await stany()));
+  await p.click('.dok-k.otwarta [data-akcja="uzbroj-reczne"]'); await p.waitForSelector('.dok-k.otwarta .dok-ostrz'); await p.click('.dok-k.otwarta .dok-ostrz [data-akcja="potwierdz"]');
+  await p.waitForFunction(() => (document.querySelector('.dok-k[data-i="2"]').className.match(/st-(\w+)/) || [])[1] === 'ok', null, { timeout: 20000 });
+  ok('drugie kliknięcie potwierdza: dokument liczy się jako podpisany, a komunikat mówi, że potwierdzono go ręcznie (przez Ciebie)', /potwierdzony przez Ciebie/.test(await komunikat(2)), await komunikat(2));
+  await otworzSzczegoly(2);
+  ok('w szczegółach zostaje ślad „potwierdzone ręcznie MIMO ostrzeżenia programu”', /MIMO ostrzeżenia/.test(await p.locator('.dok-k.otwarta .kontrole').innerText()), (await p.locator('.dok-k.otwarta .kontrole').innerText()).replace(/\n/g, ' | ').slice(-160));
+  await p.click('.dok-k.otwarta [data-akcja="cofnij"]'); await czekajStany(sPrzed.map((x, i) => i === 2 ? 'czeka' : x));      // dalej scenariusz jak wcześniej: dokument 3 podpisany poprawnie od nowa
   await p.screenshot({ path: tmp + '/2_tura1.png' });
   // ponownie podpisany dokument wgrany BEZ „Wgraj inny plik” (przeglądarka dopisała „(1)” do nazwy): zastępuje błędny podpis — sprawdzany jest nowy plik, a w paczce nie ma dwóch wersji
   const tylko3 = path.join(tmp, 'tylko3'); fs.mkdirSync(tylko3, { recursive: true }); fs.copyFileSync(path.join(roz, pdfy[2]), path.join(tylko3, pdfy[2]));

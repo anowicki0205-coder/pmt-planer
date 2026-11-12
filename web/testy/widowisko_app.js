@@ -23,7 +23,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne');
     const czekaj = ms => new Promise(r => setTimeout(r, ms)); const o = {};
     window.__w.start(); o.start = stan();
     window.__w.postep('Pobieranie współrzędnych GPS...', 0.10); await czekaj(1600); o.gps = stan();
-    window.__w.postep('Generowanie tras...', 0.40); await czekaj(1600); o.trasa = stan();
+    window.__w.postep('Generowanie tras...', 0.40); await czekaj(3000); o.trasa = stan();      // kropki zapalają się po jednej (co ~330 ms bez dźwięku), więc wszystkie siedem dopiero po ok. 2,3 s
     window.__w.postep('Rysowanie dokumentów PDF...', 0.85); await czekaj(900); o.druk = stan();
     return o;
   });
@@ -66,7 +66,7 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne');
   /* ---- punkty trasy zgłaszają się wywołującemu (dźwięk): raz na punkt, po kolei, tylko gdy naprawdę się zapalają ---- */
   const wp = await p.evaluate(async () => {
     const { widowisko } = await import('/js/widowisko.js'), czekaj = ms => new Promise(r => setTimeout(r, ms)), zgl = [];
-    const w = widowisko({ naPunkt: (i, n) => zgl.push([i, n]) }); w.start(); const na0 = zgl.length;
+    const w = widowisko({ naPunkt: (i, n) => { zgl.push([i, n]); return -1; } }); w.start(); const na0 = zgl.length;      // −1: „dźwięk nic nie zagra” → kropki w domyślnym tempie
     w.postep('GPS', 0.10); await czekaj(900); const przy10 = zgl.length;
     w.postep('Trasy', 0.40); await czekaj(1600); const przy40 = zgl.length; w.postep('PDF', 0.85); await czekaj(500); const koniec = zgl.length;
     w.przerwij(); const w2 = widowisko({ naPunkt: () => { throw new Error('dźwięk padł'); } }); w2.start(); w2.postep('x', 0.4); await czekaj(1200); const dzialaMimoBledu = !!document.querySelector('#gen-scena'); w2.przerwij();
@@ -74,6 +74,27 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne');
   });
   ok('punkty trasy: przy starcie nic nie gra, potem punkty zgłaszają się po jednym (0…6 z 7), po drodze 10% tylko część, po 40% wszystkie siedem — i żaden dwa razy', wp.na0 === 0 && wp.przy10 > 0 && wp.przy10 < 7 && wp.przy40 === 7 && wp.koniec === 7 && wp.zgl === JSON.stringify([0, 1, 2, 3, 4, 5, 6].map(i => [i, 7])), JSON.stringify(wp));
   ok('błąd w wywołaniu dźwięku nie psuje pokazu (scena działa dalej)', wp.dzialaMimoBledu);
+
+  /* ---- synchronizacja: kropka zapala się dokładnie wtedy, gdy zabrzmi jej nuta (naPunkt zwraca opóźnienie w ms); pokaz wyników czeka na ostatnią kropkę; naKoniec po niej ---- */
+  const sy = await p.evaluate(async () => {
+    const { widowisko } = await import('/js/widowisko.js'), czekaj = ms => new Promise(r => setTimeout(r, ms)), pyt = [], lit = [], t0 = performance.now(); let koniec = null, wynikKiedy = null;
+    const w = widowisko({ naPunkt: (i, n) => { const za = 600 + i * 450; pyt.push({ i, za, kiedy: performance.now() }); return za; }, naKoniec: () => { koniec = performance.now(); } });
+    w.start();
+    new MutationObserver(() => { const s = document.querySelector('#gen-scena'); if (!s) return; s.querySelectorAll('.gen-punkty circle').forEach((c, i) => { if (c.classList.contains('on') && !lit.some(x => x.i === i)) lit.push({ i, kiedy: performance.now() }); }); if (s.classList.contains('faza-wynik') && wynikKiedy === null) wynikKiedy = performance.now(); }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    w.postep('x', 0.4); await czekaj(60);      // silnik skacze od razu do 40 %: wszystkie siedem punktów „należy się” naraz
+    const pr = w.zakoncz({ polecenia: [{ nr: 1, kw: 1 }], suma: 1 }); await czekaj(150); const onPoPierwszych = document.querySelectorAll('#gen-scena .gen-punkty circle.on').length;
+    await pr; return { pyt, lit, koniec, wynikKiedy, onPoPierwszych };
+  });
+  const odch = sy.pyt.map(x => { const k = sy.lit.find(l => l.i === x.i); return k ? Math.round(k.kiedy - (x.kiedy + x.za)) : null; });
+  ok('wszystkie 7 punktów zostało zgłoszonych dźwiękowi po jednym i zapaliło się każdy dokładnie po opóźnieniu, które dźwięk zwrócił (odchyłka ≤ 120 ms), po kolei', sy.pyt.length === 7 && sy.lit.length === 7 && sy.lit.every((l, i) => l.i === i) && odch.every(x => x !== null && Math.abs(x) <= 120), JSON.stringify(odch));
+  ok('skok postępu nie zapala wszystkich kropek naraz: zaraz po skoku nie świeci jeszcze żadna (pierwsza czeka na swoją nutę)', sy.onPoPierwszych === 0, String(sy.onPoPierwszych));
+  ok('pokaz wyników zaczyna się dopiero po zapaleniu ostatniej kropki, a naKoniec woła się raz — po niej i przed wynikami', sy.koniec !== null && sy.wynikKiedy !== null && sy.koniec >= sy.lit[6].kiedy - 5 && sy.wynikKiedy >= sy.lit[6].kiedy - 5, JSON.stringify({ ostatnia: Math.round(sy.lit[6].kiedy), koniec: Math.round(sy.koniec), wynik: Math.round(sy.wynikKiedy) }));
+  const pom = await p.evaluate(async () => {
+    const { widowisko } = await import('/js/widowisko.js'), czekaj = ms => new Promise(r => setTimeout(r, ms)); let koniec = 0;
+    const w = widowisko({ naPunkt: i => 3000 + i * 3000, naKoniec: () => { koniec++; } }); w.start(); w.postep('x', 0.4); await czekaj(60);
+    const t0 = performance.now(), pr = w.zakoncz({ polecenia: [{ nr: 1, kw: 1 }], suma: 1 }); await czekaj(200); document.body.click(); await pr; return { trwalo: Math.round(performance.now() - t0), scena: !!document.querySelector('#gen-scena'), koniec };
+  });
+  ok('kliknięcie w trakcie dogrywania kropek pomija czekanie: pokaz kończy się szybko (nie czeka kilkunastu sekund), scena sprzątnięta, naKoniec raz', pom.trwalo < 4000 && !pom.scena && pom.koniec === 1, JSON.stringify(pom));
 
   /* ---- część 2: prawdziwe generowanie z „życiem” ---- */
   await dane(p);

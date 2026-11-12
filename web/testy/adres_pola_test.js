@@ -53,5 +53,11 @@
     const gosz = przez(A.zlozAdresBezDomyslnego({ ulica: 'Goszczyn', nr: '12', lokal: '', kod: '05-600', miasto: 'Grójec' }));
     ok('znana miejscowość (Goszczyn) wpisana jako „ulica” jest rozpoznana przez silnik jako wieś — z tego bierze się podpowiedź „wybierz Miejscowość bez ulicy”', gosz.to_wies === true && gosz.niejednoznaczne === false, JSON.stringify(gosz));
   }
+  /* filtry przy pisaniu: bez cyfr w miejscowości i w nazwie ulicy (wyjątek: pierwsze słowo nazwy ulicy może być liczbą) */
+  const u = A.ulicaWTrakcieWpisywania, mi = A.miejscowoscWTrakcieWpisywania;
+  ok('miejscowość w trakcie pisania: cyfry i znaki specjalne odpadają, litery (także polskie), spacja, kropka, apostrof i myślnik zostają', mi('Warszawa 5') === 'Warszawa ' && mi('Zielona Góra2') === 'Zielona Góra' && mi('Bielsko-Biała') === 'Bielsko-Biała' && mi("Kędzierzyn-Koźle!") === 'Kędzierzyn-Koźle' && mi('Biała Podlaska') === 'Biała Podlaska', j([mi('Warszawa 5'), mi('Zielona Góra2')]));
+  ok('ulica w trakcie pisania: numer domu po nazwie znika („Polna 5”, „Polna5”, „Armii Krajowej 15”, „Róż 5a”, „Polna 12/3”, „Curie-Skłodowskiej 12-14”)', u('Polna 5').trim() === 'Polna' && u('Polna5') === 'Polna' && u('Armii Krajowej 15').trim() === 'Armii Krajowej' && u('Aleja Róż 5a').trim() === 'Aleja Róż' && u('ul. Polna 12/3').trim() === 'ul. Polna' && u('ul. Curie-Skłodowskiej 12-14').trim() === 'ul. Curie-Skłodowskiej');
+  ok('ulica w trakcie pisania: nazwy zaczynające się liczbą zostają („3 Maja”, „ul. 11 Listopada”, „1000-lecia”, „al. 3 Maja”), a numer domu po nich znika', u('3 Maja') === '3 Maja' && u('ul. 11 Listopada') === 'ul. 11 Listopada' && u('1000-lecia') === '1000-lecia' && u('al. 3 Maja') === 'al. 3 Maja' && u('al. 3 Maja 12').trim() === 'al. 3 Maja');
+  ok('nazwa wsi w trakcie pisania: żadnych cyfr', u('Dębowa Wola 12', true).trim() === 'Dębowa Wola' && u('Wola2', true) === 'Wola');
   console.log(kod ? 'KONIEC kod=1' : 'KONIEC kod=0'); process.exit(kod);
 })().catch(e => { console.error('PRZERWANO:', e); process.exit(2); });

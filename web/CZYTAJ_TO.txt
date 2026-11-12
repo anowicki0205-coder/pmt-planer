@@ -196,7 +196,8 @@ DOKUMENTY DO PODPISU: PODPISZ → WGRAJ → SPRAWDZENIE → WYŚLIJ
   AKTUALNIE (11.11): okno to ASYSTENT w KAŻDEJ przeglądarce — jedna rzecz do zrobienia naraz, jeden duży przycisk, pasek postępu. Poniższy opis „czterech kroków” dotyczy widoku klasycznego
   (przełącznik „Pokaż wszystkie kroki naraz” pod „Inne sposoby i szczegóły”). Najwygodniej w Microsoft Edge albo Google Chrome na komputerze: aplikacja sama zapisuje dokumenty w folderze „delegacje” i sama
   wczytuje podpisane pliki. W Firefoksie, Safari i na telefonie: „Pobierz dokumenty” → podpis → przeciągnij podpisane pliki (albo CAŁY folder, np. „Pobrane”) w dowolne miejsce okna albo „Wybierz podpisane pliki” /
-  „Wskaż folder” — aplikacja sama odsieje cudze pliki. Rozliczenie wydatków (bez podpisu) przyjmuje się samo.
+  „Wskaż folder” — aplikacja sama odsieje cudze pliki. Rozliczenie wydatków (bez podpisu) przyjmuje się samo; „Pobierz dokumenty” pobiera też jego PDF (7 plików przy 6 poleceniach). Gdy program nie
+  potwierdza podpisu, każdy dokument można potwierdzić ręcznie („Szczegóły” → „Potwierdzam…”; przy odrzuconym podpisie elektronicznym — po dodatkowym ostrzeżeniu, ślad zostaje w szczegółach).
   Okno „Dokumenty do podpisu” (przycisk „Podpisz …” albo probówki w kaflu Dokumenty) prowadzi czterema kolorowymi krokami; pod nimi są karty dokumentów (po jednej na polecenie i rozliczenie).
   1. PODPISZ: elektronicznie (gov.pl, Profil Zaufany) albo odręcznie. FOLDER „delegacje” (Chrome i Edge na komputerze): blok „Folder „delegacje”” z przyciskiem „Wskaż miejsce” (po zapisie dokumentów zostaje jedna linia: ścieżka, stan obserwacji i mały odnośnik „zmień”; ręczne pobieranie PDF-ów jest wtedy schowane, a „Otwórz gov.pl” to jedyny przycisk) — RAZ wskazujesz w oknie wyboru miejsce (np. pulpit),
      a aplikacja SAMA tworzy w nim folder „delegacje” (gdy wskażesz folder, który już tak się nazywa, używa go bez zagnieżdżania) i od razu zapisuje PDF-y w podfolderze miesiąca, np. „delegacje\wrzesień 2026” (rozliczenie
@@ -407,7 +408,8 @@ TESTY (wymagają Node + Playwright)
 
 DŹWIĘKI I PODKŁAD MUZYCZNY (js/dzwiek.js)
   · Krótkie efekty: kliknięcia przycisków, otwarcie i zamknięcie okna, przełączenie Noc/Dzień, odhaczenie wizyty, podpis sprawdzony (dłuższy akord, gdy wszystkie dokumenty poprawne),
-    wiadomość gotowa do wysłania, początek i koniec generowania dokumentów oraz KAŻDY PUNKT TRASY zapalający się w pokazie generowania (siedem nut z akordu, które idą w górę; ostatnia jasno i dłużej —
+    wiadomość gotowa do wysłania, początek i koniec generowania dokumentów oraz KAŻDY PUNKT TRASY zapalający się w pokazie generowania (siedem nut z akordu, które idą w górę; kropki zapalają się jedna po drugiej,
+    każda dokładnie w chwili swojej nuty, co ósemkę; dzwonek „koniec” gra po ostatniej kropce; ostatnia nuta jasno i dłużej —
     gdy gra podkład, nuty wpadają na siatkę jego ósemek, czyli w rytm; bez podkładu grają same; bez pokazu, np. przy „Ogranicz ruch” w systemie, punktów nie ma, więc i nut nie ma). Domyślnie WŁĄCZONE; głośnik w nagłówku (na telefonie: menu konta → Dźwięk → Efekty) wycisza je na stałe na tym urządzeniu.
   · Podkład: spokojna, zapętlona muzyka w stylu retro-futurystycznym (synth-wave, 96 BPM, Am–F–C–G; stereo, z pogłosem; cichnie na chwilę, gdy gra efekt). Domyślnie WŁĄCZONY; nutka w nagłówku (albo menu konta → Dźwięk → Muzyka) go wyłącza i włącza, a wybór jest zapamiętany na urządzeniu.
     Przeglądarka pozwala grać dopiero po kliknięciu, więc podkład rusza przy PIERWSZYM kliknięciu po otwarciu aplikacji (nie sam, w ciszy); przy pierwszym uruchomieniu pojawia się raz podpowiedź „Gra podkład muzyczny — wyłączysz go nutką u góry”. Karta w tle nie gra (oszczędza baterię).

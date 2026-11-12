@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:2cbafb8ac91c4268
+# źródło: PMT_Delegacje.py sha256:56965a05167e3302
 
 import sys
 
@@ -2572,12 +2572,41 @@ class ListaTras(list):
     kwota_niepelna = False
     brak_dni = False
 
+PROBY_LICZBY_POLECEN = ((1.3, 0), (1.6, 0), (2.0, 0), (1.6, 1), (2.0, 1), (1.3, 2))
+
 def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None) -> List[DzienTrasy]:
+    """Układa dni tras na kwotę. Liczba poleceń wyjazdu ma wynikać z kwoty (ile_dokumentow: kwota 1917 zł = dwa
+    polecenia po najwyżej 986,34 zł), a polecenie mieści tylko MAX_ETAPOW_DOKUMENTU wierszy. Gdy pierwszy układ
+    dni potrzebuje więcej poleceń niż wynika z kwoty (dni za krótkie, za dużo wierszy), ukladamy je jeszcze
+    raz z dłuższymi skokami między miejscowościami (PROBY_LICZBY_POLECEN) i bierzemy pierwszy układ, który
+    mieści się w liczbie poleceń z kwoty; gdy żaden się nie mieści — pierwszy (jak dotąd)."""
+    wynik = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, postep_cb, dzien_cb)
+    try:
+        _k = ile_dokumentow(kwota_calkowita)
+        if _k < 2 or not wynik or getattr(wynik, "kwota_niepelna", False):
+            return wynik
+        def _ile_polecen(w):
+            return len(_podziel_na_dokumenty(sorted(w, key=lambda d: d.data)))
+        if _ile_polecen(wynik) <= _k:
+            return wynik
+        if postep_cb: postep_cb("Dopasowuję liczbę poleceń do kwoty...", 0.80)
+        for _skok, _wariant in PROBY_LICZBY_POLECEN:
+            _proba = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, None, None, _skok, _wariant)
+            if _proba and not getattr(_proba, "kwota_niepelna", False) and not getattr(_proba, "brak_dni", False) and _ile_polecen(_proba) <= _k:
+                return _proba
+        # żadna próba nie zmieściła się w liczbie poleceń z kwoty: zostaje pierwszy układ (i jego stan źródła odległości)
+        return _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, None, dzien_cb)
+    except PrzerwanoGenerowanie:
+        raise
+    except Exception:
+        return wynik
+
+def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0) -> List[DzienTrasy]:
     if stawka is None: stawka = STAWKA_ZA_KM
     # jedno rozliczenie = jeden stan źródła odległości
     zeruj_zrodlo_odleglosci()
     seed_val = int(pesel[-6:]) if pesel.isdigit() and len(pesel) >= 6 else 42
-    rng = random.Random(seed_val)
+    rng = random.Random(seed_val + 7919 * _wariant)
     baza = zaladuj_baze(baza_lat, baza_lng)
     
     ostatnie_uzycie = {} 
@@ -2852,7 +2881,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             # zależy od TYPU dnia (gniazdo = ciasno, po drodze = luźniej).
             wybrane = [punkt_startowy]
             uzyte_nazwy = {punkt_startowy.n}
-            max_skok = (skok_dnia if promien_petli <= 70 else min(skok_dnia * (promien_petli/70.0), 60.0)) * _luz
+            max_skok = (skok_dnia if promien_petli <= 70 else min(skok_dnia * (promien_petli/70.0), 60.0)) * _luz * _skok
             while len(wybrane) < ile_celow:
                 ostatni = wybrane[-1]
                 najlepszy = None
@@ -3406,6 +3435,144 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         if not _sciagnij_dzien(_dz, _budzet * MNOZNIK_DOL):
             break
 
+    # 3) LICZBA DOKUMENTÓW = SUFIT Z KWOTY. Kwota 1917 zł mieści się w dwóch poleceniach (2 × 986,34 zł), a silnik
+    #    rozpisywał trzy: układał ok. dziesięciu krótkich dni (po 6–8 wierszy), a polecenie mieści ich 30 — więc
+    #    dni nie dało się upakować w dwa dokumenty (przy okazji granica podziału musi trafić w okno kwoty szerokie
+    #    na 2 × 986,34 − 1917 = 55,68 zł). Skoro sufit z kwoty (ile_dokumentow) mówi, że wystarczą dwa dokumenty,
+    #    szukamy zestawu dni (zdejmujemy najwyżej cztery) i podziału na dokumenty, przy którym każdy dokument
+    #    zmieści się pod sufitem kwoty i wierszy strony po DOSTOSOWANIU mnożnika drogi w obrębie dokumentu
+    #    (jeden mnożnik na dokument, w granicach doby każdego dnia i nie niżej niż droga rzeczywista). Najpierw
+    #    próbujemy nie zdejmować żadnego dnia; spośród zestawów o tej samej liczbie dni wybieramy ten
+    #    o najmniejszym odchyleniu mnożnika od wspólnego. Gdy wspólny mnożnik już daje właściwą liczbę
+    #    dokumentów albo takiego zestawu nie ma — bez zmian.
+    _mn_dokumentu = {}
+    _k_dok = ile_dokumentow(kwota_calkowita)
+    if _k_dok >= 2 and len(finalne_dni) >= _k_dok:
+        _chron = sorted(finalne_dni, key=lambda dz: dz.data)
+        _n_chron = len(_chron)
+        _km_dni = [_linia_dnia(dz) for dz in _chron]
+        _mx_dni = [_mnoznik_max_dnia(dz)[0] for dz in _chron]
+        _wiersze_dni = [len(dz.etapy_surowe) for dz in _chron]
+        _sufit_zl = MAX_KWOTA_DOKUMENTU - 0.5
+        _licznik_ocen = [0]
+
+        def _ile_dok_wspolny():
+            """Ile dokumentów dają WSZYSTKIE dni przy wspólnym mnożniku (None: mnożnik poza dobą któregoś dnia)."""
+            _S = sum(_km_dni)
+            if _S <= 0:
+                return None
+            _mn = max(MNOZNIK_DOL, (kwota_calkowita / stawka) / _S)
+            _dok, _koszt, _wier = 1, 0.0, 0
+            for _i in range(_n_chron):
+                if _mn > _mx_dni[_i] + 1e-9:
+                    return None
+                _sd = _km_dni[_i] * _mn * stawka
+                if _koszt + _sd > _sufit_zl or _wier + _wiersze_dni[_i] > MAX_ETAPOW_DOKUMENTU:
+                    _dok += 1; _koszt, _wier = _sd, _wiersze_dni[_i]
+                else:
+                    _koszt += _sd; _wier += _wiersze_dni[_i]
+            return _dok
+
+        def _podzial_dni(idx, k):
+            """Podział dni `idx` (po datach) na dokładnie `k` dokumentów: (koszt, grupy, kwoty) albo None.
+            grupy: [(pozycja_od, pozycja_do)] w obrębie idx; kwoty: zł na grupę (suma = kwota)."""
+            _km_l = [_km_dni[i] for i in idx]; _mx_l = [_mx_dni[i] for i in idx]; _w_l = [_wiersze_dni[i] for i in idx]
+            _n = len(idx); _S = sum(_km_l)
+            if _S <= 0 or _n < k:
+                return None
+            _mn_w = max(MNOZNIK_DOL, (kwota_calkowita / stawka) / _S)
+            _naj = [None, 9.9]
+
+            def _g(od, do):
+                _km = sum(_km_l[od:do]); _mxg = min(_mx_l[od:do])
+                return (_km * _mn_w * stawka, _km * MNOZNIK_DOL * stawka, min(_km * _mxg * stawka, _sufit_zl), sum(_w_l[od:do]))
+
+            def _szukaj(od, ile, grupy):
+                if _licznik_ocen[0] > 60000:
+                    return
+                if ile == 1:
+                    _gg = _g(od, _n)
+                    if _gg[3] > MAX_ETAPOW_DOKUMENTU or _gg[1] > _gg[2] + 1e-9:
+                        return
+                    _wszystkie = grupy + [(od, _n, _gg)]
+                    _licznik_ocen[0] += 1
+                    _lo = sum(x[2][1] for x in _wszystkie); _hi = sum(x[2][2] for x in _wszystkie)
+                    if not (_lo - 1e-6 <= kwota_calkowita <= _hi + 1e-6):
+                        return
+                    _t = [min(max(x[2][0], x[2][1]), x[2][2]) for x in _wszystkie]
+                    for _ in range(30):
+                        _roz = kwota_calkowita - sum(_t)
+                        if abs(_roz) < 0.005:
+                            break
+                        _zap = [(x[2][2] - _t[j]) if _roz > 0 else (_t[j] - x[2][1]) for j, x in enumerate(_wszystkie)]
+                        _sz = sum(z for z in _zap if z > 1e-9)
+                        if _sz <= 1e-9:
+                            return
+                        _ud = min(1.0, abs(_roz) / _sz)
+                        for j in range(len(_wszystkie)):
+                            if _zap[j] > 1e-9:
+                                _t[j] += (1 if _roz > 0 else -1) * _zap[j] * _ud
+                    if abs(kwota_calkowita - sum(_t)) >= 0.01:
+                        return
+                    _kosz = max(abs(_t[j] / x[2][0] - 1.0) for j, x in enumerate(_wszystkie) if x[2][0] > 0)
+                    if _kosz < _naj[1]:
+                        _naj[0] = ([(x[0], x[1]) for x in _wszystkie], list(_t)); _naj[1] = _kosz
+                    return
+                for _do in range(od + 1, _n - ile + 2):
+                    _gg = _g(od, _do)
+                    if _gg[3] > MAX_ETAPOW_DOKUMENTU:
+                        break
+                    if _gg[1] > _gg[2] + 1e-9:
+                        continue
+                    _szukaj(_do, ile - 1, grupy + [(od, _do, _gg)])
+
+            _szukaj(0, k, [])
+            return None if _naj[0] is None or _naj[1] > 0.35 else (_naj[1], _naj[0][0], _naj[0][1])
+
+        _dok_wsp = _ile_dok_wspolny()
+        if _dok_wsp is None or _dok_wsp > _k_dok:
+            _wynik_dok = None
+            for _ile_zdjac in range(0, min(4, _n_chron - _k_dok) + 1):
+                _najlepszy_zestaw = None
+                for _zdejmij in itertools.combinations(range(_n_chron), _ile_zdjac):
+                    if _licznik_ocen[0] > 60000:
+                        break
+                    _idx = [i for i in range(_n_chron) if i not in _zdejmij]
+                    _p = _podzial_dni(_idx, _k_dok)
+                    if _p is not None and (_najlepszy_zestaw is None or _p[0] < _najlepszy_zestaw[0][0]):
+                        _najlepszy_zestaw = (_p, _idx)
+                if _najlepszy_zestaw is not None:
+                    _wynik_dok = _najlepszy_zestaw
+                    break
+            if _wynik_dok is None:
+                # Kolejność dni (do tej pory chronologiczna) bywa przeszkodą: dwa długie dni obok siebie mają
+                # mniejszy zapas mnożnika drogi niż krótkie, więc jeden dokument nie udźwignie kwoty. Trasy dni
+                # nie zależą od daty, więc próbujemy zamienić ze sobą DWA dni (trasy zamieniają się datami)
+                # i bierzemy zamianę o najmniejszym odchyleniu mnożnika.
+                _najl_zam = None
+                for _a, _b in itertools.combinations(range(_n_chron), 2):
+                    if _licznik_ocen[0] > 60000:
+                        break
+                    _idx = list(range(_n_chron)); _idx[_a], _idx[_b] = _idx[_b], _idx[_a]
+                    _p = _podzial_dni(_idx, _k_dok)
+                    if _p is not None and (_najl_zam is None or _p[0] < _najl_zam[0][0]):
+                        _najl_zam = (_p, _idx)
+                if _najl_zam is not None:
+                    _wynik_dok = _najl_zam
+                    _daty_chron = [dz.data for dz in _chron]
+                    for _t, _i in enumerate(_najl_zam[1]):
+                        _chron[_i].data = _daty_chron[_t]
+            if _wynik_dok is not None:
+                (_koszt_p, _grupy_p, _kwoty_p), _idx_p = _wynik_dok
+                for (_od, _do), _tz in zip(_grupy_p, _kwoty_p):
+                    _poz = _idx_p[_od:_do]
+                    _mn_g = _tz / (sum(_km_dni[i] for i in _poz) * stawka)
+                    for _i in _poz:
+                        _mn_dokumentu[id(_chron[_i])] = _mn_g
+                _zostaja = set(id(_chron[i]) for i in _idx_p)
+                _dni_przyciete += len(finalne_dni) - len(_zostaja)
+                finalne_dni[:] = [dz for dz in finalne_dni if id(dz) in _zostaja]
+
     _dane_dni = []
     for dzien in finalne_dni:
         mn_max, baza_km = _mnoznik_max_dnia(dzien)
@@ -3420,6 +3587,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     _mn_start = max(MNOZNIK_DOL, _cel / _suma_km_bazowa)
     for x in _dane_dni:
         x["mn"] = max(MNOZNIK_DOL, min(_mn_start, x["max"]))
+        if id(x["dzien"]) in _mn_dokumentu:          # podział na dokumenty z punktu 3) (sufit z kwoty): jeden mnożnik na dokument
+            x["mn"] = _mn_dokumentu[id(x["dzien"])]
     for _ in range(24):
         _osiagniete = sum(x["km"] * x["mn"] for x in _dane_dni)
         _brak = _cel - _osiagniete

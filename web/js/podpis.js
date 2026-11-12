@@ -78,13 +78,20 @@ export function zainstalujPodpis(k) {
     if (M().podpisane[i]) return w.potwierdzone ? (w.bezWymogu ? 'Plik potwierdzony przez Ciebie' : 'Podpis potwierdzony przez Ciebie') : w.bezWymogu ? 'Rozliczenie przyjęte — podpis nie jest na nim wymagany' : w.rodzaj === 'odreczny' ? 'Widzę podpis w miejscu „podpis pracownika”' : `Podpisał(a): ${esc(w.sygnatariusz || '—')}${w.czas ? ' · ' + czasPl(new Date(w.czas)) : ''}`;
     const zly = (w.kontrole.find(c => c.stan === 'zle') || w.kontrole.find(c => c.stan === 'uwaga')); return zly ? esc(zly.tekst) : 'Wymaga sprawdzenia';
   }
+  const uzbrojone = new Set();       // dokumenty, przy których wybrano „Potwierdź ręcznie mimo ostrzeżenia” i czeka drugie kliknięcie (po ostrzeżeniu)
+  const maProblem = w => w.rodzaj !== 'odreczny' && (w.rodzaj === 'brak' || w.kontrole.some(c => c.stan === 'zle'));      // podpis elektroniczny, który program odrzuca (cudzy, zmieniony dokument, brak podpisu) albo plik nie do odczytu; ocena odręcznego podpisu na skanie z natury bywa omylna, więc tam wystarcza jedno kliknięcie
   function szczegoly(d) {
     const w = weryfikacje()[d.i]; if (!w) return '';
-    const pliki = plikiDok(d.i), mozna = !M().podpisane[d.i] && !w.potwierdzone && (w.rodzaj === 'odreczny' || (w.rodzaj !== 'brak' && !w.kontrole.some(c => c.stan === 'zle')));
+    const pliki = plikiDok(d.i), mozna = !M().podpisane[d.i] && !w.potwierdzone, problem = maProblem(w), uzbrojony = uzbrojone.has(d.i);
+    /* Ręcznie można potwierdzić KAŻDY dokument. Gdy program nic złego nie widzi, wystarczy jedno kliknięcie; gdy widzi problem (nie znalazł podpisu, podpis innej osoby, zmieniony dokument, plik nie do odczytu),
+       potwierdzenie wymaga drugiego kliknięcia po przeczytaniu ostrzeżenia — wynik zapisuje się jako „potwierdzone ręcznie mimo ostrzeżenia”. */
+    const akcjaPotw = !mozna ? '' : !problem ? `<button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}${w.bezWymogu ? 'Potwierdzam, że to właściwy dokument' : 'Potwierdzam, że podpis jest'}</button>`
+      : !uzbrojony ? `<button type="button" class="przycisk maly" data-akcja="uzbroj-reczne" data-i="${d.i}">${ik('i-info')}Potwierdź ręcznie mimo ostrzeżenia…</button>` : '';
+    const ostrzezenie = mozna && problem && uzbrojony ? `<div class="dok-ostrz" role="alert"><b>Program nie potwierdza tego podpisu.</b> Powód jest wyżej na liście. Potwierdź tylko wtedy, gdy plik został już obejrzany: otwarty, z widocznym i właściwym podpisem tej osoby, której dotyczy dokument. Za prawidłowość podpisu odpowiada ten, kto go potwierdza — w aplikacji zostanie zapisane, że potwierdzono go ręcznie mimo ostrzeżenia.<div class="dok-akcje"><button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}Tak, potwierdzam podpis</button><button type="button" class="przycisk maly" data-akcja="anuluj-reczne" data-i="${d.i}">Anuluj</button></div></div>` : '';
     return `<div class="dok-szcz"><ul class="kontrole">${w.kontrole.map(c => `<li class="kt-${c.stan}">${ik(IKONA_STANU[c.stan] || 'i-info')}<span>${esc(c.tekst)}</span></li>`).join('')}</ul>
       ${w.podglad ? `<figure class="podglad-podpisu"><img src="${w.podglad}" alt="Wycinek skanu z miejscem na podpis"><figcaption>Tak widzę miejsce „podpis pracownika” na skanie</figcaption></figure>` : ''}
       <small class="dok-plik">Plik: ${esc(pliki.join(', '))}</small>
-      <div class="dok-akcje">${mozna ? `<button type="button" class="przycisk maly glowny" data-akcja="potwierdz" data-i="${d.i}">${ik('i-ok')}${w.bezWymogu ? 'Potwierdzam, że to właściwy dokument' : 'Potwierdzam, że podpis jest'}</button>` : ''}<button type="button" class="przycisk maly" data-akcja="cofnij" data-i="${d.i}">${ik('i-cofnij')}Wgraj inny plik</button><button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Zwiń</button></div></div>`;
+      ${ostrzezenie}<div class="dok-akcje">${akcjaPotw}<button type="button" class="przycisk maly" data-akcja="cofnij" data-i="${d.i}">${ik('i-cofnij')}Wgraj inny plik</button><button type="button" class="przycisk maly" data-akcja="szczegoly" data-i="${d.i}">Zwiń</button></div></div>`;
   }
   let fokusI = null;              // dokument wskazany z probówki na pulpicie: jego karta na liście mruga (znacznik przeżywa ponowne rysowanie listy)
   let widziane = {};              // stan każdej karty z ostatniego narysowania: efekty (podpis „rysuje się”, zły dokument drży) tylko przy ZMIANIE stanu, nie przy każdym odświeżeniu
@@ -364,8 +371,16 @@ export function zainstalujPodpis(k) {
     const pr = przegladarka(), brave = !!(navigator.brave && navigator.brave.isBrave);
     if (!brave && (pr === 'chrome' || pr === 'edge')) return '';
     const co = brave ? 'Brave domyślnie blokuje dostęp aplikacji do folderów' : `W ${pr === 'firefox' ? 'Firefoksie' : pr === 'safari' ? 'Safari' : 'tej przeglądarce'} pliki pobierasz i wskazujesz ręcznie — przeglądarka nie pozwala aplikacji zapisywać ich w folderze`;
-    return `<p class="as-rada-przegl" id="as-rada-przegl"><span>${co}. <b>W Microsoft Edge albo Google Chrome na komputerze robię to za Ciebie</b> — wystarczy raz wskazać folder.${brave ? ' (W Brave włączysz to w adresie brave://flags/#file-system-access-api.)' : ''}</span><button type="button" class="kk-link kk-link-jasny" data-akcja="rada-przegladarki-ok">Rozumiem</button></p>`;
+    return `<p class="as-rada-przegl" id="as-rada-przegl"><span>${co}. <b>Najwygodniej jest w Microsoft Edge (jest w Windows) albo w Google Chrome na komputerze</b> — tam aplikacja sama zapisuje dokumenty w folderze „${NAZWA_FOLDERU}” i sama wczytuje podpisane pliki; wystarczy raz wskazać folder.${brave ? ' (W Brave włączysz to w adresie brave://flags/#file-system-access-api.)' : ''}</span><button type="button" class="kk-link kk-link-jasny" data-akcja="rada-przegladarki-ok">Rozumiem</button></p>`;
   }
+  /** Tryb pobierania na komputerze (Firefox, Safari…): przeglądarka nie pozwala aplikacji zapisywać w wybranym folderze, ale sama zapisuje pobrania tam, gdzie jej każemy — wystarczy raz zmienić jej ustawienie.
+   *  Zwinięta podpowiedź, jak mieć dokumenty w folderze „delegacje” na pulpicie mimo to. */
+  function radaFolderuPobierania() {
+    if (dotyk() || folderMozliwy()) return '';
+    const pr = przegladarka(), kroki = pr === 'safari' ? 'W Safari: menu <b>Safari → Ustawienia → Ogólne → „Lokalizacja pobranych plików” → „Inna…”</b>.' : pr === 'firefox' ? 'W Firefoksie: <b>menu ☰ → Ustawienia → Ogólne</b>, w sekcji „Pliki i aplikacje” przy „Zapisuj pliki w” kliknij <b>„Przeglądaj…”</b>.' : 'W ustawieniach przeglądarki znajdź sekcję <b>Pobieranie</b> i zmień folder zapisu.';
+    return `<details class="as-folder-pobierania"><summary>Chcesz, żeby dokumenty trafiały do folderu „${NAZWA_FOLDERU}” na pulpicie?</summary><p>Przeglądarka nie pozwala mi samemu go utworzyć, ale możesz jej raz ustawić miejsce zapisu: na Pulpicie utwórz folder <b>${NAZWA_FOLDERU}</b> (prawy przycisk → Nowy → Folder), a potem wskaż go jako folder pobierania. ${kroki} Od tej pory wszystkie pobrane dokumenty będą w nim.</p></details>`;
+  }
+  const govNieDziala = '<p class="as-gdzie as-gov-awaria">Strona gov.pl się nie otwiera albo nie działa? To bywa przerwa po stronie państwa — spróbuj za jakiś czas albo podpisz odręcznie (link poniżej).</p>';
   function htmlAsystenta() {
     const tryb = folderMozliwy() ? 'folder' : 'pobieranie', { n, ok } = ileDoPodpisu(), proc = n ? Math.round(ok / n * 100) : 0, sp = sposobPodpisuTeraz();
     const korzen = esc((fol.korzen || fol.uchwyt || { name: NAZWA_FOLDERU }).name), pod = esc(nazwaPodfolderu()), wyk = wszystkoPodpisane(), wys = wyslane();
@@ -398,7 +413,7 @@ export function zainstalujPodpis(k) {
         status = `${strefaPlikow()}${dotyk() ? '' : linkFolderu}${pasek('Czekam na skany podpisanych poleceń')}${info}${przelacz('gov')}`;
       } else if (!pobrane().size || pobieranieTrwa) {      // także w trakcie pobierania: karta zmienia się dopiero, gdy wszystkie pliki poszły
         tytul = 'Pobierz dokumenty do podpisu';
-        opis = `<p>Strona gov.pl nie przyjmuje plików prosto z aplikacji, więc najpierw zapisz dokumenty na dysku. Kliknij przycisk — pliki trafią do folderu <b>Pobrane</b>.</p><p class="as-gdzie">Przeglądarka może zapytać o zgodę na pobranie kilku plików — kliknij „Zezwól”.</p>`;
+        opis = `<p>Strona gov.pl nie przyjmuje plików prosto z aplikacji, więc najpierw zapisz dokumenty na dysku. Kliknij przycisk — pliki trafią do folderu <b>Pobrane</b>, razem z rozliczeniem wydatków (jego nie podpisujesz).</p><p class="as-gdzie">Przeglądarka może zapytać o zgodę na pobranie kilku plików — kliknij „Zezwól”.</p>${radaFolderuPobierania()}`;
         akcja = duzy('pobierz-do-podpisu', pobieranieTrwa ? 'Pobieram…' : 'Pobierz dokumenty', 'i-pobierz', pobieranieTrwa);
         status = przelacz('reczny');
       } else {
@@ -406,7 +421,7 @@ export function zainstalujPodpis(k) {
         tytul = 'Podpisz dokumenty na gov.pl';
         opis = `<p class="as-gdzie">Dokumenty są w folderze <b>Pobrane</b>. <button type="button" class="kk-link" data-akcja="pobierz-do-podpisu">Pobierz je jeszcze raz</button></p><ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu <b>Pobrane</b> pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — potem wróć tutaj i <b>wgraj je</b> (${dotyk() ? 'dotknij „Wybierz podpisane pliki”' : 'przeciągnij je albo wybierz'}). Resztę zrobię sam.</li></ol>`;
         akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
-        status = `${strefaPlikow()}${dotyk() ? '' : linkFolderu}${pasek('Czekam na podpisane pliki')}${info}${przelacz('reczny')}`;
+        status = `${strefaPlikow()}${dotyk() ? '' : linkFolderu}${pasek('Czekam na podpisane pliki')}${info}${govNieDziala}${przelacz('reczny')}`;
       }
     }
     else if (fol.stan === 'zapisany') {
@@ -422,7 +437,7 @@ export function zainstalujPodpis(k) {
         tytul = 'Podpisz dokumenty na gov.pl';
         opis = `${gdzie}<ol class="as-lista"><li>Kliknij <b>„Otwórz gov.pl”</b> i zaloguj się Profilem Zaufanym.</li><li>Wybierz z folderu pliki: <b>${esc(t.tekst)}</b>${ok === 0 ? ' (rozliczenia wydatków nie podpisujesz)' : ''}.</li><li>Podpisz i <b>pobierz</b> podpisane pliki — wrócisz tu, a resztę zrobię sam.</li></ol>`;
         akcja = `<a class="przycisk glowny as-duzy" id="otworz-gov" href="${k.URL_PODPIS}" target="_blank" rel="noopener">Otwórz gov.pl</a>`;
-        status = `${pasek('Czekam na podpisane pliki')}${radaPobrane()}${info}${blad}${linkFolderu}${przelacz('reczny')}`;
+        status = `${pasek('Czekam na podpisane pliki')}${radaPobrane()}${info}${blad}${linkFolderu}${govNieDziala}${przelacz('reczny')}`;
       }
     }
     else if (fol.stan === 'zgoda') { tytul = 'Pozwól na dostęp do folderu'; opis = `<p>Przeglądarka pyta o zgodę na folder „${esc(fol.uchwyt ? fol.uchwyt.name : NAZWA_FOLDERU)}”. Kliknij <b>„Pozwól”</b>, a w oknie przeglądarki wybierz <b>„Zezwalaj przy każdej wizycie”</b> (albo „Edytuj pliki”) — wtedy to pytanie już nie wróci.</p>${blad}`; akcja = duzy('folder-wznow', 'Pozwól'); }
@@ -509,8 +524,8 @@ export function zainstalujPodpis(k) {
     zaznaczOd(); k.pobierzBlob(k.blobPdf(b), bezOgonkow(d.nazwa)); oznaczPobrane([i]); odswiezPobieranie();
   }
   /** Wszystkie dokumenty po kolei, każdy jako osobny PDF (przeglądarki mogą zapytać o zgodę na kilka pobrań). */
-  async function pobierzOsobno(tylkoDoPodpisu = false) {      // tylkoDoPodpisu: bez rozliczenia wydatków (nie wymaga podpisu, więc nie ma po co go podpisywać na gov.pl)
-    const o = (await oryginaly()).filter(x => !(tylkoDoPodpisu && x.d.rozliczenie)); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
+  async function pobierzOsobno() {      // wszystkie dokumenty, także rozliczenie wydatków: nie wymaga podpisu ani sprawdzenia, ale ma trafić do użytkownika jako PDF (jak w trybie folderu)
+    const o = await oryginaly(); if (!o.length) { pokazToast('Nie znalazłem dokumentów — wygeneruj je ponownie'); return; }
     if (pobieranieTrwa) return; pobieranieTrwa = true; zaznaczOd(); odswiezPobieranie();
     try { for (const x of o) { k.pobierzBlob(k.blobPdf(x.bajty), bezOgonkow(x.d.nazwa)); oznaczPobrane([x.d.i]); await czekaj(450); } }      // pauza: przeglądarki gubią pobrania uruchomione w tej samej chwili
     finally { pobieranieTrwa = false; }
@@ -599,7 +614,7 @@ export function zainstalujPodpis(k) {
   }
 
   /* ---------------------------------- sprawdzanie jednego dokumentu ---------------------------------- */
-  const zapiszWeryfikacje = (i, w) => { const m = M(); m.weryfikacje = Object.assign({}, rec().weryfikacje || {}, m.weryfikacje || {}, { [i]: w }); m.podpisane[i] = w.stan === 'ok' || !!w.potwierdzone; k.zapiszRekord(); };
+  const zapiszWeryfikacje = (i, w) => { uzbrojone.delete(i); const m = M(); m.weryfikacje = Object.assign({}, rec().weryfikacje || {}, m.weryfikacje || {}, { [i]: w }); m.podpisane[i] = w.stan === 'ok' || !!w.potwierdzone; k.zapiszRekord(); };
   /** Podpis odręczny jest WYMAGANY tylko na poleceniach wyjazdu służbowego (delegacjach). Rozliczenie wydatków podpisu odręcznego nie potrzebuje: brak podpisu pod tabelą nie jest błędem
    *  (nie świeci się na czerwono i nie trzeba go potwierdzać) — sprawdzam wtedy tylko, czy plik da się odczytać. Podpis elektroniczny (PAdES/XAdES) sprawdzany jest tak samo na każdym dokumencie. */
   async function ocenOdreczny(d, pliki) {
@@ -670,7 +685,9 @@ export function zainstalujPodpis(k) {
   const przewinDoWyslania = () => { const e = $('.krok-k.k5, #asystent', arkTresc); if (e && widok === 'glowny' && e.scrollIntoView) e.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };      // wszystko sprawdzone: „Wyślij” ma być na widoku
   function potwierdz(i) {
     const w = weryfikacje()[i]; if (!w) return;
-    zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
+    const mimo = maProblem(w); if (mimo && !uzbrojone.has(i)) return;      // przy ostrzeżeniu liczy się dopiero drugie kliknięcie, po przeczytaniu komunikatu
+    uzbrojone.delete(i);
+    zapiszWeryfikacje(i, Object.assign({}, w, { potwierdzone: true, potwierdzoneMimoOstrzezenia: mimo, kontrole: [...w.kontrole, { id: 'reczne', stan: 'ok', tekst: mimo ? 'Potwierdzone ręcznie przez Ciebie MIMO ostrzeżenia programu' : 'Podpis potwierdzony ręcznie przez Ciebie' }] }));
     k.odswiezPodpisy(); k.odswiezHero(); odswiezWidok();
     if (wszystkoPodpisane()) { k.kurtyna() && k.kurtyna().swieto(); k.zorza() && k.zorza().flara(1); pokazToast('Wszystko podpisane — możesz wysłać dokumenty'); przewinDoWyslania(); }
   }
@@ -964,7 +981,7 @@ export function zainstalujPodpis(k) {
     else if (a === 'sposob') { ustawSposobPodpisu(b.dataset.sposob); odswiezAsystenta(); }
     else if (a === 'wybierz-pliki') { const inp = $('#plik-wgraj', arkTresc); if (inp) inp.click(); }
     else if (a === 'wybierz-folder') { const inp = $('#plik-folder', arkTresc); if (inp) inp.click(); }
-    else if (a === 'pobierz-do-podpisu') pobierzOsobno(true);
+    else if (a === 'pobierz-do-podpisu') pobierzOsobno();
     else if (a === 'widok-podpisu') ustawWidokPodpisu(b.dataset.w);
     else if (a === 'rada-przegladarki-ok') { try { localStorage.setItem('pmt-ui-rada-przegladarki', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#as-rada-przegl', arkTresc); if (r) r.remove(); }
     else if (a === 'pobrane-rada-ok') { try { localStorage.setItem('pmt-ui-pobrane-rada', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#kk-pobrane-rada', arkTresc); if (r) r.remove(); }
@@ -989,6 +1006,8 @@ export function zainstalujPodpis(k) {
     else if (a === 'pdf-wydruk') pobierzWydruk();
     else if (a === 'cofnij') cofnij(Number(b.dataset.i));
     else if (a === 'potwierdz') potwierdz(Number(b.dataset.i));
+    else if (a === 'uzbroj-reczne') { uzbrojone.add(Number(b.dataset.i)); odswiezWidok(); }
+    else if (a === 'anuluj-reczne') { uzbrojone.delete(Number(b.dataset.i)); odswiezWidok(); }
     else if (a === 'szczegoly') { const i = Number(b.dataset.i); if (otwarte.has(i)) otwarte.delete(i); else otwarte.add(i); odswiezWidok(); }
   });
   arkTresc.addEventListener('click', e => {

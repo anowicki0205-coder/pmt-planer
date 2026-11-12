@@ -202,21 +202,23 @@ function utworz() {
     const teraz = Date.now(), min = ODSTEP_MS[nazwa] || 0; if (min && ostatnio[nazwa] && teraz - ostatnio[nazwa] < min) return false; ostatnio[nazwa] = teraz;
     try { const t = c.currentTime + .005, dl = zbudujEfekt(c, magistralaEfektu(tor, nazwa), nazwa, t); if (dl > 0 && mus && nazwa !== 'klik') przygluszMuzyke(mus.duck, t, dl); return dl > 0; } catch (e) { return false; }
   }
-  /** Punkt trasy zapalony w pokazie generowania (i-ty z n): nuta z akordu. Gdy gra podkład, nuta wpada na najbliższą ósemkę jego siatki, więc jest w rytmie; bez podkładu gra od razu.
-   *  Kilka punktów zapalonych naraz brzmi jak krótkie arpeggio (każdy na następnej ósemce albo co 0,12 s), nie jak jeden zlany dźwięk. */
+  /** Punkt trasy w pokazie generowania (i-ty z n): nuta z akordu. Gdy gra podkład, nuta wpada na najbliższą wolną ósemkę jego siatki, więc jest w rytmie; bez podkładu gra od razu.
+   *  Każda kolejna nuta jest co najmniej o ósemkę (0,3125 s) po poprzedniej — kilka punktów zgłoszonych naraz brzmi jak arpeggio. Zwraca, za ile MILISEKUND nuta zabrzmi (kropka na ekranie ma zapalić się
+   *  dokładnie wtedy), albo −1, gdy nic nie zagra (efekty wyłączone, kontekst nieczynny, karta w tle). */
   function punkt(i, n = PUNKTOW_TRASY) {
-    if (!efektyWl) return false;
+    if (!efektyWl) return -1;
     log.push('punkt'); if (log.length > 80) log.shift(); licznik.punkt = (licznik.punkt || 0) + 1;
-    if (!c || c.state !== 'running' || (doc && doc.hidden)) return false;
+    if (!c || c.state !== 'running' || (doc && doc.hidden)) return -1;
     try {
       const teraz = c.currentTime + .02, ost = KROK * 2, wRytmie = !!mus;
       let t = wRytmie ? siatka0 + Math.ceil((teraz - siatka0) / ost - 1e-6) * ost : teraz;
-      if (t < ostatniPunkt + (wRytmie ? ost : .12) - 1e-6) t = ostatniPunkt + (wRytmie ? ost : .12);
+      if (t < ostatniPunkt + ost - 1e-6) t = ostatniPunkt + ost;
       ostatniPunkt = t;
       const ak = wRytmie ? akordTaktu(Math.floor((t - siatka0 + 1e-6) / TAKT)) : undefined;
       const stopien = n > 1 ? Math.round(i * (PUNKTOW_TRASY - 1) / (n - 1)) : 0;      // przy innej liczbie punktów niż 7 drabinka dźwięków rozciąga się równo
-      return nutaPunktu(c, magistralaEfektu(tor, 'punkt'), t, stopien, ak) > 0;
-    } catch (e) { return false; }
+      if (nutaPunktu(c, magistralaEfektu(tor, 'punkt'), t, stopien, ak) <= 0) return -1;
+      return Math.max(0, Math.round((t - c.currentTime) * 1000));
+    } catch (e) { return -1; }
   }
   function tik() {
     if (!mus || !c) return;

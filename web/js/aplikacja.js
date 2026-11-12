@@ -9,7 +9,7 @@ import { zainstalujPomoc } from './pomoc.js';
 import { zainstalujPodpis } from './podpis.js';
 import { widowisko } from './widowisko.js';
 import { dzwiek } from './dzwiek.js';
-import { rozbierzAdres, zlozAdres, zlozAdresBezDomyslnego, rozpoznajPrzedrostek, sprawdzPola, kodWTrakcieWpisywania } from './adres.js';
+import { rozbierzAdres, zlozAdres, zlozAdresBezDomyslnego, rozpoznajPrzedrostek, sprawdzPola, kodWTrakcieWpisywania, miejscowoscWTrakcieWpisywania, ulicaWTrakcieWpisywania } from './adres.js';
 
 /* Ochrona przed osadzeniem w cudzej ramce (clickjacking: niewidoczna strona z naszym oknem logowania pod kursorem). Nagłówka frame-ancestors nie da się ustawić z meta, więc robi to kod:
    w ramce nic się nie pokazuje, a przeglądarka dostaje polecenie wyjścia z niej. */
@@ -1611,6 +1611,19 @@ function otworzMojeDane(pierwsze) {
   };
   $('.adres-typ', arkTresc).addEventListener('click', e => { const b = e.target.closest('[data-typ]'); if (!b || b.dataset.typ === typ) return; ustawTyp(b.dataset.typ); zerujMape(); sprawdzAdres(); sprawdzMape(); });
   const planujSprawdzenie = () => { clearTimeout(tAdres); tAdres = setTimeout(sprawdzAdres, 450); };
+  /* Ulica i miejscowość nie przyjmują cyfr (numer budynku i mieszkania mają własne pola) — odrzucane są już przy pisaniu i wklejaniu, a kursor zostaje tam, gdzie był. Jedyny wyjątek: nazwa ulicy
+     zaczynająca się liczbą („3 Maja”, „11 Listopada”). Gdy coś odrzucono, pod polem na chwilę pojawia się wyjaśnienie. */
+  const filtrujPole = (id, filtr, wyjasnienie) => {
+    const pole = $('#' + id, arkTresc); let tPodp = 0;
+    pole.addEventListener('input', () => {
+      const v = pole.value, kursor = pole.selectionStart ?? v.length, nowa = filtr(v);
+      if (nowa === v) return;
+      const przedKursorem = filtr(v.slice(0, kursor)).length; pole.value = nowa; try { pole.setSelectionRange(przedKursorem, przedKursorem); } catch (e) { /* pole bez zaznaczenia */ }
+      const mala = pole.closest('label') && pole.closest('label').querySelector('small'); if (mala) { mala.textContent = wyjasnienie(); mala.classList.add('info'); clearTimeout(tPodp); tPodp = setTimeout(() => { if (mala.classList.contains('info')) { mala.textContent = ''; mala.classList.remove('info'); } }, 3500); }
+    });
+  };
+  filtrujPole('d-ulica', v => ulicaWTrakcieWpisywania(v, typ === 'wies'), () => typ === 'wies' ? 'Nazwa wsi nie ma cyfr.' : 'Wpisz samą nazwę ulicy — numer budynku jest w polu obok.');
+  filtrujPole('d-miasto', miejscowoscWTrakcieWpisywania, () => 'Nazwa miejscowości nie ma cyfr.');
   for (const id of ['d-ulica', 'd-miasto', 'd-nr', 'd-lokal']) $('#' + id, arkTresc).addEventListener('input', () => { zerujMape(); planujSprawdzenie(); });
   $('#d-kod', arkTresc).addEventListener('input', e => { const v = kodWTrakcieWpisywania(e.target.value); if (v !== e.target.value) e.target.value = v; zerujMape(); planujSprawdzenie(); });
   for (const id of ['d-ulica', 'd-nr', 'd-lokal', 'd-kod', 'd-miasto']) $('#' + id, arkTresc).addEventListener('change', () => { sprawdzMape(); });      // po wyjściu z pola (nie przy każdym znaku — mapa dostaje jedno zapytanie na zmianę)
@@ -1843,7 +1856,7 @@ async function generuj() {
   magUst.ustaw('kwota-' + kl, par.kwota);
   generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
   btn.style.setProperty('--hh', (btn.offsetHeight / 2) + 'px'); postepGeneracji('', 0.02); zorza && zorza.flara(.35); dzwiek.efekt('gen-start');
-  const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt, naPunkt: (i, n) => dzwiek.punkt(i, n) }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
+  const wid = zycie && !matchMedia('(prefers-reduced-motion: reduce)').matches ? widowisko({ fmt, naPunkt: (i, n) => dzwiek.punkt(i, n), naKoniec: () => dzwiek.efekt('gen-koniec') }) : null;      // „życie”: pokaz tego, co robi silnik (jak ruch kalendarza i fiolek), nie dla osób z „Ogranicz ruch”
   wid && wid.start();
   let w;
   try {
@@ -1868,7 +1881,7 @@ async function generuj() {
   }
   magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); magUst.ustaw('pobrane-' + kl, null); magUst.ustaw('folder-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
   postepGeneracji('', 1);
-  dzwiek.efekt('gen-koniec');
+  if (!wid) dzwiek.efekt('gen-koniec');      // z pokazem dzwonek „koniec” gra po ostatniej kropce (naKoniec), żeby nie wchodził w nuty punktów
   try {
     if (wid) await wid.zakoncz({ polecenia: (w.wynik.dokumenty || []).map(x => ({ nr: x.nr, kw: x.kw })), suma: (w.wynik.dokumenty || []).reduce((t, x) => t + (Number(x.kw) || 0), 0) });
     else await zegar(450);

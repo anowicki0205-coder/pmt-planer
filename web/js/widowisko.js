@@ -6,22 +6,33 @@
 const NS = 'http://www.w3.org/2000/svg';
 const PUNKTY = 7;
 const PROGI = [0.10, 0.40, 0.85, 1];      // kroki zgłaszane przez silnik (most.py: generuj)
+const ODSTEP_KROPEK = 330;      // ms między kolejnymi kropkami, gdy nie gra dźwięk (z dźwiękiem odstęp wyznacza siatka ósemek podkładu: ok. 312 ms)
 const SCIEZKA = 'M18 108C82 18 140 138 226 72S372 8 504 54';
 const ogranicz = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const el = (nazwa, klasa, tekst) => { const e = document.createElement(nazwa); if (klasa) e.className = klasa; if (tekst !== undefined) e.textContent = tekst; return e; };
 const svg = (nazwa, atr = {}) => { const e = document.createElementNS(NS, nazwa); for (const k in atr) e.setAttribute(k, atr[k]); return e; };
 
-/** opcje: { fmt: liczba → tekst („1 234,50”), naPunkt: (i, n) → () — wywoływane raz dla każdego zapalonego punktu trasy (i-ty z n) }. Zwraca { start(), postep(tekst, v), zakoncz(dane) → Promise, przerwij() }. dane: { polecenia: [{ nr, kw }], suma }. */
+/** opcje: { fmt: liczba → tekst („1 234,50”), naPunkt: (i, n) → ms | cokolwiek — wywoływane raz dla każdego punktu trasy (i-ty z n) w chwili, gdy kolejka go przydziela; ma zagrać nutę i ZWRÓCIĆ, za ile milisekund
+ *  ona zabrzmi — kropka zapali się dokładnie wtedy (bez dźwięku: wynik inny niż liczba ≥ 0 → kropki co ODSTEP_KROPEK), naKoniec: () — raz, po zapaleniu ostatniej kropki, tuż przed pokazem wyników }.
+ *  Kropki zapalają się JEDNA PO DRUGIEJ (nie wszystkie naraz, gdy silnik skoczy w postępie), każda razem ze swoją nutą, a pokaz wyników czeka, aż zapali się ostatnia. */
 export function widowisko(opcje = {}) {
   const fmt = opcje.fmt || (x => Number(x).toFixed(2).replace('.', ','));
   let root = null, sciezka = null, kropki = [], faza = null, proc = null, razem = null, wachlarz = null;
-  let vRzecz = 0, vWid = 0, zegar = 0, pominiete = false, czekanie = null, liczenie = null, zapalone = 0;
+  let vRzecz = 0, vWid = 0, zegar = 0, pominiete = false, czekanie = null, liczenie = null, zapalone = 0, przydzielone = 0, ostatniaKropka = -Infinity, zegaryKropek = [];
 
+  /** Przydziela kropce i-tej chwilę zapalenia: pyta o dźwięk (ma zagrać nutę i podać, za ile zabrzmi) i zapala kropkę dokładnie wtedy; kolejne zawsze później niż poprzednia (kolejność i odstęp). */
+  function przydziel(i) {
+    let za = NaN; try { if (opcje.naPunkt) za = Number(opcje.naPunkt(i, PUNKTY)); } catch (e) { /* dźwięk nie psuje pokazu */ }
+    const teraz = performance.now(), zDzwiekiem = Number.isFinite(za) && za >= 0;
+    const kiedy = Math.max(zDzwiekiem ? teraz + za : teraz, ostatniaKropka + (zDzwiekiem ? 1 : ODSTEP_KROPEK));
+    ostatniaKropka = kiedy;
+    zegaryKropek.push(setTimeout(() => { zapalone = Math.max(zapalone, i + 1); rysuj(); }, Math.max(0, kiedy - teraz)));
+  }
   function rysuj() {
     if (!root) return;
-    const jasne = Math.ceil(ogranicz(vWid / PROGI[1]) * PUNKTY);
-    for (; zapalone < jasne; zapalone++) { try { if (opcje.naPunkt) opcje.naPunkt(zapalone, PUNKTY); } catch (e) { /* dźwięk nie psuje pokazu */ } }      // każdy nowo zapalony punkt trasy zgłasza się wywołującemu (dźwięk)
-    kropki.forEach((c, i) => c.classList.toggle('on', i < jasne));
+    const jasne = Math.ceil(ogranicz(vWid / PROGI[1]) * PUNKTY);      // ile kropek „należy się” przy tym postępie — zapalają się kolejno, nie od razu
+    for (; przydzielone < jasne; przydzielone++) przydziel(przydzielone);
+    kropki.forEach((c, i) => c.classList.toggle('on', i < zapalone));
     sciezka.style.strokeDashoffset = String(1 - ogranicz((vWid - PROGI[0]) / (PROGI[2] - PROGI[0])));
     proc.textContent = Math.round(ogranicz(vWid) * 100) + '%';
     root.classList.toggle('faza-gps', vRzecz < PROGI[1]); root.classList.toggle('faza-trasa', vRzecz >= PROGI[1] && vRzecz < PROGI[2]); root.classList.toggle('faza-druk', vRzecz >= PROGI[2]);
@@ -36,6 +47,7 @@ export function widowisko(opcje = {}) {
   function usun() {
     if (liczenie) liczenie(); if (czekanie) czekanie();      // przerwanie w trakcie pokazu nie zostawia wiszącej obietnicy
     clearInterval(zegar); zegar = 0; document.removeEventListener('click', pominWKliku, true); document.removeEventListener('keydown', pominWKliku, true);
+    zegaryKropek.forEach(clearTimeout); zegaryKropek = [];
     if (root) root.remove(); root = null; kropki = [];
   }
 
@@ -52,7 +64,7 @@ export function widowisko(opcje = {}) {
     plansza.append(rys, stos, wachlarz); panel.append(gora, plansza, dol); root.append(el('div', 'gen-tlo'), panel); document.body.appendChild(root);
     const dl = sciezka.getTotalLength ? sciezka.getTotalLength() : 0;      // punkty leżą na ścieżce (długość da się zmierzyć dopiero po wstawieniu do strony)
     for (let i = 0; i < PUNKTY; i++) { const p = dl ? sciezka.getPointAtLength(dl * i / (PUNKTY - 1)) : { x: 18 + i * 81, y: 70 }; const c = svg('circle', { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: '5.5' }); punkty.appendChild(c); kropki.push(c); }
-    vRzecz = vWid = 0; zapalone = 0; pominiete = false; rysuj(); zegar = setInterval(krok, 90);
+    vRzecz = vWid = 0; zapalone = przydzielone = 0; ostatniaKropka = -Infinity; zegaryKropek = []; pominiete = false; rysuj(); zegar = setInterval(krok, 90);
   }
   function postep(tekst, v) {
     if (!root) return;
@@ -62,7 +74,12 @@ export function widowisko(opcje = {}) {
   /** Pokaz wyników: stos rozkłada się w wachlarz dokumentów z prawdziwymi kwotami; kwoty i suma liczą się w górę. Wraca, gdy pokaz się skończy (albo użytkownik go pominie). */
   async function zakoncz(d) {
     if (!root) return;
-    clearInterval(zegar); zegar = 0; vRzecz = vWid = 1; rysuj(); faza.textContent = 'Gotowe';
+    clearInterval(zegar); zegar = 0; vRzecz = vWid = 1; rysuj(); faza.textContent = 'Gotowe';      // rysuj() przydziela też kropki, które jeszcze czekają w kolejce
+    document.addEventListener('click', pominWKliku, true); document.addEventListener('keydown', pominWKliku, true);      // pominięcie działa już podczas dogrywania kropek
+    if (zapalone < PUNKTY && !pominiete) await czekaj(Math.max(0, ostatniaKropka - performance.now()) + 250);      // ostatnia kropka zapala się razem z ostatnią nutą — dopiero potem wyniki
+    if (!root) return;
+    zegaryKropek.forEach(clearTimeout); zegaryKropek = []; zapalone = PUNKTY; rysuj();
+    try { if (opcje.naKoniec) opcje.naKoniec(); } catch (e) { /* dźwięk nie psuje pokazu */ }
     root.classList.remove('faza-gps', 'faza-trasa', 'faza-druk'); root.classList.add('faza-wynik');
     const wiersze = [...(d.polecenia || []).map(p => ({ znak: 'P' + p.nr, kw: Number(p.kw) || 0 })), { znak: 'R', kw: Number(d.suma) || 0 }], liczniki = [];
     wiersze.forEach((w, i) => {
@@ -73,7 +90,6 @@ export function widowisko(opcje = {}) {
     const poleceń = wiersze.length - 1, ile = poleceń === 1 ? 'polecenie' : poleceń > 1 && poleceń < 5 ? 'polecenia' : 'poleceń';
     const ustawSume = x => { razem.textContent = `Razem ${fmt(x)} zł · ${poleceń} ${ile} i rozliczenie`; };
     ustawSume(0);
-    document.addEventListener('click', pominWKliku, true); document.addEventListener('keydown', pominWKliku, true);
     const t0 = performance.now(), DL = 900;
     await new Promise(ok => {
       liczenie = () => { liczenie = null; ok(); };

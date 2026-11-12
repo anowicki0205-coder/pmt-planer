@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '3e041155c7fc';
+const WERSJA = 'e79f0ea39d70';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -63,7 +63,7 @@ const PLIKI = [
  "./vendor/qr/qrcode.mjs"
 ];
 const SKROTY = {
- "./css/aplikacja.css": "9e411f3e6257b440",
+ "./css/aplikacja.css": "542ffdd6e8335168",
  "./ikony/ikona-180.png": "18889881dd7c13bd",
  "./ikony/ikona-maskable-192.png": "cb65f20940d626f2",
  "./ikony/ikona-maskable-512.png": "dbd3a136a5efdb96",
@@ -71,11 +71,11 @@ const SKROTY = {
  "./ikony/logo-192.png": "6f1af7c8a362f1aa",
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
- "./js/adres.js": "9d2ac5ab705e450f",
- "./js/aplikacja.js": "55d214031a3cea48",
+ "./js/adres.js": "810fcdd2ef8c6172",
+ "./js/aplikacja.js": "b72064b1b1ba313e",
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
  "./js/dostep.js": "f0e47d1ee7403bc8",
- "./js/dzwiek.js": "10c1e87b432e6721",
+ "./js/dzwiek.js": "763a05dc6bcdda61",
  "./js/folder.js": "b706cb1ab7b81f8c",
  "./js/karuzela.js": "d64507d7e8c41a91",
  "./js/krypto_js.js": "d5adbfd578434c89",
@@ -84,7 +84,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "75881298ae25ab77",
- "./js/podpis.js": "d614ba41d434250b",
+ "./js/podpis.js": "366353caa103f611",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
@@ -93,7 +93,7 @@ const SKROTY = {
  "./js/silnik.worker.js": "5a9fdea97540dc37",
  "./js/upuszczanie.js": "315130764a52dfd4",
  "./js/weryfikacja.js": "3f3d2ed71b5ded1e",
- "./js/widowisko.js": "ab48b81882fc992c",
+ "./js/widowisko.js": "7844edad2def426e",
  "./js/zipaes.js": "c1dee26cba7fd40e",
  "./js/zipklasyczny.js": "7e7f284e5079f43d",
  "./js/zywe.js": "b7c037cc4ddf41f6",
@@ -104,7 +104,7 @@ const SKROTY = {
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
  "./silnik/most.py": "18359571375958ef",
- "./silnik/pmt_silnik.py": "43e0d553b52f6a0f",
+ "./silnik/pmt_silnik.py": "1eb91319d9091aba",
  "./silnik/sieci_cel.txt": "d252e908cd50d2e5",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",
  "./vendor/czcionki/geist-latin-wght-normal.woff2": "19f9c92546aa300c",

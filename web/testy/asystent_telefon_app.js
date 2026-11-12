@@ -28,10 +28,11 @@ const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs
   await zrzut('1_wybor');
   await p.tap('#asystent [data-sposob="gov"]');
   ok('gov.pl na telefonie: „Pobierz dokumenty do podpisu” z jednym dużym przyciskiem', /Pobierz dokumenty do podpisu/.test(await tekst('#asystent .as-tytul')) && (await p.locator('#asystent [data-akcja="pobierz-do-podpisu"]').count()) === 1);
+  ok('telefon: bez podpowiedzi o folderze pobierania na pulpicie (to rada dla komputerów)', (await p.locator('#asystent details.as-folder-pobierania').count()) === 0);
   await p.tap('#asystent [data-akcja="pobierz-do-podpisu"]'); await p.waitForSelector('#asystent a#otworz-gov', { timeout: 30000 });
-  const n = Number(((await tekst('#asystent .as-status')).match(/0 z (\d+)/) || [])[1] || 0);      // ile poleceń czeka na podpis (rozliczenie podpisu nie wymaga)
+  const n = Number(((await tekst('#asystent .as-status')).match(/0 z (\d+)/) || [])[1] || 0) + 1;      // polecenia do podpisu + rozliczenie wydatków (podpisu nie wymaga, ale też się pobiera)
   for (let i = 0; i < 100 && pobrane.length < n; i++) await p.waitForTimeout(150);      // zdarzenia pobrań dochodzą z opóźnieniem
-  ok('po dotknięciu pobierają się wszystkie polecenia do podpisu (bez rozliczenia), jako pliki delegacja_NN', n > 0 && pobrane.length === n && pobrane.every(d => /^delegacja_\d\d_.*\.pdf$/.test(d.suggestedFilename())), `${n}: ` + pobrane.map(d => d.suggestedFilename()).join(', '));
+  ok('po dotknięciu pobierają się wszystkie polecenia (delegacja_NN) i rozliczenie wydatków', n > 1 && pobrane.length === n && pobrane.filter(d => /^delegacja_\d\d_.*\.pdf$/.test(d.suggestedFilename())).length === n - 1 && pobrane.filter(d => /^rozliczenie.*\.pdf$/i.test(d.suggestedFilename())).length === 1, `${n}: ` + pobrane.map(d => d.suggestedFilename()).join(', '));
   ok('w kroku podpisu: zamiast pola przeciągania jest przycisk „Wybierz podpisane pliki” (telefon nie przeciąga), brak folderu „Pobrane” jako odnośnika do wskazania na siłę — przycisk wyboru jest widoczny i klikalny', (await p.locator('#asystent .as-wybierz').isVisible()) && !(await p.locator('#asystent .as-strefa-duza').count()) && /Wybierz podpisane pliki/.test(await tekst('#asystent .as-wybierz')));
   ok('i nadal wszystko mieści się na szerokości telefonu', await bezPrzewijaniaWbok());
   await zrzut('2_podpisz');

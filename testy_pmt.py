@@ -2878,6 +2878,19 @@ if not SZYBKO:
                       and _wiersze_dok[i] + _wiersze_dok[i + 1] <= P.MAX_ETAPOW_DOKUMENTU]
     sprawdz("dokumenty dobijają do sufitu — sąsiednich nie da się połączyć",
             not _do_polaczenia, "do połączenia: %s z %s" % (_do_polaczenia, _sumy_dok))
+    # liczba poleceń wynika z KWOTY: 1917 zł to dwa polecenia (2 × 986,34 zł), a nie trzy — silnik układał
+    # kilkanaście krótkich dni (po 6–8 wierszy), które nie mieściły się w dwóch dokumentach po 30 wierszy
+    for _nazwa_k, _lat_k, _lng_k, _woj_k in (("Radom", 51.40, 21.15, "mazowieckie"), ("Lublin", 51.25, 22.57, "lubelskie"),
+                                             ("Bydgoszcz", 53.12, 18.01, "kujawsko-pomorskie"),
+                                             ("Białystok", 53.13, 23.16, "podlaskie")):      # Białystok: dwa najdłuższe dni obok siebie → pomaga zamiana dwóch dni (trasy zamieniają się datami)
+        _dni_k = P.generuj_trasy(1917.0, _nazwa_k, _lat_k, _lng_k, _woj_k, _dni_robocze, "90010112345", stawka=0.89)
+        _docs_k = P._podziel_na_dokumenty(sorted(_dni_k, key=lambda d: d.data))
+        _sumy_k = [round(sum(d.suma for d in doc), 2) for doc in _docs_k]
+        sprawdz("kwota 1917 zł → dwa polecenia (jak z sufitu kwoty), nie trzy: %s" % _nazwa_k,
+                len(_docs_k) == P.ile_dokumentow(1917.0) == 2 and abs(sum(_sumy_k) - 1917.0) <= 0.01
+                and all(s <= P.MAX_KWOTA_DOKUMENTU + 0.01 for s in _sumy_k)
+                and all(sum(len(d.etapy) for d in doc) <= P.MAX_ETAPOW_DOKUMENTU for doc in _docs_k),
+                "%d dokumentów: %s" % (len(_docs_k), _sumy_k))
     # dzień ograniczony fizycznie — z UWZGLĘDNIENIEM swoich postojów
     _ponad_dobe = []
     for _d in _dni_dok:

@@ -1483,17 +1483,18 @@ html.motyw-plynnie,html.motyw-plynnie *,html.motyw-plynnie *::before,html.motyw-
 .wyc-swiatlo{position:fixed;left:0;top:0;pointer-events:none;border:2px solid color-mix(in srgb,var(--cyan) 75%,transparent);
   box-shadow:0 0 0 200vmax rgb(2 6 16/.62),0 0 38px 4px color-mix(in srgb,var(--cyan) 45%,transparent),inset 0 0 28px -6px color-mix(in srgb,var(--cyan) 40%,transparent);
   transition:left .65s var(--e-gum),top .65s var(--e-gum),width .65s var(--e-gum),height .65s var(--e-gum),border-radius .5s}
-.wyc-karta{position:fixed;left:0;top:0;width:min(22rem,calc(100vw - 24px));padding:1.05rem 1.15rem 1rem;border-radius:22px;outline:none;
+.wyc-karta{position:fixed;left:0;top:0;width:min(22rem,calc(100vw - 24px));max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;box-sizing:border-box;padding:1.05rem 1.15rem 1rem;border-radius:22px;outline:none;
   background:color-mix(in srgb,var(--tlo-1) 84%,transparent);-webkit-backdrop-filter:blur(22px) saturate(1.4);backdrop-filter:blur(22px) saturate(1.4);
   box-shadow:inset 0 0 0 1px var(--k16),inset 0 1px 0 var(--b28),0 24px 60px -20px var(--n85);transition:translate .65s var(--e-gum)}
 .wyc-licz{margin:0;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--a-cyan);font-weight:650}
 .wyc-karta h3{margin:.25rem 0 .35rem;font-size:1.2rem;font-weight:620;letter-spacing:-.02em}
-.wyc-tekst{margin:0;font-size:.92rem;line-height:1.5;color:var(--t2)}
-.wyc-dol{display:flex;align-items:center;gap:.5rem;margin-top:.9rem}
+.wyc-tekst{margin:0;font-size:.92rem;line-height:1.5;color:var(--t2);min-height:0;overflow-y:auto}
+.wyc-dol{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;row-gap:.65rem;margin-top:.9rem;flex:none}
 .wyc-dol .przycisk{height:2.4rem;padding:0 1rem;font-size:.88rem}
-.wyc-pomin{color:var(--t2);font-size:.85rem;padding:.4rem .5rem;border-radius:8px}
+.wyc-pomin{color:var(--t2);font-size:.85rem;padding:.4rem .5rem;border-radius:8px;margin-right:auto}
 .wyc-pomin:hover{color:var(--t1)}
-.wyc-kropki{display:flex;gap:4px;margin:0 auto 0 .3rem}
+.wyc-kropki{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;order:-1;flex:1 0 100%;margin:0}      /* kropki w osobnym wierszu nad przyciskami: trzynaście kroków nie mieści się obok trzech przycisków w karcie (22 rem, na telefonie węższej) i „Dalej” wychodziło poza ekran */
+.wyc-dol .przycisk{flex:none}
 .wyc-kropki i{width:.4rem;height:.4rem;border-radius:99px;background:var(--k20);transition:width .4s var(--e-spr),background .3s}
 .wyc-kropki i.a{width:1.1rem;background:var(--cyan)}
 @media (max-width:899px){.bento{touch-action:pan-y pinch-zoom}}
@@ -2498,3 +2499,14 @@ html.okno .scena{filter:saturate(.7)}
   html.zyje .k3-kropka.k3-zle{animation:zycie-k3-puls 1.4s ease-in-out infinite!important}
   html.zyje .da-wyslano .da-pieczec{animation:zycie-stempel .6s cubic-bezier(.2,1.4,.4,1) both!important}
 }
+
+/* Ręczne potwierdzenie mimo ostrzeżenia programu (podpis.js, szczegoly): ostrzeżenie w ramce, dopiero potem przycisk „Tak, potwierdzam podpis” */
+.dok-ostrz{display:grid;gap:.5rem;padding:.7rem .8rem;border:1px solid var(--a-burs,#ffc861);border-radius:.7rem;background:color-mix(in srgb,var(--a-burs,#ffc861) 12%,transparent);font-size:.84rem;line-height:1.4}
+.dok-ostrz b{display:block}
+.dok-ostrz .dok-akcje{margin-top:.1rem}
+
+/* Podpowiedź: jak mieć pobrane dokumenty w folderze „delegacje” na pulpicie (Firefox, Safari) i uwaga, gdy gov.pl nie działa */
+.as-folder-pobierania{margin-top:.2rem;font-size:.86rem;line-height:1.45}
+.as-folder-pobierania summary{cursor:pointer;font-weight:650;min-height:2rem;display:flex;align-items:center}
+.as-folder-pobierania p{margin:.35rem 0 0}
+.as-gov-awaria{margin:.2rem 0 0;font-size:.84rem;opacity:.9}

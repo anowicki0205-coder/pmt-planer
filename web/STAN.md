@@ -295,7 +295,7 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       na prawdziwym skanerze/aplikacji skanującej (skany ze zdjęć pod kątem są odrzucane tak jak dotąd).
       ASYSTENT W KAŻDEJ PRZEGLĄDARCE + WYCIŚNIĘCIE RESZTY (zlecenie właściciela 11.11: „wyciśnij z tego wszystko, pamiętaj, że użytkownicy mogą mieć różne przeglądarki; podpowiedz, która jest najlepsza”):
       • Firefox, Safari, telefon (bez dostępu do folderów) dostają TEN SAM asystent (dawne cztery kroki są pod przełącznikiem „Pokaż wszystkie kroki naraz”, pmt-ui-widok-podpisu = klasyczny; w Chrome/Edge
-        asystent jest zawsze). Pasek „Dokumenty · Podpis · Wysyłka”; gov.pl: „Pobierz dokumenty do podpisu” (jeden przycisk, pobiera same polecenia — rozliczenie podpisu nie wymaga) → „Podpisz dokumenty na
+        asystent jest zawsze). Pasek „Dokumenty · Podpis · Wysyłka”; gov.pl: „Pobierz dokumenty do podpisu” (jeden przycisk; od 12.11 pobiera polecenia ORAZ rozliczenie wydatków — rozliczenia się nie podpisuje, ale ma trafić do folderu Pobrane) → „Podpisz dokumenty na
         gov.pl” (link, pliki tury, duża strefa na podpisane pliki, pasek „0 z 6”); odręcznie: „Wydrukuj dokumenty” → skany. Na telefonie zamiast pola przeciągania jest przycisk „Wybierz podpisane pliki”.
         Rozliczenie wydatków przyjmuje się samo (też w Chrome/Edge: bez śladu na liście dopasowań).
       • „Wskaż folder (np. Pobrane)”: zwykły wybór folderu (<input webkitdirectory>, działa w Chrome, Edge, Firefox, Safari na komputerze) — aplikacja z całego folderu odsiewa po cichu tylko podpisane dokumenty
@@ -343,3 +343,28 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       pobieranie pojedynczych PDF-ów i ręczne wgrywanie (js/folder.js, podpis.js, testy/folder_test.js, testy/folder_app.js). NIE sprawdzone na prawdziwym Chrome/Edge z oknem wyboru folderu (w teście podstawiona prywatna pamięć przeglądarki). (5) ANALIZA „3 delegacje → 2” (tylko raport, bez zmian
       w kodzie): silnik dzieli dni zachłannie wg MAX_KWOTA_DOKUMENTU 986,34 zł i 30 wierszy; 575,91+726,33+614,76=1917,00 zł, a dwa sąsiednie polecenia razem to ≥1302,24 zł — więc scalenie nie jest możliwe bez zmiany SAMYCH DNI.
       (6) NAGŁÓWEK POLECENIA: pieczątka podpisu zaufanego z gov.pl (prawy górny róg 1. strony, do ok. 28 mm od góry) zasłaniała numer centrum kosztów nad napisem „Centrum” — odstęp po bloku firmy/NIP 3→10 mm (PMT_Delegacje.py, wyciąg silnika odświeżony), całe polecenie jest o 7 mm niżej (pełny dokument, 30 wierszy trasy, kończy się ok. 270 mm, a strona łamie się przy 277 mm); test układu w testy/folder_app.js (pdftotext -bbox).
+- [x] 12.11 — poprawki po teście właściciela (Firefox, Edge; 11 punktów):
+      (1) SAMOUCZEK: przycisk „Dalej” wychodził poza ekran (trzynaście kropek obok trzech przycisków w jednym wierszu) — karta jest teraz kolumną z ograniczoną wysokością, opis przewija się wewnątrz, kropki w osobnym
+      wierszu nad przyciskami (css/aplikacja.css .wyc-*). Test: testy/wycieczka_uklad_app.js (komputer, niskie okno, telefon 390×700 i 360×560; każdy krok: karta i przyciski w całości na ekranie).
+      (2) MOJE DANE: pola ulicy, miejscowości i numerów nie przyjmują już cyfr tam, gdzie ich nie ma — ulica: bez cyfr (przedrostek ul./al./pl./os. zostaje, numer budynku jest w osobnym polu; wyjątek: nazwy typu
+      „3 Maja”, „1000-lecia”), miejscowość i wieś: bez cyfr; krótkie wyjaśnienie pod polem (js/adres.js: miejscowoscWTrakcieWpisywania, ulicaWTrakcieWpisywania; filtrujPole w js/aplikacja.js; testy: adres_pola_test.js, adres_app.js).
+      (3) DŹWIĘK GENEROWANIA zsynchronizowany z kropkami: dotąd wszystkie kropki zapalały się naraz (skok postępu silnika), a nuty szły co ósemkę podkładu — kilka kropek świeciło bez dźwięku. Teraz kropki zapalają się
+      JEDNA PO DRUGIEJ (kolejka w js/widowisko.js), każda dokładnie w chwili swojej nuty: dzwiek.punkt(i, n) zwraca, za ile ms nuta zabrzmi (−1: nic nie zagra → kropki co 330 ms), odstęp między nutami to zawsze ósemka
+      (312,5 ms, także bez podkładu); pokaz wyników czeka na ostatnią kropkę (kliknięcie/Esc pomija), a dzwonek „koniec” gra dopiero po niej (opcja naKoniec). Testy: widowisko_app.js (odchyłka kropka↔nuta ≤ 120 ms,
+      0 w teście), dzwiek_test.js, dzwiek_app.js (7 kropek i 7 nut, odstęp ≥ 280 ms).
+      (4) 1917 zł = DWA polecenia, nie trzy (silnik PMT_Delegacje.py → web/silnik/pmt_silnik.py): liczba poleceń wynika z sufitu kwoty (ile_dokumentow). Dni dzielone na dokumenty z mnożnikiem drogi PER DOKUMENT,
+      a gdy to nie wystarcza — retry z dłuższymi skokami między miejscowościami (PROBY_LICZBY_POLECEN), zdejmowanie do 4 dni i zamiana dwóch dni datami. W teście 1917 zł przy 10 kombinacjach (pięć baz × dwa PESEL-e)
+      dwa polecenia wychodzą w 9. KWOTY BLISKIE SUFITU (np. 1972 zł przy 1972,68 zł) i niektóre odległe układy (np. Kielce przy PESEL …345: dni po 8 wierszy) mogą nadal dać trzy polecenia — to NIE jest błąd sum
+      (każde polecenie mieści się w limicie kwoty i 30 wierszy), tylko brak układu w dwóch. Czas generowania: do kilku dodatkowych przebiegów tylko wtedy, gdy pierwszy układ nie mieści się w liczbie poleceń z kwoty.
+      testy_pmt.py: 1334 z 1335 (jedyne niepowodzenie: fontTools bez modułów natywnych — środowiskowe).
+      (5) ROZLICZENIE WYDATKÓW trafia do użytkownika także w trybie pobierania (Firefox, Safari, telefon): „Pobierz dokumenty” pobiera polecenia i rozliczenie (7 PDF-ów); w trybie folderu zapisywało się od początku.
+      (6) FOLDER „delegacje” NA PULPICIE: w Chrome/Edge zostaje jak było (okno wyboru otwiera się na Pulpicie, „Nowy folder” → „delegacje”; przeglądarka nie pozwala aplikacji sama założyć folderu — zob. wyżej).
+      W Firefoksie/Safari dodana zwinięta podpowiedź w kroku „Pobierz dokumenty”: jak raz ustawić folder pobierania na Pulpit\delegacje (menu przeglądarki).
+      (7) Test w Firefoksie: wszystkie powyższe poprawki dotyczą też trybu pobierania; NIE sprawdzone na prawdziwym Firefoksie ani Safari (testy idą w Chromium z podstawionym brakiem File System Access).
+      (8) RĘCZNE POTWIERDZENIE PODPISU w każdym stanie: dla odręcznego (skan) jedno kliknięcie jak dotąd; dla podpisu elektronicznego odrzuconego przez program (cudzy podpis, zmieniony dokument, brak podpisu,
+      plik nie do odczytu) — „Potwierdź ręcznie mimo ostrzeżenia…” → ramka z ostrzeżeniem → „Tak, potwierdzam podpis” / „Anuluj”; zapisuje się ślad „potwierdzone ręcznie MIMO ostrzeżenia programu”
+      (weryfikacja.potwierdzoneMimoOstrzezenia). ZMIANA wcześniejszej decyzji: do 12.11 cudzego podpisu nie dało się potwierdzić wcale; jeśli ma wrócić — wystarczy zawęzić maProblem() w js/podpis.js.
+      (9) gov.pl nie działa u właściciela: po stronie aplikacji nic do naprawy (adres bez zmian: gov.pl/web/gov/podpisz-dokument-elektronicznie-wykorzystaj-podpis-zaufany; nie mam jak go otworzyć z tego środowiska). W kroku gov.pl
+      dodana podpowiedź „gov.pl się nie otwiera albo nie działa? … spróbuj później albo podpisz odręcznie”; wszystkie dokumenty można też potwierdzić ręcznie (pkt 8).
+      (10) WYBÓR PRZEGLĄDARKI: podpowiedź w oknie podpisu wskazuje Microsoft Edge (jest w Windows) albo Google Chrome na komputerze — tam aplikacja sama zapisuje dokumenty w folderze „delegacje” i wczytuje podpisane
+      pliki; w Firefoksie/Safari/na telefonie wszystko działa, ale pliki pobiera się i wskazuje ręcznie.

@@ -18,6 +18,28 @@ export function kodWTrakcieWpisywania(t) {
   return v.slice(0, 6);
 }
 
+/** Miejscowość w trakcie pisania: tylko litery, spacje, kropka, apostrof i myślnik — cyfry i inne znaki są odrzucane od razu. */
+export function miejscowoscWTrakcieWpisywania(t) {
+  return String(t ?? '').replace(/[^\p{L}\s.'’\-]/gu, '').replace(/\s{2,}/g, ' ').replace(/^\s+/, '');
+}
+
+/** Nazwa ulicy (albo wsi) w trakcie pisania. Numer budynku i mieszkania mają własne pola, więc cyfry są odrzucane od razu — z jednym wyjątkiem:
+ *  PIERWSZE słowo nazwy ulicy może być liczbą, bo takie są nazwy („3 Maja”, „11 Listopada”, „1000-lecia”, „Aleja 3 Maja”). Cyfry dopisane po nazwie („Polna 5”) i w środku słowa („Polna5”) znikają.
+ *  Wieś (wies: true) nie ma cyfr w ogóle. Przedrostek („ul.”, „al.”, „aleja”…) zostaje nietknięty. */
+export function ulicaWTrakcieWpisywania(t, wies = false) {
+  const surowe = String(t ?? '').replace(/[^\p{L}\d\s.'’\-]/gu, '').replace(/\s{2,}/g, ' ').replace(/^\s+/, '');
+  if (wies) return surowe.replace(/\d/g, '').replace(/\s{2,}/g, ' ');
+  const m = /^((?:ulica|aleje|aleja|plac|osiedle|ul|al|pl|os)(?:\.\s*|\s+))?(.*)$/i.exec(surowe), przedrostek = m[1] || '', reszta = m[2];
+  let pierwsze = true;
+  const wynik = reszta.split(/(\s+)/).map(w => {
+    if (!w || /^\s+$/.test(w)) return w;
+    const dozwolona = pierwsze && /^\d+(?:-\p{L}*)?$/u.test(w); pierwsze = false;
+    if (dozwolona) return w;
+    return /^\d/.test(w) ? '' : w.replace(/\d/g, '');      // słowo zaczynające się cyfrą („5”, „5a”, „12-14”) to numer domu — znika w całości; cyfry w środku słowa znikają same
+  }).join('').replace(/\s{2,}/g, ' ');
+  return przedrostek + wynik;
+}
+
 /** Z wpisanej nazwy ulicy → { przedrostek: 'ul.' | 'al.' | 'pl.' | 'os.' | '' (nie wpisano), nazwa }. „Polna” → { '', 'Polna' }, „ul. Polna” → { 'ul.', 'Polna' }, „aleja Róż” → { 'al.', 'Róż' }. */
 export function rozpoznajPrzedrostek(tekst) {
   const t = spacje(tekst), m = WPISANY_PRZEDROSTEK.exec(t);

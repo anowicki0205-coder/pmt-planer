@@ -54,9 +54,20 @@ const { otworz, wpiszAdres } = require('./wspolne');
   /* ---------- błędy przy polach ---------- */
   await wpiszAdres(p, 'Dębowa Wola 12, 26-660 Jedlińsk', 'wies'); await p.fill('#d-nr', ''); await p.click('#zapisz-dane'); await p.waitForTimeout(1500);
   ok('adres bez numeru budynku: błąd stoi przy POLU numeru („Podaj numer budynku”), reszta pól bez błędów, okno zostaje', /numer budynku/i.test(await malyTekst('#d-nr')) && (await malyTekst('#d-ulica')) === '' && (await malyTekst('#d-kod')) === '' && (await malyTekst('#d-miasto')) === '' && await p.locator('#arkusz-tlo.otwarty').count() === 1, await malyTekst('#d-nr'));
-  await p.fill('#d-ulica', ''); await p.fill('#d-kod', '123'); await p.fill('#d-miasto', 'Jedliński2'); await p.fill('#d-lokal', 'x!'); await p.click('#zapisz-dane'); await p.waitForTimeout(1200);
-  ok('puste albo złe pola dostają własne komunikaty: wieś („Podaj nazwę wsi”), numer budynku, numer mieszkania, kod pocztowy, miejscowość (bez cyfr)', /nazwę wsi/i.test(await malyTekst('#d-ulica')) && /numer budynku/i.test(await malyTekst('#d-nr')) && /mieszkania/i.test(await malyTekst('#d-lokal')) && /00-000/.test(await malyTekst('#d-kod')) && /cyfr/i.test(await malyTekst('#d-miasto')));
-  await p.click('.adres-typ [data-typ="ulica"]'); await p.click('#zapisz-dane'); await p.waitForTimeout(900);
+  await p.fill('#d-ulica', ''); await p.fill('#d-kod', '123'); await p.fill('#d-miasto', ''); await p.fill('#d-lokal', 'x!'); await p.click('#zapisz-dane'); await p.waitForTimeout(1200);
+  ok('puste albo złe pola dostają własne komunikaty: wieś („Podaj nazwę wsi”), numer budynku, numer mieszkania, kod pocztowy, miejscowość (bez cyfr)', /nazwę wsi/i.test(await malyTekst('#d-ulica')) && /numer budynku/i.test(await malyTekst('#d-nr')) && /mieszkania/i.test(await malyTekst('#d-lokal')) && /00-000/.test(await malyTekst('#d-kod')) && /miejscowość/i.test(await malyTekst('#d-miasto')));
+  /* cyfry w polach ulicy i miejscowości są odrzucane już przy pisaniu i wklejaniu (numer budynku i mieszkania mają własne pola); wyjątek: nazwa ulicy zaczynająca się liczbą („3 Maja”) */
+  await p.click('#d-miasto'); await p.keyboard.type('Jedliński2'); const miasto = await p.inputValue("#d-miasto"), podpM = await malyTekst("#d-miasto");
+  ok('miejscowość: wpisana cyfra znika od razu („Jedliński2” → „Jedliński”), a pod polem jest krótkie wyjaśnienie', miasto === 'Jedliński' && /cyfr/i.test(podpM), miasto + " / " + podpM);
+  await p.fill('#d-miasto', 'Zielona Góra 65'); ok('miejscowość: cyfry wklejone razem z tekstem też znikają', (await p.inputValue('#d-miasto')) === 'Zielona Góra ', await p.inputValue('#d-miasto'));
+  await p.fill('#d-miasto', "Bielsko-Biała"); ok('miejscowość: myślnik, spacja i polskie litery zostają', (await p.inputValue('#d-miasto')) === 'Bielsko-Biała');
+  await p.fill('#d-ulica', 'Dębowa Wola 2'); ok('wieś: cyfry znikają całkiem („Dębowa Wola 2” → „Dębowa Wola”), a wyjaśnienie mówi o nazwie wsi', (await p.inputValue('#d-ulica')).trim() === 'Dębowa Wola' && /wsi nie ma cyfr/i.test(await malyTekst('#d-ulica')), (await p.inputValue('#d-ulica')) + ' / ' + await malyTekst('#d-ulica'));
+  await p.click('.adres-typ [data-typ="ulica"]');      // dalej tryb „ulica” (do tej pory test był w trybie „wieś”, gdzie cyfr nie wolno wcale)
+  await p.click('#d-ulica'); await p.fill('#d-ulica', ''); await p.keyboard.type('Polna 5'); const ul1 = await p.inputValue('#d-ulica');
+  ok('ulica: numer domu dopisany po nazwie („Polna 5”) znika — numer jest w osobnym polu, a pod polem jest wyjaśnienie', ul1.trim() === 'Polna' && /numer budynku/i.test(await malyTekst('#d-ulica')), JSON.stringify(ul1));
+  await p.fill('#d-ulica', ''); await p.keyboard.type('3 Maja'); ok('ulica: nazwa zaczynająca się liczbą („3 Maja”, „11 Listopada”) jest dozwolona', (await p.inputValue('#d-ulica')) === '3 Maja', await p.inputValue('#d-ulica'));
+  await p.fill('#d-ulica', 'al. Róż 12a'); ok('ulica: przedrostek zostaje, numer (także z literą) znika („al. Róż 12a” → „al. Róż”)', (await p.inputValue('#d-ulica')).trim() === 'al. Róż', await p.inputValue('#d-ulica'));
+  await p.fill('#d-ulica', ''); await p.click('.adres-typ [data-typ="ulica"]'); await p.click('#zapisz-dane'); await p.waitForTimeout(900);
   ok('w trybie ulicy komunikat przy nazwie brzmi „Podaj nazwę ulicy”', /nazwę ulicy/i.test(await malyTekst('#d-ulica')), await malyTekst('#d-ulica'));
   await p.fill('#d-kod', ''); await p.click('#d-kod'); await p.keyboard.type('26660');
   ok('kod pocztowy: po wpisaniu pięciu cyfr myślnik wstawia się sam („26660” → „26-660”)', (await p.inputValue('#d-kod')) === '26-660', await p.inputValue('#d-kod'));

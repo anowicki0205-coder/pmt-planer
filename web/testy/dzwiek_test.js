@@ -149,10 +149,11 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
   /* ---------- nuty punktów trasy: w rytmie podkładu, a bez podkładu — same ---------- */
   const rytm = await p.evaluate(async () => {
     D.dzwiek.log.length = 0; const przed = D.dzwiek.licznik.punkt || 0, kroki = [], ost = 2 * D.KROK, s0 = D.dzwiek.siatkaPoczatek();
-    for (let i = 0; i < 7; i++) { D.dzwiek.punkt(i, 7); kroki.push(D.dzwiek.ostatniPunktCzas()); }      // wszystkie siedem naraz (jak przy skoku postępu): mają ustawić się kolejno na siatce
-    return { razem: (D.dzwiek.licznik.punkt || 0) - przed, log: D.dzwiek.log.filter(x => x === 'punkt').length, naSiatce: kroki.every(t => Math.abs((t - s0) / ost - Math.round((t - s0) / ost)) < 1e-6), rosnaco: kroki.every((t, i) => i === 0 || Math.abs(t - kroki[i - 1] - ost) < 1e-6 || t - kroki[i - 1] >= ost - 1e-6), rozstaw: kroki.slice(1).map((t, i) => +(t - kroki[i]).toFixed(3)) };
+    const opoznienia = []; for (let i = 0; i < 7; i++) { opoznienia.push(D.dzwiek.punkt(i, 7)); kroki.push(D.dzwiek.ostatniPunktCzas()); }      // wszystkie siedem naraz (jak przy skoku postępu): mają ustawić się kolejno na siatce; punkt() zwraca, za ile ms zabrzmi nuta (z tym zapala się kropka)
+    return { razem: (D.dzwiek.licznik.punkt || 0) - przed, log: D.dzwiek.log.filter(x => x === 'punkt').length, naSiatce: kroki.every(t => Math.abs((t - s0) / ost - Math.round((t - s0) / ost)) < 1e-6), rosnaco: kroki.every((t, i) => i === 0 || Math.abs(t - kroki[i - 1] - ost) < 1e-6 || t - kroki[i - 1] >= ost - 1e-6), rozstaw: kroki.slice(1).map((t, i) => +(t - kroki[i]).toFixed(3)), opoznienia, dobreOpoznienia: opoznienia.every(x => Number.isInteger(x) && x >= 0) && opoznienia.slice(1).every((x, i) => Math.abs(x - opoznienia[i] - ost * 1000) < 8) };
   });
   ok('gra podkład: siedem punktów zgłoszonych naraz → siedem nut w dzienniku, każda na SIATCE ósemek podkładu (w rytm), jedna po drugiej co najmniej o ósemkę (arpeggio, nie jeden zlany dźwięk)', rytm.razem === 7 && rytm.log === 7 && rytm.naSiatce && rytm.rosnaco, JSON.stringify(rytm));
+  ok('punkt() zwraca, za ile milisekund zabrzmi nuta (liczba ≥ 0), a kolejne nuty są odległe o dokładnie ósemkę (312,5 ms, z dokładnością do kilku ms — zegar audio idzie między wywołaniami) — na tym opiera się zapalanie kropek razem z dźwiękiem', rytm.dobreOpoznienia, JSON.stringify(rytm.opoznienia));
   await p.click('#muzyka'); await p.waitForTimeout(200);
   const m3 = await p.evaluate(() => ({ gra: D.dzwiek.muzykaGra(), a2: document.querySelector('#muzyka').getAttribute('aria-pressed'), mag: localStorage.getItem('pmt-ui-muzyka') })); const tk = await p.evaluate(() => D.dzwiek.taktow()); await p.waitForTimeout(1200);
   ok('wyłączenie podkładu: przestaje grać, planowanie się zatrzymuje, wybór zapamiętany (pmt-ui-muzyka=0)', !m3.gra && m3.a2 === 'false' && m3.mag === '0' && (await p.evaluate(() => D.dzwiek.taktow())) === tk, JSON.stringify(m3));
@@ -161,7 +162,7 @@ const { chromium } = require('playwright'), http = require('http'), fs = require
     D.dzwiek.ustawEfekty(false, false); D.dzwiek.log.length = 0; const wyl = D.dzwiek.punkt(0, 7), wDzienniku = D.dzwiek.log.length; D.dzwiek.ustawEfekty(true, false);
     return { log: D.dzwiek.log.length, rozstaw: kroki.slice(1).map((t, i) => t - kroki[i]), wyl, wDzienniku };
   });
-  ok('bez podkładu punkty grają od razu i same (kolejne co ≥ 0,12 s, bez siatki); przy wyciszonych efektach nie grają ani nie wpisują się do dziennika', solo.rozstaw.every(x => x >= .119) && solo.wyl === false && solo.wDzienniku === 0, JSON.stringify(solo));
+  ok('bez podkładu punkty grają od razu i same (kolejne co ≥ 0,3125 s, bez siatki — tyle samo co w rytmie, żeby kropki szły w tym samym tempie); przy wyciszonych efektach punkt() zwraca −1 (nic nie zagra), nie wpisuje się do dziennika', solo.rozstaw.every(x => x >= .3124) && solo.wyl === -1 && solo.wDzienniku === 0, JSON.stringify(solo));
   // zapamiętany podkład rusza dopiero po geście na nowej stronie
   await p.evaluate(() => localStorage.setItem('pmt-ui-muzyka', '1')); await p.reload(); await p.waitForFunction(() => window.gotowe);
   const r0 = await p.evaluate(() => ({ wl: D.dzwiek.muzykaWl(), gra: D.dzwiek.muzykaGra() }));

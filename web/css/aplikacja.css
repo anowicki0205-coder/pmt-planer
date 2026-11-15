@@ -1936,10 +1936,19 @@ html:not(.szklo-blur) .kafel.szklo.k-qr>.pod{opacity:0}
 .kafel.szklo:is(.k-bohater,.k-dzis,.k-kal,.k-dzien,.k-dok,.k-kontrola,.k-qr){
   --tn-s:1;--tinta:transparent;
   -webkit-backdrop-filter:none;backdrop-filter:none;
+  /* przeszklenie (bez rozmycia tła, więc bez kosztu): skośny odblask w rogu + trzy miękkie, jaśniejsze „chmury” wewnątrz szkła, a pod spodem dotychczasowy kolor */
+  --sz-polysk:linear-gradient(125deg,rgb(255 255 255/.42) 0%,rgb(255 255 255/.1) 24%,rgb(255 255 255/0) 46%);
+  --sz-mgla:radial-gradient(46% 38% at 22% 16%,rgb(255 255 255/.22),rgb(255 255 255/0) 70%),radial-gradient(40% 34% at 80% 62%,rgb(255 255 255/.15),rgb(255 255 255/0) 70%),radial-gradient(62% 40% at 50% 102%,rgb(255 255 255/.18),rgb(255 255 255/0) 70%);
   background:
+    var(--sz-mgla),var(--sz-polysk),
     radial-gradient(64% 88% at 106% -10%,rgb(var(--v-b)/.95),rgb(var(--v-b)/0) 66%),
     radial-gradient(circle at 6% 118%,rgb(255 255 255/.16) 0,rgb(255 255 255/.16) 27%,rgb(255 255 255/0) 27.4%),
     linear-gradient(162deg,rgb(var(--v-a)),rgb(var(--v-a2,var(--v-a))))}
+/* grubsza, jaśniejsza krawędź szkła: jasna linia od góry i z lewej, światło wpadające od góry i kolorowa poświata od spodu */
+.kafel.szklo:is(.k-bohater,.k-dzis,.k-kal,.k-dzien,.k-dok,.k-kontrola,.k-qr){
+  box-shadow:0 42px 70px -44px var(--n85),0 3px 10px -4px var(--n40),0 34px 70px -48px var(--kaustyka),
+    inset 0 1px 0 rgb(255 255 255/.85),inset 1px 0 0 rgb(255 255 255/.34),inset -1px 0 0 rgb(255 255 255/.18),inset 0 -1px 0 rgb(255 255 255/.26),
+    inset 0 28px 42px -30px rgb(255 255 255/.6),inset 0 -32px 42px -26px rgb(255 255 255/.3)}
 .kafel.szklo:is(.k-bohater,.k-dzis,.k-kal,.k-dzien,.k-dok,.k-kontrola,.k-qr)>.pod{opacity:0}
 .kafel.szklo.k-bohater{--v-a:22 84 250;--v-a2:12 60 210;--v-b:34 196 255}
 .kafel.szklo.k-dzis{--v-a:238 92 10;--v-a2:220 62 14;--v-b:255 170 56}

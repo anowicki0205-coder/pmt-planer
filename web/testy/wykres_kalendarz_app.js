@@ -34,7 +34,8 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne');
     const k = document.querySelector('#kurtyna'), kafel = document.querySelector('#kA'), cs = getComputedStyle(k), tl = getComputedStyle(kafel);
     const rgb = s => (s.match(/rgba?\(([^)]+)\)/) || [])[1];
     const probka = el => { const m = getComputedStyle(el).backgroundImage.match(/rgba?\([^)]+\)/); return m ? m[0] : ''; };
-    return { panel: probka(k), kafel: probka(kafel), tekst: cs.color, bar: getComputedStyle(document.querySelector('#ku-zapas i.tr:not(.wyb)'), '::before').backgroundColor, rb: k.getBoundingClientRect().toJSON(), rl: document.querySelector('.b-lewa').getBoundingClientRect().toJSON() };
+    const probkaBazy = el => { const w = [...getComputedStyle(el).backgroundImage.matchAll(/linear-gradient\([^,]+,\s*(rgba?\([^)]+\))/g)]; return w.length ? w[w.length - 1][1] : probka(el); };      // kolor bazowy kafla (ostatnia warstwa); wyżej leżą białe warstwy przeszklenia (odblask, mgła)
+    return { panel: probka(k), kafel: probkaBazy(kafel), tekst: cs.color, bar: getComputedStyle(document.querySelector('#ku-zapas i.tr:not(.wyb)'), '::before').backgroundColor, rb: k.getBoundingClientRect().toJSON(), rl: document.querySelector('.b-lewa').getBoundingClientRect().toJSON() };
   });
   const ton = s => { const m = (s.match(/(\d+)[, ]+(\d+)[, ]+(\d+)/) || []).slice(1).map(Number); return m; };
   const [pr, pg, pb] = ton(kolory.panel), [kr, kg, kb] = ton(kolory.kafel);

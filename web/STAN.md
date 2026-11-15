@@ -368,3 +368,8 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       dodana podpowiedź „gov.pl się nie otwiera albo nie działa? … spróbuj później albo podpisz odręcznie”; wszystkie dokumenty można też potwierdzić ręcznie (pkt 8).
       (10) WYBÓR PRZEGLĄDARKI: podpowiedź w oknie podpisu wskazuje Microsoft Edge (jest w Windows) albo Google Chrome na komputerze — tam aplikacja sama zapisuje dokumenty w folderze „delegacje” i wczytuje podpisane
       pliki; w Firefoksie/Safari/na telefonie wszystko działa, ale pliki pobiera się i wskazuje ręcznie.
+- [x] 15.11 — PRZESZKLENIE KAFLI (prośba właściciela; wybrany wariant „S2”): kolorowe bloki zostają w pełni kryjące (BENTO v3, bez rozmycia tła — to było kosztowne w każdej klatce), ale dostały „szkło”: skośny odblask w rogu
+      (--sz-polysk), trzy miękkie, jaśniejsze „chmury” wewnątrz kafla (--sz-mgla) i grubszą, jaśniejszą krawędź (jasna linia od góry i z lewej, światło wpadające od góry, poświata od spodu). Czyste gradienty i cienie — bez kosztu
+      dla karty graficznej; wygląd jest taki sam w Nocy i w Dniu (kafle mają wspólny biały tekst na kolorze). Reguła: css/aplikacja.css, blok „BENTO v3”. Test wykres_kalendarz_app.js czyta teraz kolor BAZOWY kafla (ostatni
+      gradient), bo wyżej leżą białe warstwy przeszklenia. ODRZUCONE po podglądzie: chmury w tle sceny (zbyt ciężkie, na pulpicie zasłonięte kaflami; wymagałyby wyłączania na słabszych komputerach) oraz wersja
+      półprzezroczysta z rozmyciem tła (brudne kolory, gorszy kontrast tekstu, koszt).

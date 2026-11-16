@@ -11808,6 +11808,22 @@ try:
                         and min(_pomiary32[e["napis"]][1]) >= 185)],
                _jasne_bazy32, _jasne_inne32))
 
+    # kolejne sprawdzenia tej sekcji mierzą ten sam dzień co dawniej (drugi dzień trasy): wracamy do niego i odtwarzamy zrzut
+    _okno32._wybierz_dzien(_dni32[1])
+    _okno32.ustaw_animacje(False)
+    for _ in range(8):
+        _app32.processEvents()
+    _geo32 = _m32._geometria()
+    _et32 = _geo32["etykiety"]
+    _baza32 = [e for e in _et32 if e["baza"]]
+    _inne32 = [e for e in _et32 if not e["baza"]]
+    _m32.ustaw_postep_rysowania(1.0)
+    for _ in range(4):
+        _app32.processEvents()
+    _obraz32 = _m32.grab().toImage().convertToFormat(_QI32.Format.Format_RGB888)
+    _bajty32 = _obraz32.constBits().asstring(_obraz32.sizeInBytes())
+    _wiersz32 = _obraz32.bytesPerLine()
+
     def _trasowy32(r, g, b):
         return g - r >= 30 and b - r >= 20 and max(g, b) >= 150
 

@@ -1,0 +1,208 @@
+# Miejscowosci dodane do bazy silnika tras (listopad 2026) - do PRZEGLADU przez wlasciciela.
+# Kolumny: wojewodztwo ; miejscowosc ; liczba mieszkancow (GeoNames) ; szacowana liczba sieci ; szerokosc ; dlugosc
+# Kryteria: miasta i duze miejscowosci (po przegladzie recznym; GeoNames zawyza liczbe mieszkancow wsi), nazwa <= 16 znakow, nazwa jednoznaczna w kraju, nie dzielnica, brak w bazie.
+# Liczba sieci to SZACUNEK z liczby mieszkancow (<7000: 2, <20000: 3, wiecej: 4); sklepow nie sprawdzano pojedynczo.
+# Zeby cos usunac: skasuj wpis w PMT_Delegacje.py (MIASTA_ROZSZERZENIE_2026_11) i odswiez silnik (web/narzedzia/wyciagnij_silnik.py).
+
+## dolnośląskie (41)
+dolnośląskie ; Bogatynia ; 16460 ; 3 ; 50.907 ; 14.956
+dolnośląskie ; Bolków ; 5304 ; 2 ; 50.922 ; 16.101
+dolnośląskie ; Chocianów ; 8187 ; 3 ; 51.419 ; 15.902
+dolnośląskie ; Chojnów ; 14209 ; 3 ; 51.274 ; 15.937
+dolnośląskie ; Duszniki-Zdrój ; 4888 ; 2 ; 50.403 ; 16.391
+dolnośląskie ; Gryfów Śląski ; 6890 ; 2 ; 51.031 ; 15.420
+dolnośląskie ; Głogów ; 65400 ; 4 ; 51.664 ; 16.084
+dolnośląskie ; Głuszyca ; 6897 ; 2 ; 50.687 ; 16.372
+dolnośląskie ; Jawor ; 23865 ; 4 ; 51.051 ; 16.193
+dolnośląskie ; Jelcz-Laskowice ; 15340 ; 3 ; 51.021 ; 17.316
+dolnośląskie ; Jelenia Góra ; 77366 ; 4 ; 50.900 ; 15.729
+dolnośląskie ; Kamienna Góra ; 21743 ; 4 ; 50.783 ; 16.030
+dolnośląskie ; Karpacz ; 4979 ; 2 ; 50.777 ; 15.756
+dolnośląskie ; Kowary ; 10869 ; 3 ; 50.793 ; 15.836
+dolnośląskie ; Kudowa-Zdrój ; 10176 ; 3 ; 50.443 ; 16.244
+dolnośląskie ; Kłodzko ; 25717 ; 4 ; 50.435 ; 16.661
+dolnośląskie ; Lubawka ; 6404 ; 2 ; 50.705 ; 16.000
+dolnośląskie ; Lubań ; 22245 ; 4 ; 51.120 ; 15.288
+dolnośląskie ; Lwówek Śląski ; 9657 ; 3 ; 51.111 ; 15.586
+dolnośląskie ; Lądek-Zdrój ; 6140 ; 2 ; 50.344 ; 16.879
+dolnośląskie ; Mieroszów ; 4480 ; 2 ; 50.666 ; 16.189
+dolnośląskie ; Mirsk ; 4150 ; 2 ; 50.971 ; 15.386
+dolnośląskie ; Nowa Ruda ; 24753 ; 4 ; 50.580 ; 16.502
+dolnośląskie ; Nowogrodziec ; 4031 ; 2 ; 51.195 ; 15.399
+dolnośląskie ; Olszyna ; 4739 ; 2 ; 51.067 ; 15.372
+dolnośląskie ; Piechowice ; 6496 ; 2 ; 50.850 ; 15.599
+dolnośląskie ; Pieńsk ; 5813 ; 2 ; 51.249 ; 15.047
+dolnośląskie ; Polanica-Zdrój ; 6966 ; 2 ; 50.404 ; 16.513
+dolnośląskie ; Polkowice ; 21565 ; 4 ; 51.504 ; 16.073
+dolnośląskie ; Prochowice ; 3743 ; 2 ; 51.273 ; 16.365
+dolnośląskie ; Przemków ; 6487 ; 2 ; 51.525 ; 15.794
+dolnośląskie ; Stronie Śląskie ; 6192 ; 2 ; 50.296 ; 16.874
+dolnośląskie ; Szklarska Poręba ; 6970 ; 2 ; 50.826 ; 15.523
+dolnośląskie ; Wojcieszów ; 3933 ; 2 ; 50.952 ; 15.922
+dolnośląskie ; Węgliniec ; 2992 ; 2 ; 51.288 ; 15.229
+dolnośląskie ; Zgorzelec ; 33247 ; 4 ; 51.149 ; 15.008
+dolnośląskie ; Złotoryja ; 15564 ; 3 ; 51.126 ; 15.920
+dolnośląskie ; Ścinawa ; 5863 ; 2 ; 51.416 ; 16.425
+dolnośląskie ; Świebodzice ; 23228 ; 4 ; 50.860 ; 16.320
+dolnośląskie ; Świeradów-Zdrój ; 4492 ; 2 ; 50.909 ; 15.343
+dolnośląskie ; Świerzawa ; 2469 ; 2 ; 51.014 ; 15.895
+
+## kujawsko-pomorskie (2)
+kujawsko-pomorskie ; Kamień Krajeński ; 2342 ; 2 ; 53.534 ; 17.520
+kujawsko-pomorskie ; Mogilno ; 12465 ; 3 ; 52.658 ; 17.956
+
+## lubuskie (4)
+lubuskie ; Bytom Odrzański ; 4408 ; 2 ; 51.731 ; 15.824
+lubuskie ; Dobiegniew ; 3179 ; 2 ; 52.969 ; 15.754
+lubuskie ; Drezdenko ; 10541 ; 3 ; 52.838 ; 15.831
+lubuskie ; Świebodzin ; 21757 ; 4 ; 52.248 ; 15.534
+
+## mazowieckie (3)
+mazowieckie ; Kałuszyn ; 2955 ; 2 ; 52.207 ; 21.808
+mazowieckie ; Myszyniec ; 2980 ; 2 ; 53.381 ; 21.350
+mazowieckie ; Piastów ; 23290 ; 4 ; 52.184 ; 20.840
+
+## małopolskie (20)
+małopolskie ; Biecz ; 4564 ; 2 ; 49.736 ; 21.263
+małopolskie ; Bobowa ; 3018 ; 2 ; 49.709 ; 20.948
+małopolskie ; Bochnia ; 29184 ; 4 ; 49.969 ; 20.430
+małopolskie ; Brzesko ; 16866 ; 3 ; 49.969 ; 20.606
+małopolskie ; Czchów ; 2256 ; 2 ; 49.837 ; 20.681
+małopolskie ; Gorlice ; 28609 ; 4 ; 49.656 ; 21.160
+małopolskie ; Grybów ; 5994 ; 2 ; 49.624 ; 20.948
+małopolskie ; Krynica-Zdrój ; 12270 ; 3 ; 49.422 ; 20.959
+małopolskie ; Limanowa ; 14738 ; 3 ; 49.706 ; 20.422
+małopolskie ; Mszana Dolna ; 7500 ; 3 ; 49.674 ; 20.080
+małopolskie ; Muszyna ; 5018 ; 2 ; 49.357 ; 20.897
+małopolskie ; Nowy Sącz ; 84376 ; 4 ; 49.622 ; 20.697
+małopolskie ; Nowy Targ ; 33763 ; 4 ; 49.478 ; 20.032
+małopolskie ; Nowy Wiśnicz ; 2751 ; 2 ; 49.915 ; 20.461
+małopolskie ; Piwniczna-Zdrój ; 5793 ; 2 ; 49.441 ; 20.714
+małopolskie ; Rabka-Zdrój ; 13071 ; 3 ; 49.609 ; 19.967
+małopolskie ; Stary Sącz ; 8959 ; 3 ; 49.564 ; 20.635
+małopolskie ; Sucha Beskidzka ; 9801 ; 3 ; 49.742 ; 19.594
+małopolskie ; Szczawnica ; 6032 ; 2 ; 49.424 ; 20.485
+małopolskie ; Zakopane ; 27266 ; 4 ; 49.299 ; 19.949
+
+## opolskie (5)
+opolskie ; Baborów ; 3114 ; 2 ; 50.158 ; 17.985
+opolskie ; Głubczyce ; 13697 ; 3 ; 50.201 ; 17.829
+opolskie ; Kietrz ; 6306 ; 2 ; 50.080 ; 18.004
+opolskie ; Kędzierzyn-Koźle ; 65636 ; 4 ; 50.350 ; 18.226
+opolskie ; Nysa ; 47283 ; 4 ; 50.474 ; 17.334
+
+## podkarpackie (15)
+podkarpackie ; Brzozów ; 7836 ; 3 ; 49.695 ; 22.019
+podkarpackie ; Dukla ; 2126 ; 2 ; 49.556 ; 21.683
+podkarpackie ; Jarosław ; 35475 ; 4 ; 50.016 ; 22.678
+podkarpackie ; Jedlicze ; 5629 ; 2 ; 49.717 ; 21.649
+podkarpackie ; Lesko ; 5700 ; 2 ; 49.470 ; 22.330
+podkarpackie ; Lubaczów ; 12595 ; 3 ; 50.157 ; 23.123
+podkarpackie ; Narol ; 2098 ; 2 ; 50.349 ; 23.327
+podkarpackie ; Oleszyce ; 5193 ; 2 ; 50.167 ; 23.035
+podkarpackie ; Przemyśl ; 67013 ; 4 ; 49.785 ; 22.767
+podkarpackie ; Przeworsk ; 15805 ; 3 ; 50.059 ; 22.494
+podkarpackie ; Radymno ; 5464 ; 2 ; 49.947 ; 22.824
+podkarpackie ; Rymanów ; 3583 ; 2 ; 49.576 ; 21.868
+podkarpackie ; Sanok ; 39684 ; 4 ; 49.556 ; 22.206
+podkarpackie ; Ustrzyki Dolne ; 9610 ; 3 ; 49.430 ; 22.594
+podkarpackie ; Zagórz ; 5129 ; 2 ; 49.515 ; 22.267
+
+## pomorskie (17)
+pomorskie ; Brusy ; 4728 ; 2 ; 53.884 ; 17.718
+pomorskie ; Chojnice ; 38789 ; 4 ; 53.696 ; 17.557
+pomorskie ; Dzierzgoń ; 5518 ; 2 ; 53.922 ; 19.347
+pomorskie ; Kościerzyna ; 23327 ; 4 ; 54.122 ; 17.981
+pomorskie ; Kwidzyn ; 37601 ; 4 ; 53.725 ; 18.931
+pomorskie ; Lębork ; 35161 ; 4 ; 54.539 ; 17.750
+pomorskie ; Malbork ; 36709 ; 4 ; 54.036 ; 19.027
+pomorskie ; Nowy Staw ; 4403 ; 2 ; 54.136 ; 19.009
+pomorskie ; Pelplin ; 8320 ; 3 ; 53.928 ; 18.698
+pomorskie ; Prabuty ; 8488 ; 3 ; 53.755 ; 19.205
+pomorskie ; Pruszcz Gdański ; 23618 ; 4 ; 54.262 ; 18.636
+pomorskie ; Skórcz ; 3564 ; 2 ; 53.794 ; 18.526
+pomorskie ; Sztum ; 9766 ; 3 ; 53.921 ; 19.031
+pomorskie ; Słupsk ; 98608 ; 4 ; 54.464 ; 17.029
+pomorskie ; Tczew ; 60133 ; 4 ; 54.092 ; 18.778
+pomorskie ; Ustka ; 16250 ; 3 ; 54.580 ; 16.862
+pomorskie ; Łeba ; 3744 ; 2 ; 54.761 ; 17.555
+
+## warmińsko-mazurskie (1)
+warmińsko-mazurskie ; Mikołajki ; 3851 ; 2 ; 53.803 ; 21.570
+
+## wielkopolskie (33)
+wielkopolskie ; Chodzież ; 19776 ; 3 ; 52.995 ; 16.920
+wielkopolskie ; Czarnków ; 11562 ; 3 ; 52.902 ; 16.564
+wielkopolskie ; Gniezno ; 70269 ; 4 ; 52.535 ; 17.583
+wielkopolskie ; Jastrowie ; 8452 ; 3 ; 53.420 ; 16.818
+wielkopolskie ; Kleczew ; 4217 ; 2 ; 52.371 ; 18.177
+wielkopolskie ; Konin ; 81258 ; 4 ; 52.223 ; 18.251
+wielkopolskie ; Koło ; 23493 ; 4 ; 52.200 ; 18.639
+wielkopolskie ; Krajenka ; 3609 ; 2 ; 53.298 ; 16.991
+wielkopolskie ; Kępno ; 14813 ; 3 ; 51.278 ; 17.989
+wielkopolskie ; Lwówek ; 2939 ; 2 ; 52.448 ; 16.181
+wielkopolskie ; Międzychód ; 10994 ; 3 ; 52.599 ; 15.897
+wielkopolskie ; Murowana Goślina ; 9989 ; 3 ; 52.575 ; 17.009
+wielkopolskie ; Nowy Tomyśl ; 15179 ; 3 ; 52.319 ; 16.128
+wielkopolskie ; Obrzycko ; 2226 ; 2 ; 52.703 ; 16.528
+wielkopolskie ; Odolanów ; 4960 ; 2 ; 51.574 ; 17.674
+wielkopolskie ; Okonek ; 3833 ; 2 ; 53.536 ; 16.852
+wielkopolskie ; Ostrzeszów ; 14446 ; 3 ; 51.426 ; 17.934
+wielkopolskie ; Piła ; 75532 ; 4 ; 53.151 ; 16.738
+wielkopolskie ; Raszków ; 2079 ; 2 ; 51.718 ; 17.726
+wielkopolskie ; Rawicz ; 21380 ; 4 ; 51.609 ; 16.859
+wielkopolskie ; Sieraków ; 6090 ; 2 ; 52.651 ; 16.080
+wielkopolskie ; Sompolno ; 3610 ; 2 ; 52.388 ; 18.503
+wielkopolskie ; Szamocin ; 4258 ; 2 ; 53.028 ; 17.127
+wielkopolskie ; Słupca ; 14476 ; 3 ; 52.287 ; 17.872
+wielkopolskie ; Tuliszków ; 3371 ; 2 ; 52.077 ; 18.295
+wielkopolskie ; Turek ; 29533 ; 4 ; 52.015 ; 18.501
+wielkopolskie ; Wieleń ; 6067 ; 2 ; 52.895 ; 16.171
+wielkopolskie ; Września ; 28703 ; 4 ; 52.325 ; 17.565
+wielkopolskie ; Zagórów ; 2974 ; 2 ; 52.168 ; 17.896
+wielkopolskie ; Zbąszyń ; 7185 ; 3 ; 52.251 ; 15.925
+wielkopolskie ; Złotów ; 18395 ; 3 ; 53.363 ; 17.041
+wielkopolskie ; Śrem ; 30404 ; 4 ; 52.089 ; 17.015
+wielkopolskie ; Żerków ; 2127 ; 2 ; 52.069 ; 17.563
+
+## zachodniopomorskie (12)
+zachodniopomorskie ; Biały Bór ; 2209 ; 2 ; 53.897 ; 16.835
+zachodniopomorskie ; Choszczno ; 15733 ; 3 ; 53.169 ; 15.421
+zachodniopomorskie ; Darłowo ; 13324 ; 3 ; 54.421 ; 16.411
+zachodniopomorskie ; Drawno ; 2423 ; 2 ; 53.220 ; 15.759
+zachodniopomorskie ; Ińsko ; 2002 ; 2 ; 53.436 ; 15.550
+zachodniopomorskie ; Kołobrzeg ; 44377 ; 4 ; 54.176 ; 15.583
+zachodniopomorskie ; Pełczyce ; 2808 ; 2 ; 53.044 ; 15.304
+zachodniopomorskie ; Polanów ; 2960 ; 2 ; 54.119 ; 16.685
+zachodniopomorskie ; Recz ; 2992 ; 2 ; 53.260 ; 15.547
+zachodniopomorskie ; Stargard ; 71224 ; 4 ; 53.337 ; 15.050
+zachodniopomorskie ; Trzcińsko-Zdrój ; 2466 ; 2 ; 52.965 ; 14.607
+zachodniopomorskie ; Łobez ; 10609 ; 3 ; 53.639 ; 15.621
+
+## łódzkie (1)
+łódzkie ; Biała Rawska ; 3231 ; 2 ; 51.808 ; 20.473
+
+## śląskie (17)
+śląskie ; Blachownia ; 9891 ; 3 ; 50.780 ; 18.964
+śląskie ; Cieszyn ; 35586 ; 4 ; 49.751 ; 18.632
+śląskie ; Jastrzębie-Zdrój ; 95813 ; 4 ; 49.955 ; 18.575
+śląskie ; Koniecpol ; 6318 ; 2 ; 50.775 ; 19.689
+śląskie ; Krzanowice ; 2149 ; 2 ; 50.018 ; 18.123
+śląskie ; Mikołów ; 38821 ; 4 ; 50.171 ; 18.904
+śląskie ; Piekary Śląskie ; 59757 ; 4 ; 50.380 ; 18.927
+śląskie ; Pszów ; 14028 ; 3 ; 50.040 ; 18.395
+śląskie ; Racibórz ; 58464 ; 4 ; 50.092 ; 18.219
+śląskie ; Rydułtowy ; 21887 ; 4 ; 50.059 ; 18.417
+śląskie ; Szczekociny ; 3841 ; 2 ; 50.627 ; 19.825
+śląskie ; Sławków ; 6901 ; 2 ; 50.299 ; 19.390
+śląskie ; Tarnowskie Góry ; 60938 ; 4 ; 50.445 ; 18.861
+śląskie ; Wodzisław Śląski ; 49521 ; 4 ; 50.004 ; 18.472
+śląskie ; Zawidów ; 4364 ; 2 ; 51.025 ; 15.062
+śląskie ; Żory ; 63174 ; 4 ; 50.045 ; 18.701
+śląskie ; Żywiec ; 32132 ; 4 ; 49.685 ; 19.192
+
+## świętokrzyskie (4)
+świętokrzyskie ; Pińczów ; 11806 ; 3 ; 50.521 ; 20.526
+świętokrzyskie ; Połaniec ; 8158 ; 3 ; 50.433 ; 21.281
+świętokrzyskie ; Starachowice ; 53739 ; 4 ; 51.037 ; 21.071
+świętokrzyskie ; Staszów ; 16137 ; 3 ; 50.563 ; 21.166

@@ -8039,6 +8039,20 @@ PROMIEN_MAKS_KM = 170.0
 PROBY_PROMIENIA = (1.0, 1.3, 1.6, 2.0)
 
 
+# --- WŁASNY „KLIN” UŻYTKOWNIKA ---------------------------------------------------------------------------------------
+# Każdy użytkownik ma dostawać własną trasę, a nie ten sam zestaw miejscowości co sąsiad. Silnik nie zna innych
+# użytkowników (liczy lokalnie, bez serwera), więc rozdziela teren po cichu: z PESEL-u (tego samego, który steruje
+# losowaniem) wynika stały KIERUNEK użytkownika, a miejscowości wybiera on z KLINA kilku sąsiednich kierunków wokół
+# bazy (z ośmiu: SEKTORY_KOLEJNOSC). Dwie osoby z tej samej okolicy jeżdżą wtedy w różne strony. Klin jest tylko
+# preferencją trasy: gdy nie starcza w nim miejscowości (nawet przy poszerzonym promieniu), silnik bierze całe
+# otoczenie (kwota i zakaz powtórek w miesiącu mają pierwszeństwo), więc pojedyncze zbieżności mogą się zdarzyć.
+SEKTORY_KLINA = 4
+
+
+def _przesuniecie_uzytkownika(seed_val) -> float:
+    return (int(seed_val) * 0.6180339887498949) % 1.0
+
+
 def _policz_powtorzone(dni, baza_nazwa) -> int:
     """Ile razy w miesiącu miejscowość (poza bazą) pojawia się po raz kolejny jako cel postoju.
     Baza (miejsce zamieszkania) wraca na dokumentach co dzień i nie liczy się."""
@@ -8146,8 +8160,8 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     (PROBY_LICZBY_POLECEN) i bierzemy pierwszy układ, który się mieści; gdy żaden — najlepszy dotychczasowy."""
     zrzuty = {}
 
-    def raz(zakaz, px, skok=1.0, wariant=0, pcb=None, dcb=None):
-        w = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, pcb, dcb, skok, wariant, zakaz, px)
+    def raz(zakaz, px, skok=1.0, wariant=0, pcb=None, dcb=None, klin=0):
+        w = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, pcb, dcb, skok, wariant, zakaz, px, klin)
         zrzuty[id(w)] = _zrzut_zrodla()
         return w
     try:
@@ -8159,33 +8173,38 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         def idealny(w):
             return bool(w) and not getattr(w, "kwota_niepelna", False) and getattr(w, "powtorzone_miejscowosci", 0) == 0
 
-        def klucz(w, nr):      # mniejsze = lepiej: kwota pokryta, mniej powtórek, mieści się w poleceniach z kwoty
-            return (bool(getattr(w, "kwota_niepelna", False)) or not w, getattr(w, "powtorzone_miejscowosci", 0),
+        def brak_kwoty(w):      # ile z kwoty zostało niepokryte (w kubełkach po 300 zł: niewielki brak nie przebija braku powtórek, duży tak)
+            if not w or not getattr(w, "kwota_niepelna", False):
+                return 0
+            return int(max(0.0, kwota_calkowita - sum(d.suma for d in w)) // 300)
+
+        def klucz(w, nr):      # mniejsze = lepiej: kwota pokryta (a gdy się nie da — jak największa jej część), mniej powtórek, mieści się w poleceniach z kwoty, wcześniejsza próba
+            return (bool(getattr(w, "kwota_niepelna", False)) or not w, brak_kwoty(w), getattr(w, "powtorzone_miejscowosci", 0),
                     max(0, polecen(w) - _k) if _k >= 2 and w else 0, nr)
 
-        proby = []                                   # (wynik, zakaz, mnożnik promienia, skok, wariant)
-        wynik = raz(True, 1.0, pcb=postep_cb, dcb=dzien_cb)
-        proby.append((wynik, True, 1.0, 1.0, 0))
-        if not idealny(wynik) and wynik:
-            if postep_cb: postep_cb("Dopasowuję miejscowości (bez powtórek w miesiącu)...", 0.80)
-            for px in PROBY_PROMIENIA[1:]:
-                w = raz(True, px)
-                proby.append((w, True, px, 1.0, 0))
-                if idealny(w):
-                    break
-            if not any(idealny(x[0]) for x in proby):
-                w = raz(False, 1.0)                  # ostatnia deska ratunku: dawne zasady (powtórki dozwolone)
-                proby.append((w, False, 1.0, 1.0, 0))
+        # kolejność prób: najpierw własny klin użytkownika (preferowany: każdy dostaje inną trasę), potem całe otoczenie,
+        # na końcu dawne zasady (powtórki dozwolone)
+        konfiguracje = ([(True, px, SEKTORY_KLINA) for px in PROBY_PROMIENIA] + [(True, px, 0) for px in PROBY_PROMIENIA]
+                        + [(False, 1.0, 0)])
+        proby = []                                   # (wynik, zakaz, mnożnik promienia, skok, wariant, klin)
+        for nr_k, (zk, px, kl) in enumerate(konfiguracje):
+            if nr_k == 1 and postep_cb:
+                postep_cb("Dopasowuję miejscowości (bez powtórek w miesiącu)...", 0.80)
+            w = raz(zk, px, pcb=postep_cb if nr_k == 0 else None, dcb=dzien_cb if nr_k == 0 else None, klin=kl)
+            proby.append((w, zk, px, 1.0, 0, kl))
+            if idealny(w):
+                break
         najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
-        w0, zakaz0, px0 = proby[najlepsza][0], proby[najlepsza][1], proby[najlepsza][2]
+        w0 = proby[najlepsza][0]
         if _k >= 2 and w0 and not getattr(w0, "kwota_niepelna", False) and polecen(w0) > _k:
             if postep_cb: postep_cb("Dopasowuję liczbę poleceń do kwoty...", 0.82)
             znaleziono = False
+            zakaz0, px0, kl0 = proby[najlepsza][1], proby[najlepsza][2], proby[najlepsza][5]
             # dłuższe skoki wymagają dalszych miejscowości, a przy zakazie powtórek dalsze miejscowości to większy promień
             for px in [px0] + ([x for x in PROBY_PROMIENIA if x > px0][:2] if zakaz0 else []):
                 for skok, wariant in PROBY_LICZBY_POLECEN:
-                    w = raz(zakaz0, px, skok, wariant)
-                    proby.append((w, zakaz0, px, skok, wariant))
+                    w = raz(zakaz0, px, skok, wariant, klin=kl0)
+                    proby.append((w, zakaz0, px, skok, wariant, kl0))
                     if (w and not getattr(w, "kwota_niepelna", False) and not getattr(w, "brak_dni", False)
                             and polecen(w) <= _k and getattr(w, "powtorzone_miejscowosci", 0) <= getattr(w0, "powtorzone_miejscowosci", 0)):
                         w0 = w; najlepsza = len(proby) - 1; znaleziono = True
@@ -8195,9 +8214,6 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
             if not znaleziono:
                 najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
                 w0 = proby[najlepsza][0]
-        else:
-            najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
-            w0 = proby[najlepsza][0]
         if najlepsza != len(proby) - 1 and id(w0) in zrzuty:
             _przywroc_zrodlo(zrzuty[id(w0)])      # wybrany układ nie był ostatnio liczony: stan źródła odległości ma być jego
         return w0
@@ -8207,7 +8223,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         return _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, postep_cb, dzien_cb)
 
 
-def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0, _zakaz=False, _promien_x=1.0) -> List[DzienTrasy]:
+def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0, _zakaz=False, _promien_x=1.0, _klin=0) -> List[DzienTrasy]:
     if stawka is None: stawka = STAWKA_ZA_KM
     # jedno rozliczenie = jeden stan źródła odległości
     zeruj_zrodlo_odleglosci()
@@ -8257,6 +8273,15 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
                 _miast_w_dozwolonych += 1
     if _miast_w_dozwolonych < 12:
         dozwolone_sektory = SEKTORY_KOLEJNOSC[:]   # odblokuj wszystkie kierunki
+
+    # własny klin użytkownika (zob. SEKTORY_KLINA): kilka sąsiednich kierunków od kierunku wyznaczonego z PESEL-u
+    _sektory_uz = None
+    if _klin and _klin < len(SEKTORY_KOLEJNOSC):
+        _i0 = int(round(_przesuniecie_uzytkownika(seed_val) * len(SEKTORY_KOLEJNOSC))) % len(SEKTORY_KOLEJNOSC)
+        _okno = [SEKTORY_KOLEJNOSC[(_i0 + _k) % len(SEKTORY_KOLEJNOSC)] for _k in range(_klin)]
+        _okno = [s for s in _okno if s in dozwolone_sektory]
+        if len(_okno) >= 2:
+            _sektory_uz = set(_okno)
 
     # ADAPTACYJNY COOLDOWN — ile dni miasto "odpoczywa" zanim może się powtórzyć.
     # Domyślnie 35 dni (żadnych powtórek w miesiącu). Ale gdy dostępnych miast
@@ -8385,6 +8410,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
                     continue          # nic „pod domem"
                 if wymus_ucieczke and not _rzadki_rejon and not odsuwa_sie_od_stolicy(baza_lat, baza_lng, m.lat, m.lng, woj): continue
                 if not _rzadki_rejon and miasto_w_obcej_aglomeracji(baza_lat, baza_lng, m.lat, m.lng): continue
+                if _sektory_uz and m.sektor not in _sektory_uz: continue                  # własny klin użytkownika
                 if spr_cooldown and _zakaz and m.n in uzyte_w_miesiacu: continue          # twardy zakaz: miejscowość tylko raz w miesiącu
                 if spr_cooldown and not _zakaz and m.n in ostatnie_uzycie and (data - ostatnie_uzycie[m.n]).days < cooldown_dni: continue
 

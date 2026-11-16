@@ -388,3 +388,9 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       rozkładają się wg tego profilu (rano i po południu odcinki trwają dłużej, wieczorem krócej), ale SUMA czasu jazdy dnia zostaje jak przy stałej prędkości 65 km/h — limit dnia (8 h, okno 16:30–22:00) jest liczony po staremu.
       To szacunek inżynierski, NIE kalibrowany pomiarami. Odległości: bez zmian (linia prosta × 1,28; web nie ma dostępu do usługi tras, CSP). Realna poprawa odległości i czasów wymagałaby usługi tras (np. OSRM w aplikacji web) albo kilku
       prawdziwych przejazdów do kalibracji — czeka na decyzję właściciela.
+      (4) WŁASNA TRASA KAŻDEGO UŻYTKOWNIKA („klin”): z PESEL-u wynika przesunięcie kierunku; użytkownik dostaje tylko miejscowości z własnych 4 z 12 sektorów (SEKTORY_KLINA = 4) wokół bazy, więc dwie osoby z tej samej okolicy
+      jeżdżą w różne strony. Pomiar (6 PESEL-i na jednej bazie, 3000 zł): wspólne miejscowości w parach średnio ok. 50% (bez klina 77–91%), zero powtórek, kwoty pełne. Gdy klin nie daje pełnej kwoty lub bez powtórek, silnik
+      po kolei próbuje większych promieni, potem całego otoczenia, a na końcu dawnych zasad. Przy wyniku niepełnym wygrywa układ o najmniejszym braku kwoty (kubełki po 300 zł), dopiero potem liczą się powtórki.
+      LIMITY: dwie osoby z tej samej okolicy i podobnym kierunkiem nadal mogą mieć wspólne miejscowości (najwięcej ok. 85%); pewność dałby tylko wspólny rejestr na serwerze (Apps Script) — nie budowany, bo trzeba by go
+      udostępnić wszystkim użytkownikom. Skrajność: 6000 zł w samych oknach wieczornych z Radomia, Poznania, Rzeszowa (kwota nadal niepełna, ok. 150–480 zł brakuje, z powtórkami) i Białegostoku, Gdańska (z powtórkami).
+      Test testy_pmt.py: 3 bazy × 6 osób, średnia wspólnych w parach ≤ 65%, zero powtórek, kwoty pełne.

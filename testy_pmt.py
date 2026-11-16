@@ -12558,6 +12558,31 @@ try:
 except Exception as _e1917:
     sprawdz("1917 zł z zakazem powtórek", False, repr(_e1917))
 
+# każdy użytkownik ma własną trasę: sześć osób z tej samej bazy dostaje różne zestawy miejscowości (własny klin kierunków z PESEL-u),
+# a przy tym nikt nie ma powtórek w miesiącu i kwota jest pokryta; pojedyncze wspólne miejscowości są dopuszczone
+try:
+    import itertools as _it_ku
+    _PES_KU = ("90010112349", "85050512345", "78030398765", "92071512340", "88112233445", "95040587766")
+    _roz_ku = P.pobierz_dni_robocze(2026, 9)
+    _zle_ku, _srednie_ku, _maks_ku = [], [], []
+    for _n_ku, _la_ku, _ln_ku, _wj_ku in (_BAZY_MJ[0], _BAZY_MJ[4], _BAZY_MJ[5]):
+        _zb_ku = []
+        for _pes in _PES_KU:
+            _w = P.generuj_trasy(3000.0, _n_ku, _la_ku, _ln_ku, _wj_ku, _roz_ku, _pes, stawka=0.89)
+            _c = _cele_na_dokumentach(_w, _n_ku)
+            if len(set(_c)) != len(_c) or getattr(_w, "kwota_niepelna", False):
+                _zle_ku.append("%s %s: powtórek %d, niepełna %s" % (_n_ku, _pes[-3:], len(_c) - len(set(_c)), getattr(_w, "kwota_niepelna", False)))
+            _zb_ku.append(set(_c))
+        _pary_ku = [len(a & b) / max(1, min(len(a), len(b))) for a, b in _it_ku.combinations(_zb_ku, 2)]
+        _srednie_ku.append(sum(_pary_ku) / len(_pary_ku)); _maks_ku.append(max(_pary_ku))
+    sprawdz("każdy użytkownik ma własną trasę: 3 bazy × 6 osób — zero powtórek w miesiącu i kwota pokryta", not _zle_ku, "; ".join(_zle_ku[:5]))
+    sprawdz("…a wspólne miejscowości w parach osób z tej samej bazy: średnio ≤ 65%% (bez klina było ok. 80%%): %s" % ", ".join("%.0f%%" % (100 * x) for x in _srednie_ku),
+            max(_srednie_ku) <= 0.65, "średnie %s" % _srednie_ku)
+    sprawdz("…i żadna para nie ma prawie identycznej trasy (najwięcej ≤ 92%%): %s" % ", ".join("%.0f%%" % (100 * x) for x in _maks_ku),
+            max(_maks_ku) <= 0.92, "maksima %s" % _maks_ku)
+except Exception as _e_ku:
+    sprawdz("własna trasa użytkownika (klin kierunków)", False, repr(_e_ku))
+
 # profil prędkości w ciągu doby: szczyt wolniej, wieczór i weekend szybciej, a suma czasu jazdy dnia bez zmian
 _rob_pp, _sob_pp = datetime.date(2026, 9, 16), datetime.date(2026, 9, 19)
 sprawdz("profil prędkości: szczyt poranny i popołudniowy < południe < wieczór; weekend bez szczytów",

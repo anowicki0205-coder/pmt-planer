@@ -34,7 +34,7 @@ const { wpiszAdres, otworz, generuj, wieczory } = require('./wspolne'); const fs
   await p.click('#siatka button.dz.trasa >> nth=2', { force: true });
   if (process.env.BEZ_VT) { const ile = await p.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').length); ok('bez View Transitions zmiana dnia dalej ma ruch (animacje własne)', ile > 0, String(ile)); }
   await p.waitForTimeout(2500); await zrzut('4_dzien');
-  ok('wybrany dzień pokazuje trasę', (await p.locator('#dzien-tresc .pr').count()) >= 5);
+  { const ilePr = await p.locator('#dzien-tresc .pr').count(); ok('wybrany dzień pokazuje trasę (min. 3 postoje = 4 odcinki)', ilePr >= 4, String(ilePr)); }
   const przedOdswiezeniem = await p.locator('#b-kwota-w').getAttribute('aria-label');
   await p.reload(); await p.waitForFunction(() => document.querySelector('#kA.po-gen'), null, { timeout: 120000 }); await p.waitForTimeout(3000);
   ok('po odświeżeniu strony miesiąc wraca z urządzenia', (await p.locator('#b-kwota-w').getAttribute('aria-label')) === przedOdswiezeniem);

@@ -202,7 +202,7 @@ var WERSJA_Z_SEKRETEM = '3.24.0';
 // a program na komputerze podpisuje każde zapytanie. Po włączeniu
 // PODPIS_OBOWIAZKOWY nikt bez sekretu aplikacji nie zaloguje się, nie
 // zmieni hasła i nie wyzeruje go przez sam adres /exec.
-var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki'];
+var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki', 'miejscowosci'];
 
 // Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
 // Wpisz numer (np. '3.24.0') dopiero wtedy, gdy zespół ma już nową
@@ -433,6 +433,7 @@ function inicjalizuj() {
   _zakladka(ss, ZAKLADKA_SESJE,
     ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)",
      "Dokumenty w sesji", "Plany wizyt", "Wersja programu"]);
+  _zakladka(ss, ZAKLADKA_MIEJSCOWOSCI, NAGLOWKI_MIEJSCOWOSCI);
   _ustawieniaPaczki(ss);
   // kolumna N (Haslo hash) w Uzytkownicy — naglowek, jesli go nie ma
   var shU = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
@@ -640,7 +641,7 @@ function doPost(e) {
     }
 
     // Aplikacja na telefon zostala wycofana (3.24.0) — backend obsluguje program na komputerze
-    // i aplikacje web: szesc akcji, wszystkie podpisane.
+    // i aplikacje web: siedem akcji, wszystkie podpisane.
     switch (dane.akcja) {
       case "logowanie":   return _json(logowanie(dane));
       case "puls":        return _json(obsluzPuls(dane));
@@ -648,6 +649,7 @@ function doPost(e) {
       case "zmien_haslo": return _json(zmienHaslo(dane));
       case "reset_hasla": return _json(resetHasla(dane));
       case "haslo_paczki": return _json(hasloPaczki(dane));
+      case "miejscowosci": return _json(obsluzMiejscowosci(dane));
       default: return _json({ status: "blad", opis: "Nieznana akcja" });
     }
   } catch (err) {
@@ -880,6 +882,94 @@ function hasloPaczki(dane) {
   if (ostatni < dzis) return { status: "wygaslo", wazne_do: doDaty };      // po terminie hasła nie wydajemy
   _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty, "wazne");
   return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres, format: format };
+}
+
+
+/* ====== REJESTR MIEJSCOWOSCI: kazdy uzytkownik ma wlasna trase =======
+   Aplikacja po wygenerowaniu delegacji zapisuje tu miejscowosci, ktore trafily na dokumenty miesiaca. Przed kolejnym generowaniem
+   (u kogokolwiek) pobiera miejscowosci zajete przez INNYCH i ich unika — dzieki temu uzytkownicy z jednej okolicy jezdza w rozne
+   strony. Jeden wiersz = jeden uzytkownik w jednym miesiacu: ponowne zapisanie ZASTEPUJE wiersz, wiec generowanie „od nowa”
+   nie zuzywa puli, a „zwolnij” oddaje ja w calosci. W arkuszu sa tylko nazwy miejscowosci i kod konta (bez PESEL-u i adresu);
+   zakladke widzi wylacznie administrator arkusza.
+   Dostep: podpis aplikacji (jak kazda akcja) ORAZ podpis haslem uzytkownika (jak hasło paczki) — samym kodem nie da sie
+   ani odczytac, ani zablokowac cudzych miejscowosci. Operacje (pole „op”): pobierz | zapisz | zwolnij; miesiac: RRRRMM. */
+var ZAKLADKA_MIEJSCOWOSCI = "Miejscowosci";
+var NAGLOWKI_MIEJSCOWOSCI = ["Miesiac", "Kod", "Imie i nazwisko", "Liczba", "Miejscowosci", "Zapisano"];
+var MIEJSCOWOSCI_MAKS = 250;               // tyle miejscowosci jeden uzytkownik moze zapisac na miesiac (1 miesiac ~ 40–110)
+var MIEJSCOWOSCI_WIERSZE_MAKS = 4000;      // ochrona arkusza przed rozrostem: powyzej tylu wierszy znikaja miesiace starsze niz 14
+function _miesiacRejestru(m) {
+  var s = String(m === null || m === undefined ? "" : m).trim();
+  if (!/^20\d\d(0[1-9]|1[0-2])$/.test(s)) return "";
+  return Math.abs(Number(s.slice(0, 4)) - new Date().getFullYear()) > 1 ? "" : s;      // rok z okolic bieżącego: śmieciowe miesiące nie zakładają wierszy
+}
+function _nazwaMiejscowosci(n) {
+  var s = String(n === null || n === undefined ? "" : n).replace(/\s+/g, " ").trim();
+  // zaczyna się od litery (nigdy od = + - @, więc nie bywa formułą), dalej litery, cyfry, spacja, kropka, apostrof, myślnik
+  return /^[A-Za-zÀ-ž][A-Za-zÀ-ž0-9 .'\-]{0,39}$/.test(s) ? s : "";
+}
+function obsluzMiejscowosci(dane) {
+  var kod = String(dane.kod || "").trim();
+  if (!_kodPoprawny(kod)) return { status: "odmowa" };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []);
+  var wiersze = shU.getDataRange().getValues(), w = null;
+  for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
+  if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
+    _log(ss, kod, "miejscowosci_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
+    return { status: "odmowa" };
+  }
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
+  var miesiac = _miesiacRejestru(dane.miesiac);
+  if (!miesiac) return { status: "blad", opis: "Nieprawidlowy miesiac" };
+  var op = String(dane.op || "");
+  var sh = _zakladka(ss, ZAKLADKA_MIEJSCOWOSCI, NAGLOWKI_MIEJSCOWOSCI);
+  var wpisy = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues() : [];
+  var moj = -1;
+  for (var j = 0; j < wpisy.length; j++) {
+    if (String(wpisy[j][0]).trim() === miesiac && String(wpisy[j][1]).trim() === kod) { moj = j; break; }
+  }
+  if (op === "pobierz") {
+    var zajete = {}, osob = 0;
+    for (var k = 0; k < wpisy.length; k++) {
+      if (String(wpisy[k][0]).trim() !== miesiac || String(wpisy[k][1]).trim() === kod) continue;      // własny wpis się nie liczy: generowanie od nowa go zastępuje
+      osob++;
+      var lista = String(wpisy[k][4] || "").split("|");
+      for (var m = 0; m < lista.length; m++) { var nm = lista[m].trim(); if (nm) zajete[nm] = (zajete[nm] || 0) + 1; }
+    }
+    return { status: "ok", zajete: zajete, osob: osob };
+  }
+  if (op === "zwolnij") {
+    if (moj >= 0) sh.deleteRow(moj + 2);
+    _log(ss, kod, "miejscowosci", "zwolnione " + miesiac, "raz");
+    return { status: "ok" };
+  }
+  if (op === "zapisz") {
+    var nadeslane = dane.miejscowosci;
+    if (!Array.isArray(nadeslane) || nadeslane.length > MIEJSCOWOSCI_MAKS) return { status: "blad", opis: "Za duzo miejscowosci" };
+    var czyste = [], widziane = {};
+    for (var q = 0; q < nadeslane.length; q++) {
+      var nz = _nazwaMiejscowosci(nadeslane[q]);
+      if (!nz) return { status: "blad", opis: "Nieprawidlowa nazwa miejscowosci" };
+      if (!widziane[nz.toLowerCase()]) { widziane[nz.toLowerCase()] = true; czyste.push(nz); }
+    }
+    var wiersz = [miesiac, kod, _tekst(w[1], 60), czyste.length, czyste.join("|"), new Date()];
+    if (moj >= 0) sh.getRange(moj + 2, 1, 1, 6).setValues([wiersz]);
+    else { _przytnijMiejscowosci(sh); sh.appendRow(wiersz); }
+    _log(ss, kod, "miejscowosci", "zapisane " + miesiac + ": " + czyste.length, "raz");
+    return { status: "ok", zapisano: czyste.length };
+  }
+  return { status: "blad", opis: "Nieznana operacja" };
+}
+// Gdy arkusz urósł ponad MIEJSCOWOSCI_WIERSZE_MAKS wierszy, usuwa wpisy sprzed 14 miesięcy (od dołu, żeby numery wierszy się nie przesuwały).
+function _przytnijMiejscowosci(sh) {
+  var ile = sh.getLastRow();
+  if (ile <= MIEJSCOWOSCI_WIERSZE_MAKS) return;
+  var d = new Date(); d.setMonth(d.getMonth() - 14);
+  var prog = d.getFullYear() * 100 + d.getMonth() + 1;
+  var mies = sh.getRange(2, 1, ile - 1, 1).getValues();
+  for (var i = mies.length - 1; i >= 0; i--) { if (Number(mies[i][0]) < prog) sh.deleteRow(i + 2); }
 }
 
 

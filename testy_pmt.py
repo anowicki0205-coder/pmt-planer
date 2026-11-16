@@ -12583,6 +12583,50 @@ try:
 except Exception as _e_ku:
     sprawdz("własna trasa użytkownika (klin kierunków)", False, repr(_e_ku))
 
+# wspólny rejestr miejscowości: kolejne osoby z tej samej bazy omijają miejscowości zajęte przez poprzednie (zajete: nazwa -> ilu ma ją w miesiącu)
+try:
+    import collections as _col_rj
+    _PES_RJ = ("90010112349", "85050512345", "78030398765", "92071512340", "88112233445", "95040587766", "80010122334", "91020233445")
+    _roz_rj = P.pobierz_dni_robocze(2026, 9)
+    _zle_rj, _zle_licznik_rj, _zle_wlasne_rj, _zle_kwota_rj = [], [], [], []
+    for _n_rj, _la_rj, _ln_rj, _wj_rj in (_BAZY_MJ[0], _BAZY_MJ[5]):          # Radom, Poznań: trzy pierwsze osoby bez żadnej wspólnej miejscowości
+        _zaj_rj = _col_rj.Counter()
+        for _i_rj, _pes in enumerate(_PES_RJ[:3]):
+            _w = P.generuj_trasy(4000.0, _n_rj, _la_rj, _ln_rj, _wj_rj, _roz_rj, _pes, stawka=0.89, zajete=dict(_zaj_rj))
+            _c = _cele_na_dokumentach(_w, _n_rj)
+            if len(set(_c) & set(_zaj_rj)) or _w.wspolne_z_innymi:
+                _zle_rj.append("%s osoba %d: %d wspólnych" % (_n_rj, _i_rj + 1, len(set(_c) & set(_zaj_rj))))
+            if len(set(_c)) != len(_c):
+                _zle_wlasne_rj.append("%s osoba %d" % (_n_rj, _i_rj + 1))
+            if getattr(_w, "kwota_niepelna", False):
+                _zle_kwota_rj.append("%s osoba %d" % (_n_rj, _i_rj + 1))
+            _zaj_rj.update(set(_c))
+    sprawdz("wspólny rejestr: trzy kolejne osoby z Radomia i z Poznania nie mają ani jednej wspólnej miejscowości", not _zle_rj, "; ".join(_zle_rj[:5]))
+    # pula się wyczerpuje (Zamość: mało miejscowości): własny miesiąc zostaje bez powtórek, kwota pełna, a licznik wspólnych zgadza się z rzeczywistym
+    _n_rj, _la_rj, _ln_rj, _wj_rj = "Zamość", 50.72, 23.25, "lubelskie"
+    _zaj_rj = _col_rj.Counter()
+    for _i_rj, _pes in enumerate(_PES_RJ):
+        _w = P.generuj_trasy(4000.0, _n_rj, _la_rj, _ln_rj, _wj_rj, _roz_rj, _pes, stawka=0.89, zajete=dict(_zaj_rj))
+        _c = _cele_na_dokumentach(_w, _n_rj)
+        if len(set(_c)) != len(_c):
+            _zle_wlasne_rj.append("%s osoba %d: %d powtórek" % (_n_rj, _i_rj + 1, len(_c) - len(set(_c))))
+        if getattr(_w, "kwota_niepelna", False):
+            _zle_kwota_rj.append("%s osoba %d" % (_n_rj, _i_rj + 1))
+        _rzecz = len({x.lower() for x in _c} & {x.lower() for x in _zaj_rj})
+        if _w.wspolne_z_innymi != _rzecz:
+            _zle_licznik_rj.append("osoba %d: licznik %d, rzeczywiście %d" % (_i_rj + 1, _w.wspolne_z_innymi, _rzecz))
+        _zaj_rj.update(set(_c))
+    sprawdz("wspólny rejestr: własny miesiąc zawsze bez powtórek (także gdy pula się kończy i tolerancja rośnie)", not _zle_wlasne_rj, "; ".join(_zle_wlasne_rj[:5]))
+    sprawdz("wspólny rejestr: kwota pokryta w całości dla każdej osoby, także gdy część miejscowości jest zajęta", not _zle_kwota_rj, "; ".join(_zle_kwota_rj[:5]))
+    sprawdz("wspólny rejestr: wynik niesie uczciwy licznik miejscowości wspólnych z innymi", not _zle_licznik_rj, "; ".join(_zle_licznik_rj[:5]))
+    # rejestr pusty ({}) = „jest, ale nikt nic nie zajął” (pełne otoczenie, bez klina); brak rejestru (None) = dawny klin z PESEL-u
+    _w_pusty = P.generuj_trasy(3000.0, "Radom", 51.40, 21.15, "mazowieckie", _roz_rj, _PES_RJ[0], stawka=0.89, zajete={})
+    _w_brak = P.generuj_trasy(3000.0, "Radom", 51.40, 21.15, "mazowieckie", _roz_rj, _PES_RJ[0], stawka=0.89)
+    sprawdz("rejestr pusty i brak rejestru: obie ścieżki pokrywają kwotę bez powtórek, wspólnych 0",
+            all(not x.kwota_niepelna and x.powtorzone_miejscowosci == 0 and x.wspolne_z_innymi == 0 for x in (_w_pusty, _w_brak)))
+except Exception as _e_rj:
+    sprawdz("wspólny rejestr miejscowości", False, repr(_e_rj))
+
 # profil prędkości w ciągu doby: szczyt wolniej, wieczór i weekend szybciej, a suma czasu jazdy dnia bez zmian
 _rob_pp, _sob_pp = datetime.date(2026, 9, 16), datetime.date(2026, 9, 19)
 sprawdz("profil prędkości: szczyt poranny i popołudniowy < południe < wieczór; weekend bez szczytów",

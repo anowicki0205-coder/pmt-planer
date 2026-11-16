@@ -12,6 +12,7 @@ class Zakladka {
   getLastRow() { return this.w.length; }
   appendRow(r) { this.w.push(r.slice()); }
   setFrozenRows() {}
+  deleteRow(n) { this.w.splice(n - 1, 1); }
   getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.map(odczyt)) }; }
   getRange(r, c, nr = 1, nc = 1) {
     const t = this;

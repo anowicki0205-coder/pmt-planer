@@ -363,6 +363,10 @@ PO ZMIANIE PLIKÓW APLIKACJI
 SILNIK
   silnik/pmt_silnik.py to DOSŁOWNY wyciąg z PMT_Delegacje.py (narzedzia/wyciagnij_silnik.py). Nie edytować ręcznie:
   zmiana silnika dzieje się w programie, potem ponowne wyciągnięcie.
+  ZASADY TRAS (od 16.11): (1) miejscowość NIE powtarza się na dokumentach jednego miesiąca — wyjątek: baza (miejsce zamieszkania), która jest początkiem i końcem każdego dnia. Gdy w zasięgu jest za mało miejscowości
+  (skrajnie wysoka kwota, baza przy granicy), silnik najpierw poszerza promień pętli, a dopiero potem dopuszcza powtórki (kwota ma pierwszeństwo; aplikacja zgłasza to w komunikacie „Gotowe”). (2) Pula miejscowości
+  ma 1494 wpisy; 169 dodano 16.11 z GeoNames (lista do przeglądu: web/MIEJSCOWOSCI_DODANE_2026-11.txt; „liczba sieci” to szacunek z liczby mieszkańców). (3) Godziny odcinków na dokumencie uwzględniają porę dnia
+  (szczyt wolniej, wieczór i weekend szybciej), przy tej samej sumie czasu jazdy dnia.
 
 TESTY (wymagają Node + Playwright)
   testy/silnik_przegladarka.js  — silnik w przeglądarce: kwota co do grosza, limity, 5 PDF

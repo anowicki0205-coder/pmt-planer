@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '38d455e2e3c4';
+const WERSJA = 'bd55ac932cb1';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -72,7 +72,7 @@ const SKROTY = {
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
  "./js/adres.js": "810fcdd2ef8c6172",
- "./js/aplikacja.js": "b72064b1b1ba313e",
+ "./js/aplikacja.js": "843187d3526a62ad",
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
  "./js/dostep.js": "f0e47d1ee7403bc8",
  "./js/dzwiek.js": "763a05dc6bcdda61",
@@ -103,8 +103,8 @@ const SKROTY = {
  "./silnik/boot.py": "3016d346355bb8ed",
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
- "./silnik/most.py": "18359571375958ef",
- "./silnik/pmt_silnik.py": "1eb91319d9091aba",
+ "./silnik/most.py": "ac48f00b9a479df2",
+ "./silnik/pmt_silnik.py": "1f83e251985fbca2",
  "./silnik/sieci_cel.txt": "d252e908cd50d2e5",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",
  "./vendor/czcionki/geist-latin-wght-normal.woff2": "19f9c92546aa300c",

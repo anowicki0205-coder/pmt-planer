@@ -12454,6 +12454,118 @@ except Exception as _e33:
 finally:
     P.ustaw_tryb_pracy("tydzien")
 
+# ── MIEJSCOWOŚĆ TYLKO RAZ W MIESIĄCU (poza bazą), NOWE MIEJSCOWOŚCI, PROFIL PRĘDKOŚCI W CIĄGU DOBY ──────────────────────
+# Zasada właściciela (listopad 2026): ta sama miejscowość nie wraca na dokumentach tego samego miesiąca; wyjątek: baza (miejsce
+# zamieszkania), która jest początkiem i końcem każdego dnia. Pula miejscowości została powiększona (GeoNames, miasta i duże miejscowości).
+_nowe_mj = [m for _l in P.MIASTA_ROZSZERZENIE_2026_11.values() for m in _l]
+_w_bazie_mj = {m["n"] for _l in P.MIASTA_RAW.values() for m in _l}
+sprawdz("nowe miejscowości: nazwy do 16 znaków, unikalne, współrzędne w Polsce, województwo z bazy, liczba sieci 2–4",
+        len(_nowe_mj) > 100 and all(len(m["n"]) <= 16 for m in _nowe_mj) and len({m["n"] for m in _nowe_mj}) == len(_nowe_mj)
+        and all(48.9 <= m["lat"] <= 54.9 and 14.0 <= m["lng"] <= 24.2 for m in _nowe_mj)
+        and all(_w in P.MIASTA_RAW for _w in P.MIASTA_ROZSZERZENIE_2026_11) and all(2 <= m["sieci"] <= 4 for m in _nowe_mj),
+        "%d miejscowości, najdłuższa %r" % (len(_nowe_mj), max((m["n"] for m in _nowe_mj), key=len, default="")))
+sprawdz("nowe miejscowości trafiły do bazy silnika po scaleniu (np. Karpacz, Jastrzębie-Zdrój, Łeba), bez wielkich miast",
+        {"Karpacz", "Jastrzębie-Zdrój", "Łeba"} <= _w_bazie_mj and not ({"Kraków", "Warszawa", "Łódź", "Wrocław", "Poznań", "Gdańsk"} & _w_bazie_mj))
+
+_BAZY_MJ = (("Radom", 51.40, 21.15, "mazowieckie"), ("Lublin", 51.25, 22.57, "lubelskie"), ("Białystok", 53.13, 23.16, "podlaskie"),
+            ("Bydgoszcz", 53.12, 18.01, "kujawsko-pomorskie"), ("Kielce", 50.87, 20.63, "świętokrzyskie"), ("Poznań", 52.41, 16.93, "wielkopolskie"),
+            ("Rzeszów", 50.04, 22.00, "podkarpackie"), ("Gdańsk", 54.35, 18.65, "pomorskie"))
+
+def _cele_na_dokumentach(_dni_m, _baza_m):
+    """Miejscowości drukowane na dokumentach jako cele postojów (bez bazy), w kolejności dni."""
+    return [e.dokad for d in sorted(_dni_m, key=lambda x: x.data) for e in d.etapy if e.dokad.strip().lower() != _baza_m.strip().lower()]
+
+try:
+    _dni_mj = P.pobierz_dni_robocze(2026, 9)
+    _zle_mj, _niepelne_mj, _bez_bazy_mj = [], [], []
+    for _tryb_mj, _kwoty_mj, _bazy_mj in (("tydzien", (2500.0, 4000.0, 6000.0), _BAZY_MJ[:4]), ("tydzien", (2500.0, 4000.0), _BAZY_MJ[4:]),
+                                          ("wieczory", (2500.0, 4000.0), _BAZY_MJ)):
+        P.ustaw_tryb_pracy(_tryb_mj)
+        _roz_mj = P.pobierz_dni_robocze(2026, 9)
+        for _kw_mj in _kwoty_mj:
+            for _n_mj, _la_mj, _ln_mj, _wj_mj in _bazy_mj:
+                _w_mj = P.generuj_trasy(_kw_mj, _n_mj, _la_mj, _ln_mj, _wj_mj, _roz_mj, "90010112349", stawka=0.89)
+                _c_mj = _cele_na_dokumentach(_w_mj, _n_mj)
+                if len(set(_c_mj)) != len(_c_mj):
+                    _zle_mj.append("%s %s %.0f: %d powtórek" % (_tryb_mj, _n_mj, _kw_mj, len(_c_mj) - len(set(_c_mj))))
+                if getattr(_w_mj, "kwota_niepelna", False):
+                    _niepelne_mj.append("%s %s %.0f" % (_tryb_mj, _n_mj, _kw_mj))
+                if not all(d.etapy[0].skad == _n_mj and d.etapy[-1].dokad == _n_mj for d in _w_mj):
+                    _bez_bazy_mj.append("%s %s %.0f" % (_tryb_mj, _n_mj, _kw_mj))
+    sprawdz("miejscowość tylko raz w miesiącu: 8 baz × kwoty 2500/4000 (tydzień i wieczory) i 6000 zł (4 bazy, tydzień) — żadna miejscowość poza bazą się nie powtarza",
+            not _zle_mj, "; ".join(_zle_mj[:6]))
+    sprawdz("…a kwota przy tym jest pokryta w całości (zakaz powtórek nie kosztuje pieniędzy)", not _niepelne_mj, "; ".join(_niepelne_mj[:6]))
+    sprawdz("…a baza (miejsce zamieszkania) jest początkiem i końcem każdego dnia, choć wraca codziennie", not _bez_bazy_mj, "; ".join(_bez_bazy_mj[:6]))
+    # skrajny przypadek: 6000 zł w samych oknach wieczornych — gdy zakaz nie da się spełnić, kwota ma pierwszeństwo, a liczba powtórek jest zgłaszana uczciwie
+    P.ustaw_tryb_pracy("wieczory")
+    _rw_mj = P.generuj_trasy(6000.0, "Białystok", 53.13, 23.16, "podlaskie", P.pobierz_dni_robocze(2026, 9), "90010112349", stawka=0.89)
+    _c_rw = _cele_na_dokumentach(_rw_mj, "Białystok")
+    sprawdz("skrajnie wysoka kwota w oknach wieczornych: liczba powtórzonych miejscowości w wyniku zgadza się z rzeczywistą (flaga uczciwa)",
+            getattr(_rw_mj, "powtorzone_miejscowosci", None) == len(_c_rw) - len(set(_c_rw)) and len(_c_rw) > 0,
+            "flaga %s, rzeczywiście %d" % (getattr(_rw_mj, "powtorzone_miejscowosci", None), len(_c_rw) - len(set(_c_rw))))
+except Exception as _e_mj:
+    sprawdz("miejscowość tylko raz w miesiącu", False, repr(_e_mj))
+finally:
+    P.ustaw_tryb_pracy("tydzien")
+
+# 1917 zł to dwa polecenia także przy zakazie powtórek (kilka baz × dwa PESEL-e)
+try:
+    _zle1917 = []
+    _roz1917 = P.pobierz_dni_robocze(2026, 9)
+    for _n_mj, _la_mj, _ln_mj, _wj_mj in _BAZY_MJ[:5]:
+        for _pes in ("90010112349", "85050512345"):
+            _w = P.generuj_trasy(1917.0, _n_mj, _la_mj, _ln_mj, _wj_mj, _roz1917, _pes, stawka=0.89)
+            _dk = P._podziel_na_dokumenty(sorted(_w, key=lambda d: d.data))
+            _c = _cele_na_dokumentach(_w, _n_mj)
+            if len(_dk) != 2 or len(set(_c)) != len(_c) or abs(sum(d.suma for d in _w) - 1917.0) > 0.01:
+                _zle1917.append("%s %s: %d dok., powtórek %d" % (_n_mj, _pes[-3:], len(_dk), len(_c) - len(set(_c))))
+    sprawdz("1917 zł: dwa polecenia i brak powtórzonych miejscowości (5 baz × 2 PESEL-e)", not _zle1917, "; ".join(_zle1917[:6]))
+except Exception as _e1917:
+    sprawdz("1917 zł z zakazem powtórek", False, repr(_e1917))
+
+# profil prędkości w ciągu doby: szczyt wolniej, wieczór i weekend szybciej, a suma czasu jazdy dnia bez zmian
+_rob_pp, _sob_pp = datetime.date(2026, 9, 16), datetime.date(2026, 9, 19)
+sprawdz("profil prędkości: szczyt poranny i popołudniowy < południe < wieczór; weekend bez szczytów",
+        P.mnoznik_predkosci(7 * 60 + 30, _rob_pp) < P.mnoznik_predkosci(12 * 60, _rob_pp) < P.mnoznik_predkosci(21 * 60, _rob_pp)
+        and P.mnoznik_predkosci(16 * 60, _rob_pp) < P.mnoznik_predkosci(19 * 60, _rob_pp)
+        and P.mnoznik_predkosci(7 * 60 + 30, _sob_pp) >= 1.0 and P.mnoznik_predkosci(16 * 60, _sob_pp) >= 1.0)
+sprawdz("odcinek wyjeżdżający w szczycie trwa dłużej, a wieczorem krócej niż w południe (60 min jazdy w stałej prędkości)",
+        P._czas_wg_profilu(7 * 60, 60, _rob_pp) > P._czas_wg_profilu(12 * 60, 60, _rob_pp) > P._czas_wg_profilu(20 * 60 + 30, 60, _rob_pp)
+        and abs(P._czas_wg_profilu(12 * 60, 60, _rob_pp) - 60.0) < 1e-6)
+try:
+    def _min_hm(t):
+        return int(t[:2]) * 60 + int(t[3:5])
+    for _tryb_pp, _wcz_pp, _pozno_pp in (("tydzien", 9 * 60, None), ("wieczory", 17 * 60 + 30, 19 * 60 + 30)):
+        P.ustaw_tryb_pracy(_tryb_pp)
+        _roz_pp = P.pobierz_dni_robocze(2026, 9)
+        _w_pp = P.generuj_trasy(4000.0, "Radom", 51.40, 21.15, "mazowieckie", _roz_pp, "90010112349", stawka=0.89)
+        _suma_zle, _wczesne, _poznie, _srodek = [], [], [], []
+        for d in _w_pp:
+            _baz = sum(e.czas_jazdy_minuty for e in d.etapy_surowe)
+            _akt = sum(_min_hm(e.godz_przyj) - _min_hm(e.godz_wyj) for e in d.etapy)
+            if abs(_baz - _akt) > len(d.etapy) + 1:
+                _suma_zle.append("%s: %.1f vs %d" % (d.data, _baz, _akt))
+            for es, e in zip(d.etapy_surowe, d.etapy):
+                _dl = _min_hm(e.godz_przyj) - _min_hm(e.godz_wyj)
+                if _dl >= 20:
+                    _r = es.czas_jazdy_minuty / _dl           # < 1: wolniej niż średnio, > 1: szybciej
+                    _w0 = _min_hm(e.godz_wyj)
+                    if _w0 < _wcz_pp:
+                        _wczesne.append(_r)
+                    elif _pozno_pp is not None and _w0 >= _pozno_pp:
+                        _poznie.append(_r)
+                    elif _pozno_pp is None and 9 * 60 <= _w0 < 15 * 60:
+                        _srodek.append(_r)
+        sprawdz("czasy na dokumentach (%s): suma czasu jazdy dnia taka sama jak przy stałej prędkości (limit dnia nie zmienia się)" % _tryb_pp, not _suma_zle, "; ".join(_suma_zle[:4]))
+        _kontr = (_srodek if _pozno_pp is None else _poznie)
+        sprawdz("czasy na dokumentach (%s): odcinki w szczycie jadą wolniej niż %s (średnia prędkość względna %.2f vs %.2f)" % (_tryb_pp, "w ciągu dnia" if _pozno_pp is None else "wieczorem po 19:30",
+                sum(_wczesne) / max(1, len(_wczesne)), sum(_kontr) / max(1, len(_kontr))),
+                len(_wczesne) >= 3 and len(_kontr) >= 3 and sum(_wczesne) / len(_wczesne) < sum(_kontr) / len(_kontr), "%d i %d odcinków" % (len(_wczesne), len(_kontr)))
+except Exception as _e_pp:
+    sprawdz("profil prędkości na dokumentach", False, repr(_e_pp))
+finally:
+    P.ustaw_tryb_pracy("tydzien")
+
 # ── koniec sekcji 33 ──
 
 # ══════════════════════════════════════════════════════════════════

@@ -236,6 +236,7 @@ def generuj(p, postep=None):
             "suma": round(sum(d.suma for d in wynik), 2), "zrodlo": zrodlo,
             "niepelna": bool(getattr(wynik, "kwota_niepelna", False)),
             "za_mala": bool(getattr(wynik, "kwota_za_mala", False)),
+            "powtorzone": int(getattr(wynik, "powtorzone_miejscowosci", 0) or 0),      # ile razy miejscowość (poza bazą) wróciła w miesiącu — zwykle 0 (zasada: raz w miesiącu)
             "osiagnieta": float(getattr(wynik, "kwota_osiagnieta", 0.0) or 0.0),
             "docelowa": float(getattr(wynik, "kwota_docelowa", p["kwota"]) or 0.0),
             "dokumentow": S.ile_dokumentow(float(p["kwota"]))}

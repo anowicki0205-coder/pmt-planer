@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:56965a05167e3302
+# źródło: PMT_Delegacje.py sha256:534d8dd767d45723
 
 import sys
 
@@ -1091,6 +1091,17 @@ def zeruj_zrodlo_odleglosci():
     for k in list(_zrodlo_licznik):
         _zrodlo_licznik[k] = 0
 
+def _zrzut_zrodla():
+    """Zapamiętuje stan źródła odległości (licznik i ostatnie źródło) — do przywrócenia po wyborze jednego z kilku
+    układów dni, żeby stan zgadzał się z układem, który zwracamy (bez liczenia go drugi raz)."""
+    return (dict(_zrodlo_licznik), _ostatnie_zrodlo)
+
+def _przywroc_zrodlo(zrzut):
+    global _ostatnie_zrodlo
+    _zrodlo_licznik.clear()
+    _zrodlo_licznik.update(zrzut[0])
+    _ostatnie_zrodlo = zrzut[1]
+
 def _odnotuj_zrodlo(rodzaj):
     global _ostatnie_zrodlo
     _zrodlo_licznik[rodzaj] = _zrodlo_licznik.get(rodzaj, 0) + 1
@@ -1484,6 +1495,23 @@ _SKROTY_NAZW = {
     "g.": "górny", "st.": "stary", "stara": "stary", "n.": "nowy", "nowa": "nowy",
 }
 
+MIASTA_ROZSZERZENIE_2026_11 = {
+  "dolnośląskie": [{"n":"Bogatynia","lat":50.907,"lng":14.956,"typ":"gmina","sieci":3},{"n":"Bolków","lat":50.922,"lng":16.101,"typ":"gmina","sieci":2},{"n":"Chocianów","lat":51.419,"lng":15.902,"typ":"gmina","sieci":3},{"n":"Chojnów","lat":51.274,"lng":15.937,"typ":"gmina","sieci":3},{"n":"Duszniki-Zdrój","lat":50.403,"lng":16.391,"typ":"gmina","sieci":2},{"n":"Gryfów Śląski","lat":51.031,"lng":15.420,"typ":"gmina","sieci":2},{"n":"Głogów","lat":51.664,"lng":16.084,"typ":"gmina","sieci":4},{"n":"Głuszyca","lat":50.687,"lng":16.372,"typ":"gmina","sieci":2},{"n":"Jawor","lat":51.051,"lng":16.193,"typ":"gmina","sieci":4},{"n":"Jelcz-Laskowice","lat":51.021,"lng":17.316,"typ":"gmina","sieci":3},{"n":"Jelenia Góra","lat":50.900,"lng":15.729,"typ":"gmina","sieci":4},{"n":"Kamienna Góra","lat":50.783,"lng":16.030,"typ":"gmina","sieci":4},{"n":"Karpacz","lat":50.777,"lng":15.756,"typ":"gmina","sieci":2},{"n":"Kowary","lat":50.793,"lng":15.836,"typ":"gmina","sieci":3},{"n":"Kudowa-Zdrój","lat":50.443,"lng":16.244,"typ":"gmina","sieci":3},{"n":"Kłodzko","lat":50.435,"lng":16.661,"typ":"gmina","sieci":4},{"n":"Lubawka","lat":50.705,"lng":16.000,"typ":"gmina","sieci":2},{"n":"Lubań","lat":51.120,"lng":15.288,"typ":"gmina","sieci":4},{"n":"Lwówek Śląski","lat":51.111,"lng":15.586,"typ":"gmina","sieci":3},{"n":"Lądek-Zdrój","lat":50.344,"lng":16.879,"typ":"gmina","sieci":2},{"n":"Mieroszów","lat":50.666,"lng":16.189,"typ":"gmina","sieci":2},{"n":"Mirsk","lat":50.971,"lng":15.386,"typ":"gmina","sieci":2},{"n":"Nowa Ruda","lat":50.580,"lng":16.502,"typ":"gmina","sieci":4},{"n":"Nowogrodziec","lat":51.195,"lng":15.399,"typ":"gmina","sieci":2},{"n":"Olszyna","lat":51.067,"lng":15.372,"typ":"gmina","sieci":2},{"n":"Piechowice","lat":50.850,"lng":15.599,"typ":"gmina","sieci":2},{"n":"Pieńsk","lat":51.249,"lng":15.047,"typ":"gmina","sieci":2},{"n":"Polanica-Zdrój","lat":50.404,"lng":16.513,"typ":"gmina","sieci":2},{"n":"Polkowice","lat":51.504,"lng":16.073,"typ":"gmina","sieci":4},{"n":"Prochowice","lat":51.273,"lng":16.365,"typ":"gmina","sieci":2},{"n":"Przemków","lat":51.525,"lng":15.794,"typ":"gmina","sieci":2},{"n":"Stronie Śląskie","lat":50.296,"lng":16.874,"typ":"gmina","sieci":2},{"n":"Szklarska Poręba","lat":50.826,"lng":15.523,"typ":"gmina","sieci":2},{"n":"Wojcieszów","lat":50.952,"lng":15.922,"typ":"gmina","sieci":2},{"n":"Węgliniec","lat":51.288,"lng":15.229,"typ":"gmina","sieci":2},{"n":"Zgorzelec","lat":51.149,"lng":15.008,"typ":"gmina","sieci":4},{"n":"Złotoryja","lat":51.126,"lng":15.920,"typ":"gmina","sieci":3},{"n":"Ścinawa","lat":51.416,"lng":16.425,"typ":"gmina","sieci":2},{"n":"Świebodzice","lat":50.860,"lng":16.320,"typ":"gmina","sieci":4},{"n":"Świeradów-Zdrój","lat":50.909,"lng":15.343,"typ":"gmina","sieci":2},{"n":"Świerzawa","lat":51.014,"lng":15.895,"typ":"gmina","sieci":2}],
+  "kujawsko-pomorskie": [{"n":"Kamień Krajeński","lat":53.534,"lng":17.520,"typ":"gmina","sieci":2},{"n":"Mogilno","lat":52.658,"lng":17.956,"typ":"gmina","sieci":3}],
+  "lubuskie": [{"n":"Bytom Odrzański","lat":51.731,"lng":15.824,"typ":"gmina","sieci":2},{"n":"Dobiegniew","lat":52.969,"lng":15.754,"typ":"gmina","sieci":2},{"n":"Drezdenko","lat":52.838,"lng":15.831,"typ":"gmina","sieci":3},{"n":"Świebodzin","lat":52.248,"lng":15.534,"typ":"gmina","sieci":4}],
+  "mazowieckie": [{"n":"Kałuszyn","lat":52.207,"lng":21.808,"typ":"gmina","sieci":2},{"n":"Myszyniec","lat":53.381,"lng":21.350,"typ":"gmina","sieci":2},{"n":"Piastów","lat":52.184,"lng":20.840,"typ":"gmina","sieci":4}],
+  "małopolskie": [{"n":"Biecz","lat":49.736,"lng":21.263,"typ":"gmina","sieci":2},{"n":"Bobowa","lat":49.709,"lng":20.948,"typ":"gmina","sieci":2},{"n":"Bochnia","lat":49.969,"lng":20.430,"typ":"gmina","sieci":4},{"n":"Brzesko","lat":49.969,"lng":20.606,"typ":"gmina","sieci":3},{"n":"Czchów","lat":49.837,"lng":20.681,"typ":"gmina","sieci":2},{"n":"Gorlice","lat":49.656,"lng":21.160,"typ":"gmina","sieci":4},{"n":"Grybów","lat":49.624,"lng":20.948,"typ":"gmina","sieci":2},{"n":"Jordanów","lat":49.649,"lng":19.830,"typ":"gmina","sieci":2},{"n":"Krynica-Zdrój","lat":49.422,"lng":20.959,"typ":"gmina","sieci":3},{"n":"Limanowa","lat":49.706,"lng":20.422,"typ":"gmina","sieci":3},{"n":"Mszana Dolna","lat":49.674,"lng":20.080,"typ":"gmina","sieci":3},{"n":"Muszyna","lat":49.357,"lng":20.897,"typ":"gmina","sieci":2},{"n":"Nowy Sącz","lat":49.622,"lng":20.697,"typ":"gmina","sieci":4},{"n":"Nowy Targ","lat":49.478,"lng":20.032,"typ":"gmina","sieci":4},{"n":"Nowy Wiśnicz","lat":49.915,"lng":20.461,"typ":"gmina","sieci":2},{"n":"Piwniczna-Zdrój","lat":49.441,"lng":20.714,"typ":"gmina","sieci":2},{"n":"Rabka-Zdrój","lat":49.609,"lng":19.967,"typ":"gmina","sieci":3},{"n":"Stary Sącz","lat":49.564,"lng":20.635,"typ":"gmina","sieci":3},{"n":"Sucha Beskidzka","lat":49.742,"lng":19.594,"typ":"gmina","sieci":3},{"n":"Szczawnica","lat":49.424,"lng":20.485,"typ":"gmina","sieci":2},{"n":"Zakopane","lat":49.299,"lng":19.949,"typ":"gmina","sieci":4}],
+  "opolskie": [{"n":"Baborów","lat":50.158,"lng":17.985,"typ":"gmina","sieci":2},{"n":"Głubczyce","lat":50.201,"lng":17.829,"typ":"gmina","sieci":3},{"n":"Kietrz","lat":50.080,"lng":18.004,"typ":"gmina","sieci":2},{"n":"Kędzierzyn-Koźle","lat":50.350,"lng":18.226,"typ":"gmina","sieci":4},{"n":"Nysa","lat":50.474,"lng":17.334,"typ":"gmina","sieci":4}],
+  "podkarpackie": [{"n":"Brzozów","lat":49.695,"lng":22.019,"typ":"gmina","sieci":3},{"n":"Dukla","lat":49.556,"lng":21.683,"typ":"gmina","sieci":2},{"n":"Jarosław","lat":50.016,"lng":22.678,"typ":"gmina","sieci":4},{"n":"Jedlicze","lat":49.717,"lng":21.649,"typ":"gmina","sieci":2},{"n":"Lesko","lat":49.470,"lng":22.330,"typ":"gmina","sieci":2},{"n":"Lubaczów","lat":50.157,"lng":23.123,"typ":"gmina","sieci":3},{"n":"Narol","lat":50.349,"lng":23.327,"typ":"gmina","sieci":2},{"n":"Oleszyce","lat":50.167,"lng":23.035,"typ":"gmina","sieci":2},{"n":"Przemyśl","lat":49.785,"lng":22.767,"typ":"gmina","sieci":4},{"n":"Przeworsk","lat":50.059,"lng":22.494,"typ":"gmina","sieci":3},{"n":"Radymno","lat":49.947,"lng":22.824,"typ":"gmina","sieci":2},{"n":"Rymanów","lat":49.576,"lng":21.868,"typ":"gmina","sieci":2},{"n":"Sanok","lat":49.556,"lng":22.206,"typ":"gmina","sieci":4},{"n":"Ustrzyki Dolne","lat":49.430,"lng":22.594,"typ":"gmina","sieci":3},{"n":"Zagórz","lat":49.515,"lng":22.267,"typ":"gmina","sieci":2}],
+  "pomorskie": [{"n":"Brusy","lat":53.884,"lng":17.718,"typ":"gmina","sieci":2},{"n":"Chojnice","lat":53.696,"lng":17.557,"typ":"gmina","sieci":4},{"n":"Dzierzgoń","lat":53.922,"lng":19.347,"typ":"gmina","sieci":2},{"n":"Kościerzyna","lat":54.122,"lng":17.981,"typ":"gmina","sieci":4},{"n":"Kwidzyn","lat":53.725,"lng":18.931,"typ":"gmina","sieci":4},{"n":"Lębork","lat":54.539,"lng":17.750,"typ":"gmina","sieci":4},{"n":"Malbork","lat":54.036,"lng":19.027,"typ":"gmina","sieci":4},{"n":"Nowy Staw","lat":54.136,"lng":19.009,"typ":"gmina","sieci":2},{"n":"Pelplin","lat":53.928,"lng":18.698,"typ":"gmina","sieci":3},{"n":"Prabuty","lat":53.755,"lng":19.205,"typ":"gmina","sieci":3},{"n":"Pruszcz Gdański","lat":54.262,"lng":18.636,"typ":"gmina","sieci":4},{"n":"Skórcz","lat":53.794,"lng":18.526,"typ":"gmina","sieci":2},{"n":"Sztum","lat":53.921,"lng":19.031,"typ":"gmina","sieci":3},{"n":"Słupsk","lat":54.464,"lng":17.029,"typ":"gmina","sieci":4},{"n":"Tczew","lat":54.092,"lng":18.778,"typ":"gmina","sieci":4},{"n":"Ustka","lat":54.580,"lng":16.862,"typ":"gmina","sieci":3},{"n":"Łeba","lat":54.761,"lng":17.555,"typ":"gmina","sieci":2}],
+  "warmińsko-mazurskie": [{"n":"Mikołajki","lat":53.803,"lng":21.570,"typ":"gmina","sieci":2}],
+  "wielkopolskie": [{"n":"Chodzież","lat":52.995,"lng":16.920,"typ":"gmina","sieci":3},{"n":"Czarnków","lat":52.902,"lng":16.564,"typ":"gmina","sieci":3},{"n":"Gniezno","lat":52.535,"lng":17.583,"typ":"gmina","sieci":4},{"n":"Jastrowie","lat":53.420,"lng":16.818,"typ":"gmina","sieci":3},{"n":"Kleczew","lat":52.371,"lng":18.177,"typ":"gmina","sieci":2},{"n":"Kobylin","lat":51.716,"lng":17.227,"typ":"gmina","sieci":2},{"n":"Konin","lat":52.223,"lng":18.251,"typ":"gmina","sieci":4},{"n":"Koło","lat":52.200,"lng":18.639,"typ":"gmina","sieci":4},{"n":"Krajenka","lat":53.298,"lng":16.991,"typ":"gmina","sieci":2},{"n":"Kępno","lat":51.278,"lng":17.989,"typ":"gmina","sieci":3},{"n":"Lwówek","lat":52.448,"lng":16.181,"typ":"gmina","sieci":2},{"n":"Międzychód","lat":52.599,"lng":15.897,"typ":"gmina","sieci":3},{"n":"Murowana Goślina","lat":52.575,"lng":17.009,"typ":"gmina","sieci":3},{"n":"Nowy Tomyśl","lat":52.319,"lng":16.128,"typ":"gmina","sieci":3},{"n":"Obrzycko","lat":52.703,"lng":16.528,"typ":"gmina","sieci":2},{"n":"Odolanów","lat":51.574,"lng":17.674,"typ":"gmina","sieci":2},{"n":"Okonek","lat":53.536,"lng":16.852,"typ":"gmina","sieci":2},{"n":"Ostrzeszów","lat":51.426,"lng":17.934,"typ":"gmina","sieci":3},{"n":"Piła","lat":53.151,"lng":16.738,"typ":"gmina","sieci":4},{"n":"Raszków","lat":51.718,"lng":17.726,"typ":"gmina","sieci":2},{"n":"Rawicz","lat":51.609,"lng":16.859,"typ":"gmina","sieci":4},{"n":"Sieraków","lat":52.651,"lng":16.080,"typ":"gmina","sieci":2},{"n":"Sompolno","lat":52.388,"lng":18.503,"typ":"gmina","sieci":2},{"n":"Szamocin","lat":53.028,"lng":17.127,"typ":"gmina","sieci":2},{"n":"Słupca","lat":52.287,"lng":17.872,"typ":"gmina","sieci":3},{"n":"Tuliszków","lat":52.077,"lng":18.295,"typ":"gmina","sieci":2},{"n":"Turek","lat":52.015,"lng":18.501,"typ":"gmina","sieci":4},{"n":"Wieleń","lat":52.895,"lng":16.171,"typ":"gmina","sieci":2},{"n":"Września","lat":52.325,"lng":17.565,"typ":"gmina","sieci":4},{"n":"Zagórów","lat":52.168,"lng":17.896,"typ":"gmina","sieci":2},{"n":"Zbąszyń","lat":52.251,"lng":15.925,"typ":"gmina","sieci":3},{"n":"Złotów","lat":53.363,"lng":17.041,"typ":"gmina","sieci":3},{"n":"Śrem","lat":52.089,"lng":17.015,"typ":"gmina","sieci":4},{"n":"Żerków","lat":52.069,"lng":17.563,"typ":"gmina","sieci":2}],
+  "zachodniopomorskie": [{"n":"Biały Bór","lat":53.897,"lng":16.835,"typ":"gmina","sieci":2},{"n":"Choszczno","lat":53.169,"lng":15.421,"typ":"gmina","sieci":3},{"n":"Darłowo","lat":54.421,"lng":16.411,"typ":"gmina","sieci":3},{"n":"Drawno","lat":53.220,"lng":15.759,"typ":"gmina","sieci":2},{"n":"Ińsko","lat":53.436,"lng":15.550,"typ":"gmina","sieci":2},{"n":"Kołobrzeg","lat":54.176,"lng":15.583,"typ":"gmina","sieci":4},{"n":"Pełczyce","lat":53.044,"lng":15.304,"typ":"gmina","sieci":2},{"n":"Polanów","lat":54.119,"lng":16.685,"typ":"gmina","sieci":2},{"n":"Recz","lat":53.260,"lng":15.547,"typ":"gmina","sieci":2},{"n":"Stargard","lat":53.337,"lng":15.050,"typ":"gmina","sieci":4},{"n":"Trzcińsko-Zdrój","lat":52.965,"lng":14.607,"typ":"gmina","sieci":2},{"n":"Łobez","lat":53.639,"lng":15.621,"typ":"gmina","sieci":3}],
+  "łódzkie": [{"n":"Biała Rawska","lat":51.808,"lng":20.473,"typ":"gmina","sieci":2}],
+  "śląskie": [{"n":"Blachownia","lat":50.780,"lng":18.964,"typ":"gmina","sieci":3},{"n":"Cieszyn","lat":49.751,"lng":18.632,"typ":"gmina","sieci":4},{"n":"Jastrzębie-Zdrój","lat":49.955,"lng":18.575,"typ":"gmina","sieci":4},{"n":"Koniecpol","lat":50.775,"lng":19.689,"typ":"gmina","sieci":2},{"n":"Krzanowice","lat":50.018,"lng":18.123,"typ":"gmina","sieci":2},{"n":"Mikołów","lat":50.171,"lng":18.904,"typ":"gmina","sieci":4},{"n":"Piekary Śląskie","lat":50.380,"lng":18.927,"typ":"gmina","sieci":4},{"n":"Pszów","lat":50.040,"lng":18.395,"typ":"gmina","sieci":3},{"n":"Racibórz","lat":50.092,"lng":18.219,"typ":"gmina","sieci":4},{"n":"Rydułtowy","lat":50.059,"lng":18.417,"typ":"gmina","sieci":4},{"n":"Szczekociny","lat":50.627,"lng":19.825,"typ":"gmina","sieci":2},{"n":"Sławków","lat":50.299,"lng":19.390,"typ":"gmina","sieci":2},{"n":"Tarnowskie Góry","lat":50.445,"lng":18.861,"typ":"gmina","sieci":4},{"n":"Wodzisław Śląski","lat":50.004,"lng":18.472,"typ":"gmina","sieci":4},{"n":"Zawidów","lat":51.025,"lng":15.062,"typ":"gmina","sieci":2},{"n":"Żory","lat":50.045,"lng":18.701,"typ":"gmina","sieci":4},{"n":"Żywiec","lat":49.685,"lng":19.192,"typ":"gmina","sieci":4}],
+  "świętokrzyskie": [{"n":"Pińczów","lat":50.521,"lng":20.526,"typ":"gmina","sieci":3},{"n":"Połaniec","lat":50.433,"lng":21.281,"typ":"gmina","sieci":3},{"n":"Starachowice","lat":51.037,"lng":21.071,"typ":"gmina","sieci":4},{"n":"Staszów","lat":50.563,"lng":21.166,"typ":"gmina","sieci":3}],
+}
+
 def _normalizuj_nazwe(nazwa: str) -> str:
     """Ujednolica nazwę do porównań: małe litery, rozwinięte skróty.
     'Maków Maz.' i 'Maków Mazowiecki' dają ten sam wynik."""
@@ -1511,7 +1539,7 @@ def _scal_baze_miast():
     for _woj in list(MIASTA_RAW.keys()) + [w for w in MIASTA_ROZSZERZENIE if w not in MIASTA_RAW]:
         istniejace = MIASTA_RAW.get(_woj, [])
         wynik, klucze = [], []
-        for _m in list(istniejace) + list(MIASTA_ROZSZERZENIE.get(_woj, [])):
+        for _m in list(istniejace) + list(MIASTA_ROZSZERZENIE.get(_woj, [])) + list(MIASTA_ROZSZERZENIE_2026_11.get(_woj, [])):
             klucz = _normalizuj_nazwe(_m.get("n", ""))
             rdzen = _rdzen_nazwy(_m.get("n", ""))
             lat, lng = float(_m.get("lat", 0)), float(_m.get("lng", 0))
@@ -2571,37 +2599,168 @@ class ListaTras(list):
     kwota_osiagnieta = 0.0
     kwota_niepelna = False
     brak_dni = False
+    powtorzone_miejscowosci = 0      # ile razy miejscowość (poza bazą) wróciła w tym samym miesiącu
+    promien_km = 0.0                 # promień pętli, w którym ułożono dni
+
+PROMIEN_MAKS_KM = 170.0
+
+PROBY_PROMIENIA = (1.0, 1.3, 1.6, 2.0)
+
+def _policz_powtorzone(dni, baza_nazwa) -> int:
+    """Ile razy w miesiącu miejscowość (poza bazą) pojawia się po raz kolejny jako cel postoju.
+    Baza (miejsce zamieszkania) wraca na dokumentach co dzień i nie liczy się."""
+    baza = str(baza_nazwa).strip().lower()
+    widziane, powt = set(), 0
+    for dz in dni:
+        for e in getattr(dz, "etapy_surowe", None) or getattr(dz, "etapy", ()):
+            n = str(e.dokad).strip()
+            if n.lower() == baza:
+                continue
+            if n in widziane:
+                powt += 1
+            else:
+                widziane.add(n)
+    return powt
 
 PROBY_LICZBY_POLECEN = ((1.3, 0), (1.6, 0), (2.0, 0), (1.6, 1), (2.0, 1), (1.3, 2))
 
+PROFIL_PREDKOSCI_ROBOCZY = ((0, 390, 1.10), (390, 540, 0.85), (540, 900, 1.00), (900, 1080, 0.85), (1080, 1200, 1.05), (1200, 1440, 1.10))
+
+PROFIL_PREDKOSCI_WOLNY = ((0, 540, 1.10), (540, 1200, 1.00), (1200, 1440, 1.10))      # sobota, niedziela, święto
+
+def _dzien_wolny(data) -> bool:
+    try:
+        return data.weekday() >= 5 or data in swieta_w_roku(data.year)
+    except Exception:
+        return False
+
+def mnoznik_predkosci(minuta_doby: float, data=None) -> float:
+    """Mnożnik średniej prędkości o danej porze doby (minuty od północy). Godziny szczytu (rano 6:30–9:00 i po południu
+    15:00–18:00 w dni robocze) 0,85; wieczór po 18:00 1,05, po 20:00 1,10; weekend i święta bez szczytów."""
+    profil = PROFIL_PREDKOSCI_WOLNY if (data is not None and _dzien_wolny(data)) else PROFIL_PREDKOSCI_ROBOCZY
+    m = float(minuta_doby) % 1440.0
+    for od, do, w in profil:
+        if od <= m < do:
+            return w
+    return 1.0
+
+def _czas_wg_profilu(start_min: float, minuty_bazowe: float, data=None) -> float:
+    """Ile minut potrwa odcinek, który przy stałej prędkości zająłby `minuty_bazowe`, gdy wyjeżdża o `start_min`
+    (jazda przez granicę pasma szczytu liczona kawałkami)."""
+    t = float(start_min)
+    zostalo = float(minuty_bazowe)
+    for _ in range(64):
+        if zostalo <= 1e-9:
+            break
+        w = mnoznik_predkosci(t, data)
+        profil = PROFIL_PREDKOSCI_WOLNY if (data is not None and _dzien_wolny(data)) else PROFIL_PREDKOSCI_ROBOCZY
+        koniec = next((do for od, do, _w in profil if od <= (t % 1440.0) < do), (t // 1440.0 + 1) * 1440.0)
+        koniec_abs = (t - (t % 1440.0)) + koniec
+        dostepne = (koniec_abs - t) * w                # tyle „bazowych” minut zmieści się do końca pasma
+        if zostalo <= dostepne:
+            t += zostalo / w
+            zostalo = 0.0
+        else:
+            zostalo -= dostepne
+            t = koniec_abs
+    return (t - start_min) + zostalo
+
+def _rozloz_czasy_jazdy(dzien, start_min: float, polowa: int, przerwa: float = 0.0):
+    """Czasy jazdy odcinków dnia rozłożone wg pory doby (szczyt wolniej, wieczór szybciej), przy ZACHOWANIU sumy czasu
+    jazdy dnia: limit dnia (8 h, okno 16:30–22:00) jest liczony na stałej prędkości i tak ma zostać."""
+    bazowe = [float(e.czas_jazdy_minuty or 0.0) for e in dzien.etapy_surowe]
+    suma = sum(bazowe)
+    if suma <= 0:
+        return bazowe
+    t = float(start_min)
+    wg_profilu = []
+    for idx, e in enumerate(dzien.etapy_surowe):
+        d = _czas_wg_profilu(t, bazowe[idx], dzien.data)
+        wg_profilu.append(d)
+        t += d + float(e.czas_w_sklepie or 0.0)
+        if idx == polowa:
+            t += przerwa
+    s = sum(wg_profilu)
+    if s <= 0:
+        return bazowe
+    f = suma / s
+    return [d * f for d in wg_profilu]
+
 def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None) -> List[DzienTrasy]:
-    """Układa dni tras na kwotę. Liczba poleceń wyjazdu ma wynikać z kwoty (ile_dokumentow: kwota 1917 zł = dwa
-    polecenia po najwyżej 986,34 zł), a polecenie mieści tylko MAX_ETAPOW_DOKUMENTU wierszy. Gdy pierwszy układ
-    dni potrzebuje więcej poleceń niż wynika z kwoty (dni za krótkie, za dużo wierszy), ukladamy je jeszcze
-    raz z dłuższymi skokami między miejscowościami (PROBY_LICZBY_POLECEN) i bierzemy pierwszy układ, który
-    mieści się w liczbie poleceń z kwoty; gdy żaden się nie mieści — pierwszy (jak dotąd)."""
-    wynik = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, postep_cb, dzien_cb)
+    """Układa dni tras na kwotę.
+
+    ZASADA 1 — miejscowość tylko RAZ w miesiącu (poza bazą, czyli miejscem zamieszkania): ta sama miejscowość nie
+    wraca na dokumentach tego samego miesiąca. Gdy w dotychczasowym promieniu jest za mało miejscowości, układ jest
+    ponawiany z większym promieniem pętli (PROBY_PROMIENIA); gdy i to nie wystarcza (np. baza przy granicy albo
+    bardzo wysoka kwota), zostaje układ z najmniejszą liczbą powtórek (wynik niesie powtorzone_miejscowosci).
+
+    ZASADA 2 — liczba poleceń wynika z kwoty (ile_dokumentow: kwota 1917 zł = dwa polecenia po najwyżej 986,34 zł),
+    a polecenie mieści tylko MAX_ETAPOW_DOKUMENTU wierszy. Gdy układ dni potrzebuje więcej poleceń, niż wynika
+    z kwoty (dni za krótkie, za dużo wierszy), układamy je jeszcze raz z dłuższymi skokami między miejscowościami
+    (PROBY_LICZBY_POLECEN) i bierzemy pierwszy układ, który się mieści; gdy żaden — najlepszy dotychczasowy."""
+    zrzuty = {}
+
+    def raz(zakaz, px, skok=1.0, wariant=0, pcb=None, dcb=None):
+        w = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, pcb, dcb, skok, wariant, zakaz, px)
+        zrzuty[id(w)] = _zrzut_zrodla()
+        return w
     try:
         _k = ile_dokumentow(kwota_calkowita)
-        if _k < 2 or not wynik or getattr(wynik, "kwota_niepelna", False):
-            return wynik
-        def _ile_polecen(w):
+
+        def polecen(w):
             return len(_podziel_na_dokumenty(sorted(w, key=lambda d: d.data)))
-        if _ile_polecen(wynik) <= _k:
-            return wynik
-        if postep_cb: postep_cb("Dopasowuję liczbę poleceń do kwoty...", 0.80)
-        for _skok, _wariant in PROBY_LICZBY_POLECEN:
-            _proba = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, None, None, _skok, _wariant)
-            if _proba and not getattr(_proba, "kwota_niepelna", False) and not getattr(_proba, "brak_dni", False) and _ile_polecen(_proba) <= _k:
-                return _proba
-        # żadna próba nie zmieściła się w liczbie poleceń z kwoty: zostaje pierwszy układ (i jego stan źródła odległości)
-        return _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, None, dzien_cb)
+
+        def idealny(w):
+            return bool(w) and not getattr(w, "kwota_niepelna", False) and getattr(w, "powtorzone_miejscowosci", 0) == 0
+
+        def klucz(w, nr):      # mniejsze = lepiej: kwota pokryta, mniej powtórek, mieści się w poleceniach z kwoty
+            return (bool(getattr(w, "kwota_niepelna", False)) or not w, getattr(w, "powtorzone_miejscowosci", 0),
+                    max(0, polecen(w) - _k) if _k >= 2 and w else 0, nr)
+
+        proby = []                                   # (wynik, zakaz, mnożnik promienia, skok, wariant)
+        wynik = raz(True, 1.0, pcb=postep_cb, dcb=dzien_cb)
+        proby.append((wynik, True, 1.0, 1.0, 0))
+        if not idealny(wynik) and wynik:
+            if postep_cb: postep_cb("Dopasowuję miejscowości (bez powtórek w miesiącu)...", 0.80)
+            for px in PROBY_PROMIENIA[1:]:
+                w = raz(True, px)
+                proby.append((w, True, px, 1.0, 0))
+                if idealny(w):
+                    break
+            if not any(idealny(x[0]) for x in proby):
+                w = raz(False, 1.0)                  # ostatnia deska ratunku: dawne zasady (powtórki dozwolone)
+                proby.append((w, False, 1.0, 1.0, 0))
+        najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
+        w0, zakaz0, px0 = proby[najlepsza][0], proby[najlepsza][1], proby[najlepsza][2]
+        if _k >= 2 and w0 and not getattr(w0, "kwota_niepelna", False) and polecen(w0) > _k:
+            if postep_cb: postep_cb("Dopasowuję liczbę poleceń do kwoty...", 0.82)
+            znaleziono = False
+            # dłuższe skoki wymagają dalszych miejscowości, a przy zakazie powtórek dalsze miejscowości to większy promień
+            for px in [px0] + ([x for x in PROBY_PROMIENIA if x > px0][:2] if zakaz0 else []):
+                for skok, wariant in PROBY_LICZBY_POLECEN:
+                    w = raz(zakaz0, px, skok, wariant)
+                    proby.append((w, zakaz0, px, skok, wariant))
+                    if (w and not getattr(w, "kwota_niepelna", False) and not getattr(w, "brak_dni", False)
+                            and polecen(w) <= _k and getattr(w, "powtorzone_miejscowosci", 0) <= getattr(w0, "powtorzone_miejscowosci", 0)):
+                        w0 = w; najlepsza = len(proby) - 1; znaleziono = True
+                        break
+                if znaleziono:
+                    break
+            if not znaleziono:
+                najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
+                w0 = proby[najlepsza][0]
+        else:
+            najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
+            w0 = proby[najlepsza][0]
+        if najlepsza != len(proby) - 1 and id(w0) in zrzuty:
+            _przywroc_zrodlo(zrzuty[id(w0)])      # wybrany układ nie był ostatnio liczony: stan źródła odległości ma być jego
+        return w0
     except PrzerwanoGenerowanie:
         raise
     except Exception:
-        return wynik
+        return _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, postep_cb, dzien_cb)
 
-def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0) -> List[DzienTrasy]:
+def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0, _zakaz=False, _promien_x=1.0) -> List[DzienTrasy]:
     if stawka is None: stawka = STAWKA_ZA_KM
     # jedno rozliczenie = jeden stan źródła odległości
     zeruj_zrodlo_odleglosci()
@@ -2610,6 +2769,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     baza = zaladuj_baze(baza_lat, baza_lng)
     
     ostatnie_uzycie = {} 
+    uzyte_w_miesiacu = set()      # _zakaz: miejscowości (poza bazą) już użyte w tym miesiącu — nie wracają
     finalne_dni = []
     
     cel_calkowity_dystans = kwota_calkowita / stawka
@@ -2636,6 +2796,9 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         promien_petli = 120.0
     else:
         promien_petli = 150.0
+    _promien_bazowy = promien_petli          # od niego zależą filtry „rzadkiego rejonu” i typ dnia (jak dotąd)
+    if _promien_x > 1.0:
+        promien_petli = min(promien_petli * _promien_x, PROMIEN_MAKS_KM)      # większa pula miejscowości przy zakazie powtórek
 
     # BAZA PRZYGRANICZNA: gdy blokada sektorów (kierunki "za granicę") zostawia
     # za mało miast w zasięgu, odblokowujemy wszystkie sektory. Inaczej pracownik
@@ -2765,7 +2928,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         # W rzadkich rejonach (przygranicze) stare filtry "ucieczki od stolicy"
         # i "obcej aglomeracji" są zbyt restrykcyjne i zostawiają 0 miast.
         # Wykrywamy taki przypadek i wtedy je pomijamy.
-        _rzadki_rejon = (promien_petli > 70)
+        _rzadki_rejon = (_promien_bazowy > 70)
 
         def dostepne_miasta(pula, wymus_ucieczke=True, spr_cooldown=True):
             dostepne = []
@@ -2775,7 +2938,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
                     continue          # nic „pod domem"
                 if wymus_ucieczke and not _rzadki_rejon and not odsuwa_sie_od_stolicy(baza_lat, baza_lng, m.lat, m.lng, woj): continue
                 if not _rzadki_rejon and miasto_w_obcej_aglomeracji(baza_lat, baza_lng, m.lat, m.lng): continue
-                if spr_cooldown and m.n in ostatnie_uzycie and (data - ostatnie_uzycie[m.n]).days < cooldown_dni: continue
+                if spr_cooldown and _zakaz and m.n in uzyte_w_miesiacu: continue          # twardy zakaz: miejscowość tylko raz w miesiącu
+                if spr_cooldown and not _zakaz and m.n in ostatnie_uzycie and (data - ostatnie_uzycie[m.n]).days < cooldown_dni: continue
 
                 d = oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) * TEST_MNOZNIK_TRASY
                 # limit: dojazd do miasta i z powrotem musi się mieścić w dniu
@@ -2802,8 +2966,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         # NIE pomijamy dnia — próbujemy bez cooldownu. Realny merchandiser i tak
         # odwiedza te same sklepy cyklicznie. Priorytetem jest rozpisanie
         # WSZYSTKICH potrzebnych dni, żeby pokryć budżet realnymi trasami.
-        if not kandydaci: kandydaci = pobierz_kandydatow(True, False)
-        if not kandydaci: kandydaci = pobierz_kandydatow(False, False)
+        if not kandydaci and not _zakaz: kandydaci = pobierz_kandydatow(True, False)
+        if not kandydaci and not _zakaz: kandydaci = pobierz_kandydatow(False, False)
         if not kandydaci:
             # Brak kandydatów to NAJCZĘSTSZA przyczyna utraty dnia, a do 3.21.0
             # wychodziła z pętli, zanim licznik zdążył cokolwiek policzyć.
@@ -2826,7 +2990,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         # pracownik zawsze dostaje ten sam plan.
         _typy = ["gniazdo", "po_drodze", "po_drodze", "po_drodze", "daleki", "po_drodze"]
         typ_dnia = _typy[(seed_val + numer_dnia * 3) % len(_typy)]
-        if promien_petli > 70:
+        if _promien_bazowy > 70:
             typ_dnia = "po_drodze"    # w rzadkich rejonach trzymamy się bezpiecznego schematu
 
         if typ_dnia == "gniazdo":
@@ -3076,6 +3240,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
 
         for e in ostateczne_etapy_dnia[:-1]:
             ostatnie_uzycie[e.dokad] = data
+            uzyte_w_miesiacu.add(e.dokad)
             aktualny_dystans_linii += e.d_line
             
         aktualny_dystans_linii += ostateczne_etapy_dnia[-1].d_line
@@ -3274,8 +3439,9 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         # przefiltrowani sektorem i minimalną odległością od bazy, więc przy
         # najmniejszych kwotach potrafi w nich nie być ani jednej miejscowości
         # dość blisko. Tu liczy się wyłącznie to, żeby pętla była prawdziwa.
+        _uzyte_inne = ({e.dokad for _dd in finalne_dni if _dd is not dz for e in _dd.etapy_surowe} if _zakaz else set())
         _pula = [m for _lista in _baza_miast.values() for m in _lista
-                 if m.n.lower() != str(baza_nazwa).lower()
+                 if m.n.lower() != str(baza_nazwa).lower() and m.n not in _uzyte_inne
                  and oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) > 3.0]
         blisko = sorted(_pula or list(kandydaci),
                         key=lambda m: oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng))[:14]
@@ -3447,7 +3613,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     #    dokumentów albo takiego zestawu nie ma — bez zmian.
     _mn_dokumentu = {}
     _k_dok = ile_dokumentow(kwota_calkowita)
-    if _k_dok >= 2 and len(finalne_dni) >= _k_dok:
+    if 2 <= _k_dok <= 4 and len(finalne_dni) >= _k_dok:      # dla większej liczby poleceń przeszukiwanie byłoby kosztowne, a potrzeby nie ma (zob. 1917 zł)
         _chron = sorted(finalne_dni, key=lambda dz: dz.data)
         _n_chron = len(_chron)
         _km_dni = [_linia_dnia(dz) for dz in _chron]
@@ -3488,6 +3654,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
                 return (_km * _mn_w * stawka, _km * MNOZNIK_DOL * stawka, min(_km * _mxg * stawka, _sufit_zl), sum(_w_l[od:do]))
 
             def _szukaj(od, ile, grupy):
+                _licznik_ocen[0] += 1
                 if _licznik_ocen[0] > 60000:
                     return
                 if ile == 1:
@@ -3495,7 +3662,6 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
                     if _gg[3] > MAX_ETAPOW_DOKUMENTU or _gg[1] > _gg[2] + 1e-9:
                         return
                     _wszystkie = grupy + [(od, _n, _gg)]
-                    _licznik_ocen[0] += 1
                     _lo = sum(x[2][1] for x in _wszystkie); _hi = sum(x[2][2] for x in _wszystkie)
                     if not (_lo - 1e-6 <= kwota_calkowita <= _hi + 1e-6):
                         return
@@ -3773,9 +3939,11 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             czas_akt = rng.randint(7 * 60, 8 * 60)
         ile_etapow = len(dzien.etapy_surowe)
         polowa = ile_etapow // 2
+        # czasy jazdy wg pory doby (szczyt wolniej, wieczór i weekend szybciej); suma czasu jazdy dnia bez zmian
+        _czasy_jazdy = _rozloz_czasy_jazdy(dzien, czas_akt, polowa, PRZERWA_JEDZENIE_MIN)
         for idx, e in enumerate(dzien.etapy_surowe):
             godz_wyj = f"{int(czas_akt//60)%24:02d}:{int(czas_akt%60):02d}"
-            czas_akt += e.czas_jazdy_minuty
+            czas_akt += _czasy_jazdy[idx]
             godz_przyj = f"{int(czas_akt//60)%24:02d}:{int(czas_akt%60):02d}"
             dzien.etapy.append(Etap(skad=e.skad, dokad=e.dokad, data=e.data_str, godz_wyj=godz_wyj, godz_przyj=godz_przyj, kwota=e.kwota, dokad_woj=e.dokad_woj))
             czas_akt += e.czas_w_sklepie
@@ -3798,6 +3966,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     finalne_dni.kwota_za_mala = bool(_kwota_za_mala)
     finalne_dni.kwota_min_realna = float(_kwota_min_realna or 0.0)
     finalne_dni.brak_dni = _brak_dni_na_kwote
+    finalne_dni.powtorzone_miejscowosci = _policz_powtorzone(finalne_dni, baza_nazwa)
+    finalne_dni.promien_km = float(promien_petli)
     return finalne_dni
 
 def generuj_mape_html(finalne_dni: List[DzienTrasy], pracownik: DanePracownika, miesiac_slownie: str, rok: int, folder: str, is_dark: bool):

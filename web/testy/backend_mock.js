@@ -40,6 +40,20 @@ class BackendMock {
     this.pobraniaHasla++; this.zapisz(String(d.kod), 'haslo_paczki', `wazne do ${p.wazne_do}`);
     return Object.assign({ status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do, adres: String(p.adres).trim() }, p.format ? { format: p.format } : {});      // format: szyfr paczki („klasyczny” albo „aes”) — brak pola = jak starszy skrypt
   }
+  /** Jak obsluzMiejscowosci w .gs: podpis hasłem, jeden wpis na osobę i miesiąc (zapisz zastępuje, zwolnij usuwa), pobierz liczy cudze wpisy. */
+  miejscowosci(d) {
+    const kod = String(d.kod || ''), u = this.uzytkownicy[kod]; this.rejestr = this.rejestr || {};
+    this.zapytaniaRejestru = (this.zapytaniaRejestru || []).concat([{ op: d.op, kod, miesiac: d.miesiac }]);
+    if (!u || !this.hasloOk(d, u)) { this.zapisz(kod || '?', 'miejscowosci_odmowa'); return { status: 'odmowa' }; }
+    if (u.wazne_do < iso(new Date())) return { status: 'wygasla' };
+    if (this.rejestrBlad) return { status: 'blad', opis: 'Serwer zajety — sprobuj ponownie za chwile' };
+    const m = String(d.miesiac || ''); if (!/^20\d\d(0[1-9]|1[0-2])$/.test(m)) return { status: 'blad', opis: 'Nieprawidlowy miesiac' };
+    const klucz = `${m}|${kod}`;
+    if (d.op === 'pobierz') { const zajete = {}; let osob = 0; for (const [k, lista] of Object.entries(this.rejestr)) { const [mm, kk] = k.split('|'); if (mm !== m || kk === kod) continue; osob++; for (const n of lista) zajete[n] = (zajete[n] || 0) + 1; } return { status: 'ok', zajete, osob }; }
+    if (d.op === 'zwolnij') { delete this.rejestr[klucz]; return { status: 'ok' }; }
+    if (d.op === 'zapisz') { if (!Array.isArray(d.miejscowosci) || d.miejscowosci.length > 250) return { status: 'blad', opis: 'Za duzo miejscowosci' }; this.rejestr[klucz] = [...new Set(d.miejscowosci.map(String))]; return { status: 'ok', zapisano: this.rejestr[klucz].length }; }
+    return { status: 'blad', opis: 'Nieznana operacja' };
+  }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
   /** Jak _json w .gs: każda odpowiedź niesie czas serwera. */
   obsluz(tekst) { const o = this.obsluzAkcje(tekst); if (o && typeof o === 'object') o.czas_serwera = Math.floor(Date.now() / 1000); return o; }
@@ -56,6 +70,7 @@ class BackendMock {
       case 'zmien_haslo': return this.zmienHaslo(d);
       case 'reset_hasla': return this.reset(d);
       case 'haslo_paczki': return this.hasloPaczki(d);
+      case 'miejscowosci': return this.miejscowosci(d);
       default: return { status: 'blad', opis: 'Nieznana akcja' };
     }
   }

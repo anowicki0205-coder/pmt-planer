@@ -1852,6 +1852,7 @@ async function generuj() {
     if (!pr.ok) { pokazToast('Nie można generować: ' + pr.powod); return; }
     if (!tenSam()) return;
   }
+  const zajetePytanie = dostep.zajeteMiejscowosci(rok, mies).catch(() => ({ ok: false }));      // wspólny rejestr: pytanie leci, gdy użytkownik czyta potwierdzenie
   if (!(await arkuszPotwierdzenia(pr))) return;            // użytkownik sprawdza dane, zanim cokolwiek powstanie
   magUst.ustaw('kwota-' + kl, par.kwota);
   generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
@@ -1860,7 +1861,8 @@ async function generuj() {
   wid && wid.start();
   let w;
   try {
-    w = await silnik.generuj(par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
+    const rej = await zajetePytanie;      // gotowe zwykle zanim użytkownik kliknął „Generuj”; brak rejestru (sieć, konto) = dawny sposób (klin z PESEL-u)
+    w = await silnik.generuj(rej && rej.ok ? { ...par, zajete: rej.zajete } : par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
     wid && wid.przerwij(); koniecGenerowania();
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {
@@ -1880,6 +1882,7 @@ async function generuj() {
     odswiezHero(); await odswiezParametry(); return;
   }
   magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); magUst.ustaw('pobrane-' + kl, null); magUst.ustaw('folder-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
+  dostep.zapiszMiejscowosci(rok, mies, w.wynik.miejscowosci).catch(() => {});      // wspólny rejestr: inni użytkownicy omijają te miejscowości (nie czekamy na serwer)
   postepGeneracji('', 1);
   if (!wid) dzwiek.efekt('gen-koniec');      // z pokazem dzwonek „koniec” gra po ostatniej kropce (naKoniec), żeby nie wchodził w nuty punktów
   try {
@@ -1890,7 +1893,7 @@ async function generuj() {
   M = zbudujModel(rok, mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
   zorza && zorza.flara(1); kurtyna && kurtyna.swieto();
-  pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}${w.wynik.powtorzone > 0 ? ` · uwaga: ${w.wynik.powtorzone} ${w.wynik.powtorzone === 1 ? 'miejscowość powtarza się' : 'miejscowości powtarza się'} w miesiącu (za mało miejscowości w zasięgu przy tej kwocie)` : ''}`);
+  pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}${w.wynik.wspolne > 0 ? ` · ${w.wynik.wspolne} ${w.wynik.wspolne === 1 ? 'miejscowość jest' : 'miejscowości jest'} też na dokumentach innych osób (w Twojej okolicy brakuje wolnych)` : ''}${w.wynik.powtorzone > 0 ? ` · uwaga: ${w.wynik.powtorzone} ${w.wynik.powtorzone === 1 ? 'miejscowość powtarza się' : 'miejscowości powtarza się'} w miesiącu (za mało miejscowości w zasięgu przy tej kwocie)` : ''}`);
   if (w.wynik.zrodlo && w.wynik.zrodlo.etykieta && /szacunek/i.test(w.wynik.zrodlo.etykieta)) setTimeout(() => pokazToast('Kilometry z szacunku — bez internetu nie sprawdzę dróg. Jeśli to ma być dokładne, wygeneruj od nowa z internetem.'), 3300);
 }
 /** Dni robocze miesiąca z silnika. Przy chwilowym błędzie (np. silnik jeszcze się rozgrzewa) próbuje jeszcze dwa razy, zamiast po cichu pokazać miesiąc bez dni roboczych. */
@@ -2104,7 +2107,7 @@ function arkuszOdNowa(zKwoty) {
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw jak jest</button><button type="button" class="przycisk" id="od-nowa-tak">${zKwoty ? 'Usuń i wpisz nową kwotę' : 'Usuń i zacznij od nowa'}</button></div>`);
   $('#od-nowa-tak', arkTresc).addEventListener('click', async () => {
     const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies);
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/'); dostep.zwolnijMiejscowosci(rok, mies).catch(() => {});      // dokumentów już nie ma: miejscowości wracają do wspólnej puli
     magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, par.wolne && par.wolne.length ? par.wolne : null);
     const ust = { tryb: par.tryb || M.tryb, silnik: par.silnik_powyzej_900 != null ? !!par.silnik_powyzej_900 : M.silnik }; magUst.ustaw('ust-' + kl, ust);
     zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty, ust);      // tryb i auto miesiąca, nie te, które profil ma teraz (zmienia się przy każdym przełączeniu w innym miesiącu)
@@ -2133,7 +2136,7 @@ function arkuszUstawienia() {
   $$('[data-u-silnik]', arkTresc).forEach(b => b.addEventListener('click', () => { silnik = b.dataset.uSilnik === '1'; odswiez(); }));
   $('#ust-tak', arkTresc).addEventListener('click', async () => {
     const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, zmianaTrybu = tryb !== stary.tryb, kl = magMiesiace.klucz(rok, mies);
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/'); dostep.zwolnijMiejscowosci(rok, mies).catch(() => {});
     magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, !zmianaTrybu && par.wolne && par.wolne.length ? par.wolne : null);
     if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; PROFIL.silnik_powyzej_900 = silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); }
     magUst.ustaw('ust-' + kl, { tryb, silnik });

@@ -373,6 +373,16 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       dla karty graficznej; wygląd jest taki sam w Nocy i w Dniu (kafle mają wspólny biały tekst na kolorze). Reguła: css/aplikacja.css, blok „BENTO v3”. Test wykres_kalendarz_app.js czyta teraz kolor BAZOWY kafla (ostatni
       gradient), bo wyżej leżą białe warstwy przeszklenia. ODRZUCONE po podglądzie: chmury w tle sceny (zbyt ciężkie, na pulpicie zasłonięte kaflami; wymagałyby wyłączania na słabszych komputerach) oraz wersja
       półprzezroczysta z rozmyciem tła (brudne kolory, gorszy kontrast tekstu, koszt).
+- [x] 17.11 — WSPÓLNY REJESTR MIEJSCOWOŚCI: KAŻDY UŻYTKOWNIK MA WŁASNĄ TRASĘ (pomysł właściciela: miejscowości wygenerowane u jednej osoby wypadają z puli innych; „pojedyncze powtórzenia mogą się zdarzyć”):
+      SILNIK: generuj_trasy(..., zajete={nazwa: ilu}) — miejscowości zajęte przez innych są pomijane; gdy nie starcza, tolerancja rośnie (0 → 1 → 2 → wszystkie), na każdym poziomie najpierw większe promienie;
+      własny miesiąc zawsze bez powtórek; wynik niesie wspolne_z_innymi; BUDZET_PROB_S = 40 s na próby. Bez rejestru (zajete=None) działa „klin” z PESEL-u. Symulacja 8 osób kolejno, 4000 zł: Lublin 4 osoby bez wspólnych,
+      Radom i Poznań 3, Zamość 1 (potem pula się kończy: każda miejscowość u ≤1, ≤2 osób; własne powtórki 0, kwoty pełne). BACKEND (apps_script_POPRAWIONY_v2.gs): akcja „miejscowosci” (pobierz / zapisz / zwolnij), podpis
+      aplikacji ORAZ podpis hasłem użytkownika (jak hasło paczki), zakładka „Miejscowosci” (jeden wiersz = osoba × miesiąc RRRRMM), walidacja nazw (litera na początku — nigdy formuła), limit 250 na osobę i miesiąc,
+      przycinanie wpisów starszych niż 14 miesięcy, brak PESEL-u i adresu w arkuszu. Testy: testy/backend_gs_test.js (prawdziwy plik .gs, 165 kontroli), testy/rejestr_app.js (dwie osoby z Radomia: zero wspólnych;
+      „od nowa” zwalnia; serwer wyłączony → generowanie działa, zapis czeka w kolejce i dochodzi po powrocie), testy_pmt.py (5 kontroli). KLIENT: js/dostep.js (zajeteMiejscowosci, zapiszMiejscowosci, zwolnijMiejscowosci,
+      kolejka zapisów na urządzeniu, ponowienie po pulsie), aplikacja.js (pytanie leci, gdy użytkownik czyta potwierdzenie; zapis bez czekania), silnik/most.py (zajete, wspolne, miejscowosci).
+      WYMAGA wklejenia nowego .gs i „Wdróż → Nowa wersja” (do tego czasu aplikacja działa po staremu). LIMIT: dwie osoby generujące DOKŁADNIE w tej samej chwili mogą dostać te same miejscowości (rejestr czyta się
+      przed generowaniem, zapisuje po); program na komputerze nie zapisuje do rejestru. NIEZWERYFIKOWANE na prawdziwym Apps Script (brak dostępu do script.google.com z tego środowiska).
 - [x] 16.11 — MIEJSCOWOŚĆ TYLKO RAZ W MIESIĄCU, NOWE MIEJSCOWOŚCI, PROFIL PRĘDKOŚCI W CIĄGU DOBY (prośba właściciela; silnik PMT_Delegacje.py → web/silnik/pmt_silnik.py):
       (1) ZAKAZ POWTÓREK: miejscowość (poza bazą = miejscem zamieszkania, która wraca co dzień) nie powtarza się na dokumentach jednego miesiąca. Dotąd był tylko „cooldown” (35/14/8 dni, skracany, gdy pula była mała),
       więc np. 4000 zł z Radomia dawało 78 postojów w 43 miejscowościach. Teraz _generuj_trasy_raz(_zakaz=True) odrzuca użyte miejscowości, a generuj_trasy ponawia układ z większym promieniem pętli (PROBY_PROMIENIA 1,0/1,3/1,6/2,0;

@@ -173,6 +173,33 @@ def _odnow_siec():
     S._geo_pytane.clear()
 
 
+def _zajete_z_rejestru(z):
+    """Miejscowości zajęte w tym miesiącu przez INNYCH użytkowników (nazwa -> ilu) z wspólnego rejestru; None = rejestru nie ma (brak sieci, konta bez hasła w sesji) — wtedy silnik
+    ułoży trasę po dawnemu (klin kierunków z PESEL-u). Pusty słownik znaczy: rejestr jest, ale nikt jeszcze nic nie zajął."""
+    if not isinstance(z, dict):
+        return None
+    wynik = {}
+    for k, v in z.items():
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n > 0 and str(k).strip():
+            wynik[str(k).strip()] = min(n, 99)
+    return wynik
+
+
+def _miejscowosci_wyniku(wynik, baza_nazwa):
+    """Różne miejscowości (poza bazą) z układu — to trafia do wspólnego rejestru."""
+    baza, widziane, lista = str(baza_nazwa).strip().lower(), set(), []
+    for dz in sorted(wynik, key=lambda d: d.data):
+        for e in dz.etapy_surowe:
+            n = str(e.dokad).strip()
+            if n and n.lower() != baza and n.lower() not in widziane:
+                widziane.add(n.lower()); lista.append(n)
+    return lista
+
+
 def generuj(p, postep=None):
     """Odpowiednik GeneratorThread.run: współrzędne bazy → generuj_trasy → generuj_pdfy (do folderu w pamięci).
     Zwraca {ok, dni, folder, pliki, zrodlo, niepelna, ...}; błędy jako wyjątki (ValueError z tekstem dla człowieka)."""
@@ -198,7 +225,7 @@ def generuj(p, postep=None):
                             baza_lng=baza_lng, wojewodztwo=pr["woj"])
     cb("Generowanie tras...", 0.40)
     dni = dni_robocze(rok, mies, p.get("tryb", "tydzien"), p.get("wolne", ()))
-    wynik = S.generuj_trasy(float(p["kwota"]), pr["baza_miasto"], baza_lat, baza_lng, pr["woj"], dni, pesel, stawka, cb)
+    wynik = S.generuj_trasy(float(p["kwota"]), pr["baza_miasto"], baza_lat, baza_lng, pr["woj"], dni, pesel, stawka, cb, zajete=_zajete_z_rejestru(p.get("zajete")))
     zrodlo = S.stan_zrodla_odleglosci()
     if not wynik:
         raise ValueError("Nie udało się ułożyć ANI JEDNEGO dnia trasy. Najczęstsza przyczyna to adres zamieszkania, "
@@ -236,6 +263,8 @@ def generuj(p, postep=None):
             "suma": round(sum(d.suma for d in wynik), 2), "zrodlo": zrodlo,
             "niepelna": bool(getattr(wynik, "kwota_niepelna", False)),
             "za_mala": bool(getattr(wynik, "kwota_za_mala", False)),
+            "wspolne": int(getattr(wynik, "wspolne_z_innymi", 0) or 0),      # ile miejscowości zajęli już inni użytkownicy w tym miesiącu (wspólny rejestr) — 0, gdy rejestru nie było albo starczyło miejscowości
+            "miejscowosci": _miejscowosci_wyniku(wynik, pr["baza_miasto"]),      # do wspólnego rejestru: miejscowości z dokumentów tego miesiąca (bez bazy)
             "powtorzone": int(getattr(wynik, "powtorzone_miejscowosci", 0) or 0),      # ile razy miejscowość (poza bazą) wróciła w miesiącu — zwykle 0 (zasada: raz w miesiącu)
             "osiagnieta": float(getattr(wynik, "kwota_osiagnieta", 0.0) or 0.0),
             "docelowa": float(getattr(wynik, "kwota_docelowa", p["kwota"]) or 0.0),

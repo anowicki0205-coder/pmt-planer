@@ -81,7 +81,7 @@ export function sekret() {
 export const zapomnijSekret = () => { sekretObietnica = null; };
 /* Puls i rejestr sesji backend przyjmuje w pełni tylko z podpisem KLUCZEM POCHODNYM OD HASŁA: HMAC, którego kluczem jest skrót hasła „PMT|kod|hasło” (ten sam, który serwer
    trzyma w kolumnie „Haslo hash”, a my mamy zapisany po logowaniu). Samo hasło nie jedzie, a znajomość samego 5-cyfrowego kodu nie wystarcza, by dostać imię, rejon i L4 innego pracownika. */
-const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki'];
+const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki', 'miejscowosci'];
 /* serwer przyjmuje podpis tylko w oknie 600 s od SWOJEGO czasu: zegar urządzenia przestawiony o kwadrans dawał niezrozumiałe odmowy, więc czas podpisu poprawiamy
    o różnicę względem czasu serwera z ostatniej odpowiedzi (czas_serwera) */
 let przesuniecie = 0;
@@ -117,6 +117,55 @@ export async function pobierzHasloPaczki() {
   if (s === 'blad') return { ok: false, powod: 'siec', komunikat: `${String(odp.opis || 'Serwer chwilowo nie odpowiada')} — spróbuj ponownie za chwilę.` };      // np. „Serwer zajety” (kolejka) — to nie odmowa konta
   if (s === 'odmowa') skrotNieaktualny = kod;
   return { ok: false, powod: 'odmowa', komunikat: 'Serwer nie potwierdził Twojego konta. Wyloguj się, zaloguj ponownie hasłem i spróbuj jeszcze raz.' };
+}
+
+/* ---------- wspólny rejestr miejscowości: każdy użytkownik ma własną trasę ----------
+   Przed generowaniem aplikacja pyta serwer, które miejscowości w tym miesiącu zajęli INNI użytkownicy (silnik ich unika), a po wygenerowaniu zapisuje własne. Ponowne
+   generowanie tego samego miesiąca zastępuje wpis, „od nowa” go zwalnia. Zapis i zwolnienie czekają w kolejce na urządzeniu, aż serwer odpowie (brak sieci, kolejka u serwera):
+   dokumenty nigdy nie czekają na rejestr. Bez rejestru (brak sieci, konto bez hasła w sesji, odmowa) silnik układa trasę dawnym sposobem — własnym „klinem” kierunków z PESEL-u. */
+const miesiacRejestru = (rok, mies) => `${rok}${String(mies).padStart(2, '0')}`;
+const gotowyDoRejestru = kod => !!kod && !!skrotSesji(kod) && skrotNieaktualny !== kod;
+/** → { ok:true, zajete:{nazwa:ilu}, osob } albo { ok:false, powod }. Krótki limit czasu: generowanie nie ma czekać na wolny serwer. */
+export async function zajeteMiejscowosci(rok, mies, limit = 9000) {
+  const kod = stan().kod; if (!gotowyDoRejestru(kod)) return { ok: false, powod: 'logowanie' };
+  let odp; try { odp = await wyslij({ akcja: 'miejscowosci', op: 'pobierz', kod, miesiac: miesiacRejestru(rok, mies) }, limit); } catch (e) { return { ok: false, powod: 'siec' }; }
+  if (odp && odp.status === 'ok' && odp.zajete && typeof odp.zajete === 'object' && !Array.isArray(odp.zajete)) {
+    const zajete = {};
+    for (const [n, c] of Object.entries(odp.zajete)) { const k = Math.floor(Number(c)); if (typeof n === 'string' && n.length > 0 && n.length <= 40 && k > 0) zajete[n] = Math.min(k, 99); }
+    return { ok: true, zajete, osob: Math.max(0, Math.floor(Number(odp.osob)) || 0) };
+  }
+  if (odp && odp.status === 'odmowa') skrotNieaktualny = kod;      // jak przy haśle paczki: skrót nieprzyjęty przez serwer, do następnego logowania bez podpisu hasłem
+  return { ok: false, powod: odp && odp.status === 'wygasla' ? 'dostep' : 'odmowa' };
+}
+function wKolejceRejestru(kod, miesiac, wpis) {
+  const d = stan(); d.rejestr = d.rejestr || {}; d.rejestr[kod] = d.rejestr[kod] || {}; d.rejestr[kod][miesiac] = wpis; zapisz(d);
+}
+/** Zapisuje miejscowości z dokumentów miesiąca (zastępuje poprzedni zapis tej osoby). Nie rzuca błędów; zwraca true, gdy kolejka jest pusta. */
+export function zapiszMiejscowosci(rok, mies, lista) {
+  const kod = stan().kod; if (!kod) return Promise.resolve(false);
+  wKolejceRejestru(kod, miesiacRejestru(rok, mies), { op: 'zapisz', lista: [...new Set((lista || []).map(String))].slice(0, 250) });
+  return wyslijRejestr();
+}
+/** Oddaje miejscowości miesiąca do puli (dokumenty usunięte: „od nowa”, zmiana kwoty albo trybu). */
+export function zwolnijMiejscowosci(rok, mies) {
+  const kod = stan().kod; if (!kod) return Promise.resolve(false);
+  wKolejceRejestru(kod, miesiacRejestru(rok, mies), { op: 'zwolnij' });
+  return wyslijRejestr();
+}
+export const oczekujaceRejestru = () => Object.keys((stan().rejestr || {})[stan().kod] || {}).length;
+let rejestrWToku = null;
+export const wyslijRejestr = () => rejestrWToku || (rejestrWToku = rejestrWlasciwy().finally(() => { rejestrWToku = null; }));
+async function rejestrWlasciwy() {
+  const kod = stan().kod; if (!gotowyDoRejestru(kod)) return false;
+  for (const miesiac of Object.keys((stan().rejestr || {})[kod] || {})) {
+    const w = stan().rejestr[kod][miesiac]; if (!w) continue;
+    let odp; try { odp = await wyslij({ akcja: 'miejscowosci', op: w.op, kod, miesiac, ...(w.op === 'zapisz' ? { miejscowosci: w.lista } : {}) }, 20000); } catch (e) { return false; }
+    const przejsciowy = !odp || (odp.status === 'blad' && /zajety|serwera/i.test(String(odp.opis || '')));      // serwer zajęty / błąd serwera: spróbujemy przy następnym pulsie
+    if (odp && odp.status === 'odmowa') { skrotNieaktualny = kod; return false; }
+    if (przejsciowy) return false;
+    const d = stan(); if (d.rejestr && d.rejestr[kod]) { delete d.rejestr[kod][miesiac]; if (!Object.keys(d.rejestr[kod]).length) delete d.rejestr[kod]; zapisz(d); }      // przyjęte albo trwale odrzucone (np. konto wygasło): nie ponawiamy
+  }
+  return true;
 }
 
 /* ---------- połączenie z backendem ---------- */
@@ -355,6 +404,7 @@ async function pulsWlasciwy() {
   const k = d.konta[kod] || {}; if (odp.status === 'ok') { k.kontakt = teraz(); delete k.zablokowane; } else k.zablokowane = true;
   if (odp.wazne_do) k.wazne_do = odp.wazne_do; else delete k.wazne_do;
   d.konta[kod] = k; zapisz(d);
+  if (oczekujaceRejestru()) wyslijRejestr().catch(() => {});      // zapis/zwolnienie miejscowości, które nie doszły (brak sieci), idą przy następnej okazji
   return odp;
 }
 /* wpis w rejestrze sesji (kto, kiedy, jak długo). Wylogowanie/zamknięcie: sendBeacon, żeby przeżyło zamykanie karty. */

@@ -368,7 +368,16 @@ SILNIK
   ma 1492 wpisy; 167 dodano 16.11 z GeoNames (lista do przeglądu: web/MIEJSCOWOSCI_DODANE_2026-11.txt; „liczba sieci” to szacunek z liczby mieszkańców). (3) Godziny odcinków na dokumencie uwzględniają porę dnia
   (szczyt wolniej, wieczór i weekend szybciej), przy tej samej sumie czasu jazdy dnia.
   (4) Każdy użytkownik dostaje trasę „w swoją stronę”: kierunek wyjazdów wynika z PESEL-u (4 z 12 sektorów wokół bazy), więc osoby z tej samej okolicy mają średnio ok. 50% wspólnych miejscowości (wcześniej ok. 80%).
-  To nie jest gwarancja: przy podobnym kierunku pojedyncze wspólne miejscowości się zdarzają. Dokładną pewność dałby wspólny rejestr na serwerze (nie zbudowany).
+  To nie jest gwarancja: przy podobnym kierunku pojedyncze wspólne miejscowości się zdarzają.
+  (5) WSPÓLNY REJESTR MIEJSCOWOŚCI (od 17.11): po wygenerowaniu delegacji aplikacja zapisuje na serwerze (nowa zakładka „Miejscowosci” w Twoim arkuszu — widzisz ją tylko Ty) listę miejscowości z dokumentów
+  danego miesiąca; przed generowaniem pobiera miejscowości zajęte przez INNYCH i ich unika. Dzięki temu użytkownicy z jednej okolicy dostają różne trasy. Jeden wiersz = jedna osoba w jednym miesiącu: ponowne
+  generowanie go zastępuje, „od nowa” (usunięcie dokumentów) oddaje miejscowości do puli. W arkuszu są tylko miesiąc, kod konta, imię, liczba i nazwy miejscowości — bez PESEL-u i adresu.
+  Gdy wolnych miejscowości w okolicy zabraknie, tolerancja rośnie stopniowo (miejscowość użyta przez jedną osobę, potem przez dwie…), a własny miesiąc zawsze zostaje bez powtórek; komunikat „Gotowe” mówi wtedy,
+  ile miejscowości jest też u innych. Bez sieci (albo bez logowania hasłem w tej sesji) generowanie działa jak dotąd, z kierunkiem z PESEL-u (pkt 4), a zapis do rejestru dochodzi, gdy serwer znów odpowiada.
+  POJEMNOŚĆ okolicy wynika z liczby miejscowości w bazie: jedna osoba przy 4000 zł zużywa ok. 40–90 miejscowości. W symulacji 4 osoby z Lublina, 3 z Radomia i Poznania mieszczą się bez żadnej wspólnej miejscowości,
+  z Zamościa tylko 1 (w lubelskim jest tylko 119 miejscowości). Im więcej użytkowników w jednej okolicy, tym ważniejsze są nowe miejscowości z sieciami (lista od Ciebie lub od osoby z danego województwa).
+  WYMAGA nowej wersji backendu: wklej cały apps_script_POPRAWIONY_v2.gs do Apps Script i „Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż” (adres zostaje ten sam). Dopóki tego nie zrobisz, serwer
+  odpowiada „Nieznana akcja”, a aplikacja działa po staremu (kierunek z PESEL-u). Zakładka „Miejscowosci” powstaje sama przy pierwszym zapisie (albo po uruchomieniu funkcji inicjalizuj).
 
 TESTY (wymagają Node + Playwright)
   testy/silnik_przegladarka.js  — silnik w przeglądarce: kwota co do grosza, limity, 5 PDF

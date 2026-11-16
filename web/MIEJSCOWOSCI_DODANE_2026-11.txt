@@ -62,7 +62,7 @@ mazowieckie ; Kałuszyn ; 2955 ; 2 ; 52.207 ; 21.808
 mazowieckie ; Myszyniec ; 2980 ; 2 ; 53.381 ; 21.350
 mazowieckie ; Piastów ; 23290 ; 4 ; 52.184 ; 20.840
 
-## małopolskie (21)
+## małopolskie (20)
 małopolskie ; Biecz ; 4564 ; 2 ; 49.736 ; 21.263
 małopolskie ; Bobowa ; 3018 ; 2 ; 49.709 ; 20.948
 małopolskie ; Bochnia ; 29184 ; 4 ; 49.969 ; 20.430
@@ -70,7 +70,6 @@ małopolskie ; Brzesko ; 16866 ; 3 ; 49.969 ; 20.606
 małopolskie ; Czchów ; 2256 ; 2 ; 49.837 ; 20.681
 małopolskie ; Gorlice ; 28609 ; 4 ; 49.656 ; 21.160
 małopolskie ; Grybów ; 5994 ; 2 ; 49.624 ; 20.948
-małopolskie ; Jordanów ; 5194 ; 2 ; 49.649 ; 19.830
 małopolskie ; Krynica-Zdrój ; 12270 ; 3 ; 49.422 ; 20.959
 małopolskie ; Limanowa ; 14738 ; 3 ; 49.706 ; 20.422
 małopolskie ; Mszana Dolna ; 7500 ; 3 ; 49.674 ; 20.080
@@ -131,13 +130,12 @@ pomorskie ; Łeba ; 3744 ; 2 ; 54.761 ; 17.555
 ## warmińsko-mazurskie (1)
 warmińsko-mazurskie ; Mikołajki ; 3851 ; 2 ; 53.803 ; 21.570
 
-## wielkopolskie (34)
+## wielkopolskie (33)
 wielkopolskie ; Chodzież ; 19776 ; 3 ; 52.995 ; 16.920
 wielkopolskie ; Czarnków ; 11562 ; 3 ; 52.902 ; 16.564
 wielkopolskie ; Gniezno ; 70269 ; 4 ; 52.535 ; 17.583
 wielkopolskie ; Jastrowie ; 8452 ; 3 ; 53.420 ; 16.818
 wielkopolskie ; Kleczew ; 4217 ; 2 ; 52.371 ; 18.177
-wielkopolskie ; Kobylin ; 3130 ; 2 ; 51.716 ; 17.227
 wielkopolskie ; Konin ; 81258 ; 4 ; 52.223 ; 18.251
 wielkopolskie ; Koło ; 23493 ; 4 ; 52.200 ; 18.639
 wielkopolskie ; Krajenka ; 3609 ; 2 ; 53.298 ; 16.991

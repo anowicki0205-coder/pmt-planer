@@ -8031,8 +8031,8 @@ try:
     # telefon był jedynym klientem bez podpisu i jedynym użytkownikiem analizy
     # zdjęć na klucz Anthropic oraz publicznych zdjęć na Dysku.
     _akcje21 = sorted(re.findall(r'case "(\w+)":', _dp21))
-    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze, hasło do paczek i wspólny rejestr miejscowości aplikacji web",
-            _akcje21 == ["haslo_paczki", "logowanie", "miejscowosci", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
+    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze oraz hasło do paczek, wspólny rejestr miejscowości i drogi z Google aplikacji web",
+            _akcje21 == ["droga", "haslo_paczki", "logowanie", "miejscowosci", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
     _podp21 = re.search(r"var AKCJE_PODPISANE = \[([^\]]*)\]", _gs21)
     sprawdz("backend: podpis obejmuje każdą obsługiwaną akcję",
             _podp21 is not None
@@ -12638,7 +12638,12 @@ try:
     _mi_td = [m for m in _json_td.load(open(_os_td.path.join(_kat_td, "miasta.json"), encoding="utf-8")) if _ZT.linia_prosta_km(51.40, 21.15, m["lat"], m["lng"]) <= 260]
     _katt = _tmp_td.mkdtemp(); _mj = _os_td.path.join(_katt, "m.json"); _json_td.dump(_mi_td, open(_mj, "w", encoding="utf-8"), ensure_ascii=False)
     _srv_td = _AT.uruchom(0)
-    _kod_td = _ZT.main(["--osrm", "http://127.0.0.1:%d" % _srv_td.server_address[1], "--miasta", _mj, "--wyjscie", _os_td.path.join(_katt, "d.bin"), "--raport", _os_td.path.join(_katt, "r.txt"), "--promien", "200"])
+    _urlopen_zapas = P.urllib.request.urlopen
+    P.urllib.request.urlopen = SIEC_PRAWDZIWA      # reszta testów chodzi bez internetu; tu mówimy tylko z atrapą OSRM na 127.0.0.1
+    try:
+        _kod_td = _ZT.main(["--osrm", "http://127.0.0.1:%d" % _srv_td.server_address[1], "--miasta", _mj, "--wyjscie", _os_td.path.join(_katt, "d.bin"), "--raport", _os_td.path.join(_katt, "r.txt"), "--promien", "200"])
+    finally:
+        P.urllib.request.urlopen = _urlopen_zapas
     _srv_td.shutdown()
     _bajty_td = open(_os_td.path.join(_katt, "d.bin"), "rb").read()
     P._tabela = None

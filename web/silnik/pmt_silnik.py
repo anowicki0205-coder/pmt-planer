@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:34bdd73b2d4c2e88
+# źródło: PMT_Delegacje.py sha256:ec4cca0864b1a16b
 
 import sys
 
@@ -3556,7 +3556,9 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             e.zrodlo = zrodlo_ostatniego_odcinka()
             e.predkosc = predkosc_odcinka(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
             if km_droga and km_droga > 0:
-                e.d_line = km_droga
+                # podłoga „droga ≥ MNOZNIK_MIN × linia prosta” obowiązuje już tu: realna droga bywa krótsza (autostrada), a podłoga nakładana dopiero na końcu
+                # dolicza kilometry i czas PO wyznaczeniu limitu dnia (dzień wychodził o kilka minut ponad 8 h)
+                e.d_line = max(km_droga, float(getattr(e, "linia_prosta", 0.0) or 0.0) * MNOZNIK_MIN)
         except Exception:
             # zostaje linia prosta — ale NIE PO CICHU: to szacunek i tak
             # ma być pokazany w interfejsie oraz na dokumencie
@@ -3633,7 +3635,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         try:
             km = dystans_drogowy(la1, lg1, la2, lg2, tylko_cache=True)
             if km and km > 0:
-                return km
+                # podłoga jak przy odcinkach z pętli wyżej: realna droga (tabela) bywa krótsza niż MNOZNIK_MIN × linia prosta
+                return max(km, oblicz_dystans(la1, lg1, la2, lg2) * MNOZNIK_MIN)
         except Exception:
             pass
         return oblicz_dystans(la1, lg1, la2, lg2)
@@ -3667,7 +3670,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             d_line=_km_odcinka(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng),
             czas_w_sklepie=_z.czas_w_sklepie, dokad_woj=_z.dokad_woj,
             skad_lat=_do.skad_lat, skad_lng=_do.skad_lng,
-            dokad_lat=_z.dokad_lat, dokad_lng=_z.dokad_lng)
+            dokad_lat=_z.dokad_lat, dokad_lng=_z.dokad_lng,
+            predkosc=predkosc_odcinka(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng))
         dz.etapy_surowe = dz.etapy_surowe[:ktory] + [_sklejony] + dz.etapy_surowe[ktory + 2:]
         return True
 
@@ -3790,12 +3794,14 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             for (_n, _la, _lg, _sh, _wj) in _post:
                 _et2.append(RawEtap(skad=_pn, dokad=_n, data_str=_ds,
                                     d_line=_km_odcinka(_pl, _pg, _la, _lg), czas_w_sklepie=_sh,
-                                    dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg))
+                                    dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg,
+                                    predkosc=predkosc_odcinka(_pl, _pg, _la, _lg)))
                 _pl, _pg, _pn = _la, _lg, _n
             _et2.append(RawEtap(skad=_pn, dokad=_pow.dokad, data_str=_ds,
                                 d_line=_km_odcinka(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng),
                                 czas_w_sklepie=0, dokad_woj=_pow.dokad_woj, skad_lat=_pl, skad_lng=_pg,
-                                dokad_lat=_pow.dokad_lat, dokad_lng=_pow.dokad_lng))
+                                dokad_lat=_pow.dokad_lat, dokad_lng=_pow.dokad_lng,
+                                predkosc=predkosc_odcinka(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng)))
             _s2 = tuple(e.dokad for e in _et2)
             if _s2 not in _widziane_slady:
                 _dz.etapy_surowe = _et2

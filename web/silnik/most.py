@@ -173,6 +173,24 @@ def _odnow_siec():
     S._geo_pytane.clear()
 
 
+def _wczytaj_tabele_drog():
+    """Tabela dróg (drogi.bin obok silnika) — realne kilometry i prędkości odcinków zamiast „linia prosta × 1,28”. Brak pliku = silnik liczy po staremu."""
+    try:
+        return S.wczytaj_tabele_drog_z_pliku(os.path.join(os.path.dirname(os.path.abspath(__file__)), "drogi.bin"))
+    except Exception:
+        return 0
+
+
+_PAR_W_TABELI = _wczytaj_tabele_drog()
+
+
+def _dokladne_z_zapytania(g):
+    """Dokładne drogi z Google (przez backend) dla odcinków z adresu zamieszkania: [[lat1, lng1, lat2, lng2, km], …] → silnik. Błędne wpisy są pomijane."""
+    if not isinstance(g, (list, tuple)):
+        return S.ustaw_dokladne_drogi([])
+    return S.ustaw_dokladne_drogi([p for p in g if isinstance(p, (list, tuple)) and len(p) == 5])
+
+
 def _zajete_z_rejestru(z):
     """Miejscowości zajęte w tym miesiącu przez INNYCH użytkowników (nazwa -> ilu) z wspólnego rejestru; None = rejestru nie ma (brak sieci, konta bez hasła w sesji) — wtedy silnik
     ułoży trasę po dawnemu (klin kierunków z PESEL-u). Pusty słownik znaczy: rejestr jest, ale nikt jeszcze nic nie zajął."""
@@ -200,6 +218,43 @@ def _miejscowosci_wyniku(wynik, baza_nazwa):
     return lista
 
 
+def trasy_domowe(p, postep=None):
+    """PIERWSZY PRZEBIEG generowania (bez dokumentów): układa trasy dokładnie tak, jak zrobi to generuj, i oddaje odcinki „dom ↔ miejscowość”, których tabela dróg nie zna.
+    Końcowe przycinanie dni tylko zdejmuje postoje z planu, więc każdy odcinek „dom ↔ miejscowość” z wyniku prowadzi do jednej z zaplanowanych miejscowości. Zwracamy je WSZYSTKIE
+    (najpierw te z układu po przycięciu — najbardziej prawdopodobne); aplikacja pyta o nie Google (przez backend), a drugi przebieg (generuj z polem google) dostaje dokładne kilometry.
+    Zwraca {ok, pary: [[lat_domu, lng_domu, lat_miejscowosci, lng_miejscowosci], …], pierwsze: ile z nich pochodzi z układu po przycięciu} — każda miejscowość raz."""
+    pr = przygotuj(p)
+    if not pr["ok"]:
+        raise ValueError("Brak danych do generowania: " + pr["powod"])
+    S.zeruj_zrodlo_odleglosci()
+    _odnow_siec()
+    baza_lat, baza_lng = S.pobierz_coords(pr["adres_geo"], pr["baza_miasto"], pr["woj"])
+    rok, mies = int(p["rok"]), int(p["miesiac"])
+    dni = dni_robocze(rok, mies, p.get("tryb", "tydzien"), p.get("wolne", ()))
+    pesel = "".join(str(p["pesel"]).split())
+    _dokladne_z_zapytania([])
+    wynik = S.generuj_trasy(float(p["kwota"]), pr["baza_miasto"], baza_lat, baza_lng, pr["woj"], dni, pesel, pr["stawka"], postep, zajete=_zajete_z_rejestru(p.get("zajete")))
+    domowe, widziane = [], set()
+    pierwsze = 0
+    for dz in wynik or []:
+        for e in dz.etapy_surowe:
+            if (e.skad_lat, e.skad_lng) == (baza_lat, baza_lng):
+                m = (e.dokad_lat, e.dokad_lng)
+            elif (e.dokad_lat, e.dokad_lng) == (baza_lat, baza_lng):
+                m = (e.skad_lat, e.skad_lng)
+            else:
+                continue
+            k = (round(m[0], 4), round(m[1], 4))
+            if k not in widziane:
+                widziane.add(k); domowe.append([round(baza_lat, 6), round(baza_lng, 6), round(m[0], 6), round(m[1], 6)])
+    pierwsze = len(domowe)
+    for (la, lo) in getattr(wynik, "punkty_planu", ()) or ():
+        k = (round(la, 4), round(lo, 4))
+        if k not in widziane and (la, lo) != (baza_lat, baza_lng):
+            widziane.add(k); domowe.append([round(baza_lat, 6), round(baza_lng, 6), round(la, 6), round(lo, 6)])
+    return {"ok": True, "pary": domowe, "pierwsze": pierwsze, "tabela": S.tabela_drog_wczytana()}
+
+
 def generuj(p, postep=None):
     """Odpowiednik GeneratorThread.run: współrzędne bazy → generuj_trasy → generuj_pdfy (do folderu w pamięci).
     Zwraca {ok, dni, folder, pliki, zrodlo, niepelna, ...}; błędy jako wyjątki (ValueError z tekstem dla człowieka)."""
@@ -225,6 +280,7 @@ def generuj(p, postep=None):
                             baza_lng=baza_lng, wojewodztwo=pr["woj"])
     cb("Generowanie tras...", 0.40)
     dni = dni_robocze(rok, mies, p.get("tryb", "tydzien"), p.get("wolne", ()))
+    _dokladne_z_zapytania(p.get("google"))
     wynik = S.generuj_trasy(float(p["kwota"]), pr["baza_miasto"], baza_lat, baza_lng, pr["woj"], dni, pesel, stawka, cb, zajete=_zajete_z_rejestru(p.get("zajete")))
     zrodlo = S.stan_zrodla_odleglosci()
     if not wynik:

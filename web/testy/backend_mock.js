@@ -54,6 +54,20 @@ class BackendMock {
     if (d.op === 'zapisz') { if (!Array.isArray(d.miejscowosci) || d.miejscowosci.length > 250) return { status: 'blad', opis: 'Za duzo miejscowosci' }; this.rejestr[klucz] = [...new Set(d.miejscowosci.map(String))]; return { status: 'ok', zapisano: this.rejestr[klucz].length }; }
     return { status: 'blad', opis: 'Nieznana operacja' };
   }
+  /** Jak obsluzDroge w .gs: podpis hasłem, współrzędne w Polsce, do 60 par; droga = linia prosta × 1,2 (atrapa Google); this.zapytaniaDrog zbiera pary do sprawdzenia w teście. */
+  droga(d) {
+    const kod = String(d.kod || ''), u = this.uzytkownicy[kod];
+    if (!u || !this.hasloOk(d, u)) { this.zapisz(kod || '?', 'droga_odmowa'); return { status: 'odmowa' }; }
+    if (u.wazne_do < iso(new Date())) return { status: 'wygasla' };
+    if (this.drogaBlad) return { status: 'blad', opis: 'Serwer zajety — sprobuj ponownie za chwile' };
+    const pary = d.pary; if (!Array.isArray(pary) || pary.length < 1 || pary.length > 60) return { status: 'blad', opis: 'Nieprawidlowa liczba par' };
+    const wPl = (la, lo) => typeof la === 'number' && typeof lo === 'number' && la >= 48.8 && la <= 55.2 && lo >= 13.9 && lo <= 24.4;
+    if (pary.some(p => !Array.isArray(p) || p.length !== 4 || !wPl(p[0], p[1]) || !wPl(p[2], p[3]))) return { status: 'blad', opis: 'Nieprawidlowe wspolrzedne' };
+    this.zapytaniaDrog = (this.zapytaniaDrog || []).concat(pary.map(p => ({ kod, para: p })));
+    const prosta = p => { const r = Math.PI / 180; return 6371 * Math.hypot((p[3] - p[1]) * r * Math.cos((p[0] + p[2]) * r / 2), (p[2] - p[0]) * r); };
+    if (this.drogaLimit) return { status: 'ok', wyniki: pary.map(() => null), limit: true };
+    return { status: 'ok', wyniki: pary.map(p => { const km = prosta(p) * 1.2; return { km: Math.round(km * 10) / 10, min: Math.round(km) }; }), limit: false };
+  }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
   /** Jak _json w .gs: każda odpowiedź niesie czas serwera. */
   obsluz(tekst) { const o = this.obsluzAkcje(tekst); if (o && typeof o === 'object') o.czas_serwera = Math.floor(Date.now() / 1000); return o; }
@@ -71,6 +85,7 @@ class BackendMock {
       case 'reset_hasla': return this.reset(d);
       case 'haslo_paczki': return this.hasloPaczki(d);
       case 'miejscowosci': return this.miejscowosci(d);
+      case 'droga': return this.droga(d);
       default: return { status: 'blad', opis: 'Nieznana akcja' };
     }
   }

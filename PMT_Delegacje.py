@@ -6690,6 +6690,10 @@ def dystans_drogowy(lat1, lon1, lat2, lon2, tylko_cache=False) -> float:
                     return _road_cache[klucz]
             except Exception:
                 _osrm_dostepny = False
+    if _tabela is not None and oblicz_dystans(lat1, lon1, lat2, lon2) < TABELA_PROMIEN_ADRESU_KM / 4.0:
+        # odcinek krótszy niż 3 km (np. dom tuż przy miejscowości): szacunek myli się o najwyżej ~1 km, więc nie psuje wiarygodności sumy kilometrów
+        _odnotuj_zrodlo(ZRODLO_TABELA)
+        return oblicz_dystans(lat1, lon1, lat2, lon2) * TEST_MNOZNIK_TRASY
     _odnotuj_zrodlo(ZRODLO_SZACUNEK)
     return oblicz_dystans(lat1, lon1, lat2, lon2) * TEST_MNOZNIK_TRASY
 
@@ -8227,6 +8231,7 @@ class ListaTras(list):
     brak_dni = False
     powtorzone_miejscowosci = 0      # ile razy miejscowość (poza bazą) wróciła w tym samym miesiącu
     wspolne_z_innymi = 0             # ile miejscowości z tego układu zajęli już inni użytkownicy w tym miesiącu (wspólny rejestr)
+    punkty_planu = ()                # (lat, lng) wszystkich zaplanowanych postojów PRZED końcowym przycinaniem dni — z nich może powstać każdy odcinek „dom ↔ miejscowość”
     promien_km = 0.0                 # promień pętli, w którym ułożono dni
 
 
@@ -8996,6 +9001,24 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     # (z cache + fallbackiem offline). Dzięki temu skalowanie kwot i wyliczone
     # kilometry odpowiadają faktycznym trasom po drogach, a nie liniom prostym.
     if postep_cb: postep_cb("Wyznaczanie realnych tras drogowych...", 0.78)
+    # końcowe przycinanie dni tylko ZDEJMUJE postoje z tego planu (nie dokłada nowych miejscowości), więc każdy odcinek „dom ↔ miejscowość” w wyniku
+    # prowadzi do miejscowości z tej listy — aplikacja web pyta o ich dokładną drogę (Google) jednym zestawem, bez ponawiania przebiegów
+    _punkty_planu, _pp_widziane = [], set()
+    for e in wszystkie_surowe:
+        for _la, _lo, _nm in ((e.skad_lat, e.skad_lng, e.skad), (e.dokad_lat, e.dokad_lng, e.dokad)):
+            _kk = (round(_la, 4), round(_lo, 4))
+            if str(_nm).strip().lower() != str(baza_nazwa).strip().lower() and _kk not in _pp_widziane:
+                _pp_widziane.add(_kk); _punkty_planu.append((_la, _lo))
+    # przy odbudowie dnia (patrz _sciagnij_dzien) silnik bierze najbliższe miejscowości z całej bazy — one też mogą dać odcinek „dom ↔ miejscowość”
+    try:
+        _najblizsze = sorted((m for _l in _baza_miast.values() for m in _l if m.n.strip().lower() != str(baza_nazwa).strip().lower()
+                              and oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) > 3.0), key=lambda m: oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng))[:14]
+        for _m in _najblizsze:
+            _kk = (round(_m.lat, 4), round(_m.lng, 4))
+            if _kk not in _pp_widziane:
+                _pp_widziane.add(_kk); _punkty_planu.append((_m.lat, _m.lng))
+    except Exception:
+        pass
     for e in wszystkie_surowe:
         # linia prosta zostaje zapamiętana — to ona jest fizyczną granicą
         # dolną odcinka, a d_line za chwilę przestanie nią być
@@ -9681,6 +9704,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     finalne_dni.brak_dni = _brak_dni_na_kwote
     finalne_dni.powtorzone_miejscowosci = _policz_powtorzone(finalne_dni, baza_nazwa)
     finalne_dni.wspolne_z_innymi = _policz_wspolne(finalne_dni, baza_nazwa, _zajete)
+    finalne_dni.punkty_planu = tuple(_punkty_planu)
     finalne_dni.promien_km = float(promien_petli)
     return finalne_dni
 

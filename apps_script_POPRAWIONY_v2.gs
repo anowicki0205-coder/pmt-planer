@@ -202,7 +202,7 @@ var WERSJA_Z_SEKRETEM = '3.24.0';
 // a program na komputerze podpisuje każde zapytanie. Po włączeniu
 // PODPIS_OBOWIAZKOWY nikt bez sekretu aplikacji nie zaloguje się, nie
 // zmieni hasła i nie wyzeruje go przez sam adres /exec.
-var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki', 'miejscowosci'];
+var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki', 'miejscowosci', 'droga'];
 
 // Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
 // Wpisz numer (np. '3.24.0') dopiero wtedy, gdy zespół ma już nową
@@ -606,6 +606,9 @@ function doPost(e) {
   var blokada = LockService.getScriptLock();
   // Bez blokady liczniki prób i statystyki ścigałyby się z równoległym wywołaniem — lepiej odmówić (klient ponowi).
   if (!blokada.tryLock(20000)) return _json({ status: "blad", opis: "Serwer zajety — sprobuj ponownie za chwile" });
+  var zwolniona = false;
+  // akcja „droga” zwalnia blokadę wcześniej: jej zapytania do Google trwają sekundy i nie mogą wstrzymywać logowania innych
+  var zwolnij = function () { if (!zwolniona) { zwolniona = true; blokada.releaseLock(); } };
   try {
     var tresc = e && e.postData && e.postData.contents ? String(e.postData.contents) : "{}";
     if (tresc.length > 20000) return _json({ status: "blad", opis: "Zapytanie za duze" });
@@ -641,7 +644,7 @@ function doPost(e) {
     }
 
     // Aplikacja na telefon zostala wycofana (3.24.0) — backend obsluguje program na komputerze
-    // i aplikacje web: siedem akcji, wszystkie podpisane.
+    // i aplikacje web: osiem akcji, wszystkie podpisane.
     switch (dane.akcja) {
       case "logowanie":   return _json(logowanie(dane));
       case "puls":        return _json(obsluzPuls(dane));
@@ -650,6 +653,7 @@ function doPost(e) {
       case "reset_hasla": return _json(resetHasla(dane));
       case "haslo_paczki": return _json(hasloPaczki(dane));
       case "miejscowosci": return _json(obsluzMiejscowosci(dane));
+      case "droga": return _json(obsluzDroge(dane, zwolnij));
       default: return _json({ status: "blad", opis: "Nieznana akcja" });
     }
   } catch (err) {
@@ -657,7 +661,7 @@ function doPost(e) {
     try { _log(SpreadsheetApp.getActiveSpreadsheet(), "?", "blad_serwera", String(err), "raz"); } catch (x) {}
     return _json({ status: "blad", opis: "Blad serwera — sprobuj ponownie" });
   } finally {
-    blokada.releaseLock();
+    zwolnij();
   }
 }
 
@@ -970,6 +974,108 @@ function _przytnijMiejscowosci(sh) {
   var prog = d.getFullYear() * 100 + d.getMonth() + 1;
   var mies = sh.getRange(2, 1, ile - 1, 1).getValues();
   for (var i = mies.length - 1; i >= 0; i--) { if (Number(mies[i][0]) < prog) sh.deleteRow(i + 2); }
+}
+
+
+/* ====== DROGI Z GOOGLE MAPS: dokładna odległość odcinków z adresu zamieszkania ==================
+   Odcinki między miejscowościami z bazy aplikacja bierze z gotowej tabeli dróg (OpenStreetMap, plik drogi.bin). Pierwszy i ostatni odcinek
+   dnia zaczyna się w domu użytkownika, którego tabela nie zna, więc aplikacja pyta tu o ich DOKŁADNĄ drogę: wbudowana usługa Maps (Google) pod
+   Twoim kontem — bez klucza i bez karty; limit usługi to 1000 zapytań dziennie (konto prywatne) albo 10 000 (Workspace). Nowe uprawnienie:
+   raz uruchom w edytorze funkcję autoryzujMapy() i zatwierdź zgodę, potem Wdróż → Nowa wersja.
+   Zabezpieczenia: podpis aplikacji ORAZ podpis hasłem użytkownika (jak hasło paczki), współrzędne tylko z obszaru Polski i nie dalej niż
+   DROGA_MAKS_KM w linii prostej (to nie jest otwarty serwer tras), do DROGA_PAR_MAKS par w zapytaniu, limit nowych par na konto i wspólny
+   w oknie 6 h (wyczerpany = „limit”: aplikacja zostaje przy tabeli). Wyniki żyją w pamięci podręcznej skryptu do 6 h (ta sama para nie liczy się dwa razy);
+   współrzędne nie trafiają ani do arkusza, ani do Log — tylko liczba par. Odpowiedź: { status:"ok", wyniki:[{km, min}|null, …], limit:true|false }. */
+var DROGA_PAR_MAKS = 60;
+var DROGA_NA_KONTO_W_OKNIE = 160;      // jedna delegacja to ok. 50–110 par (każdy zaplanowany postój)
+var DROGA_WSPOLNIE_W_OKNIE = 480;      // wspólny bezpiecznik na okno 6 h (limit usługi Maps: 1000/dobę konto prywatne, 10 000 Workspace — wyczerpanie obsługuje „limit”)
+var DROGA_OKNO_S = 21600;
+var DROGA_MAKS_KM = 400;
+var DROGA_ZAKRES = { latMin: 48.8, latMax: 55.2, lngMin: 13.9, lngMax: 24.4 };
+function _wspPolski(la, lo) {
+  return typeof la === "number" && typeof lo === "number" && isFinite(la) && isFinite(lo)
+    && la >= DROGA_ZAKRES.latMin && la <= DROGA_ZAKRES.latMax && lo >= DROGA_ZAKRES.lngMin && lo <= DROGA_ZAKRES.lngMax;
+}
+function _prostaKm(la1, lo1, la2, lo2) {
+  var p = Math.PI / 180, x = (lo2 - lo1) * p * Math.cos((la1 + la2) * p / 2), y = (la2 - la1) * p;
+  return 6371 * Math.sqrt(x * x + y * y);
+}
+function _kluczDrogi(la1, lo1, la2, lo2) {
+  var a = la1.toFixed(4) + "," + lo1.toFixed(4), c = la2.toFixed(4) + "," + lo2.toFixed(4);
+  return "dr:" + (a <= c ? a + ";" + c : c + ";" + a);
+}
+// Dodaje „ile” do licznika z oknem stałym (jak _licznik, ale o więcej niż 1) i zwraca nową wartość.
+function _licznikIle(klucz, okno, ile) {
+  var pam = CacheService.getScriptCache(), teraz = Date.now(), n = 0, t0 = teraz, zap = pam.get(klucz);
+  if (zap) { var cz = String(zap).split("|"); n = Number(cz[0]) || 0; t0 = Number(cz[1]) || teraz; }
+  n += ile;
+  pam.put(klucz, n + "|" + t0, Math.max(1, Math.round(okno - (teraz - t0) / 1000)));
+  return n;
+}
+function _droga1(la1, lo1, la2, lo2) {
+  var r = Maps.newDirectionFinder().setOrigin(la1, lo1).setDestination(la2, lo2).setMode(Maps.DirectionFinder.Mode.DRIVING).getDirections();
+  var noga = r && r.routes && r.routes.length && r.routes[0].legs && r.routes[0].legs[0];
+  if (!noga || !noga.distance || !(noga.distance.value > 0)) return null;
+  var km = noga.distance.value / 1000, prosta = _prostaKm(la1, lo1, la2, lo2);
+  if (km < prosta * 0.9 || km > prosta * 4 + 5) return null;      // niedorzeczny wynik (zły punkt, objazd przez pół kraju): lepiej tabela
+  return { km: Math.round(km * 10) / 10, min: Math.round((noga.duration && noga.duration.value ? noga.duration.value : 0) / 6) / 10 };
+}
+function obsluzDroge(dane, zwolnijBlokade) {
+  var kod = String(dane.kod || "").trim();
+  if (!_kodPoprawny(kod)) return { status: "odmowa" };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []);
+  var wiersze = shU.getDataRange().getValues(), w = null;
+  for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
+  if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
+    _log(ss, kod, "droga_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
+    return { status: "odmowa" };
+  }
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
+  var pary = dane.pary;
+  if (!Array.isArray(pary) || pary.length < 1 || pary.length > DROGA_PAR_MAKS) return { status: "blad", opis: "Nieprawidlowa liczba par" };
+  var wejscie = [];
+  for (var q = 0; q < pary.length; q++) {
+    var p = pary[q];
+    if (!Array.isArray(p) || p.length !== 4 || !_wspPolski(p[0], p[1]) || !_wspPolski(p[2], p[3])) return { status: "blad", opis: "Nieprawidlowe wspolrzedne" };
+    if (_prostaKm(p[0], p[1], p[2], p[3]) > DROGA_MAKS_KM) return { status: "blad", opis: "Odcinek za dlugi" };
+    wejscie.push(p);
+  }
+  var pam = CacheService.getScriptCache(), wyniki = new Array(wejscie.length), doLiczenia = [];
+  for (var k = 0; k < wejscie.length; k++) {
+    var zap = pam.get(_kluczDrogi(wejscie[k][0], wejscie[k][1], wejscie[k][2], wejscie[k][3]));
+    if (zap === "-") { wyniki[k] = null; continue; }      // wcześniej: Google nie znalazł sensownej trasy
+    if (zap) { var cz = String(zap).split("|"); wyniki[k] = { km: Number(cz[0]), min: Number(cz[1]) }; continue; }
+    doLiczenia.push(k);
+  }
+  var limit = false, wolneKonto = DROGA_NA_KONTO_W_OKNIE - _licznik("dr:k:" + kod, DROGA_OKNO_S, false), wolneWspolne = DROGA_WSPOLNIE_W_OKNIE - _licznik("dr:w", DROGA_OKNO_S, false);
+  var ile = Math.max(0, Math.min(doLiczenia.length, wolneKonto, wolneWspolne));
+  if (ile < doLiczenia.length) limit = true;
+  doLiczenia = doLiczenia.slice(0, ile);
+  if (ile > 0) { _licznikIle("dr:k:" + kod, DROGA_OKNO_S, ile); _licznikIle("dr:w", DROGA_OKNO_S, ile); }
+  _log(ss, kod, "droga", wejscie.length + " par, nowych " + ile + (limit ? ", LIMIT" : ""), "raz");
+  zwolnijBlokade();      // zapytania do Google (sekundy) nie mogą wstrzymywać innych użytkowników
+  for (var m = 0; m < doLiczenia.length; m++) {
+    var idx = doLiczenia[m], pp = wejscie[idx];
+    try {
+      var d = _droga1(pp[0], pp[1], pp[2], pp[3]);
+      wyniki[idx] = d;
+      pam.put(_kluczDrogi(pp[0], pp[1], pp[2], pp[3]), d ? d.km + "|" + d.min : "-", DROGA_OKNO_S);
+    } catch (e) {
+      limit = true;      // wyczerpany dzienny limit usługi Maps albo błąd usługi: reszta zostaje przy tabeli
+      break;
+    }
+  }
+  for (var z = 0; z < wyniki.length; z++) { if (wyniki[z] === undefined) wyniki[z] = null; }
+  return { status: "ok", wyniki: wyniki, limit: limit };
+}
+// Jednorazowo w edytorze: uruchom, zatwierdź uprawnienie do Map Google, potem Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
+function autoryzujMapy() {
+  var d = _droga1(51.4027, 21.1471, 50.8661, 20.6286);      // Radom → Kielce
+  Logger.log("Maps działa: " + JSON.stringify(d));
+  return d;
 }
 
 

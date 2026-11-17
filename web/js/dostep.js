@@ -81,7 +81,7 @@ export function sekret() {
 export const zapomnijSekret = () => { sekretObietnica = null; };
 /* Puls i rejestr sesji backend przyjmuje w pełni tylko z podpisem KLUCZEM POCHODNYM OD HASŁA: HMAC, którego kluczem jest skrót hasła „PMT|kod|hasło” (ten sam, który serwer
    trzyma w kolumnie „Haslo hash”, a my mamy zapisany po logowaniu). Samo hasło nie jedzie, a znajomość samego 5-cyfrowego kodu nie wystarcza, by dostać imię, rejon i L4 innego pracownika. */
-const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki', 'miejscowosci'];
+const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki', 'miejscowosci', 'droga'];
 /* serwer przyjmuje podpis tylko w oknie 600 s od SWOJEGO czasu: zegar urządzenia przestawiony o kwadrans dawał niezrozumiałe odmowy, więc czas podpisu poprawiamy
    o różnicę względem czasu serwera z ostatniej odpowiedzi (czas_serwera) */
 let przesuniecie = 0;
@@ -151,6 +151,32 @@ export function zwolnijMiejscowosci(rok, mies) {
   const kod = stan().kod; if (!kod) return Promise.resolve(false);
   wKolejceRejestru(kod, miesiacRejestru(rok, mies), { op: 'zwolnij' });
   return wyslijRejestr();
+}
+/* ---------- dokładne drogi z Google (przez Twój backend): odcinki z adresu zamieszkania ----------
+   Odcinki między miejscowościami z bazy silnik bierze z gotowej tabeli dróg (OpenStreetMap). Pierwszy i ostatni odcinek dnia zaczyna się w domu użytkownika, którego tabela nie zna —
+   o te pyta backend (usługa Maps w Apps Script, bez klucza). Wyniki żyją tylko w pamięci strony (nie na dysku). Bez dostępu (brak sieci, brak hasła w sesji, limit) silnik zostaje przy tabeli. */
+const pamiecDrog = new Map();
+const kluczDrogi = p => p.map(x => Number(x).toFixed(4)).join(',');
+export const gotowyDoDrog = () => gotowyDoRejestru(stan().kod);
+/** pary: [[lat1, lng1, lat2, lng2], …] → { ok:true, wyniki:[km|null, …], limit } albo { ok:false, powod }. Porcje po 12 par, do 4 naraz. */
+export async function drogiGoogle(pary, limit = 45000) {
+  const kod = stan().kod; if (!gotowyDoRejestru(kod)) return { ok: false, powod: 'logowanie' };
+  const wyniki = new Array(pary.length).fill(null), doPytania = []; let limitUslugi = false;
+  pary.forEach((p, i) => { const k = kluczDrogi(p); if (pamiecDrog.has(k)) wyniki[i] = pamiecDrog.get(k); else doPytania.push(i); });
+  const porcje = []; for (let i = 0; i < doPytania.length; i += 12) porcje.push(doPytania.slice(i, i + 12));
+  let nastepna = 0, odmowa = false;
+  const robotnik = async () => {
+    while (nastepna < porcje.length && !odmowa) {
+      const idx = porcje[nastepna++]; let odp;
+      try { odp = await wyslij({ akcja: 'droga', kod, pary: idx.map(i => pary[i]) }, limit); } catch (e) { continue; }      // porcja nie doszła: te odcinki zostają przy tabeli
+      if (odp && odp.status === 'odmowa') { skrotNieaktualny = kod; odmowa = true; return; }
+      if (!odp || odp.status !== 'ok' || !Array.isArray(odp.wyniki) || odp.wyniki.length !== idx.length) continue;
+      if (odp.limit) limitUslugi = true;
+      idx.forEach((i, j) => { const w = odp.wyniki[j], km = w && Number(w.km); if (km > 0 && km < 2000) { wyniki[i] = km; pamiecDrog.set(kluczDrogi(pary[i]), km); } });
+    }
+  };
+  await Promise.all([robotnik(), robotnik(), robotnik(), robotnik()]);
+  return { ok: !odmowa, wyniki, limit: limitUslugi, powod: odmowa ? 'odmowa' : '' };
 }
 export const oczekujaceRejestru = () => Object.keys((stan().rejestr || {})[stan().kod] || {}).length;
 let rejestrWToku = null;

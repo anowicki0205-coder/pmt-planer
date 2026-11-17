@@ -26,6 +26,7 @@ export class Silnik {
   importPamieci(pliki) { return this._wolaj('importPamieci', { pliki }); }
   siec(wlaczona) { return this._wolaj('siec', { wlaczona }); }
   generuj(a, postep) { return this._wolaj('generuj', a, postep); }
+  trasyDomowe(a, postep) { return this._wolaj('trasyDomowe', a, postep); }      // odcinki „dom ↔ miejscowość” z pierwszego przebiegu (do sprawdzenia w Google)
   planWczytaj(a) { return this._wolaj('planWczytaj', a); }
   planGeneruj(a, postep) { return this._wolaj('planGeneruj', a, postep); }
   planZProgramu(a) { return this._wolaj('planZProgramu', a); }

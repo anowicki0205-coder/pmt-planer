@@ -4,7 +4,7 @@ import os, json, hashlib
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # tylko to, co aplikacja naprawdę ładuje (lista dozwolonych wzorców)
 import fnmatch
-DOZWOLONE = ['index.html', 'manifest.webmanifest', 'css/*.css', 'js/*.js', 'ikony/*', 'silnik/*.py', 'silnik/sieci_cel.txt', 'silnik/fonty/*.ttf', 'vendor/czcionki/*.woff2',
+DOZWOLONE = ['index.html', 'manifest.webmanifest', 'css/*.css', 'js/*.js', 'ikony/*', 'silnik/*.py', 'silnik/sieci_cel.txt', 'silnik/drogi.bin', 'silnik/fonty/*.ttf', 'vendor/czcionki/*.woff2',
              'vendor/pyodide/pyodide.asm.js', 'vendor/pyodide/pyodide.asm.wasm', 'vendor/pyodide/pyodide.mjs', 'vendor/pyodide/python_stdlib.zip',
              'vendor/pyodide/pyodide-lock.json', 'vendor/paczki/*.whl', 'vendor/qr/qrcode.mjs', 'przyklad/*.json']
 pliki = []

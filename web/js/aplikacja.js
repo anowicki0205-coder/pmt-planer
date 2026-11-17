@@ -1862,7 +1862,19 @@ async function generuj() {
   let w;
   try {
     const rej = await zajetePytanie;      // gotowe zwykle zanim użytkownik kliknął „Generuj”; brak rejestru (sieć, konto) = dawny sposób (klin z PESEL-u)
-    w = await silnik.generuj(rej && rej.ok ? { ...par, zajete: rej.zajete } : par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
+    let parGen = rej && rej.ok ? { ...par, zajete: rej.zajete } : par;
+    if (dostep.gotowyDoDrog()) {      // dokładne drogi z Google dla odcinków z adresu zamieszkania: pierwszy przebieg silnika zna te odcinki, drugi dostaje ich kilometry
+      try {
+        postepGeneracji('Sprawdzam drogi z domu…', 0.04); wid && wid.postep('Sprawdzam drogi z domu…', 0.06);
+        const tr = await silnik.trasyDomowe(parGen);
+        if (tr && Array.isArray(tr.pary) && tr.pary.length) {
+          const g = await dostep.drogiGoogle(tr.pary), google = [];
+          if (g.ok) tr.pary.forEach((p, i) => { if (g.wyniki[i] > 0) google.push([...p, g.wyniki[i]]); });
+          if (google.length) parGen = { ...parGen, google };
+        }
+      } catch (e) { if (e && e.przerwano) throw e; /* dokładne drogi to dodatek: bez nich zostaje tabela dróg */ }
+    }
+    w = await silnik.generuj(parGen, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
     wid && wid.przerwij(); koniecGenerowania();
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {

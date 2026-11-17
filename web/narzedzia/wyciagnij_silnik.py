@@ -18,6 +18,7 @@ ROOTY = [
     # generowanie tras i dokumentów
     "generuj_trasy", "generuj_pdfy", "generuj_mape_html", "dni_delegacji_z_planu", "slad_dnia", "PrzerwanoGenerowanie",
     "pobierz_coords", "nazwa_do_pliku", "tekst_stawki", "kilometry_dokumentu", "opis_przejazdow", "uprzatnij_poprzedni_komplet",
+    "wczytaj_tabele_drog", "wczytaj_tabele_drog_z_pliku", "tabela_drog_wczytana", "tabela_droga", "predkosc_odcinka", "ustaw_dokladne_drogi",      # tabela dróg (drogi.bin) i dokładne odcinki z Google — most.py
     "zeruj_zrodlo_odleglosci", "stan_zrodla_odleglosci",      # most.py oddaje aplikacji stan źródła odległości (na dokumencie go nie ma, w oknie tak) — nie mogą zależeć od tego, czy PDF go drukuje
     # planer wizyt
     "planuj_wizyty", "planuj_cyklicznie", "przeplanuj_zalegle", "zalegle_wizyty", "cykl_dla_punktu", "generuj_mape_planu_html",

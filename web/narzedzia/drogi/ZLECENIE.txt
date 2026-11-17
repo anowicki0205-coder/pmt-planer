@@ -1,0 +1,4 @@
+# Zlecenie dla zadania „Drogi OSRM” (.github/workflows/drogi-osrm.yml). Zmiana tego pliku i wypchnięcie uruchamia liczenie tabeli dróg.
+# region=poland — cała Polska; region=poland/opolskie — próba potoku na małym obszarze.
+# próba: 1
+region=poland/opolskie

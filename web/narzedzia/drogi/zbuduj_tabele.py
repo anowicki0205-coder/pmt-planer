@@ -4,7 +4,7 @@
 
 Dla każdej pary miejscowości odległych w linii prostej o najwyżej PROMIEN km zapisuje drogę w km i czas jazdy samochodem (OSRM, profil „car”, bez korków).
 Plik czyta silnik (PMT_Delegacje.wczytaj_tabele_drog): zamiast „linia prosta × 1,28” daje realne kilometry, a z czasów — względną prędkość każdego odcinka
-(autostrada szybciej, miasto wolniej), przy zachowaniu tej samej średniej prędkości (patrz PREDKOSC_ODNIESIENIA).
+(autostrada szybciej, miasto wolniej), przy zachowaniu tej samej ŚREDNIEJ prędkości silnika (65 km/h) dla typowych odcinków: prędkość odcinka = 65 × v_odcinka / prędkość odniesienia.
 
 Uruchamia go zadanie GitHub Actions „Drogi OSRM” (.github/workflows/drogi-osrm.yml) — tylko stdlib Pythona:
     python3 zbuduj_tabele.py --osrm http://127.0.0.1:5000 --miasta miasta.json --wyjscie ../../silnik/drogi.bin --raport RAPORT.txt
@@ -14,7 +14,7 @@ FORMAT PLIKU (little-endian):
     N ×   i32 lat×1e4, i32 lng×1e4            (współrzędne dokładnie z miasta.json, w kolejności indeksów)
     N ×   u16 k, potem k × (u16 j, u16 km×10, u16 czas w jednostkach 10 s)     — tylko pary i<j; j rosnąco
 """
-import argparse, json, math, statistics, struct, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, json, math, struct, sys, time, urllib.error, urllib.parse, urllib.request
 
 WERSJA = 1
 PROMIEN_DOMYSLNY_KM = 200.0
@@ -49,9 +49,11 @@ def linia_prosta_km(lat1, lng1, lat2, lng2):
 class Osrm:
     def __init__(self, adres, proby=4, limit=300):
         self.adres, self.proby, self.limit = adres.rstrip("/"), proby, limit
+        self.przyciagniecie = {}
 
     def tabela(self, zrodla, cele):
-        """zrodla, cele: [(lat, lng)]; → (odleglosci_m, czasy_s) jako listy list (None = brak trasy)."""
+        """zrodla, cele: [(lat, lng)]; → (odleglosci_m, czasy_s) jako listy list (None = brak trasy). Odległości „przyciągnięcia” punktów do drogi (m)
+        z odpowiedzi OSRM trafiają do self.przyciagniecie (słownik: punkt → m), jeśli serwer je podaje."""
         pkt = list(zrodla) + list(cele)
         s = ";".join(str(i) for i in range(len(zrodla)))
         d = ";".join(str(len(zrodla) + i) for i in range(len(cele)))
@@ -64,6 +66,10 @@ class Osrm:
                     dane = json.loads(r.read().decode("utf-8"))
                 if dane.get("code") != "Ok":
                     raise RuntimeError("OSRM: %s %s" % (dane.get("code"), dane.get("message", "")))
+                for lista, punkty in ((dane.get("sources"), zrodla), (dane.get("destinations"), cele)):
+                    for w, pt in zip(lista or [], punkty):
+                        if isinstance(w, dict) and w.get("distance") is not None:
+                            self.przyciagniecie[pt] = float(w["distance"])
                 return dane["distances"], dane["durations"]
             except (urllib.error.URLError, RuntimeError, ValueError, TimeoutError) as e:
                 ostatni = e
@@ -103,15 +109,19 @@ def zbuduj(miasta, osrm, promien, log=print):
 def statystyki(wynik, miasta, promien):
     pary, lat, lng = wynik["pary"], wynik["lat"], wynik["lng"]
     krzywizna, predkosci, podejrzane = [], [], 0
+    km_typowe, s_typowe = 0.0, 0.0          # odcinki 10–80 km w linii prostej: tak długie są typowe odcinki dnia (do prędkości odniesienia)
     for (i, j), (km, s) in pary.items():
         prosta = linia_prosta_km(lat[i], lng[i], lat[j], lng[j])
         if prosta >= 5.0:
             krzywizna.append(km / prosta)
         if 30.0 <= prosta <= 120.0 and s > 0:
             predkosci.append(km / (s / 3600.0))
+        if 10.0 <= prosta <= 80.0 and s > 0:
+            km_typowe += km; s_typowe += s
         if prosta >= 5.0 and (km < prosta * 0.97 or km > prosta * 3.5):
             podejrzane += 1
-    return {"krzywizna": krzywizna, "predkosci": predkosci, "podejrzane": podejrzane}
+    return {"krzywizna": krzywizna, "predkosci": predkosci, "podejrzane": podejrzane,
+            "predkosc_odniesienia": (km_typowe / (s_typowe / 3600.0)) if s_typowe > 0 else 0.0}
 
 
 def kwantyle(w, q=(0.05, 0.25, 0.5, 0.75, 0.95)):
@@ -152,10 +162,12 @@ def main(argv=None):
         miasta = miasta[:a.probka]
     print("miejscowości:", len(miasta), "promień:", a.promien, "km")
     t0 = time.time()
-    wynik = zbuduj(miasta, Osrm(a.osrm), a.promien)
+    osrm = Osrm(a.osrm)
+    wynik = zbuduj(miasta, osrm, a.promien)
     st = statystyki(wynik, miasta, a.promien)
     kw_k, kw_v = kwantyle(st["krzywizna"]), kwantyle(st["predkosci"])
-    vref = statystyka_mediany(st["predkosci"])
+    przyc = sorted(osrm.przyciagniecie.values())
+    vref = st["predkosc_odniesienia"] or 65.0
     razem = len(wynik["pary"]) + wynik["brak"]
     zapisz(wynik, a.wyjscie, a.promien, vref)
     linie = [
@@ -164,9 +176,12 @@ def main(argv=None):
             wynik["N"], a.promien, len(wynik["pary"]), wynik["brak"], 100.0 * wynik["brak"] / max(1, razem), time.time() - t0),
         "droga/linia prosta (pary ≥ 5 km), kwantyle 5/25/50/75/95 %%: %s" % " ".join("%.3f" % x for x in kw_k),
         "prędkość km/h (pary 30–120 km), kwantyle 5/25/50/75/95 %%: %s" % " ".join("%.1f" % x for x in kw_v),
-        "prędkość odniesienia (mediana, zapisana w pliku): %.2f km/h" % vref,
+        "prędkość odniesienia (średnia ważona kilometrami dla par 10–80 km w linii prostej, zapisana w pliku): %.2f km/h" % vref,
         "pary podejrzane (droga < 0,97 prostej albo > 3,5 prostej): %d" % st["podejrzane"],
     ]
+    if przyc:
+        linie.append("przyciągnięcie miejscowości do najbliższej drogi (m), mediana / 95%% / maks: %.0f / %.0f / %.0f; powyżej 2 km: %d z %d" % (
+            przyc[len(przyc) // 2], przyc[int(0.95 * (len(przyc) - 1))], przyc[-1], sum(1 for x in przyc if x > 2000), len(przyc)))
     # kontrola przykładowych par po nazwach (jeśli obie miejscowości są w bazie)
     po_nazwie = {}
     for i, m in enumerate(miasta):
@@ -196,10 +211,6 @@ def main(argv=None):
         print("BŁĄD:", "; ".join(problemy), file=sys.stderr)
         return 1
     return 0
-
-
-def statystyka_mediany(w):
-    return statistics.median(w) if w else 65.0
 
 
 if __name__ == "__main__":

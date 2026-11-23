@@ -13,6 +13,7 @@ class Zakladka {
   appendRow(r) { this.w.push(r.slice()); }
   setFrozenRows() {}
   deleteRow(n) { this.w.splice(n - 1, 1); }
+  clear() { this.w = []; }
   getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.map(odczyt)) }; }
   getRange(r, c, nr = 1, nc = 1) {
     const t = this;
@@ -60,7 +61,7 @@ function zaladuj(opcje = {}) {
       DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
       computeDigest: (alg, tekst) => naBajty(crypto.createHash('sha256').update(tekst, 'utf8').digest()),
       computeHmacSha256Signature: (tekst, klucz) => naBajty(crypto.createHmac('sha256', klucz).update(tekst, 'utf8').digest()),
-      formatDate: (d, tz, wz) => { const x = new Date(d.getTime() + 2 * 3600000), p = n => String(n).padStart(2, '0'); return wz.replace('yyyy', x.getUTCFullYear()).replace('MM', p(x.getUTCMonth() + 1)).replace('dd', p(x.getUTCDate())); },
+      formatDate: (d, tz, wz) => { const x = new Date(d.getTime() + 2 * 3600000), p = n => String(n).padStart(2, '0'); return wz.replace('yyyy', x.getUTCFullYear()).replace('MM', p(x.getUTCMonth() + 1)).replace('dd', p(x.getUTCDate())).replace('HH', p(x.getUTCHours())).replace('mm', p(x.getUTCMinutes())); },
       getUuid: () => crypto.randomUUID(),
     },
   };

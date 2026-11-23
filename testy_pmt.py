@@ -8031,8 +8031,8 @@ try:
     # telefon był jedynym klientem bez podpisu i jedynym użytkownikiem analizy
     # zdjęć na klucz Anthropic oraz publicznych zdjęć na Dysku.
     _akcje21 = sorted(re.findall(r'case "(\w+)":', _dp21))
-    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze oraz hasło do paczek, wspólny rejestr miejscowości i drogi z Google aplikacji web",
-            _akcje21 == ["droga", "haslo_paczki", "logowanie", "miejscowosci", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
+    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze oraz hasło do paczek, wspólny rejestr miejscowości, drogi z Google i „kto złożył” aplikacji web",
+            _akcje21 == ["droga", "haslo_paczki", "logowanie", "miejscowosci", "puls", "reset_hasla", "sesja", "zlozono", "zmien_haslo"], str(_akcje21))
     _podp21 = re.search(r"var AKCJE_PODPISANE = \[([^\]]*)\]", _gs21)
     sprawdz("backend: podpis obejmuje każdą obsługiwaną akcję",
             _podp21 is not None

@@ -2077,6 +2077,7 @@ function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = U
 async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if (!b) { pokazToast('Nie znalazłem pliku — wygeneruj dokumenty ponownie'); return; } const u = URL.createObjectURL(blobPdf(b)); const w = window.open(u, '_blank'); if (!w) pobierzBlob(blobPdf(b), nazwa); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 /* okno „Dokumenty do podpisu”, podpis elektroniczny / odręczny i wysyłka: js/podpis.js */
 const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, isoDzis, zycie, hasloPaczki: () => dostep.pobierzHasloPaczki(), magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
+  zglosZlozenie: (r, m, o) => dostep.zglosZlozenie(r, m, o), skrotPaczki: b => dostep.skrotPaczki(b),
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
@@ -2158,7 +2159,7 @@ function arkuszUstawienia() {
 }
 /** Klik w dużą kwotę: w przykładzie → własny miesiąc z kursorem w polu kwoty; po wygenerowaniu → zmiana kwoty (z potwierdzeniem, bo kasuje dokumenty). */
 function kliknietoKwote() { if (!M) return; if (M.demo) zacznijOdSwoich(); else if (M.stan === 'gotowe') arkuszOdNowa(true); }
-function cofnijWyslanie() { M.wyslane = false; M.wyslaneKiedy = ''; zapiszRekord(); odswiezHero(); pokazToast('Przywrócono stan przed wysyłką'); }
+function cofnijWyslanie() { M.wyslane = false; M.wyslaneKiedy = ''; zapiszRekord(); odswiezHero(); dostep.zglosCofniecie(M.rok, M.mies).catch(() => {}); pokazToast('Przywrócono stan przed wysyłką'); }      // „kto złożył”: administrator widzi cofnięcie
 async function klikGlowny() {
   const e = etapMiesiaca();
   if (e === 'przyklad') return zacznijOdSwoich();

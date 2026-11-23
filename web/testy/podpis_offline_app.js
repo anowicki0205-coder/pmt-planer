@@ -214,12 +214,12 @@ const { wpiszAdres, otworz, generuj } = require('./wspolne'); const fs = require
   const wyslijSel = '#arkusz .krok-k.k5 [data-akcja="wyslij"]';
   const ponownieOtworz = async () => { await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(900); };
   const emlOtwarty = (plik) => JSON.parse(cp.spawnSync(PYZ, ['-I', '-c', `
-import sys, json, email, email.policy, io, os, zipfile
+import sys, json, email, email.policy, io, os, zipfile, hashlib
 raw = open(sys.argv[1], 'rb').read(); m = email.message_from_bytes(raw, policy=email.policy.default)
 cz = list(m.iter_attachments()); z = zipfile.ZipFile(io.BytesIO(cz[0].get_content())); z.setpassword(sys.argv[2].encode())
 tr = m.get_body(preferencelist=('plain',)).get_content()
 os.makedirs(sys.argv[3], exist_ok=True); z.extractall(sys.argv[3])
-print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr, 'zal': len(cz), 'nazwa': cz[0].get_filename(), 'pliki': z.namelist(), 'ascii': all(b < 128 for b in raw), 'jawne': any(s in raw for s in (b'Jan Testowy', b'90010112349', b'Admin-Haslo'))}))`, plik, HASLO, path.join(tmp, 'z' + Date.now())], { encoding: 'utf8' }).stdout);
+print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']), 'tresc': tr, 'zal': len(cz), 'sha': hashlib.sha256(cz[0].get_content()).hexdigest(), 'nazwa': cz[0].get_filename(), 'pliki': z.namelist(), 'ascii': all(b < 128 for b in raw), 'jawne': any(s in raw for s in (b'Jan Testowy', b'90010112349', b'Admin-Haslo'))}))`, plik, HASLO, path.join(tmp, 'z' + Date.now())], { encoding: 'utf8' }).stdout);
 
   /* [A] administrator niczego nie ustawił → przycisk od razu szary, jasny powód */
   t.backend.paczka = null; await ponownieOtworz();
@@ -243,6 +243,14 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pob0 = t.backend.pobraniaHasla;
   const emlP = await pobierz(wyslijSel);
   const emlWynik0Ok = () => emlOtwarty(emlP.sciezka).to === ADRES;
+  /* „kto złożył”: kliknięcie „Wyślij” zgłasza administratorowi samo zdarzenie — miesiąc, liczbę plików, skrót SHA-256 paczki i sposób; nigdy dokumenty ani hasło */
+  const zgloszenie = () => Object.values(t.backend.zlozone || {})[0] || null;
+  { const t0 = Date.now(); while (!zgloszenie() && Date.now() - t0 < 10000) await p.waitForTimeout(100); }
+  { const zl = zgloszenie(), eml0 = emlOtwarty(emlP.sciezka);
+    ok('„kto złożył”: po „Wyślij” serwer dostał zgłoszenie — konto, miesiąc RRRRMM, liczba plików z paczki, sposób „plik”, status „zlozono”', !!zl && zl.kod === '12345' && /^20\d\d(0[1-9]|1[0-2])$/.test(zl.miesiac) && zl.liczba === eml0.pliki.length && zl.sposob === 'plik' && zl.status === 'zlozono' && zl.razy === 1, JSON.stringify(zl));
+    ok('„kto złożył”: skrót w zgłoszeniu to SHA-256 DOKŁADNIE tej paczki, która jest w wiadomości (można sprawdzić, czy dotarł ten sam plik)', !!zl && zl.skrot === eml0.sha, `${zl && zl.skrot.slice(0, 12)} / ${eml0.sha.slice(0, 12)}`);
+    const wszystko = JSON.stringify(t.backend.zapytaniaZlozono || []);
+    ok('„kto złożył”: w zgłoszeniu nie ma imienia, PESEL-u, adresu odbiorcy, hasła paczki ani nazw dokumentów', !/Jan Testowy|90010112349|odbiorca@|Admin-Haslo|\.pdf/.test(wszystko), wszystko.slice(0, 160)); }
   ok('jedno kliknięcie „Wyślij” pobiera gotową wiadomość .eml; hasło pobrano z serwera, a użytkownik go nigdzie nie widzi', emlP.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && /Kliknij ją/.test(await stanW()) && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)));
   { const t0 = Date.now(); while (t.backend.pobraniaHasla <= pob0 && Date.now() - t0 < 8000) await p.waitForTimeout(100); }
   ok('hasło, adres i termin były już pobrane przy otwarciu kroku 5 (kliknięcie nie czeka na serwer), a po wysyłce serwer jest pytany jeszcze raz w tle, czy administrator niczego nie zmienił; użytkownik hasła nigdzie nie widzi', t.backend.pobraniaHasla > pob0 && !(await p.evaluate(h => document.body.innerText.includes(h), HASLO)), `pobrania: ${pob0} → ${t.backend.pobraniaHasla}`);
@@ -269,10 +277,14 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('paczka z wiadomości odszyfrowuje się hasłem administratora; każdy plik ma nazwę nadaną przy generowaniu (PDF-y, .pdf.xades razem z oryginałem, skany jako nazwa dokumentu + .jpg)', wyslane.length >= 7 && wyslane.filter(n => /\.pdf$/i.test(n)).length >= 4 && wyslane.includes(pdfy[5] + '.xades') && wyslane.includes(pdfy[5]) && [2, 3, 4].every(i => wyslane.includes(pdfy[i].replace(/\.pdf$/i, '.jpg'))) && wyslane.every(n => pdfy.some(f => n === f || n === f + '.xades' || n === f.replace(/\.pdf$/i, '.jpg'))) && !wyslane.some(n => /_skan|IMG_|_signed|podpisany|zalacznik|podpis_xml|_str/.test(n)), wyslane.join(', '));
   /* [F] „Cofnij wysłanie” przywraca stan i przyciski „Otwórz”; potem bez internetu: wysyłka na zapamiętanych danych */
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
+  { const t0 = Date.now(); while ((zgloszenie() || {}).status !== 'cofnieto' && Date.now() - t0 < 10000) await p.waitForTimeout(100); }
+  ok('„kto złożył”: „Cofnij wysłanie” zgłasza cofnięcie — wiersz zostaje, status „cofnieto”', (zgloszenie() || {}).status === 'cofnieto', JSON.stringify(zgloszenie()));
   t.backend.martwy = true; await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
   ok('po „Cofnij wysłanie” karty znów mają „Otwórz”, a krok 5 znów pozwala wysłać; bez internetu adresu odbiorcy nadal nie widać', (await p.locator('.dok-k .dok-wyslano').count()) === 0 && (await p.locator('.dok-k .dok-akcje [data-akcja="otworz"]').count()) >= 7 && (await p.locator(wyslijSel).count()) === 1 && (await bezAdresu()), await opisK5());
   const emlOff = await pobierz(wyslijSel);
   ok('bez internetu wysyłka działa na zapamiętanych danych (hasło ważne do terminu): paczka otwiera się tym samym hasłem administratora, adresat z pamięci', emlOff.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (() => { const w = emlOtwarty(emlOff.sciezka); return w.to === ADRES && w.pliki.length >= 7; })());
+  { const kol = await p.evaluate(() => JSON.parse(localStorage.getItem('pmt-web-dostep-v1') || '{}').zlozone || null);
+    ok('„kto złożył”: wysyłka bez internetu czeka w kolejce na urządzeniu (po koncie i miesiącu), a serwer wciąż widzi „cofnieto”', !!kol && !!kol['12345'] && Object.values(kol['12345']).some(w => w.op === 'zloz' && /^[0-9a-f]{64}$/.test(w.skrot)) && (zgloszenie() || {}).status === 'cofnieto', JSON.stringify(kol).slice(0, 120)); }
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 }); await p.click('#cofnij'); await p.waitForTimeout(600);
   await p.evaluate(() => { const d = window.__pmtDane.czytaj(); delete d.ustawienia.paczka; window.__pmtDane.zapisz(d); });
   await p.click('#podpisz'); await p.waitForSelector('#dok-siatka', { timeout: 20000 }); await p.waitForTimeout(1500);
@@ -280,6 +292,9 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   ok('bez internetu i bez zapamiętanych danych: „Brak połączenia — nie mogę pobrać hasła do paczki”; status „wysłane” się nie ustawia', /Brak połączenia/.test(await stanW()) && !(await p.locator('#status').innerText()).includes('Wysłane'));
   t.backend.martwy = false;
   const pobAgain = await pobierz(wyslijSel); await p.waitForTimeout(600);
+  { const t0 = Date.now(); while ((zgloszenie() || {}).status !== 'zlozono' && Date.now() - t0 < 10000) await p.waitForTimeout(100); }
+  { const kol = await p.evaluate(() => JSON.parse(localStorage.getItem('pmt-web-dostep-v1') || '{}').zlozone || null);
+    ok('„kto złożył”: po powrocie internetu i ponownym „Wyślij” serwer ma status „zlozono” (liczone kolejny raz), a kolejka na urządzeniu jest pusta', (zgloszenie() || {}).status === 'zlozono' && zgloszenie().razy >= 2 && !kol, JSON.stringify([zgloszenie(), kol]).slice(0, 200)); }
   ok('po powrocie internetu wysyłka działa i znów ustawia status „Wysłane” (ten stan sprawdzają kolejne kroki testu)', pobAgain.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   /* [H] SZKIC W OUTLOOKU (Microsoft Graph): gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt), „Wyślij” loguje do poczty użytkownika w osobnym oknie, tworzy szkic z adresem, tematem,

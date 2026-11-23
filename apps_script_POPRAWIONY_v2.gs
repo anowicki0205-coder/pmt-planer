@@ -202,7 +202,7 @@ var WERSJA_Z_SEKRETEM = '3.24.0';
 // a program na komputerze podpisuje każde zapytanie. Po włączeniu
 // PODPIS_OBOWIAZKOWY nikt bez sekretu aplikacji nie zaloguje się, nie
 // zmieni hasła i nie wyzeruje go przez sam adres /exec.
-var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki', 'miejscowosci', 'droga'];
+var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki', 'miejscowosci', 'droga', 'zlozono'];
 
 // Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
 // Wpisz numer (np. '3.24.0') dopiero wtedy, gdy zespół ma już nową
@@ -434,6 +434,7 @@ function inicjalizuj() {
     ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)",
      "Dokumenty w sesji", "Plany wizyt", "Wersja programu"]);
   _zakladka(ss, ZAKLADKA_MIEJSCOWOSCI, NAGLOWKI_MIEJSCOWOSCI);
+  _zakladka(ss, ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE);
   _ustawieniaPaczki(ss);
   // kolumna N (Haslo hash) w Uzytkownicy — naglowek, jesli go nie ma
   var shU = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
@@ -644,7 +645,7 @@ function doPost(e) {
     }
 
     // Aplikacja na telefon zostala wycofana (3.24.0) — backend obsluguje program na komputerze
-    // i aplikacje web: osiem akcji, wszystkie podpisane.
+    // i aplikacje web: dziewiec akcji, wszystkie podpisane.
     switch (dane.akcja) {
       case "logowanie":   return _json(logowanie(dane));
       case "puls":        return _json(obsluzPuls(dane));
@@ -654,6 +655,7 @@ function doPost(e) {
       case "haslo_paczki": return _json(hasloPaczki(dane));
       case "miejscowosci": return _json(obsluzMiejscowosci(dane));
       case "droga": return _json(obsluzDroge(dane, zwolnij));
+      case "zlozono": return _json(obsluzZlozono(dane));
       default: return _json({ status: "blad", opis: "Nieznana akcja" });
     }
   } catch (err) {
@@ -1076,6 +1078,105 @@ function autoryzujMapy() {
   var d = _droga1(51.4027, 21.1471, 50.8661, 20.6286);      // Radom → Kielce
   Logger.log("Maps działa: " + JSON.stringify(d));
   return d;
+}
+
+
+/* ====== „KTO ZLOZYL”: zgloszenie, ze uzytkownik wyslal dokumenty miesiaca ==============================
+   Aplikacja zglasza tu samo ZDARZENIE: miesiac, liczbe plikow w paczce, skrot SHA-256 paczki i sposob wyslania — nigdy same dokumenty, PESEL ani tresc.
+   Jeden wiersz = jeden uzytkownik w jednym miesiacu (ponowne zgloszenie aktualizuje wiersz i zwieksza „Razy”; „Cofnij wysylanie” w aplikacji
+   ustawia status „cofnieto”). UWAGA: to moment, w ktorym uzytkownik kliknal „Wyslij” i poczta dostala gotowa wiadomosc — NIE potwierdzenie, ze list doszedl
+   do ksiegowosci (to wymagaloby wysylki przez serwer). Skrot paczki pozwala sprawdzic, czy paczka, ktora dotarla, jest tym samym plikiem.
+   Dostep: podpis aplikacji ORAZ podpis haslem uzytkownika (jak haslo paczki). Zakladka „Zlozone” widoczna tylko dla administratora arkusza.
+   Przegladowy raport „kto zlozyl, kto nie” robi odswiezKompletnosc() — uruchom w edytorze (albo ustaw wyzwalacz czasowy); wynik trafia do zakladki „Kompletnosc”. */
+var ZAKLADKA_ZLOZONE = "Zlozone";
+var ZAKLADKA_KOMPLETNOSC = "Kompletnosc";
+var NAGLOWKI_ZLOZONE = ["Miesiac", "Kod", "Imie i nazwisko", "Kiedy", "Plikow", "Skrot paczki (SHA-256)", "Sposob", "Razy", "Status"];
+var ZLOZONE_WIERSZE_MAKS = 4000;
+var ZLOZONE_SPOSOBY = { folder: 1, poczta: 1, outlook: 1, pulpit: 1, telefon: 1, plik: 1 };
+function obsluzZlozono(dane) {
+  var kod = String(dane.kod || "").trim();
+  if (!_kodPoprawny(kod)) return { status: "odmowa" };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []);
+  var wiersze = shU.getDataRange().getValues(), w = null;
+  for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
+  if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
+    _log(ss, kod, "zlozono_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
+    return { status: "odmowa" };
+  }
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
+  var miesiac = _miesiacRejestru(dane.miesiac);
+  if (!miesiac) return { status: "blad", opis: "Nieprawidlowy miesiac" };
+  var op = String(dane.op || "");
+  var sh = _zakladka(ss, ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE);
+  var wpisy = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues() : [];
+  var moj = -1;
+  for (var j = 0; j < wpisy.length; j++) {
+    if (String(wpisy[j][0]).trim() === miesiac && String(wpisy[j][1]).trim() === kod) { moj = j; break; }
+  }
+  var teraz = new Date();
+  if (op === "cofnij") {
+    if (moj >= 0) { var r = wpisy[moj]; sh.getRange(moj + 2, 1, 1, 9).setValues([[r[0], r[1], r[2], teraz, r[4], r[5], r[6], r[7], "cofnieto"]]); }
+    _log(ss, kod, "zlozono", "cofniete " + miesiac, "raz");
+    return { status: "ok" };
+  }
+  if (op === "zloz") {
+    var liczba = Math.round(Number(dane.liczba));      // bez obcinania: liczba spoza 1–60 to błąd, nie „60”
+    var skrot = String(dane.skrot || "").trim().toLowerCase();
+    var sposob = String(dane.sposob || "").trim();
+    if (!(liczba >= 1 && liczba <= 60)) return { status: "blad", opis: "Nieprawidlowa liczba plikow" };
+    if (!/^[0-9a-f]{64}$/.test(skrot)) return { status: "blad", opis: "Nieprawidlowy skrot" };
+    if (!ZLOZONE_SPOSOBY.hasOwnProperty(sposob)) return { status: "blad", opis: "Nieprawidlowy sposob" };
+    var razy = moj >= 0 ? (Number(wpisy[moj][7]) || 0) + 1 : 1;
+    var wiersz = [miesiac, kod, _tekst(w[1], 60), teraz, liczba, skrot, sposob, razy, "zlozono"];
+    if (moj >= 0) sh.getRange(moj + 2, 1, 1, 9).setValues([wiersz]);
+    else { _przytnijZlozone(sh); sh.appendRow(wiersz); }
+    _log(ss, kod, "zlozono", miesiac + ": " + liczba + " plikow, " + sposob, "raz");
+    return { status: "ok", razy: razy };
+  }
+  return { status: "blad", opis: "Nieznana operacja" };
+}
+function _przytnijZlozone(sh) {
+  var ile = sh.getLastRow();
+  if (ile <= ZLOZONE_WIERSZE_MAKS) return;
+  var d = new Date(); d.setMonth(d.getMonth() - 24);
+  var prog = d.getFullYear() * 100 + d.getMonth() + 1;
+  var mies = sh.getRange(2, 1, ile - 1, 1).getValues();
+  for (var i = mies.length - 1; i >= 0; i--) { if (Number(mies[i][0]) < prog) sh.deleteRow(i + 2); }
+}
+/* Raport kompletnosci: dla kazdego uzytkownika z waznym dostepem (kolumna „Wazne do”) status poprzedniego i biezacego miesiaca. Najpierw ci, ktorzy NIE zlozyli
+   poprzedniego miesiaca. Tylko wartosci (bez formul). Uruchom w edytorze albo ustaw wyzwalacz czasowy (np. codziennie rano). */
+function odswiezKompletnosc() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var teraz = new Date(), poprz = new Date(teraz.getFullYear(), teraz.getMonth() - 1, 1);
+  var m0 = teraz.getFullYear() * 100 + teraz.getMonth() + 1, m1 = poprz.getFullYear() * 100 + poprz.getMonth() + 1;
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  var shZ = _zakladka(ss, ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE), wpisy = shZ.getLastRow() > 1 ? shZ.getRange(2, 1, shZ.getLastRow() - 1, 9).getValues() : [];
+  var po = {};
+  for (var i = 0; i < wpisy.length; i++) po[String(wpisy[i][0]).trim() + "|" + String(wpisy[i][1]).trim()] = wpisy[i];
+  var fmt = function (m, kod) {
+    var r = po[m + "|" + kod];
+    if (!r || r[8] !== "zlozono") return r ? "COFNIETO" : "BRAK";
+    return "zlozono " + Utilities.formatDate(new Date(r[3]), "Europe/Warsaw", "yyyy-MM-dd HH:mm") + " (" + r[6] + ", " + r[4] + " plikow)";
+  };
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []), u = shU.getDataRange().getValues(), wynik = [];
+  for (var k = 1; k < u.length; k++) {
+    var kod = String(u[k][0]).trim();
+    if (!_kodPoprawny(kod)) continue;
+    var wazne = _data(u[k][3]);
+    if (!(wazne && wazne >= dzis)) continue;      // konta wygasle pomijamy
+    wynik.push([kod, _tekst(u[k][1], 60), _tekst(u[k][2], 40), fmt(m1, kod), fmt(m0, kod)]);
+  }
+  wynik.sort(function (a, b) { return (a[3] === "BRAK" ? 0 : 1) - (b[3] === "BRAK" ? 0 : 1) || String(a[1]).localeCompare(String(b[1])); });
+  var sh = ss.getSheetByName(ZAKLADKA_KOMPLETNOSC) || ss.insertSheet(ZAKLADKA_KOMPLETNOSC);
+  sh.clear();
+  var etyk = function (m) { return String(m).slice(0, 4) + "-" + String(m).slice(4); };
+  sh.appendRow(["Kod", "Imie i nazwisko", "Rejon", "Miesiac " + etyk(m1), "Miesiac " + etyk(m0)]);
+  if (wynik.length) sh.getRange(2, 1, wynik.length, 5).setValues(wynik);
+  sh.getRange(1, 1, 1, 5).setFontWeight("bold"); sh.setFrozenRows(1);
+  return { poprzedni: m1, biezacy: m0, uzytkownikow: wynik.length, brakPoprzedniego: wynik.filter(function (x) { return x[3] === "BRAK"; }).length };
 }
 
 

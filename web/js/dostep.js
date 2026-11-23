@@ -81,7 +81,7 @@ export function sekret() {
 export const zapomnijSekret = () => { sekretObietnica = null; };
 /* Puls i rejestr sesji backend przyjmuje w pełni tylko z podpisem KLUCZEM POCHODNYM OD HASŁA: HMAC, którego kluczem jest skrót hasła „PMT|kod|hasło” (ten sam, który serwer
    trzyma w kolumnie „Haslo hash”, a my mamy zapisany po logowaniu). Samo hasło nie jedzie, a znajomość samego 5-cyfrowego kodu nie wystarcza, by dostać imię, rejon i L4 innego pracownika. */
-const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki', 'miejscowosci', 'droga'];
+const AKCJE_Z_HASLEM = ['puls', 'sesja', 'haslo_paczki', 'miejscowosci', 'droga', 'zlozono'];
 /* serwer przyjmuje podpis tylko w oknie 600 s od SWOJEGO czasu: zegar urządzenia przestawiony o kwadrans dawał niezrozumiałe odmowy, więc czas podpisu poprawiamy
    o różnicę względem czasu serwera z ostatniej odpowiedzi (czas_serwera) */
 let przesuniecie = 0;
@@ -190,6 +190,47 @@ async function rejestrWlasciwy() {
     if (odp && odp.status === 'odmowa') { skrotNieaktualny = kod; return false; }
     if (przejsciowy) return false;
     const d = stan(); if (d.rejestr && d.rejestr[kod]) { delete d.rejestr[kod][miesiac]; if (!Object.keys(d.rejestr[kod]).length) delete d.rejestr[kod]; zapisz(d); }      // przyjęte albo trwale odrzucone (np. konto wygasło): nie ponawiamy
+  }
+  return true;
+}
+
+/* ---------- „kto złożył”: zgłoszenie, że użytkownik wysłał dokumenty miesiąca ----------
+   Do arkusza administratora trafia samo ZDARZENIE (miesiąc, liczba plików, skrót SHA-256 paczki, sposób wysłania) — nigdy dokumenty ani ich treść. To moment kliknięcia „Wyślij”
+   (poczta dostała gotową wiadomość), nie potwierdzenie, że list dotarł do księgowości. „Cofnij wysłanie” zgłasza cofnięcie. Zgłoszenie czeka w kolejce na urządzeniu (po kodzie konta
+   i miesiącu — nowsze zastępuje starsze), aż serwer odpowie; samo wysyłanie nigdy na nie nie czeka. */
+const SPOSOBY_ZLOZENIA = ['folder', 'poczta', 'outlook', 'pulpit', 'telefon', 'plik'];
+/** SHA-256 paczki (bajty albo Blob) jako 64 znaki szesnastkowe. */
+export async function skrotPaczki(paczka) {
+  const bajty = paczka instanceof Uint8Array ? paczka : new Uint8Array(await paczka.arrayBuffer()), s = sub();
+  return hex(s ? await s.digest('SHA-256', bajty) : sha256Js(bajty));
+}
+function wKolejceZlozen(kod, miesiac, wpis) {
+  const d = stan(); d.zlozone = d.zlozone || {}; d.zlozone[kod] = d.zlozone[kod] || {}; d.zlozone[kod][miesiac] = wpis; zapisz(d);
+}
+/** Zgłasza wysłanie dokumentów miesiąca. Nie rzuca błędów; zwraca true, gdy kolejka jest pusta. */
+export function zglosZlozenie(rok, mies, { liczba, skrot, sposob }) {
+  const kod = stan().kod; if (!kod) return Promise.resolve(false);
+  wKolejceZlozen(kod, miesiacRejestru(rok, mies), { op: 'zloz', liczba: Math.max(1, Math.min(60, Math.floor(Number(liczba)) || 1)), skrot: String(skrot || ''), sposob: SPOSOBY_ZLOZENIA.includes(sposob) ? sposob : 'plik' });
+  return wyslijZlozone();
+}
+/** Zgłasza cofnięcie wysłania („Cofnij wysłanie”). */
+export function zglosCofniecie(rok, mies) {
+  const kod = stan().kod; if (!kod) return Promise.resolve(false);
+  wKolejceZlozen(kod, miesiacRejestru(rok, mies), { op: 'cofnij' });
+  return wyslijZlozone();
+}
+export const oczekujaceZlozone = () => Object.keys((stan().zlozone || {})[stan().kod] || {}).length;
+let zlozoneWToku = null;
+export const wyslijZlozone = () => zlozoneWToku || (zlozoneWToku = zlozoneWlasciwe().finally(() => { zlozoneWToku = null; }));
+async function zlozoneWlasciwe() {
+  const kod = stan().kod; if (!gotowyDoRejestru(kod)) return false;
+  for (const miesiac of Object.keys((stan().zlozone || {})[kod] || {})) {
+    const w = stan().zlozone[kod][miesiac]; if (!w) continue;
+    let odp; try { odp = await wyslij({ akcja: 'zlozono', op: w.op, kod, miesiac, ...(w.op === 'zloz' ? { liczba: w.liczba, skrot: w.skrot, sposob: w.sposob } : {}) }, 20000); } catch (e) { return false; }
+    const przejsciowy = !odp || (odp.status === 'blad' && /zajety|serwera/i.test(String(odp.opis || '')));
+    if (odp && odp.status === 'odmowa') { skrotNieaktualny = kod; return false; }
+    if (przejsciowy) return false;
+    const d = stan(); if (d.zlozone && d.zlozone[kod]) { delete d.zlozone[kod][miesiac]; if (!Object.keys(d.zlozone[kod]).length) delete d.zlozone[kod]; zapisz(d); }      // przyjęte albo trwale odrzucone (np. konto wygasło): nie ponawiamy
   }
   return true;
 }
@@ -431,6 +472,7 @@ async function pulsWlasciwy() {
   if (odp.wazne_do) k.wazne_do = odp.wazne_do; else delete k.wazne_do;
   d.konta[kod] = k; zapisz(d);
   if (oczekujaceRejestru()) wyslijRejestr().catch(() => {});      // zapis/zwolnienie miejscowości, które nie doszły (brak sieci), idą przy następnej okazji
+  if (oczekujaceZlozone()) wyslijZlozone().catch(() => {});      // zgłoszenia „wysłano” / „cofnięto”, które nie doszły, też
   return odp;
 }
 /* wpis w rejestrze sesji (kto, kiedy, jak długo). Wylogowanie/zamknięcie: sendBeacon, żeby przeżyło zamykanie karty. */

@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = '8f6260a2d11d';
+const WERSJA = '321b23ce575c';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -73,9 +73,9 @@ const SKROTY = {
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
  "./js/adres.js": "810fcdd2ef8c6172",
- "./js/aplikacja.js": "102fb9693ce5c261",
+ "./js/aplikacja.js": "56a6b4c71ee56796",
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
- "./js/dostep.js": "2f2801b86ad32bbd",
+ "./js/dostep.js": "da38ea566a59b9ed",
  "./js/dzwiek.js": "763a05dc6bcdda61",
  "./js/folder.js": "b706cb1ab7b81f8c",
  "./js/karuzela.js": "d64507d7e8c41a91",
@@ -85,7 +85,7 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "75881298ae25ab77",
- "./js/podpis.js": "366353caa103f611",
+ "./js/podpis.js": "3894c72c9e77679f",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",

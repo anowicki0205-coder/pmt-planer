@@ -383,6 +383,9 @@ SILNIK
   odpowiada „Nieznana akcja”, a aplikacja działa po staremu (kierunek z PESEL-u). Zakładka „Miejscowosci” powstaje sama przy pierwszym zapisie (albo po uruchomieniu funkcji inicjalizuj).
   DROGI Z GOOGLE: po wklejeniu pliku uruchom w edytorze Apps Script funkcję autoryzujMapy() (lista funkcji → Uruchom) i zatwierdź zgodę na Mapy Google; dopiero potem Wdróż → Nowa wersja. Limit usługi to 1000 zapytań dziennie (konto
   prywatne) albo 10 000 (Workspace); jedna delegacja to ok. 50–110 zapytań. Po wyczerpaniu limitu aplikacja liczy te odcinki z tabeli dróg — nic się nie psuje.
+  (7) KTO ZŁOŻYŁ (od 23.11): po kliknięciu „Wyślij” aplikacja zgłasza do zakładki „Zlozone” samo zdarzenie (miesiąc, liczba plików, skrót paczki, sposób) — bez dokumentów i bez danych osobowych. To moment kliknięcia, nie potwierdzenie
+  doręczenia do księgowości. Przegląd „kto złożył, kto nie”: w edytorze Apps Script uruchom funkcję odswiezKompletnosc() (albo ustaw dla niej wyzwalacz czasowy, np. codziennie rano) — powstanie zakładka „Kompletnosc”, najpierw osoby,
+  które nie złożyły poprzedniego miesiąca. Zakładka powstaje też sama przy funkcji inicjalizuj.
 
 TESTY (wymagają Node + Playwright)
   testy/silnik_przegladarka.js  — silnik w przeglądarce: kwota co do grosza, limity, 5 PDF

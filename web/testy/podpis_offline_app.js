@@ -294,7 +294,7 @@ print(json.dumps({'x': m['X-Unsent'], 'to': m['To'], 'temat': str(m['Subject']),
   const pobAgain = await pobierz(wyslijSel); await p.waitForTimeout(600);
   { const t0 = Date.now(); while ((zgloszenie() || {}).status !== 'zlozono' && Date.now() - t0 < 10000) await p.waitForTimeout(100); }
   { const kol = await p.evaluate(() => JSON.parse(localStorage.getItem('pmt-web-dostep-v1') || '{}').zlozone || null);
-    ok('„kto złożył”: po powrocie internetu i ponownym „Wyślij” serwer ma status „zlozono” (liczone kolejny raz), a kolejka na urządzeniu jest pusta', (zgloszenie() || {}).status === 'zlozono' && zgloszenie().razy >= 2 && !kol, JSON.stringify([zgloszenie(), kol]).slice(0, 200)); }
+    ok('„kto złożył”: po powrocie internetu i ponownym „Wyślij” serwer ma status „zlozono” (liczone kolejny raz), a kolejka na urządzeniu jest pusta', (zgloszenie() || {}).status === 'zlozono' && zgloszenie().razy >= 2 && !Object.keys((kol || {})['12345'] || {}).length, JSON.stringify([zgloszenie(), kol]).slice(0, 200)); }
   ok('po powrocie internetu wysyłka działa i znów ustawia status „Wysłane” (ten stan sprawdzają kolejne kroki testu)', pobAgain.nazwa === 'PMT_wiadomosc_do_wyslania.eml' && (await p.locator('#status').innerText()).includes('Wysłane'));
   await p.keyboard.press('Escape'); await p.waitForSelector('#arkusz-tlo:not(.otwarty)', { state: 'attached', timeout: 20000 });
   /* [H] SZKIC W OUTLOOKU (Microsoft Graph): gdy administrator wpisał identyfikator aplikacji Microsoft (plik poczta_microsoft.txt), „Wyślij” loguje do poczty użytkownika w osobnym oknie, tworzy szkic z adresem, tematem,

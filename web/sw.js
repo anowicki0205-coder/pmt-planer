@@ -1,6 +1,6 @@
 // PMT Planer (web) — service worker: aplikacja działa bez internetu po pierwszym uruchomieniu.
 // Plik sw.js jest GENEROWANY (narzedzia/zbuduj_sw.py): lista plików i wersja wynikają z zawartości katalogu.
-const WERSJA = 'd7386187e01d';
+const WERSJA = '321b23ce575c';
 const CACHE = 'pmt-web-' + WERSJA;
 const PLIKI = [
  "./",
@@ -42,6 +42,7 @@ const PLIKI = [
  "./przyklad/miesiac.json",
  "./przyklad/plan.json",
  "./silnik/boot.py",
+ "./silnik/drogi.bin",
  "./silnik/fonty/LiberationSans-Bold.ttf",
  "./silnik/fonty/LiberationSans-Regular.ttf",
  "./silnik/most.py",
@@ -72,9 +73,9 @@ const SKROTY = {
  "./ikony/logo-512.png": "d14d554fd2207fee",
  "./index.html": "2d450148e86455db",
  "./js/adres.js": "810fcdd2ef8c6172",
- "./js/aplikacja.js": "843187d3526a62ad",
+ "./js/aplikacja.js": "56a6b4c71ee56796",
  "./js/dokument_atrapa.js": "dd6c781d71e04fc8",
- "./js/dostep.js": "f0e47d1ee7403bc8",
+ "./js/dostep.js": "da38ea566a59b9ed",
  "./js/dzwiek.js": "763a05dc6bcdda61",
  "./js/folder.js": "b706cb1ab7b81f8c",
  "./js/karuzela.js": "d64507d7e8c41a91",
@@ -84,13 +85,13 @@ const SKROTY = {
  "./js/outlook.js": "628a29d72aadfc9e",
  "./js/pliki.js": "631ce377322eca94",
  "./js/poczta.js": "75881298ae25ab77",
- "./js/podpis.js": "366353caa103f611",
+ "./js/podpis.js": "3894c72c9e77679f",
  "./js/podpis_reczny.js": "0edb49491ca0bb87",
  "./js/pomoc.js": "14a7187c8781a211",
  "./js/przeniesienie.js": "6a373490ec3038b5",
  "./js/sejf.js": "c9969d31c10a7ed6",
- "./js/silnik.js": "2c8d41b56cd270bf",
- "./js/silnik.worker.js": "5a9fdea97540dc37",
+ "./js/silnik.js": "351dd56e7ae31fb3",
+ "./js/silnik.worker.js": "bad1561c0f326bec",
  "./js/upuszczanie.js": "315130764a52dfd4",
  "./js/weryfikacja.js": "3f3d2ed71b5ded1e",
  "./js/widowisko.js": "7844edad2def426e",
@@ -101,10 +102,11 @@ const SKROTY = {
  "./przyklad/miesiac.json": "2c799e98b3922cc8",
  "./przyklad/plan.json": "7de1a4627f7fe5e5",
  "./silnik/boot.py": "3016d346355bb8ed",
+ "./silnik/drogi.bin": "5942897d136699d2",
  "./silnik/fonty/LiberationSans-Bold.ttf": "3973aa5054fb467d",
  "./silnik/fonty/LiberationSans-Regular.ttf": "4659bc0c58c5028d",
- "./silnik/most.py": "ac48f00b9a479df2",
- "./silnik/pmt_silnik.py": "0aaf2dafaf7497e3",
+ "./silnik/most.py": "e7e38049bc53821f",
+ "./silnik/pmt_silnik.py": "8f0ead6f8906a70c",
  "./silnik/sieci_cel.txt": "d252e908cd50d2e5",
  "./vendor/czcionki/geist-latin-ext-wght-normal.woff2": "824f485b5d26e2f2",
  "./vendor/czcionki/geist-latin-wght-normal.woff2": "19f9c92546aa300c",

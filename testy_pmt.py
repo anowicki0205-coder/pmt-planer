@@ -8031,8 +8031,8 @@ try:
     # telefon był jedynym klientem bez podpisu i jedynym użytkownikiem analizy
     # zdjęć na klucz Anthropic oraz publicznych zdjęć na Dysku.
     _akcje21 = sorted(re.findall(r'case "(\w+)":', _dp21))
-    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze i hasło do paczek aplikacji web",
-            _akcje21 == ["haslo_paczki", "logowanie", "puls", "reset_hasla", "sesja", "zmien_haslo"], str(_akcje21))
+    sprawdz("backend obsługuje tylko pięć akcji programu na komputerze oraz hasło do paczek, wspólny rejestr miejscowości, drogi z Google i „kto złożył” aplikacji web",
+            _akcje21 == ["droga", "haslo_paczki", "logowanie", "miejscowosci", "puls", "reset_hasla", "sesja", "zlozono", "zmien_haslo"], str(_akcje21))
     _podp21 = re.search(r"var AKCJE_PODPISANE = \[([^\]]*)\]", _gs21)
     sprawdz("backend: podpis obejmuje każdą obsługiwaną akcję",
             _podp21 is not None
@@ -12582,6 +12582,152 @@ try:
             max(_maks_ku) <= 0.92, "maksima %s" % _maks_ku)
 except Exception as _e_ku:
     sprawdz("własna trasa użytkownika (klin kierunków)", False, repr(_e_ku))
+
+# wspólny rejestr miejscowości: kolejne osoby z tej samej bazy omijają miejscowości zajęte przez poprzednie (zajete: nazwa -> ilu ma ją w miesiącu)
+try:
+    import collections as _col_rj
+    _PES_RJ = ("90010112349", "85050512345", "78030398765", "92071512340", "88112233445", "95040587766", "80010122334", "91020233445")
+    _roz_rj = P.pobierz_dni_robocze(2026, 9)
+    _zle_rj, _zle_licznik_rj, _zle_wlasne_rj, _zle_kwota_rj = [], [], [], []
+    for _n_rj, _la_rj, _ln_rj, _wj_rj in (_BAZY_MJ[0], _BAZY_MJ[5]):          # Radom, Poznań: trzy pierwsze osoby bez żadnej wspólnej miejscowości
+        _zaj_rj = _col_rj.Counter()
+        for _i_rj, _pes in enumerate(_PES_RJ[:3]):
+            _w = P.generuj_trasy(4000.0, _n_rj, _la_rj, _ln_rj, _wj_rj, _roz_rj, _pes, stawka=0.89, zajete=dict(_zaj_rj))
+            _c = _cele_na_dokumentach(_w, _n_rj)
+            if len(set(_c) & set(_zaj_rj)) or _w.wspolne_z_innymi:
+                _zle_rj.append("%s osoba %d: %d wspólnych" % (_n_rj, _i_rj + 1, len(set(_c) & set(_zaj_rj))))
+            if len(set(_c)) != len(_c):
+                _zle_wlasne_rj.append("%s osoba %d" % (_n_rj, _i_rj + 1))
+            if getattr(_w, "kwota_niepelna", False):
+                _zle_kwota_rj.append("%s osoba %d" % (_n_rj, _i_rj + 1))
+            _zaj_rj.update(set(_c))
+    sprawdz("wspólny rejestr: trzy kolejne osoby z Radomia i z Poznania nie mają ani jednej wspólnej miejscowości", not _zle_rj, "; ".join(_zle_rj[:5]))
+    # pula się wyczerpuje (Zamość: mało miejscowości): własny miesiąc zostaje bez powtórek, kwota pełna, a licznik wspólnych zgadza się z rzeczywistym
+    _n_rj, _la_rj, _ln_rj, _wj_rj = "Zamość", 50.72, 23.25, "lubelskie"
+    _zaj_rj = _col_rj.Counter()
+    for _i_rj, _pes in enumerate(_PES_RJ):
+        _w = P.generuj_trasy(4000.0, _n_rj, _la_rj, _ln_rj, _wj_rj, _roz_rj, _pes, stawka=0.89, zajete=dict(_zaj_rj))
+        _c = _cele_na_dokumentach(_w, _n_rj)
+        if len(set(_c)) != len(_c):
+            _zle_wlasne_rj.append("%s osoba %d: %d powtórek" % (_n_rj, _i_rj + 1, len(_c) - len(set(_c))))
+        if getattr(_w, "kwota_niepelna", False):
+            _zle_kwota_rj.append("%s osoba %d" % (_n_rj, _i_rj + 1))
+        _rzecz = len({x.lower() for x in _c} & {x.lower() for x in _zaj_rj})
+        if _w.wspolne_z_innymi != _rzecz:
+            _zle_licznik_rj.append("osoba %d: licznik %d, rzeczywiście %d" % (_i_rj + 1, _w.wspolne_z_innymi, _rzecz))
+        _zaj_rj.update(set(_c))
+    sprawdz("wspólny rejestr: własny miesiąc zawsze bez powtórek (także gdy pula się kończy i tolerancja rośnie)", not _zle_wlasne_rj, "; ".join(_zle_wlasne_rj[:5]))
+    sprawdz("wspólny rejestr: kwota pokryta w całości dla każdej osoby, także gdy część miejscowości jest zajęta", not _zle_kwota_rj, "; ".join(_zle_kwota_rj[:5]))
+    sprawdz("wspólny rejestr: wynik niesie uczciwy licznik miejscowości wspólnych z innymi", not _zle_licznik_rj, "; ".join(_zle_licznik_rj[:5]))
+    # rejestr pusty ({}) = „jest, ale nikt nic nie zajął” (pełne otoczenie, bez klina); brak rejestru (None) = dawny klin z PESEL-u
+    _w_pusty = P.generuj_trasy(3000.0, "Radom", 51.40, 21.15, "mazowieckie", _roz_rj, _PES_RJ[0], stawka=0.89, zajete={})
+    _w_brak = P.generuj_trasy(3000.0, "Radom", 51.40, 21.15, "mazowieckie", _roz_rj, _PES_RJ[0], stawka=0.89)
+    sprawdz("rejestr pusty i brak rejestru: obie ścieżki pokrywają kwotę bez powtórek, wspólnych 0",
+            all(not x.kwota_niepelna and x.powtorzone_miejscowosci == 0 and x.wspolne_z_innymi == 0 for x in (_w_pusty, _w_brak)))
+except Exception as _e_rj:
+    sprawdz("wspólny rejestr miejscowości", False, repr(_e_rj))
+
+# tabela dróg (drogi.bin): realne kilometry i prędkości odcinków między miejscowościami z bazy, dokładne odcinki z Google dla adresu zamieszkania, spójny czas dnia.
+# Tabela do testu powstaje na atrapie OSRM (web/narzedzia/drogi/atrapa_osrm.py): droga = linia prosta × 1,12–1,42, prędkość od 38 do 78 km/h zależnie od długości.
+_tabela_przed_testem = P._tabela
+try:
+    import sys as _sys_td, json as _json_td, tempfile as _tmp_td, random as _rnd_td, os as _os_td
+    _kat_td = _os_td.path.join(_os_td.path.dirname(_os_td.path.abspath(__file__)), "web", "narzedzia", "drogi")
+    _sys_td.path.insert(0, _kat_td)
+    import zbuduj_tabele as _ZT, atrapa_osrm as _AT
+    _mi_td = [m for m in _json_td.load(open(_os_td.path.join(_kat_td, "miasta.json"), encoding="utf-8")) if _ZT.linia_prosta_km(51.40, 21.15, m["lat"], m["lng"]) <= 260]
+    _katt = _tmp_td.mkdtemp(); _mj = _os_td.path.join(_katt, "m.json"); _json_td.dump(_mi_td, open(_mj, "w", encoding="utf-8"), ensure_ascii=False)
+    _srv_td = _AT.uruchom(0)
+    _urlopen_zapas = P.urllib.request.urlopen
+    P.urllib.request.urlopen = SIEC_PRAWDZIWA      # reszta testów chodzi bez internetu; tu mówimy tylko z atrapą OSRM na 127.0.0.1
+    try:
+        _kod_td = _ZT.main(["--osrm", "http://127.0.0.1:%d" % _srv_td.server_address[1], "--miasta", _mj, "--wyjscie", _os_td.path.join(_katt, "d.bin"), "--raport", _os_td.path.join(_katt, "r.txt"), "--promien", "200"])
+    finally:
+        P.urllib.request.urlopen = _urlopen_zapas
+    _srv_td.shutdown()
+    _bajty_td = open(_os_td.path.join(_katt, "d.bin"), "rb").read()
+    P._tabela = None
+    _par_td = P.wczytaj_tabele_drog(_bajty_td)
+    sprawdz("tabela dróg: wczytanie pliku z atrapy OSRM (ponad 100 tys. par), silnik ją widzi", _kod_td == 0 and _par_td > 100000 and P.tabela_drog_wczytana(), "kod %s, par %s" % (_kod_td, _par_td))
+    _bledy_td = []
+    for _opis_td, _zly_td in (("zły nagłówek", b"XXXX" + _bajty_td[4:]), ("ucięty plik", _bajty_td[:len(_bajty_td) // 2]), ("pusty", b""), ("nadmiar bajtów", _bajty_td + b"\0\0")):
+        try:
+            P.wczytaj_tabele_drog(_zly_td); _bledy_td.append(_opis_td + ": przyjęty")
+        except ValueError:
+            pass
+    sprawdz("tabela dróg: zepsuty plik jest odrzucany (ValueError), a dotychczasowa tabela zostaje", not _bledy_td and P.tabela_drog_wczytana(), "; ".join(_bledy_td))
+    # para z tabeli = odpowiedź atrapy (w obu kierunkach), droga w km i czas w minutach
+    _t1, _t2 = [m for m in _mi_td if m["n"] == "Puławy"][0], [m for m in _mi_td if m["n"] == "Radom"][0]
+    _km_o_ab, _km_o_ba = _AT.droga_km((_t1["lat"], _t1["lng"]), (_t2["lat"], _t2["lng"])), _AT.droga_km((_t2["lat"], _t2["lng"]), (_t1["lat"], _t1["lng"]))      # atrapa liczy asymetrycznie (kierunek wg indeksu w tabeli)
+    _km_o = _km_o_ab if abs(_km_o_ab - (P.tabela_droga(_t1["lat"], _t1["lng"], _t2["lat"], _t2["lng"]) or (0,))[0]) <= abs(_km_o_ba - (P.tabela_droga(_t1["lat"], _t1["lng"], _t2["lat"], _t2["lng"]) or (0,))[0]) else _km_o_ba
+    _w12, _w21 = P.tabela_droga(_t1["lat"], _t1["lng"], _t2["lat"], _t2["lng"]), P.tabela_droga(_t2["lat"], _t2["lng"], _t1["lat"], _t1["lng"])
+    sprawdz("tabela dróg: Puławy–Radom z tabeli zgadza się z drogą z atrapy (±0,06 km i ±0,2 min), w obu kierunkach tak samo",
+            bool(_w12) and abs(_w12[0] - _km_o) < 0.06 and abs(_w12[1] - _AT.czas_s(_km_o) / 60.0) < 0.2 and _w12 == _w21, str(_w12))
+    # adres zamieszkania (spoza bazy) w pobliżu Radomia: od najbliższej miejscowości, przeskalowane stosunkiem odległości w linii prostej, nigdy krócej niż prosta
+    _dom = (51.425, 21.19)
+    _wd = P.tabela_droga(_dom[0], _dom[1], _t1["lat"], _t1["lng"])
+    _prosta_dom = P.oblicz_dystans(_dom[0], _dom[1], _t1["lat"], _t1["lng"])
+    _wr = P.tabela_droga(_t2["lat"], _t2["lng"], _t1["lat"], _t1["lng"])
+    sprawdz("tabela dróg: odcinek z adresu zamieszkania (3 km od środka Radomia) → Puławy: bliski drodze Radom–Puławy (0,75–1,35×) i nie krótszy niż linia prosta",
+            bool(_wd) and _wr and 0.75 * _wr[0] <= _wd[0] <= 1.35 * _wr[0] and _wd[0] >= _prosta_dom - 1e-6, "%s vs %s, prosta %.1f" % (_wd, _wr, _prosta_dom))
+    sprawdz("tabela dróg: punkt daleko od jakiejkolwiek miejscowości (poza 12 km) nie jest zgadywany — tabela milczy, zostaje szacunek",
+            P.tabela_droga(51.9, 20.0, _t1["lat"], _t1["lng"]) is None or min(P.oblicz_dystans(51.9, 20.0, m["lat"], m["lng"]) for m in _mi_td) <= 12.0)
+    # prędkości odcinków: średnia ważona km dla typowych odcinków (10–80 km) = średnia silnika (pojemność dni bez zmian), a rozrzut jest
+    _r_td, _km_s, _t_s, _vs = _rnd_td.Random(5), 0.0, 0.0, []
+    for _ in range(30000):
+        _a, _b = _r_td.sample(_mi_td, 2)
+        _d = P.oblicz_dystans(_a["lat"], _a["lng"], _b["lat"], _b["lng"])
+        if 10.0 <= _d <= 80.0:
+            _w = P.tabela_droga(_a["lat"], _a["lng"], _b["lat"], _b["lng"]); _v = P.predkosc_odcinka(_a["lat"], _a["lng"], _b["lat"], _b["lng"])
+            if _w and _v > 0:
+                _km_s += _w[0]; _t_s += _w[0] / _v; _vs.append(_v)
+    sprawdz("prędkości odcinków: średnia ważona km dla odcinków 10–80 km = %.1f km/h (średnia silnika %.0f), rozrzut %.0f–%.0f km/h" % (_km_s / _t_s, P.SREDNIA_PREDKOSC, min(_vs), max(_vs)),
+            len(_vs) > 100 and abs(_km_s / _t_s - P.SREDNIA_PREDKOSC) < 3.5 and min(_vs) < 0.85 * P.SREDNIA_PREDKOSC and max(_vs) > 1.05 * P.SREDNIA_PREDKOSC and min(_vs) >= 0.6 * P.SREDNIA_PREDKOSC - 1e-6 and max(_vs) <= 1.35 * P.SREDNIA_PREDKOSC + 1e-6)
+    # dystans_drogowy czyta tabelę (nie sieć), liczy odcinek jako „tabela” i NIE zapisuje go w pamięci dróg na dysku
+    _rc_przed = len(P._road_cache); P.zeruj_zrodlo_odleglosci()
+    _kmd = P.dystans_drogowy(_t1["lat"], _t1["lng"], _t2["lat"], _t2["lng"])
+    sprawdz("dystans_drogowy: odcinek z tabeli ma źródło „tabela”, liczbę z tabeli i nie trafia do pamięci dróg (_road_cache)", abs(_kmd - _km_o) < 0.06 and P.stan_zrodla_odleglosci()["stan"] == "tabela" and len(P._road_cache) == _rc_przed)
+    # generowanie z tabelą: kwota pełna, źródło „tabela”, dni mieszczą się w 8 h przy prędkościach odcinków, prędkości różne
+    _roz_td = P.pobierz_dni_robocze(2026, 9); P.zeruj_zrodlo_odleglosci()
+    _dn_t = P.generuj_trasy(4000.0, "Radom", _dom[0], _dom[1], "mazowieckie", _roz_td, "90010112349", stawka=0.89)
+    _st_t = P.stan_zrodla_odleglosci()
+    _czasy_t = [sum(e.czas_jazdy_minuty + e.czas_w_sklepie for e in d.etapy_surowe) + P.PRZERWA_JEDZENIE_MIN for d in _dn_t]
+    _predk_t = [e.predkosc for d in _dn_t for e in d.etapy_surowe if e.predkosc > 0]
+    sprawdz("generowanie z tabelą dróg (Radom 4000 zł): kwota pokryta, zero powtórek, prawie każdy odcinek z tabeli (atrapa celowo gubi po jednej parze na blok)", not _dn_t.kwota_niepelna and _dn_t.powtorzone_miejscowosci == 0 and _st_t["tabela"] >= 0.95 * _st_t["odcinki"] and _st_t["szacunek"] <= 2, str(_st_t))
+    sprawdz("generowanie z tabelą: żaden dzień nie przekracza 8 h przy prędkościach odcinków (max %.0f min), a prędkości odcinków są różne (%.0f–%.0f km/h)" % (max(_czasy_t), min(_predk_t), max(_predk_t)),
+            max(_czasy_t) <= P.LIMIT_CZASU_MINUTY + 2.0 and len(_predk_t) > 20 and max(_predk_t) - min(_predk_t) > 10)
+    # dokładne odcinki z Google: pierwszy przebieg oddaje WSZYSTKIE zaplanowane postoje (z nich może powstać każdy odcinek domowy), aplikacja pyta o drogę z domu do każdego,
+    # a drugi przebieg dostaje te kilometry. Końcowe przycinanie dni tylko zdejmuje postoje z planu, więc pokrycie odcinków domowych jest pełne. Drukowane km leżą
+    # między podłogą (1,15 × linia prosta) a Google × mnożnik max — silnik rozciąga i ściska drogi tak, żeby suma dała kwotę.
+    _plan = list(_dn_t.punkty_planu)
+    _g_pary = [(_dom[0], _dom[1], la, lo, round(P.oblicz_dystans(_dom[0], _dom[1], la, lo) * 1.2, 1)) for (la, lo) in _plan]
+    P.ustaw_dokladne_drogi(_g_pary); _rc_przed2 = len(P._road_cache); P.zeruj_zrodlo_odleglosci()
+    _dn_g = P.generuj_trasy(4000.0, "Radom", _dom[0], _dom[1], "mazowieckie", _roz_td, "90010112349", stawka=0.89)
+    _km_g = {P._klucz_drogi(_la1, _lo1, _la2, _lo2): _km for (_la1, _lo1, _la2, _lo2, _km) in _g_pary}
+    _zle_g, _domowych_g = [], 0
+    for _d in _dn_g:
+        for _e in _d.etapy_surowe:
+            if (_e.skad_lat, _e.skad_lng) == _dom or (_e.dokad_lat, _e.dokad_lng) == _dom:
+                _domowych_g += 1
+                _k = P._klucz_drogi(_e.skad_lat, _e.skad_lng, _e.dokad_lat, _e.dokad_lng)
+                if _k not in _km_g:
+                    _zle_g.append("odcinek domowy bez Google"); continue
+                if _e.zrodlo != P.ZRODLO_DROGI: _zle_g.append("źródło %s" % _e.zrodlo)
+                _pr = P.oblicz_dystans(_e.skad_lat, _e.skad_lng, _e.dokad_lat, _e.dokad_lng)
+                if not (_pr * P.MNOZNIK_MIN - 0.06 <= _e.dystans_rzeczywisty <= _km_g[_k] * P.MNOZNIK_MAX + 0.06): _zle_g.append("%.1f km (prosta %.1f, Google %.1f)" % (_e.dystans_rzeczywisty, _pr, _km_g[_k]))
+    sprawdz("dokładne odcinki z Google: lista zaplanowanych postojów (%d) pokrywa odcinki domowe wyniku (%d; najwyżej 10 %% poza listą), a pokryte mają źródło „drogi” i km w granicach podłogi i mnożnika max" % (len(_plan), _domowych_g),
+            len(_plan) >= 20 and _domowych_g >= 10 and sum(1 for _z in _zle_g if _z == "odcinek domowy bez Google") <= max(1, _domowych_g // 10) and not [_z for _z in _zle_g if _z != "odcinek domowy bez Google"] and not _dn_g.kwota_niepelna, str(_zle_g[:4]))
+    sprawdz("dokładne odcinki z Google nie trafiają do pamięci dróg zapisywanej na dysk (_road_cache bez zmian), a pusta lista je czyści", len(P._road_cache) == _rc_przed2 and P.ustaw_dokladne_drogi([]) == 0 and not P._dokladne_drogi)
+    # bez tabeli: wszystko po staremu (stała prędkość, szacunek)
+    P._tabela = None; P.zeruj_zrodlo_odleglosci()
+    _dn_b = P.generuj_trasy(4000.0, "Radom", _dom[0], _dom[1], "mazowieckie", _roz_td, "90010112349", stawka=0.89)
+    sprawdz("bez tabeli dróg silnik liczy po staremu: źródło „szacunek”, prędkość odcinków 0 (stała 65 km/h), kwota pokryta", P.stan_zrodla_odleglosci()["stan"] == "szacunek" and all(_e.predkosc == 0 for _d in _dn_b for _e in _d.etapy_surowe) and not _dn_b.kwota_niepelna and P.predkosc_odcinka(51.0, 21.0, 51.1, 21.1) == 0.0)
+except Exception as _e_td:
+    import traceback as _tb_td
+    sprawdz("tabela dróg i dokładne odcinki", False, repr(_e_td) + " " + _tb_td.format_exc()[-300:])
+finally:
+    P._tabela = _tabela_przed_testem
+    P.ustaw_dokladne_drogi([])
 
 # profil prędkości w ciągu doby: szczyt wolniej, wieczór i weekend szybciej, a suma czasu jazdy dnia bez zmian
 _rob_pp, _sob_pp = datetime.date(2026, 9, 16), datetime.date(2026, 9, 19)

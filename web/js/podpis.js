@@ -839,6 +839,7 @@ export function zainstalujPodpis(k) {
     if (o.powod === 'brak' || o.powod === 'wygaslo') magUst.ustaw('paczka', null);
     return o;
   }
+  let paczkaInfo = null;      // ostatnio przygotowana paczka: { liczba plików, blob, sposób } — dla zgłoszenia „kto złożył” (samo zdarzenie, bez dokumentów)
   let wysylanie = false, ostatniMailto = '', gotowyEml = null, sprawdzPoWyslaniu = null;      // gotowyEml: przygotowana wiadomość czeka na osobne kliknięcie, gdy zwykłe pobranie nie jest już możliwe; sprawdzPoWyslaniu: dane użyte z pamięci, do porównania z serwerem      // ostatniMailto: adres mailto: trzymany tylko w pamięci, żeby przycisk „Otwórz wiadomość” nie niósł adresata w treści strony
   /** Przycisk „Wyślij” w kroku 5: dane od administratora → jedna paczka ZIP z klasycznym szyfrowaniem (otwiera ją Eksplorator Windows) → gotowa wiadomość (plik .eml: adresat, temat, treść i załącznik; na telefonie systemowe udostępnianie, a bez niego pobrana paczka i wiadomość przez mailto:).
       Samo kliknięcie jest akceptacją: gdy wiadomość jest gotowa, dokumenty dostają status „wysłane” (karty pokazują „Wysłano”); „Cofnij wysłanie” na pulpicie go przywraca. */
@@ -905,17 +906,18 @@ export function zainstalujPodpis(k) {
       const adres = h.adres;
       stanW('Przygotowuję zahasłowaną paczkę…'); await czekaj(40);      // pozwala narysować komunikat, zanim szyfrowanie zajmie procesor
       const zal = await zalaczniki(); if (!zal.length) { stanW('Nie ma plików do wysłania.', true); return; }
+      paczkaInfo = { liczba: zal.length, blob: null, sposob: metoda === 'plik' && matchMedia('(pointer:coarse)').matches ? 'telefon' : metoda };
       if (metoda === 'poczta') {      // otwieramy pocztę JAK NAJSZYBCIEJ po kliknięciu (przeglądarka pozwala na to tylko tuż po geście użytkownika), zanim szyfrowanie zajmie procesor
         const mailto = mailtoDo(adres, temat(), trescWiad(zal.length, h.format));
         otworzMailto(mailto); stanW('Otwieram pocztę i przygotowuję zahasłowaną paczkę…'); await czekaj(60);
-        const blobP = await zrobPaczke(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h);
+        const blobP = await zrobPaczke(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h); paczkaInfo.blob = blobP;
         k.pobierzBlob(blobP, nazwaZip()); await czekaj(450);
         oznaczWyslane();
         ostatniMailto = mailto; stanW(`Otworzyłem pocztę z gotową wiadomością (adresat, temat i treść są już wpisane). Zahasłowana paczka <span class="adr">${esc(nazwaZip())}</span> zapisała się w folderze Pobrane — <span class="adr">dołącz ją do wiadomości</span> (spinacz → ostatnio pobrane albo przeciągnij z paska pobierania) i wyślij. Jeśli poczta się nie otworzyła: <button type="button" class="przycisk maly" id="podp-otworz-poczte" data-akcja="otworz-mailto">Otwórz wiadomość</button>${blobP.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blobP.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : ''}`);
         pokazToast('Poczta otwarta — dołącz paczkę z folderu Pobrane i wyślij');
         return;
       }
-      const blob = await zrobPaczke(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h), tr = trescWiad(zal.length, h.format), tem = temat();
+      const blob = await zrobPaczke(zal.map(z => ({ nazwa: z.nazwa, bajty: z.bajty })), h), tr = trescWiad(zal.length, h.format), tem = temat(); paczkaInfo.blob = blob;
       const plik = new File([blob], nazwaZip(), { type: 'application/zip' }), duza = blob.size > LIMIT_POCZTY ? `<br><span class="zle">Uwaga: paczka waży ${mb(blob.size)}, a poczta zwykle przyjmuje do 20–25 MB. Największe są zdjęcia — zrób skany do PDF (mniejsze pliki).</span>` : '';
       if (metoda === 'outlook') { oknoZostaje = await szkicOutlook(okno, { adres, tem, tr, blob, duza }); return; }
       if (metoda === 'folder') {
@@ -965,7 +967,12 @@ export function zainstalujPodpis(k) {
       if (uzyte && wyslane()) hasloDoPaczki().then(o => { daneWysylki = o; daneWysylkiTs = Date.now(); if (o.ok && (o.haslo !== uzyte.haslo || o.adres !== uzyte.adres || o.format !== uzyte.format)) stanW('<span class="zle">Uwaga: administrator zmienił właśnie hasło do paczek (albo ich szyfr) — ta paczka ma poprzednie ustawienia. Kliknij „Cofnij wysłanie” na pulpicie i wyślij jeszcze raz.</span>'); }).catch(() => { /* bez sieci zostają dane z pamięci */ });
       if (okno && !oknoZostaje) { try { okno.close(); } catch (e) { /* zamknięte */ } } if (przycisk() && mozeWyslac()) przycisk().disabled = false; }
   }
-  function oznaczWyslane() { dzwiek.efekt('wyslano'); const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); }
+  function oznaczWyslane() { dzwiek.efekt('wyslano'); const m = M(); m.wyslane = true; m.wyslaneKiedy = new Date().toISOString(); k.zapiszRekord(); k.odswiezHero(); k.zorza() && k.zorza().flara(.7); odswiezWidok(); zglosWyslanie(); }
+  /** „Kto złożył”: zgłasza administratorowi samo zdarzenie (miesiąc, liczba plików, skrót paczki, sposób) — w tle, bez czekania i bez błędów dla użytkownika. Dokumenty nie opuszczają urządzenia tą drogą. */
+  function zglosWyslanie() {
+    const p = paczkaInfo, { rok, mies } = M(); if (!p || !p.blob || !k.zglosZlozenie) return;
+    k.skrotPaczki(p.blob).then(skrot => k.zglosZlozenie(rok, mies, { liczba: p.liczba, skrot, sposob: p.sposob })).catch(() => { /* zgłoszenie nie może zepsuć wysyłki */ });
+  }
 
   /* ---------------------------------- zdarzenia ---------------------------------- */
   arkTresc.addEventListener('click', async e => {

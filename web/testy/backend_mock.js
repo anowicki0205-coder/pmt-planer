@@ -40,6 +40,52 @@ class BackendMock {
     this.pobraniaHasla++; this.zapisz(String(d.kod), 'haslo_paczki', `wazne do ${p.wazne_do}`);
     return Object.assign({ status: 'ok', haslo: String(p.haslo).trim(), wazne_do: p.wazne_do, adres: String(p.adres).trim() }, p.format ? { format: p.format } : {});      // format: szyfr paczki („klasyczny” albo „aes”) — brak pola = jak starszy skrypt
   }
+  /** Jak obsluzMiejscowosci w .gs: podpis hasłem, jeden wpis na osobę i miesiąc (zapisz zastępuje, zwolnij usuwa), pobierz liczy cudze wpisy. */
+  miejscowosci(d) {
+    const kod = String(d.kod || ''), u = this.uzytkownicy[kod]; this.rejestr = this.rejestr || {};
+    this.zapytaniaRejestru = (this.zapytaniaRejestru || []).concat([{ op: d.op, kod, miesiac: d.miesiac }]);
+    if (!u || !this.hasloOk(d, u)) { this.zapisz(kod || '?', 'miejscowosci_odmowa'); return { status: 'odmowa' }; }
+    if (u.wazne_do < iso(new Date())) return { status: 'wygasla' };
+    if (this.rejestrBlad) return { status: 'blad', opis: 'Serwer zajety — sprobuj ponownie za chwile' };
+    const m = String(d.miesiac || ''); if (!/^20\d\d(0[1-9]|1[0-2])$/.test(m)) return { status: 'blad', opis: 'Nieprawidlowy miesiac' };
+    const klucz = `${m}|${kod}`;
+    if (d.op === 'pobierz') { const zajete = {}; let osob = 0; for (const [k, lista] of Object.entries(this.rejestr)) { const [mm, kk] = k.split('|'); if (mm !== m || kk === kod) continue; osob++; for (const n of lista) zajete[n] = (zajete[n] || 0) + 1; } return { status: 'ok', zajete, osob }; }
+    if (d.op === 'zwolnij') { delete this.rejestr[klucz]; return { status: 'ok' }; }
+    if (d.op === 'zapisz') { if (!Array.isArray(d.miejscowosci) || d.miejscowosci.length > 250) return { status: 'blad', opis: 'Za duzo miejscowosci' }; this.rejestr[klucz] = [...new Set(d.miejscowosci.map(String))]; return { status: 'ok', zapisano: this.rejestr[klucz].length }; }
+    return { status: 'blad', opis: 'Nieznana operacja' };
+  }
+  /** Jak obsluzZlozono w .gs: podpis hasłem, jeden wpis na osobę i miesiąc (zloz zastępuje i zwiększa „razy”, cofnij zmienia status); this.zlozone[„RRRRMM|kod”] = wpis; this.zapytaniaZlozono zbiera zgłoszenia. */
+  zlozono(d) {
+    const kod = String(d.kod || ''), u = this.uzytkownicy[kod]; this.zlozone = this.zlozone || {};
+    this.zapytaniaZlozono = (this.zapytaniaZlozono || []).concat([{ op: d.op, kod, miesiac: d.miesiac, liczba: d.liczba, skrot: d.skrot, sposob: d.sposob }]);
+    if (!u || !this.hasloOk(d, u)) { this.zapisz(kod || '?', 'zlozono_odmowa'); return { status: 'odmowa' }; }
+    if (u.wazne_do < iso(new Date())) return { status: 'wygasla' };
+    if (this.zlozonoBlad) return { status: 'blad', opis: 'Serwer zajety — sprobuj ponownie za chwile' };
+    const m = String(d.miesiac || ''); if (!/^20\d\d(0[1-9]|1[0-2])$/.test(m)) return { status: 'blad', opis: 'Nieprawidlowy miesiac' };
+    const klucz = `${m}|${kod}`, w = this.zlozone[klucz];
+    if (d.op === 'cofnij') { if (w) w.status = 'cofnieto'; return { status: 'ok' }; }
+    if (d.op === 'zloz') {
+      if (!(Number(d.liczba) >= 1 && Number(d.liczba) <= 60)) return { status: 'blad', opis: 'Nieprawidlowa liczba plikow' };
+      if (!/^[0-9a-f]{64}$/.test(String(d.skrot || ''))) return { status: 'blad', opis: 'Nieprawidlowy skrot' };
+      if (!['folder', 'poczta', 'outlook', 'pulpit', 'telefon', 'plik'].includes(d.sposob)) return { status: 'blad', opis: 'Nieprawidlowy sposob' };
+      const razy = w ? w.razy + 1 : 1; this.zlozone[klucz] = { miesiac: m, kod, imie: u.imie, liczba: Number(d.liczba), skrot: d.skrot, sposob: d.sposob, razy, status: 'zlozono' }; return { status: 'ok', razy };
+    }
+    return { status: 'blad', opis: 'Nieznana operacja' };
+  }
+  /** Jak obsluzDroge w .gs: podpis hasłem, współrzędne w Polsce, do 60 par; droga = linia prosta × 1,2 (atrapa Google); this.zapytaniaDrog zbiera pary do sprawdzenia w teście. */
+  droga(d) {
+    const kod = String(d.kod || ''), u = this.uzytkownicy[kod];
+    if (!u || !this.hasloOk(d, u)) { this.zapisz(kod || '?', 'droga_odmowa'); return { status: 'odmowa' }; }
+    if (u.wazne_do < iso(new Date())) return { status: 'wygasla' };
+    if (this.drogaBlad) return { status: 'blad', opis: 'Serwer zajety — sprobuj ponownie za chwile' };
+    const pary = d.pary; if (!Array.isArray(pary) || pary.length < 1 || pary.length > 60) return { status: 'blad', opis: 'Nieprawidlowa liczba par' };
+    const wPl = (la, lo) => typeof la === 'number' && typeof lo === 'number' && la >= 48.8 && la <= 55.2 && lo >= 13.9 && lo <= 24.4;
+    if (pary.some(p => !Array.isArray(p) || p.length !== 4 || !wPl(p[0], p[1]) || !wPl(p[2], p[3]))) return { status: 'blad', opis: 'Nieprawidlowe wspolrzedne' };
+    this.zapytaniaDrog = (this.zapytaniaDrog || []).concat(pary.map(p => ({ kod, para: p })));
+    const prosta = p => { const r = Math.PI / 180; return 6371 * Math.hypot((p[3] - p[1]) * r * Math.cos((p[0] + p[2]) * r / 2), (p[2] - p[0]) * r); };
+    if (this.drogaLimit) return { status: 'ok', wyniki: pary.map(() => null), limit: true };
+    return { status: 'ok', wyniki: pary.map(p => { const km = prosta(p) * 1.2; return { km: Math.round(km * 10) / 10, min: Math.round(km) }; }), limit: false };
+  }
   zapisz(kod, zdarzenie, szczegoly = '') { this.log.push({ kod, zdarzenie, szczegoly }); }
   /** Jak _json w .gs: każda odpowiedź niesie czas serwera. */
   obsluz(tekst) { const o = this.obsluzAkcje(tekst); if (o && typeof o === 'object') o.czas_serwera = Math.floor(Date.now() / 1000); return o; }
@@ -56,6 +102,9 @@ class BackendMock {
       case 'zmien_haslo': return this.zmienHaslo(d);
       case 'reset_hasla': return this.reset(d);
       case 'haslo_paczki': return this.hasloPaczki(d);
+      case 'miejscowosci': return this.miejscowosci(d);
+      case 'droga': return this.droga(d);
+      case 'zlozono': return this.zlozono(d);
       default: return { status: 'blad', opis: 'Nieznana akcja' };
     }
   }

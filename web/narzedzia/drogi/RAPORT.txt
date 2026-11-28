@@ -1,0 +1,9 @@
+TABELA DRÓG (OSRM, profil car, dane OpenStreetMap) — raport z budowy
+miejscowości: 1492, promień par: 200 km, par zapisanych: 340599, bez trasy: 0 (0.00 %), czas budowy: 105 s
+droga/linia prosta (pary ≥ 5 km), kwantyle 5/25/50/75/95 %: 1.160 1.246 1.328 1.444 1.679
+prędkość km/h (pary 30–120 km), kwantyle 5/25/50/75/95 %: 48.9 55.1 62.5 72.9 84.9
+prędkość odniesienia (średnia ważona kilometrami dla par 10–80 km w linii prostej, zapisana w pliku): 59.30 km/h
+pary podejrzane (droga < 0,97 prostej albo > 3,5 prostej): 19
+przyciągnięcie miejscowości do najbliższej drogi (m), mediana / 95% / maks: 22 / 339 / 1383; powyżej 2 km: 0 z 1492
+  Lublin – Puławy: 55.5 km drogą (prosta 46.0 km, ×1.21), 47 min
+  Zakopane – Nowy Targ: 22.9 km drogą (prosta 20.8 km, ×1.10), 30 min

@@ -1852,6 +1852,7 @@ async function generuj() {
     if (!pr.ok) { pokazToast('Nie można generować: ' + pr.powod); return; }
     if (!tenSam()) return;
   }
+  const zajetePytanie = dostep.zajeteMiejscowosci(rok, mies).catch(() => ({ ok: false }));      // wspólny rejestr: pytanie leci, gdy użytkownik czyta potwierdzenie
   if (!(await arkuszPotwierdzenia(pr))) return;            // użytkownik sprawdza dane, zanim cokolwiek powstanie
   magUst.ustaw('kwota-' + kl, par.kwota);
   generowanie = true; nawigacjaMiesiecy(false); btn.classList.add('zbiera'); btn.setAttribute('aria-busy', 'true'); btn.setAttribute('aria-label', 'Przerwij generowanie');
@@ -1860,7 +1861,20 @@ async function generuj() {
   wid && wid.start();
   let w;
   try {
-    w = await silnik.generuj(par, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
+    const rej = await zajetePytanie;      // gotowe zwykle zanim użytkownik kliknął „Generuj”; brak rejestru (sieć, konto) = dawny sposób (klin z PESEL-u)
+    let parGen = rej && rej.ok ? { ...par, zajete: rej.zajete } : par;
+    if (dostep.gotowyDoDrog()) {      // dokładne drogi z Google dla odcinków z adresu zamieszkania: pierwszy przebieg silnika zna te odcinki, drugi dostaje ich kilometry
+      try {
+        postepGeneracji('Sprawdzam drogi z domu…', 0.04); wid && wid.postep('Sprawdzam drogi z domu…', 0.06);
+        const tr = await silnik.trasyDomowe(parGen);
+        if (tr && Array.isArray(tr.pary) && tr.pary.length) {
+          const g = await dostep.drogiGoogle(tr.pary), google = [];
+          if (g.ok) tr.pary.forEach((p, i) => { if (g.wyniki[i] > 0) google.push([...p, g.wyniki[i]]); });
+          if (google.length) parGen = { ...parGen, google };
+        }
+      } catch (e) { if (e && e.przerwano) throw e; /* dokładne drogi to dodatek: bez nich zostaje tabela dróg */ }
+    }
+    w = await silnik.generuj(parGen, (t, v) => { postepGeneracji(t, v); wid && wid.postep(t, v); });
   } catch (e) {
     wid && wid.przerwij(); koniecGenerowania();
     if (e.przerwano) { pokazToast('Przerwano — nic nie zostało zapisane'); } else {
@@ -1880,6 +1894,7 @@ async function generuj() {
     odswiezHero(); await odswiezParametry(); return;
   }
   magUst.ustaw('wolne-' + kl, null); magUst.ustaw('ust-' + kl, null); magUst.ustaw('pobrane-' + kl, null); magUst.ustaw('folder-' + kl, null); dostep.policzDokumenty(w.pdf.length); zapiszPamiecSilnika();
+  dostep.zapiszMiejscowosci(rok, mies, w.wynik.miejscowosci).catch(() => {});      // wspólny rejestr: inni użytkownicy omijają te miejscowości (nie czekamy na serwer)
   postepGeneracji('', 1);
   if (!wid) dzwiek.efekt('gen-koniec');      // z pokazem dzwonek „koniec” gra po ostatniej kropce (naKoniec), żeby nie wchodził w nuty punktów
   try {
@@ -1890,7 +1905,7 @@ async function generuj() {
   M = zbudujModel(rok, mies, rec, [...M.robocze0]); wybrany = M.dniT[0] || 0;
   przejscie(() => odswiezWszystko(), () => { kurtyna && kurtyna.restart(); kurtyna && kurtyna.wybierz(wybrany); });
   zorza && zorza.flara(1); kurtyna && kurtyna.swieto();
-  pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}${w.wynik.powtorzone > 0 ? ` · uwaga: ${w.wynik.powtorzone} ${w.wynik.powtorzone === 1 ? 'miejscowość powtarza się' : 'miejscowości powtarza się'} w miesiącu (za mało miejscowości w zasięgu przy tej kwocie)` : ''}`);
+  pokazToast(`Gotowe: ${M.polecenia.length} ${M.polecenia.length === 1 ? 'polecenie' : M.polecenia.length < 5 ? 'polecenia' : 'poleceń'} i rozliczenie na ${fmt(M.suma)} zł${w.wynik.niepelna ? ' (silnik nie dobił do zamówionej kwoty)' : ''}${w.wynik.wspolne > 0 ? ` · ${w.wynik.wspolne} ${w.wynik.wspolne === 1 ? 'miejscowość jest' : 'miejscowości jest'} też na dokumentach innych osób (w Twojej okolicy brakuje wolnych)` : ''}${w.wynik.powtorzone > 0 ? ` · uwaga: ${w.wynik.powtorzone} ${w.wynik.powtorzone === 1 ? 'miejscowość powtarza się' : 'miejscowości powtarza się'} w miesiącu (za mało miejscowości w zasięgu przy tej kwocie)` : ''}`);
   if (w.wynik.zrodlo && w.wynik.zrodlo.etykieta && /szacunek/i.test(w.wynik.zrodlo.etykieta)) setTimeout(() => pokazToast('Kilometry z szacunku — bez internetu nie sprawdzę dróg. Jeśli to ma być dokładne, wygeneruj od nowa z internetem.'), 3300);
 }
 /** Dni robocze miesiąca z silnika. Przy chwilowym błędzie (np. silnik jeszcze się rozgrzewa) próbuje jeszcze dwa razy, zamiast po cichu pokazać miesiąc bez dni roboczych. */
@@ -2062,6 +2077,7 @@ function pobierzBlob(blob, nazwa) { const a = doc.createElement('a'); a.href = U
 async function otworzPdf(nazwa) { const b = await magPliki.daj(klucz(nazwa)); if (!b) { pokazToast('Nie znalazłem pliku — wygeneruj dokumenty ponownie'); return; } const u = URL.createObjectURL(blobPdf(b)); const w = window.open(u, '_blank'); if (!w) pobierzBlob(blobPdf(b), nazwa); setTimeout(() => URL.revokeObjectURL(u), 60000); }
 /* okno „Dokumenty do podpisu”, podpis elektroniczny / odręczny i wysyłka: js/podpis.js */
 const podpis = zainstalujPodpis({ $, $$, ik, arkTresc, bezZnacznikow, bezOgonkow, pokazToast, potrzasnij, isoDzis, zycie, hasloPaczki: () => dostep.pobierzHasloPaczki(), magPliki, magMiesiace, magUst, MIES, URL_PODPIS, blobPdf, pobierzBlob, otworzPdf,
+  zglosZlozenie: (r, m, o) => dostep.zglosZlozenie(r, m, o), skrotPaczki: b => dostep.skrotPaczki(b),
   M: () => M, PROFIL: () => PROFIL, nazwyDok, klucz, kluczPodp, zapiszRekord, odswiezPodpisy, odswiezHero, ilePodpisanych, razemDok, zorza: () => zorza, kurtyna: () => kurtyna,
   otworzArkusz, zmienArkusz, zamknijArkusz });
 const arkuszPodpis = i => M && M.demo ? demoToast() : podpis.otworz(i), arkuszWyslij = () => M && M.demo ? demoToast() : podpis.otworzWyslij();
@@ -2104,7 +2120,7 @@ function arkuszOdNowa(zKwoty) {
     <div class="ark-dol"><button type="button" class="przycisk glowny" data-zamknij data-pierwsze>Zostaw jak jest</button><button type="button" class="przycisk" id="od-nowa-tak">${zKwoty ? 'Usuń i wpisz nową kwotę' : 'Usuń i zacznij od nowa'}</button></div>`);
   $('#od-nowa-tak', arkTresc).addEventListener('click', async () => {
     const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, kl = magMiesiace.klucz(rok, mies);
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/'); dostep.zwolnijMiejscowosci(rok, mies).catch(() => {});      // dokumentów już nie ma: miejscowości wracają do wspólnej puli
     magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, par.wolne && par.wolne.length ? par.wolne : null);
     const ust = { tryb: par.tryb || M.tryb, silnik: par.silnik_powyzej_900 != null ? !!par.silnik_powyzej_900 : M.silnik }; magUst.ustaw('ust-' + kl, ust);
     zamknijArkusz(); await przeladujMiesiac(rok, mies, !!zKwoty, !!zKwoty, ust);      // tryb i auto miesiąca, nie te, które profil ma teraz (zmienia się przy każdym przełączeniu w innym miesiącu)
@@ -2133,7 +2149,7 @@ function arkuszUstawienia() {
   $$('[data-u-silnik]', arkTresc).forEach(b => b.addEventListener('click', () => { silnik = b.dataset.uSilnik === '1'; odswiez(); }));
   $('#ust-tak', arkTresc).addEventListener('click', async () => {
     const par = (magMiesiace.daj(M.rok, M.mies) || {}).params || {}, rok = M.rok, mies = M.mies, zmianaTrybu = tryb !== stary.tryb, kl = magMiesiace.klucz(rok, mies);
-    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/');
+    magMiesiace.usun(rok, mies); await magPliki.usunMiesiac(kl + '/'); dostep.zwolnijMiejscowosci(rok, mies).catch(() => {});
     magUst.ustaw('kwota-' + kl, par.kwota || 0); magUst.ustaw('wolne-' + kl, !zmianaTrybu && par.wolne && par.wolne.length ? par.wolne : null);
     if (PROFIL) { PROFIL.tryb = tryb; PROFIL.tryb_wybrany = true; PROFIL.silnik_powyzej_900 = silnik; magProfil.zapisz(PROFIL); odswiezProfilWNaglowku(); }
     magUst.ustaw('ust-' + kl, { tryb, silnik });
@@ -2143,7 +2159,7 @@ function arkuszUstawienia() {
 }
 /** Klik w dużą kwotę: w przykładzie → własny miesiąc z kursorem w polu kwoty; po wygenerowaniu → zmiana kwoty (z potwierdzeniem, bo kasuje dokumenty). */
 function kliknietoKwote() { if (!M) return; if (M.demo) zacznijOdSwoich(); else if (M.stan === 'gotowe') arkuszOdNowa(true); }
-function cofnijWyslanie() { M.wyslane = false; M.wyslaneKiedy = ''; zapiszRekord(); odswiezHero(); pokazToast('Przywrócono stan przed wysyłką'); }
+function cofnijWyslanie() { M.wyslane = false; M.wyslaneKiedy = ''; zapiszRekord(); odswiezHero(); dostep.zglosCofniecie(M.rok, M.mies).catch(() => {}); pokazToast('Przywrócono stan przed wysyłką'); }      // „kto złożył”: administrator widzi cofnięcie
 async function klikGlowny() {
   const e = etapMiesiaca();
   if (e === 'przyklad') return zacznijOdSwoich();

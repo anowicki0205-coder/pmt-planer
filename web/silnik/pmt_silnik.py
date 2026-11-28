@@ -2,7 +2,7 @@
 
 NIE EDYTUJ RĘCZNIE: każda zmiana silnika dzieje się w programie na komputerze i trafia tu ponownym wyciągnięciem."""
 
-# źródło: PMT_Delegacje.py sha256:2bc96873da03f66e
+# źródło: PMT_Delegacje.py sha256:ec4cca0864b1a16b
 
 import sys
 
@@ -937,6 +937,9 @@ class RawEtap:
     # mówi o całym rozliczeniu; to pole o jednym odcinku — druga strona
     # kartki delegacji pokazuje je przy każdym odcinku dnia.
     zrodlo: str = ""
+    # średnia prędkość TEGO odcinka (km/h) wg tabeli dróg: autostrada szybciej, miasto wolniej, przy zachowanej średniej silnika.
+    # 0 = brak danych — wtedy obowiązuje SREDNIA_PREDKOSC (tak liczy się czas jazdy bez tabeli dróg).
+    predkosc: float = 0.0
 
 @dataclass
 class Etap:
@@ -989,9 +992,12 @@ ZRODLO_SZACUNEK = "szacunek"    # linia prosta × krętość — brak sieci albo
 
 ZRODLO_BRAK = "brak"            # ani jednego policzonego odcinka — nic nie zapewniamy
 
+ZRODLO_TABELA = "tabela"        # z gotowej tabeli dróg (dane OpenStreetMap, plik drogi.bin)
+
 ETYKIETY_ZRODLA = {
     ZRODLO_DROGI: "realne drogi",
     ZRODLO_PAMIEC: "drogi z pamięci",
+    ZRODLO_TABELA: "drogi z tabeli OpenStreetMap",
     ZRODLO_SZACUNEK: "szacunek",
     ZRODLO_BRAK: "",            # pusta etykieta = dokument i interfejs milczą
 }
@@ -1004,7 +1010,7 @@ _osrm_dostepny = None    # None=niesprawdzone, True/False po pierwszej próbie
 
 _google_dostepny = None  # jak wyżej, dla Google (gdy klucz w ogóle jest)
 
-_zrodlo_licznik = {ZRODLO_DROGI: 0, ZRODLO_PAMIEC: 0, ZRODLO_SZACUNEK: 0}
+_zrodlo_licznik = {ZRODLO_DROGI: 0, ZRODLO_PAMIEC: 0, ZRODLO_SZACUNEK: 0, ZRODLO_TABELA: 0}
 
 _ostatnie_zrodlo = ZRODLO_BRAK      # źródło OSTATNIO policzonego odcinka
 
@@ -1124,9 +1130,10 @@ def uzupelnij_zrodla_etapow(etapy) -> int:
         try:
             w_pamieci = bool(_road_cache.get(
                 _klucz_drogi(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)))
+            w_tabeli = bool(_tabela is not None and tabela_droga(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng))
         except Exception:
-            w_pamieci = False
-        e.zrodlo = ZRODLO_PAMIEC if w_pamieci else ZRODLO_SZACUNEK
+            w_pamieci = w_tabeli = False
+        e.zrodlo = ZRODLO_PAMIEC if w_pamieci else (ZRODLO_TABELA if w_tabeli else ZRODLO_SZACUNEK)
         ile += 1
     return ile
 
@@ -1143,6 +1150,8 @@ def stan_zrodla_odleglosci() -> dict:
         stan = ZRODLO_SZACUNEK
     elif ile.get(ZRODLO_DROGI):
         stan = ZRODLO_DROGI
+    elif ile.get(ZRODLO_TABELA):
+        stan = ZRODLO_TABELA
     elif ile.get(ZRODLO_PAMIEC):
         stan = ZRODLO_PAMIEC
     else:
@@ -1150,11 +1159,12 @@ def stan_zrodla_odleglosci() -> dict:
     return {
         ZRODLO_DROGI: ile.get(ZRODLO_DROGI, 0),
         ZRODLO_PAMIEC: ile.get(ZRODLO_PAMIEC, 0),
+        ZRODLO_TABELA: ile.get(ZRODLO_TABELA, 0),
         ZRODLO_SZACUNEK: ile.get(ZRODLO_SZACUNEK, 0),
         "stan": stan,
         "etykieta": ETYKIETY_ZRODLA[stan],
         "odcinki": sum(ile.values()),
-        "realne": stan in (ZRODLO_DROGI, ZRODLO_PAMIEC),
+        "realne": stan in (ZRODLO_DROGI, ZRODLO_TABELA, ZRODLO_PAMIEC),
     }
 
 GOOGLE_KLUCZ_ENV = "PMT_GOOGLE_KLUCZ"
@@ -1205,6 +1215,167 @@ def _osrm_km(lat1, lon1, lat2, lon2):
         return dane["routes"][0]["distance"] / 1000.0
     return None
 
+TABELA_DROG_PLIK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drogi.bin")
+
+TABELA_PROMIEN_ADRESU_KM = 12.0
+
+PREDKOSC_WZGL_MIN, PREDKOSC_WZGL_MAX = 0.60, 1.35      # prędkość odcinka względem średniej silnika
+
+_tabela = None            # None = tabeli nie wczytano (silnik liczy po staremu)
+
+_tabela_blisko = {}       # pamięć „najbliższa miejscowość z bazy dla punktu (adres zamieszkania)”
+
+class _TabelaDrog:
+    __slots__ = ("n", "promien", "vref", "indeks", "lat", "lng", "ids", "km", "t")
+
+def wczytaj_tabele_drog(dane) -> int:
+    """Wczytuje tabelę dróg z bajtów pliku drogi.bin (format: patrz zbuduj_tabele.py). Zwraca liczbę par; błędny plik zostawia silnik bez tabeli (ValueError)."""
+    import array, struct, sys
+    global _tabela
+    dane = bytes(dane)
+    if len(dane) < 17 or dane[:4] != b"PMTD" or dane[4] != 1:
+        raise ValueError("drogi.bin: nieznany format")
+    n, promien, vref = struct.unpack("<Iff", dane[5:17])
+    tb = _TabelaDrog()
+    tb.n, tb.promien, tb.vref = n, promien, vref
+    poz = 17
+    if len(dane) < poz + 8 * n:
+        raise ValueError("drogi.bin: plik ucięty")
+    tb.lat, tb.lng, tb.indeks = [], [], {}
+    for i in range(n):
+        la, lo = struct.unpack("<ii", dane[poz:poz + 8]); poz += 8
+        tb.lat.append(la / 1e4); tb.lng.append(lo / 1e4)
+        tb.indeks[(la, lo)] = i
+    tb.ids, tb.km, tb.t = [], [], []
+    pary = 0
+    for i in range(n):
+        if len(dane) < poz + 2:
+            raise ValueError("drogi.bin: plik ucięty")
+        (k,) = struct.unpack("<H", dane[poz:poz + 2]); poz += 2
+        if len(dane) < poz + 6 * k:
+            raise ValueError("drogi.bin: plik ucięty")
+        a = array.array("H"); a.frombytes(dane[poz:poz + 6 * k]); poz += 6 * k
+        if sys.byteorder == "big":
+            a.byteswap()
+        tb.ids.append(a[0::3]); tb.km.append(a[1::3]); tb.t.append(a[2::3])
+        pary += k
+    if poz != len(dane) or not (20.0 <= vref <= 130.0):
+        raise ValueError("drogi.bin: uszkodzony plik")
+    _tabela = tb
+    _tabela_blisko.clear()
+    return pary
+
+def wczytaj_tabele_drog_z_pliku(sciezka=None) -> int:
+    """Wczytuje drogi.bin z podanej ścieżki (domyślnie obok programu). Brak pliku albo błąd = silnik bez tabeli (zwraca 0), nigdy wyjątek."""
+    global _tabela
+    try:
+        with open(sciezka or TABELA_DROG_PLIK, "rb") as f:
+            return wczytaj_tabele_drog(f.read())
+    except Exception:
+        _tabela = None
+        return 0
+
+def tabela_drog_wczytana() -> bool:
+    return _tabela is not None
+
+def _tabela_miasto(lat, lng):
+    return _tabela.indeks.get((int(round(lat * 1e4)), int(round(lng * 1e4))))
+
+def _tabela_pary(i, j):
+    """(km, minuty) pary indeksów miejscowości albo None."""
+    if i == j:
+        return None
+    if i > j:
+        i, j = j, i
+    import bisect
+    ids = _tabela.ids[i]
+    k = bisect.bisect_left(ids, j)
+    if k < len(ids) and ids[k] == j:
+        return _tabela.km[i][k] / 10.0, _tabela.t[i][k] * 10.0 / 60.0
+    return None
+
+def _tabela_najblizsza(lat, lng):
+    """Indeks najbliższej miejscowości z tabeli (w TABELA_PROMIEN_ADRESU_KM) albo None."""
+    klucz = (int(round(lat * 1e4)), int(round(lng * 1e4)))
+    if klucz in _tabela_blisko:
+        return _tabela_blisko[klucz]
+    najl, naj = None, TABELA_PROMIEN_ADRESU_KM
+    for i in range(_tabela.n):
+        d = oblicz_dystans(lat, lng, _tabela.lat[i], _tabela.lng[i])
+        if d < naj:
+            najl, naj = i, d
+    _tabela_blisko[klucz] = najl
+    return najl
+
+def tabela_droga(lat1, lon1, lat2, lon2):
+    """(km, minuty jazdy bez korków) z tabeli dróg albo None. Obie końce w bazie — para z tabeli. Jeden koniec poza bazą (adres zamieszkania) —
+    para od najbliższej miejscowości, przeskalowana stosunkiem odległości w linii prostej (0,75–1,35). Droga nigdy krótsza niż linia prosta."""
+    if _tabela is None:
+        return None
+    a, b2 = _tabela_miasto(lat1, lon1), _tabela_miasto(lat2, lon2)
+    if a is not None and b2 is not None:
+        return _tabela_pary(a, b2)
+    if a is None and b2 is None:
+        return None
+    # jeden koniec to punkt spoza bazy (p), drugi — miejscowość z bazy (q)
+    if a is None:
+        plat, plng, q, qlat, qlng = lat1, lon1, b2, lat2, lon2
+    else:
+        plat, plng, q, qlat, qlng = lat2, lon2, a, lat1, lon1
+    t = _tabela_najblizsza(plat, plng)
+    if t is None or t == q:
+        return None
+    wpis = _tabela_pary(t, q)
+    if wpis is None:
+        return None
+    prosta_tq = oblicz_dystans(_tabela.lat[t], _tabela.lng[t], qlat, qlng)
+    prosta_pq = oblicz_dystans(plat, plng, qlat, qlng)
+    if prosta_tq < 3.0 or prosta_pq <= 0:
+        return None            # tak krótki odcinek: lepszy dotychczasowy szacunek niż skalowanie drogi od środka miejscowości
+    r = min(1.35, max(0.75, prosta_pq / prosta_tq))
+    return max(wpis[0] * r, prosta_pq), wpis[1] * r
+
+def predkosc_odcinka(lat1, lon1, lat2, lon2) -> float:
+    """Średnia prędkość odcinka (km/h) względem średniej silnika (SREDNIA_PREDKOSC) wg tabeli dróg; 0.0 = brak danych."""
+    if _tabela is None:
+        return 0.0
+    try:
+        w = tabela_droga(lat1, lon1, lat2, lon2)
+    except Exception:
+        return 0.0
+    if not w or w[0] <= 0 or w[1] <= 0:
+        return 0.0
+    v = w[0] / (w[1] / 60.0)
+    return max(SREDNIA_PREDKOSC * PREDKOSC_WZGL_MIN, min(SREDNIA_PREDKOSC * PREDKOSC_WZGL_MAX, SREDNIA_PREDKOSC * v / _tabela.vref))
+
+_dokladne_drogi = {}
+
+def ustaw_dokladne_drogi(pary) -> int:
+    """pary: [(lat1, lng1, lat2, lng2, km), …] — dokładna droga w km; zastępuje poprzedni zestaw. Zwraca liczbę przyjętych odcinków."""
+    _dokladne_drogi.clear()
+    for p in pary or ():
+        try:
+            la1, lo1, la2, lo2, km = (float(x) for x in p)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 < km < 2000.0:
+            _dokladne_drogi[_klucz_drogi(la1, lo1, la2, lo2)] = km
+    return len(_dokladne_drogi)
+
+def _dokladna_droga(lat1, lon1, lat2, lon2):
+    return _dokladne_drogi.get(_klucz_drogi(lat1, lon1, lat2, lon2)) if _dokladne_drogi else None
+
+def _predkosc_odcinka_etapu(e) -> float:
+    """Prędkość odcinka dla czasu jazdy: z tabeli dróg albo SREDNIA_PREDKOSC."""
+    v = float(getattr(e, "predkosc", 0.0) or 0.0)
+    return v if v > 0 else SREDNIA_PREDKOSC
+
+def _predkosc_efektywna(etapy) -> float:
+    """Średnia prędkość dnia przy prędkościach odcinków (średnia harmoniczna ważona km). Bez prędkości odcinków = SREDNIA_PREDKOSC."""
+    km = sum(max(0.0, e.d_line) for e in etapy)
+    t = sum(max(0.0, e.d_line) / _predkosc_odcinka_etapu(e) for e in etapy)
+    return km / t if km > 0 and t > 0 else SREDNIA_PREDKOSC
+
 def dystans_drogowy(lat1, lon1, lat2, lon2, tylko_cache=False) -> float:
     """Realna odległość DROGOWA w km (nie w linii prostej).
     Kolejność źródeł: pamięć podręczna → Google (tylko gdy jest klucz) →
@@ -1216,6 +1387,11 @@ def dystans_drogowy(lat1, lon1, lat2, lon2, tylko_cache=False) -> float:
     if zapamietane:
         _odnotuj_zrodlo(ZRODLO_PAMIEC)
         return zapamietane
+    if _tabela is not None:
+        tw = tabela_droga(lat1, lon1, lat2, lon2)
+        if tw:
+            _odnotuj_zrodlo(ZRODLO_TABELA)
+            return round(tw[0], 2)
     if not tylko_cache:
         g_klucz = google_klucz() if _google_dostepny is not False else ""
         if g_klucz:
@@ -1241,6 +1417,10 @@ def dystans_drogowy(lat1, lon1, lat2, lon2, tylko_cache=False) -> float:
                     return _road_cache[klucz]
             except Exception:
                 _osrm_dostepny = False
+    if _tabela is not None and oblicz_dystans(lat1, lon1, lat2, lon2) < TABELA_PROMIEN_ADRESU_KM / 4.0:
+        # odcinek krótszy niż 3 km (np. dom tuż przy miejscowości): szacunek myli się o najwyżej ~1 km, więc nie psuje wiarygodności sumy kilometrów
+        _odnotuj_zrodlo(ZRODLO_TABELA)
+        return oblicz_dystans(lat1, lon1, lat2, lon2) * TEST_MNOZNIK_TRASY
     _odnotuj_zrodlo(ZRODLO_SZACUNEK)
     return oblicz_dystans(lat1, lon1, lat2, lon2) * TEST_MNOZNIK_TRASY
 
@@ -2600,16 +2780,34 @@ class ListaTras(list):
     kwota_niepelna = False
     brak_dni = False
     powtorzone_miejscowosci = 0      # ile razy miejscowość (poza bazą) wróciła w tym samym miesiącu
+    wspolne_z_innymi = 0             # ile miejscowości z tego układu zajęli już inni użytkownicy w tym miesiącu (wspólny rejestr)
+    punkty_planu = ()                # (lat, lng) wszystkich zaplanowanych postojów PRZED końcowym przycinaniem dni — z nich może powstać każdy odcinek „dom ↔ miejscowość”
     promien_km = 0.0                 # promień pętli, w którym ułożono dni
 
 PROMIEN_MAKS_KM = 170.0
 
 PROBY_PROMIENIA = (1.0, 1.3, 1.6, 2.0)
 
+BUDZET_PROB_S = 40.0      # po tylu sekundach prób (przy wspólnym rejestrze bywa ich kilkanaście) bierzemy najlepszy PEŁNY układ, jeśli już jest
+
 SEKTORY_KLINA = 4
 
 def _przesuniecie_uzytkownika(seed_val) -> float:
     return (int(seed_val) * 0.6180339887498949) % 1.0
+
+def _policz_wspolne(dni, baza_nazwa, zajete) -> int:
+    """Ile RÓŻNYCH miejscowości (poza bazą) z układu zajęli już inni użytkownicy w tym miesiącu (zajete: nazwa -> ilu)."""
+    if not zajete:
+        return 0
+    baza = str(baza_nazwa).strip().lower()
+    cudze = {str(n).strip().lower() for n, c in zajete.items() if int(c) > 0}
+    moje = set()
+    for dz in dni:
+        for e in getattr(dz, "etapy_surowe", None) or getattr(dz, "etapy", ()):
+            n = str(e.dokad).strip().lower()
+            if n != baza:
+                moje.add(n)
+    return len(moje & cudze)
 
 def _policz_powtorzone(dni, baza_nazwa) -> int:
     """Ile razy w miesiącu miejscowość (poza bazą) pojawia się po raz kolejny jako cel postoju.
@@ -2691,7 +2889,7 @@ def _rozloz_czasy_jazdy(dzien, start_min: float, polowa: int, przerwa: float = 0
     f = suma / s
     return [d * f for d in wg_profilu]
 
-def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None) -> List[DzienTrasy]:
+def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, zajete=None) -> List[DzienTrasy]:
     """Układa dni tras na kwotę.
 
     ZASADA 1 — miejscowość tylko RAZ w miesiącu (poza bazą, czyli miejscem zamieszkania): ta sama miejscowość nie
@@ -2702,15 +2900,24 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     ZASADA 2 — liczba poleceń wynika z kwoty (ile_dokumentow: kwota 1917 zł = dwa polecenia po najwyżej 986,34 zł),
     a polecenie mieści tylko MAX_ETAPOW_DOKUMENTU wierszy. Gdy układ dni potrzebuje więcej poleceń, niż wynika
     z kwoty (dni za krótkie, za dużo wierszy), układamy je jeszcze raz z dłuższymi skokami między miejscowościami
-    (PROBY_LICZBY_POLECEN) i bierzemy pierwszy układ, który się mieści; gdy żaden — najlepszy dotychczasowy."""
+    (PROBY_LICZBY_POLECEN) i bierzemy pierwszy układ, który się mieści; gdy żaden — najlepszy dotychczasowy.
+
+    ZASADA 3 — każdy użytkownik ma własną trasę. Gdy dostępny jest WSPÓLNY REJESTR (zajete: nazwa miejscowości ->
+    ilu innych użytkowników ma ją już w tym miesiącu; pusty słownik = rejestr jest, ale nikt nic nie zajął), układ
+    omija zajęte miejscowości. Gdy tego za mało (mała okolica, wielu użytkowników), tolerancja rośnie stopniowo
+    (miejscowość zajęta przez jedną osobę, potem przez dwie…) — własny miesiąc zawsze zostaje bez powtórek. Bez
+    rejestru (None, np. brak sieci) działa dawny sposób: własny „klin” kierunków wyznaczony z PESEL-u."""
     zrzuty = {}
 
-    def raz(zakaz, px, skok=1.0, wariant=0, pcb=None, dcb=None, klin=0):
-        w = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, pcb, dcb, skok, wariant, zakaz, px, klin)
+    def raz(zakaz, px, skok=1.0, wariant=0, pcb=None, dcb=None, klin=0, tol=0):
+        w = _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, pcb, dcb, skok, wariant, zakaz, px, klin, zajete, tol)
         zrzuty[id(w)] = _zrzut_zrodla()
         return w
     try:
         _k = ile_dokumentow(kwota_calkowita)
+        rejestr = zajete is not None
+        _maks_zajecie = max([int(c) for c in zajete.values()] + [0]) if rejestr else 0
+        t_start = time.monotonic()
 
         def polecen(w):
             return len(_podziel_na_dokumenty(sorted(w, key=lambda d: d.data)))
@@ -2723,20 +2930,29 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
                 return 0
             return int(max(0.0, kwota_calkowita - sum(d.suma for d in w)) // 300)
 
-        def klucz(w, nr):      # mniejsze = lepiej: kwota pokryta (a gdy się nie da — jak największa jej część), mniej powtórek, mieści się w poleceniach z kwoty, wcześniejsza próba
+        def klucz(w, nr):      # mniejsze = lepiej: kwota pokryta (a gdy się nie da — jak największa jej część), mniej powtórek, mniej wspólnych z innymi, mieści się w poleceniach z kwoty, wcześniejsza próba
             return (bool(getattr(w, "kwota_niepelna", False)) or not w, brak_kwoty(w), getattr(w, "powtorzone_miejscowosci", 0),
-                    max(0, polecen(w) - _k) if _k >= 2 and w else 0, nr)
+                    getattr(w, "wspolne_z_innymi", 0), max(0, polecen(w) - _k) if _k >= 2 and w else 0, nr)
 
-        # kolejność prób: najpierw własny klin użytkownika (preferowany: każdy dostaje inną trasę), potem całe otoczenie,
-        # na końcu dawne zasady (powtórki dozwolone)
-        konfiguracje = ([(True, px, SEKTORY_KLINA) for px in PROBY_PROMIENIA] + [(True, px, 0) for px in PROBY_PROMIENIA]
-                        + [(False, 1.0, 0)])
-        proby = []                                   # (wynik, zakaz, mnożnik promienia, skok, wariant, klin)
-        for nr_k, (zk, px, kl) in enumerate(konfiguracje):
+        # kolejność prób (zakaz powtórek, mnożnik promienia, klin, tolerancja rejestru):
+        # z rejestrem — najpierw układ bez żadnej zajętej miejscowości (kolejno większe promienie), potem coraz większa tolerancja;
+        # bez rejestru — własny klin użytkownika (każdy dostaje inną trasę), potem całe otoczenie; na końcu dawne zasady (powtórki dozwolone)
+        if rejestr:
+            konfiguracje = []
+            for tol in sorted({t for t in (0, 1, 2) if t < _maks_zajecie} | {_maks_zajecie}):
+                konfiguracje += [(True, px, 0, tol) for px in (PROBY_PROMIENIA if tol == 0 else PROBY_PROMIENIA[::2])]
+            konfiguracje.append((False, 1.0, 0, _maks_zajecie))
+        else:
+            konfiguracje = ([(True, px, SEKTORY_KLINA, 0) for px in PROBY_PROMIENIA] + [(True, px, 0, 0) for px in PROBY_PROMIENIA]
+                            + [(False, 1.0, 0, 0)])
+        proby = []                                   # (wynik, zakaz, mnożnik promienia, skok, wariant, klin, tolerancja)
+        for nr_k, (zk, px, kl, tl) in enumerate(konfiguracje):
             if nr_k == 1 and postep_cb:
                 postep_cb("Dopasowuję miejscowości (bez powtórek w miesiącu)...", 0.80)
-            w = raz(zk, px, pcb=postep_cb if nr_k == 0 else None, dcb=dzien_cb if nr_k == 0 else None, klin=kl)
-            proby.append((w, zk, px, 1.0, 0, kl))
+            if nr_k and time.monotonic() - t_start > BUDZET_PROB_S and any(x[0] and not getattr(x[0], "kwota_niepelna", False) for x in proby):
+                break                                # przy wielu próbach nie męczymy użytkownika: bierzemy najlepszy pełny układ
+            w = raz(zk, px, pcb=postep_cb if nr_k == 0 else None, dcb=dzien_cb if nr_k == 0 else None, klin=kl, tol=tl)
+            proby.append((w, zk, px, 1.0, 0, kl, tl))
             if idealny(w):
                 break
         najlepsza = min(range(len(proby)), key=lambda i: klucz(proby[i][0], i))
@@ -2744,14 +2960,15 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
         if _k >= 2 and w0 and not getattr(w0, "kwota_niepelna", False) and polecen(w0) > _k:
             if postep_cb: postep_cb("Dopasowuję liczbę poleceń do kwoty...", 0.82)
             znaleziono = False
-            zakaz0, px0, kl0 = proby[najlepsza][1], proby[najlepsza][2], proby[najlepsza][5]
+            zakaz0, px0, kl0, tol0 = proby[najlepsza][1], proby[najlepsza][2], proby[najlepsza][5], proby[najlepsza][6]
             # dłuższe skoki wymagają dalszych miejscowości, a przy zakazie powtórek dalsze miejscowości to większy promień
             for px in [px0] + ([x for x in PROBY_PROMIENIA if x > px0][:2] if zakaz0 else []):
                 for skok, wariant in PROBY_LICZBY_POLECEN:
-                    w = raz(zakaz0, px, skok, wariant, klin=kl0)
-                    proby.append((w, zakaz0, px, skok, wariant, kl0))
+                    w = raz(zakaz0, px, skok, wariant, klin=kl0, tol=tol0)
+                    proby.append((w, zakaz0, px, skok, wariant, kl0, tol0))
                     if (w and not getattr(w, "kwota_niepelna", False) and not getattr(w, "brak_dni", False)
-                            and polecen(w) <= _k and getattr(w, "powtorzone_miejscowosci", 0) <= getattr(w0, "powtorzone_miejscowosci", 0)):
+                            and polecen(w) <= _k and getattr(w, "powtorzone_miejscowosci", 0) <= getattr(w0, "powtorzone_miejscowosci", 0)
+                            and getattr(w, "wspolne_z_innymi", 0) <= getattr(w0, "wspolne_z_innymi", 0)):
                         w0 = w; najlepsza = len(proby) - 1; znaleziono = True
                         break
                 if znaleziono:
@@ -2767,7 +2984,7 @@ def generuj_trasy(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robo
     except Exception:
         return _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka, postep_cb, dzien_cb)
 
-def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0, _zakaz=False, _promien_x=1.0, _klin=0) -> List[DzienTrasy]:
+def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni_robocze, pesel, stawka=None, postep_cb=None, dzien_cb=None, _skok=1.0, _wariant=0, _zakaz=False, _promien_x=1.0, _klin=0, _zajete=None, _tol=0) -> List[DzienTrasy]:
     if stawka is None: stawka = STAWKA_ZA_KM
     # jedno rozliczenie = jeden stan źródła odległości
     zeruj_zrodlo_odleglosci()
@@ -2777,6 +2994,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     
     ostatnie_uzycie = {} 
     uzyte_w_miesiacu = set()      # _zakaz: miejscowości (poza bazą) już użyte w tym miesiącu — nie wracają
+    # wspólny rejestr: miejscowości, które w tym miesiącu zajęło więcej niż _tol innych użytkowników, też nie wracają (_zajete: nazwa -> ilu)
+    _zablok = {str(_n).strip().lower() for _n, _c in (_zajete or {}).items() if _zakaz and int(_c) > _tol}
     finalne_dni = []
     
     cel_calkowity_dystans = kwota_calkowita / stawka
@@ -2955,7 +3174,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
                 if wymus_ucieczke and not _rzadki_rejon and not odsuwa_sie_od_stolicy(baza_lat, baza_lng, m.lat, m.lng, woj): continue
                 if not _rzadki_rejon and miasto_w_obcej_aglomeracji(baza_lat, baza_lng, m.lat, m.lng): continue
                 if _sektory_uz and m.sektor not in _sektory_uz: continue                  # własny klin użytkownika
-                if spr_cooldown and _zakaz and m.n in uzyte_w_miesiacu: continue          # twardy zakaz: miejscowość tylko raz w miesiącu
+                if spr_cooldown and _zakaz and (m.n in uzyte_w_miesiacu or m.n.lower() in _zablok): continue          # twardy zakaz: miejscowość tylko raz w miesiącu i nie ta, którą zajęli inni
                 if spr_cooldown and not _zakaz and m.n in ostatnie_uzycie and (data - ostatnie_uzycie[m.n]).days < cooldown_dni: continue
 
                 d = oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) * TEST_MNOZNIK_TRASY
@@ -3305,16 +3524,41 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     # (z cache + fallbackiem offline). Dzięki temu skalowanie kwot i wyliczone
     # kilometry odpowiadają faktycznym trasom po drogach, a nie liniom prostym.
     if postep_cb: postep_cb("Wyznaczanie realnych tras drogowych...", 0.78)
+    # końcowe przycinanie dni tylko ZDEJMUJE postoje z tego planu (nie dokłada nowych miejscowości), więc każdy odcinek „dom ↔ miejscowość” w wyniku
+    # prowadzi do miejscowości z tej listy — aplikacja web pyta o ich dokładną drogę (Google) jednym zestawem, bez ponawiania przebiegów
+    _punkty_planu, _pp_widziane = [], set()
+    for e in wszystkie_surowe:
+        for _la, _lo, _nm in ((e.skad_lat, e.skad_lng, e.skad), (e.dokad_lat, e.dokad_lng, e.dokad)):
+            _kk = (round(_la, 4), round(_lo, 4))
+            if str(_nm).strip().lower() != str(baza_nazwa).strip().lower() and _kk not in _pp_widziane:
+                _pp_widziane.add(_kk); _punkty_planu.append((_la, _lo))
+    # przy odbudowie dnia (patrz _sciagnij_dzien) silnik bierze najbliższe miejscowości z całej bazy — one też mogą dać odcinek „dom ↔ miejscowość”
+    try:
+        _najblizsze = sorted((m for _l in _baza_miast.values() for m in _l if m.n.strip().lower() != str(baza_nazwa).strip().lower()
+                              and oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) > 3.0), key=lambda m: oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng))[:14]
+        for _m in _najblizsze:
+            _kk = (round(_m.lat, 4), round(_m.lng, 4))
+            if _kk not in _pp_widziane:
+                _pp_widziane.add(_kk); _punkty_planu.append((_m.lat, _m.lng))
+    except Exception:
+        pass
     for e in wszystkie_surowe:
         # linia prosta zostaje zapamiętana — to ona jest fizyczną granicą
         # dolną odcinka, a d_line za chwilę przestanie nią być
         if not getattr(e, "linia_prosta", 0):
             e.linia_prosta = e.d_line
         try:
-            km_droga = dystans_drogowy(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
+            km_droga = _dokladna_droga(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
+            if km_droga:
+                _odnotuj_zrodlo(ZRODLO_DROGI)            # dokładna droga z Google (odcinek z adresu zamieszkania)
+            else:
+                km_droga = dystans_drogowy(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
             e.zrodlo = zrodlo_ostatniego_odcinka()
+            e.predkosc = predkosc_odcinka(e.skad_lat, e.skad_lng, e.dokad_lat, e.dokad_lng)
             if km_droga and km_droga > 0:
-                e.d_line = km_droga
+                # podłoga „droga ≥ MNOZNIK_MIN × linia prosta” obowiązuje już tu: realna droga bywa krótsza (autostrada), a podłoga nakładana dopiero na końcu
+                # dolicza kilometry i czas PO wyznaczeniu limitu dnia (dzień wychodził o kilka minut ponad 8 h)
+                e.d_line = max(km_droga, float(getattr(e, "linia_prosta", 0.0) or 0.0) * MNOZNIK_MIN)
         except Exception:
             # zostaje linia prosta — ale NIE PO CICHU: to szacunek i tak
             # ma być pokazany w interfejsie oraz na dokumencie
@@ -3336,7 +3580,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         # przerwa na jedzenie wliczona w dzień pracy
         czas = PRZERWA_JEDZENIE_MIN
         for e in dzien.etapy_surowe:
-            czas += (e.d_line * mn / SREDNIA_PREDKOSC) * 60      # jazda po realnym dystansie
+            czas += (e.d_line * mn / _predkosc_odcinka_etapu(e)) * 60      # jazda po realnym dystansie
             czas += (e.czas_w_sklepie or 0)                       # postój w miejscowości
         return czas
 
@@ -3356,7 +3600,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         dostepne = LIMIT_CZASU_MINUTY - postoje
         if dostepne <= 0 or baza_km <= 0:
             return MNOZNIK_MIN, baza_km
-        _z_godzin = (dostepne / 60) * SREDNIA_PREDKOSC / baza_km
+        _z_godzin = (dostepne / 60) * _predkosc_efektywna(dzien.etapy_surowe) / baza_km
         _z_limitu_dnia = (MAX_KWOTA_DNIA / stawka) / baza_km
         return max(MNOZNIK_DOL, min(_z_godzin, _z_limitu_dnia, MNOZNIK_MAX)), baza_km
 
@@ -3391,7 +3635,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         try:
             km = dystans_drogowy(la1, lg1, la2, lg2, tylko_cache=True)
             if km and km > 0:
-                return km
+                # podłoga jak przy odcinkach z pętli wyżej: realna droga (tabela) bywa krótsza niż MNOZNIK_MIN × linia prosta
+                return max(km, oblicz_dystans(la1, lg1, la2, lg2) * MNOZNIK_MIN)
         except Exception:
             pass
         return oblicz_dystans(la1, lg1, la2, lg2)
@@ -3404,7 +3649,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         dostepne = LIMIT_CZASU_MINUTY - postoje
         if dostepne <= 0 or baza_km <= 0:
             return 0.0
-        return (dostepne / 60) * SREDNIA_PREDKOSC / baza_km
+        return (dostepne / 60) * _predkosc_efektywna(dz.etapy_surowe) / baza_km
 
     def _zdejmij_postoj(dz, ktory=None):
         """etapy: [baza→A, A→B, …, X→baza]. Zdejmuje postój numer `ktory`
@@ -3425,7 +3670,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             d_line=_km_odcinka(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng),
             czas_w_sklepie=_z.czas_w_sklepie, dokad_woj=_z.dokad_woj,
             skad_lat=_do.skad_lat, skad_lng=_do.skad_lng,
-            dokad_lat=_z.dokad_lat, dokad_lng=_z.dokad_lng)
+            dokad_lat=_z.dokad_lat, dokad_lng=_z.dokad_lng,
+            predkosc=predkosc_odcinka(_do.skad_lat, _do.skad_lng, _z.dokad_lat, _z.dokad_lng))
         dz.etapy_surowe = dz.etapy_surowe[:ktory] + [_sklejony] + dz.etapy_surowe[ktory + 2:]
         return True
 
@@ -3458,7 +3704,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
         # dość blisko. Tu liczy się wyłącznie to, żeby pętla była prawdziwa.
         _uzyte_inne = ({e.dokad for _dd in finalne_dni if _dd is not dz for e in _dd.etapy_surowe} if _zakaz else set())
         _pula = [m for _lista in _baza_miast.values() for m in _lista
-                 if m.n.lower() != str(baza_nazwa).lower() and m.n not in _uzyte_inne
+                 if m.n.lower() != str(baza_nazwa).lower() and m.n not in _uzyte_inne and m.n.lower() not in _zablok
                  and oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng) > 3.0]
         blisko = sorted(_pula or list(kandydaci),
                         key=lambda m: oblicz_dystans(baza_lat, baza_lng, m.lat, m.lng))[:14]
@@ -3548,12 +3794,14 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             for (_n, _la, _lg, _sh, _wj) in _post:
                 _et2.append(RawEtap(skad=_pn, dokad=_n, data_str=_ds,
                                     d_line=_km_odcinka(_pl, _pg, _la, _lg), czas_w_sklepie=_sh,
-                                    dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg))
+                                    dokad_woj=_wj, skad_lat=_pl, skad_lng=_pg, dokad_lat=_la, dokad_lng=_lg,
+                                    predkosc=predkosc_odcinka(_pl, _pg, _la, _lg)))
                 _pl, _pg, _pn = _la, _lg, _n
             _et2.append(RawEtap(skad=_pn, dokad=_pow.dokad, data_str=_ds,
                                 d_line=_km_odcinka(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng),
                                 czas_w_sklepie=0, dokad_woj=_pow.dokad_woj, skad_lat=_pl, skad_lng=_pg,
-                                dokad_lat=_pow.dokad_lat, dokad_lng=_pow.dokad_lng))
+                                dokad_lat=_pow.dokad_lat, dokad_lng=_pow.dokad_lng,
+                                predkosc=predkosc_odcinka(_pl, _pg, _pow.dokad_lat, _pow.dokad_lng)))
             _s2 = tuple(e.dokad for e in _et2)
             if _s2 not in _widziane_slady:
                 _dz.etapy_surowe = _et2
@@ -3817,7 +4065,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             _km = max(_km, _prosta * MNOZNIK_MIN)
         e.dystans_rzeczywisty = _km
         e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
-        e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
+        e.czas_jazdy_minuty = (e.dystans_rzeczywisty / _predkosc_odcinka_etapu(e)) * 60
 
     # Jedyna korekta: domknięcie DROBNYCH groszy z zaokrągleń, rozłożone po
     # 1 groszu na kolejne etapy. To NIE jest dopisywanie kwot do tras — to
@@ -3885,7 +4133,7 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
             for e in _z_luzem:
                 e.dystans_rzeczywisty = max(e.dystans_rzeczywisty * skala, _podloga_km(e))
                 e.kwota = max(round(e.dystans_rzeczywisty * stawka, 2), 0.0)
-                e.czas_jazdy_minuty = (e.dystans_rzeczywisty / SREDNIA_PREDKOSC) * 60
+                e.czas_jazdy_minuty = (e.dystans_rzeczywisty / _predkosc_odcinka_etapu(e)) * 60
         _po_podlodze = round(sum(e.kwota for e in wszystkie_surowe), 2)
         # Delegacja NIE MOŻE przekroczyć zamówionej kwoty. Jeśli po dociśnięciu
         # podłogi suma i tak wychodzi wyżej, to znaczy, że kwota jest mniejsza
@@ -3984,6 +4232,8 @@ def _generuj_trasy_raz(kwota_calkowita, baza_nazwa, baza_lat, baza_lng, woj, dni
     finalne_dni.kwota_min_realna = float(_kwota_min_realna or 0.0)
     finalne_dni.brak_dni = _brak_dni_na_kwote
     finalne_dni.powtorzone_miejscowosci = _policz_powtorzone(finalne_dni, baza_nazwa)
+    finalne_dni.wspolne_z_innymi = _policz_wspolne(finalne_dni, baza_nazwa, _zajete)
+    finalne_dni.punkty_planu = tuple(_punkty_planu)
     finalne_dni.promien_km = float(promien_petli)
     return finalne_dni
 

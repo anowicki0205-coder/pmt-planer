@@ -12,6 +12,8 @@ class Zakladka {
   getLastRow() { return this.w.length; }
   appendRow(r) { this.w.push(r.slice()); }
   setFrozenRows() {}
+  deleteRow(n) { this.w.splice(n - 1, 1); }
+  clear() { this.w = []; }
   getDataRange() { const t = this; return { getValues: () => t.w.map(r => r.map(odczyt)) }; }
   getRange(r, c, nr = 1, nc = 1) {
     const t = this;
@@ -31,7 +33,10 @@ const naBajty = buf => [...buf].map(b => (b > 127 ? b - 256 : b));      // Apps 
 function zaladuj(opcje = {}) {
   const zak = new Map(), pamiec = new Map(), wlasciwosci = new Map();
   let zegar = opcje.start || Date.now();
-  const stan = { zajety: false, zwolnien: 0 };      // zajety: tryLock nie dostaje blokady (kolejka dłuższa niż 20 s)
+  const stan = { zajety: false, zwolnien: 0 };
+  // atrapa usługi Maps (Apps Script): droga = linia prosta × 1,25, czas 60 km/h; maps.wyjatek = true symuluje wyczerpany dzienny limit; maps.zwolnieniaPrzyWywolaniu — ile razy zwolniono blokadę w chwili zapytania
+  const maps = { wywolania: 0, wyjatek: false, odpowiedz: null, zwolnieniaPrzyWywolaniu: [] };
+  const prosta = (a, b) => { const p = Math.PI / 180; return 6371 * Math.hypot((b[1] - a[1]) * p * Math.cos((a[0] + b[0]) * p / 2), (b[0] - a[0]) * p); };      // zajety: tryLock nie dostaje blokady (kolejka dłuższa niż 20 s)
   const arkusz = {
     getSheetByName: n => zak.get(n) || null,
     insertSheet: n => { const z = new Zakladka(n); zak.set(n, z); return z; },
@@ -39,6 +44,10 @@ function zaladuj(opcje = {}) {
   const ctx = {
     console, Date: class extends Date { constructor(...a) { if (a.length) super(...a); else super(zegar); } static now() { return zegar; } },
     SpreadsheetApp: { getActiveSpreadsheet: () => arkusz },
+    Maps: { DirectionFinder: { Mode: { DRIVING: 'DRIVING' } }, newDirectionFinder: () => { const f = {}; f.setOrigin = (la, lo) => { f.o = [la, lo]; return f; }; f.setDestination = (la, lo) => { f.d = [la, lo]; return f; }; f.setMode = () => f;
+      f.getDirections = () => { maps.wywolania++; maps.zwolnieniaPrzyWywolaniu.push(stan.zwolnien); if (maps.wyjatek) throw new Error('Service invoked too many times for one day: route.'); if (maps.odpowiedz) return maps.odpowiedz(f.o, f.d);
+        const km = prosta(f.o, f.d) * 1.25; return { status: 'OK', routes: [{ legs: [{ distance: { value: km * 1000 }, duration: { value: km / 60 * 3600 } }] }] }; }; return f; } },
+    Logger: { log: () => {} },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ tresc: s, setMimeType() { return this; } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => !stan.zajety, releaseLock() { stan.zwolnien++; } }) },
     CacheService: { getScriptCache: () => ({
@@ -52,7 +61,7 @@ function zaladuj(opcje = {}) {
       DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
       computeDigest: (alg, tekst) => naBajty(crypto.createHash('sha256').update(tekst, 'utf8').digest()),
       computeHmacSha256Signature: (tekst, klucz) => naBajty(crypto.createHmac('sha256', klucz).update(tekst, 'utf8').digest()),
-      formatDate: (d, tz, wz) => { const x = new Date(d.getTime() + 2 * 3600000), p = n => String(n).padStart(2, '0'); return wz.replace('yyyy', x.getUTCFullYear()).replace('MM', p(x.getUTCMonth() + 1)).replace('dd', p(x.getUTCDate())); },
+      formatDate: (d, tz, wz) => { const x = new Date(d.getTime() + 2 * 3600000), p = n => String(n).padStart(2, '0'); return wz.replace('yyyy', x.getUTCFullYear()).replace('MM', p(x.getUTCMonth() + 1)).replace('dd', p(x.getUTCDate())).replace('HH', p(x.getUTCHours())).replace('mm', p(x.getUTCMinutes())); },
       getUuid: () => crypto.randomUUID(),
     },
   };
@@ -72,6 +81,6 @@ function zaladuj(opcje = {}) {
     const klucz = hashKlucza || (haslo ? sha256hex(`PMT|${o.kod}|${haslo}`) : ''); if (klucz) o.podpis_hasla = crypto.createHmac('sha256', klucz).update(baza, 'utf8').digest('hex'); return o; };
   const post = (d, { bezPodpisu = false, haslo = '', hashKlucza = '' } = {}) => { const o = vm.runInContext('doPost', ctx)({ postData: { contents: typeof d === 'string' ? d : JSON.stringify(bezPodpisu ? d : podpisz(d, haslo, hashKlucza)) } }); return JSON.parse(o.tresc); };
   const formuly = () => { const wynik = []; zak.forEach((z, n) => z.w.forEach((r, i) => r.forEach((v, j) => { if (czyFormula(v)) wynik.push(`${n}!R${i + 1}C${j + 1}=${String(v).slice(0, 60)}`); }))); return wynik; };
-  return { ctx, zak, arkusz, pamiec, post, formuly, dodajUzytkownika, dalej: ms => { zegar += ms; }, blokada: stan, hash: (kod, haslo) => sha256hex(`PMT|${kod}|${haslo}`), uz, wywolaj: kod => vm.runInContext(kod, ctx), get: n => zak.get(n) };
+  return { maps, ctx, zak, arkusz, pamiec, post, formuly, dodajUzytkownika, dalej: ms => { zegar += ms; }, blokada: stan, hash: (kod, haslo) => sha256hex(`PMT|${kod}|${haslo}`), uz, wywolaj: kod => vm.runInContext(kod, ctx), get: n => zak.get(n) };
 }
 module.exports = { zaladuj, SCIEZKA, czyFormula, istnieje: () => fs.existsSync(SCIEZKA) };

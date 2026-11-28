@@ -1,0 +1,86 @@
+# Tabela dróg między miejscowościami z bazy silnika (web/silnik/drogi.bin): droga w km i czas jazdy samochodem z OSRM na danych OpenStreetMap.
+# Liczy się RAZ (i po każdej zmianie bazy miejscowości) — aplikacja dostaje gotowy plik, więc nie pyta żadnego serwisu o trasy i nie wysyła nigdzie adresów.
+#
+# Uruchamianie (bez scalania do głównej gałęzi): zmień plik web/narzedzia/drogi/ZLECENIE.txt (np. numer próby) i wypchnij —
+# zadanie startuje samo, liczy tabelę i dopisuje web/silnik/drogi.bin oraz web/narzedzia/drogi/RAPORT.txt do tej samej gałęzi.
+# Po scaleniu workflow można też uruchomić ręcznie (Actions → „Drogi OSRM” → Run workflow).
+# W ZLECENIE.txt: region=poland (cała Polska, ok. 25–40 min) albo np. region=poland/opolskie (próba potoku na małym obszarze, kilka minut).
+name: Drogi OSRM
+
+on:
+  push:
+    # NIE na głównej gałęzi: scalenie tej zmiany nie może samo uruchomić liczenia ani dopisać nowej tabeli do main (zadanie dopisuje commit do gałęzi, na której wystartowało).
+    # Na main uruchamiasz je ręcznie (Run workflow) — i świadomie.
+    branches-ignore:
+      - "main"
+    paths:
+      - "web/narzedzia/drogi/ZLECENIE.txt"
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Region Geofabrik, np. poland albo poland/opolskie"
+        default: "poland"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: drogi-osrm
+  cancel-in-progress: false
+
+jobs:
+  tabela:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Ustal region
+        id: region
+        run: |
+          R="${{ github.event.inputs.region }}"
+          if [ -z "$R" ]; then R="$(grep -E '^region=' web/narzedzia/drogi/ZLECENIE.txt | head -1 | cut -d= -f2 | tr -d '[:space:]')"; fi
+          if [ -z "$R" ]; then R="poland"; fi
+          echo "region=$R" >> "$GITHUB_OUTPUT"
+          echo "Region: $R"
+
+      - name: Pobierz dane OpenStreetMap (Geofabrik)
+        run: |
+          mkdir -p dane
+          curl -fL --retry 5 --retry-delay 10 -o dane/region.osm.pbf "https://download.geofabrik.de/europe/${{ steps.region.outputs.region }}-latest.osm.pbf"
+          ls -lh dane
+
+      - name: OSRM — przygotowanie danych (extract, partition, customize)
+        run: |
+          OSRM=ghcr.io/project-osrm/osrm-backend:latest
+          docker pull "$OSRM"
+          docker run --rm -t -v "$PWD/dane:/data" "$OSRM" osrm-extract -p /opt/car.lua /data/region.osm.pbf
+          docker run --rm -t -v "$PWD/dane:/data" "$OSRM" osrm-partition /data/region.osrm
+          docker run --rm -t -v "$PWD/dane:/data" "$OSRM" osrm-customize /data/region.osrm
+
+      - name: OSRM — start serwera
+        run: |
+          docker run -d --name osrm -p 5000:5000 -v "$PWD/dane:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-routed --algorithm mld --max-table-size 4000 /data/region.osrm
+          for i in $(seq 1 60); do
+            if curl -fs "http://127.0.0.1:5000/route/v1/driving/21.0122,52.2297;21.15,51.40?overview=false" | grep -q '"code":"Ok"'; then echo "OSRM gotowy"; break; fi
+            sleep 5
+          done
+          curl -s "http://127.0.0.1:5000/route/v1/driving/21.0122,52.2297;21.15,51.40?overview=false" | head -c 300 || true
+
+      - name: Zbuduj tabelę
+        run: |
+          python3 web/narzedzia/drogi/test_tabela.py
+          python3 web/narzedzia/drogi/zbuduj_tabele.py --osrm http://127.0.0.1:5000 --miasta web/narzedzia/drogi/miasta.json --wyjscie web/silnik/drogi.bin --raport web/narzedzia/drogi/RAPORT.txt --promien 200
+          ls -l web/silnik/drogi.bin
+          cat web/narzedzia/drogi/RAPORT.txt
+
+      - name: Dopisz wynik do gałęzi
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/silnik/drogi.bin web/narzedzia/drogi/RAPORT.txt
+          if git diff --cached --quiet; then echo "Brak zmian"; exit 0; fi
+          git commit -m "Tabela dróg (OSRM, ${{ steps.region.outputs.region }}) — wynik zadania Drogi OSRM"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"

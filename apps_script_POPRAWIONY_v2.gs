@@ -202,7 +202,7 @@ var WERSJA_Z_SEKRETEM = '3.24.0';
 // a program na komputerze podpisuje każde zapytanie. Po włączeniu
 // PODPIS_OBOWIAZKOWY nikt bez sekretu aplikacji nie zaloguje się, nie
 // zmieni hasła i nie wyzeruje go przez sam adres /exec.
-var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki'];
+var AKCJE_PODPISANE = ['logowanie', 'puls', 'sesja', 'zmien_haslo', 'reset_hasla', 'haslo_paczki', 'miejscowosci', 'droga', 'zlozono'];
 
 // Odcięcie starych wersji programu. Puste = nie odcinamy nikogo.
 // Wpisz numer (np. '3.24.0') dopiero wtedy, gdy zespół ma już nową
@@ -433,6 +433,8 @@ function inicjalizuj() {
   _zakladka(ss, ZAKLADKA_SESJE,
     ["Kiedy", "Kod", "Imie i nazwisko", "Zdarzenie", "Czas sesji (min)",
      "Dokumenty w sesji", "Plany wizyt", "Wersja programu"]);
+  _zakladka(ss, ZAKLADKA_MIEJSCOWOSCI, NAGLOWKI_MIEJSCOWOSCI);
+  _zakladka(ss, ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE);
   _ustawieniaPaczki(ss);
   // kolumna N (Haslo hash) w Uzytkownicy — naglowek, jesli go nie ma
   var shU = ss.getSheetByName(ZAKLADKA_UZYTKOWNICY);
@@ -605,6 +607,9 @@ function doPost(e) {
   var blokada = LockService.getScriptLock();
   // Bez blokady liczniki prób i statystyki ścigałyby się z równoległym wywołaniem — lepiej odmówić (klient ponowi).
   if (!blokada.tryLock(20000)) return _json({ status: "blad", opis: "Serwer zajety — sprobuj ponownie za chwile" });
+  var zwolniona = false;
+  // akcja „droga” zwalnia blokadę wcześniej: jej zapytania do Google trwają sekundy i nie mogą wstrzymywać logowania innych
+  var zwolnij = function () { if (!zwolniona) { zwolniona = true; blokada.releaseLock(); } };
   try {
     var tresc = e && e.postData && e.postData.contents ? String(e.postData.contents) : "{}";
     if (tresc.length > 20000) return _json({ status: "blad", opis: "Zapytanie za duze" });
@@ -640,7 +645,7 @@ function doPost(e) {
     }
 
     // Aplikacja na telefon zostala wycofana (3.24.0) — backend obsluguje program na komputerze
-    // i aplikacje web: szesc akcji, wszystkie podpisane.
+    // i aplikacje web: dziewiec akcji, wszystkie podpisane.
     switch (dane.akcja) {
       case "logowanie":   return _json(logowanie(dane));
       case "puls":        return _json(obsluzPuls(dane));
@@ -648,6 +653,9 @@ function doPost(e) {
       case "zmien_haslo": return _json(zmienHaslo(dane));
       case "reset_hasla": return _json(resetHasla(dane));
       case "haslo_paczki": return _json(hasloPaczki(dane));
+      case "miejscowosci": return _json(obsluzMiejscowosci(dane));
+      case "droga": return _json(obsluzDroge(dane, zwolnij));
+      case "zlozono": return _json(obsluzZlozono(dane));
       default: return _json({ status: "blad", opis: "Nieznana akcja" });
     }
   } catch (err) {
@@ -655,7 +663,7 @@ function doPost(e) {
     try { _log(SpreadsheetApp.getActiveSpreadsheet(), "?", "blad_serwera", String(err), "raz"); } catch (x) {}
     return _json({ status: "blad", opis: "Blad serwera — sprobuj ponownie" });
   } finally {
-    blokada.releaseLock();
+    zwolnij();
   }
 }
 
@@ -880,6 +888,295 @@ function hasloPaczki(dane) {
   if (ostatni < dzis) return { status: "wygaslo", wazne_do: doDaty };      // po terminie hasła nie wydajemy
   _log(ss, kod, "haslo_paczki", "pobrane, wazne do " + doDaty, "wazne");
   return { status: "ok", haslo: haslo, wazne_do: doDaty, adres: adres, format: format };
+}
+
+
+/* ====== REJESTR MIEJSCOWOSCI: kazdy uzytkownik ma wlasna trase =======
+   Aplikacja po wygenerowaniu delegacji zapisuje tu miejscowosci, ktore trafily na dokumenty miesiaca. Przed kolejnym generowaniem
+   (u kogokolwiek) pobiera miejscowosci zajete przez INNYCH i ich unika — dzieki temu uzytkownicy z jednej okolicy jezdza w rozne
+   strony. Jeden wiersz = jeden uzytkownik w jednym miesiacu: ponowne zapisanie ZASTEPUJE wiersz, wiec generowanie „od nowa”
+   nie zuzywa puli, a „zwolnij” oddaje ja w calosci. W arkuszu sa tylko nazwy miejscowosci i kod konta (bez PESEL-u i adresu);
+   zakladke widzi wylacznie administrator arkusza.
+   Dostep: podpis aplikacji (jak kazda akcja) ORAZ podpis haslem uzytkownika (jak hasło paczki) — samym kodem nie da sie
+   ani odczytac, ani zablokowac cudzych miejscowosci. Operacje (pole „op”): pobierz | zapisz | zwolnij; miesiac: RRRRMM. */
+var ZAKLADKA_MIEJSCOWOSCI = "Miejscowosci";
+var NAGLOWKI_MIEJSCOWOSCI = ["Miesiac", "Kod", "Imie i nazwisko", "Liczba", "Miejscowosci", "Zapisano"];
+var MIEJSCOWOSCI_MAKS = 250;               // tyle miejscowosci jeden uzytkownik moze zapisac na miesiac (1 miesiac ~ 40–110)
+var MIEJSCOWOSCI_WIERSZE_MAKS = 4000;      // ochrona arkusza przed rozrostem: powyzej tylu wierszy znikaja miesiace starsze niz 14
+function _miesiacRejestru(m) {
+  var s = String(m === null || m === undefined ? "" : m).trim();
+  if (!/^20\d\d(0[1-9]|1[0-2])$/.test(s)) return "";
+  return Math.abs(Number(s.slice(0, 4)) - new Date().getFullYear()) > 1 ? "" : s;      // rok z okolic bieżącego: śmieciowe miesiące nie zakładają wierszy
+}
+function _nazwaMiejscowosci(n) {
+  var s = String(n === null || n === undefined ? "" : n).replace(/\s+/g, " ").trim();
+  // zaczyna się od litery (nigdy od = + - @, więc nie bywa formułą), dalej litery, cyfry, spacja, kropka, apostrof, myślnik
+  return /^[A-Za-zÀ-ž][A-Za-zÀ-ž0-9 .'\-]{0,39}$/.test(s) ? s : "";
+}
+function obsluzMiejscowosci(dane) {
+  var kod = String(dane.kod || "").trim();
+  if (!_kodPoprawny(kod)) return { status: "odmowa" };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []);
+  var wiersze = shU.getDataRange().getValues(), w = null;
+  for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
+  if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
+    _log(ss, kod, "miejscowosci_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
+    return { status: "odmowa" };
+  }
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
+  var miesiac = _miesiacRejestru(dane.miesiac);
+  if (!miesiac) return { status: "blad", opis: "Nieprawidlowy miesiac" };
+  var op = String(dane.op || "");
+  var sh = _zakladka(ss, ZAKLADKA_MIEJSCOWOSCI, NAGLOWKI_MIEJSCOWOSCI);
+  var wpisy = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues() : [];
+  var moj = -1;
+  for (var j = 0; j < wpisy.length; j++) {
+    if (String(wpisy[j][0]).trim() === miesiac && String(wpisy[j][1]).trim() === kod) { moj = j; break; }
+  }
+  if (op === "pobierz") {
+    var zajete = {}, osob = 0;
+    for (var k = 0; k < wpisy.length; k++) {
+      if (String(wpisy[k][0]).trim() !== miesiac || String(wpisy[k][1]).trim() === kod) continue;      // własny wpis się nie liczy: generowanie od nowa go zastępuje
+      osob++;
+      var lista = String(wpisy[k][4] || "").split("|");
+      for (var m = 0; m < lista.length; m++) { var nm = lista[m].trim(); if (nm) zajete[nm] = (zajete[nm] || 0) + 1; }
+    }
+    return { status: "ok", zajete: zajete, osob: osob };
+  }
+  if (op === "zwolnij") {
+    if (moj >= 0) sh.deleteRow(moj + 2);
+    _log(ss, kod, "miejscowosci", "zwolnione " + miesiac, "raz");
+    return { status: "ok" };
+  }
+  if (op === "zapisz") {
+    var nadeslane = dane.miejscowosci;
+    if (!Array.isArray(nadeslane) || nadeslane.length > MIEJSCOWOSCI_MAKS) return { status: "blad", opis: "Za duzo miejscowosci" };
+    var czyste = [], widziane = {};
+    for (var q = 0; q < nadeslane.length; q++) {
+      var nz = _nazwaMiejscowosci(nadeslane[q]);
+      if (!nz) return { status: "blad", opis: "Nieprawidlowa nazwa miejscowosci" };
+      if (!widziane[nz.toLowerCase()]) { widziane[nz.toLowerCase()] = true; czyste.push(nz); }
+    }
+    var wiersz = [miesiac, kod, _tekst(w[1], 60), czyste.length, czyste.join("|"), new Date()];
+    if (moj >= 0) sh.getRange(moj + 2, 1, 1, 6).setValues([wiersz]);
+    else { _przytnijMiejscowosci(sh); sh.appendRow(wiersz); }
+    _log(ss, kod, "miejscowosci", "zapisane " + miesiac + ": " + czyste.length, "raz");
+    return { status: "ok", zapisano: czyste.length };
+  }
+  return { status: "blad", opis: "Nieznana operacja" };
+}
+// Gdy arkusz urósł ponad MIEJSCOWOSCI_WIERSZE_MAKS wierszy, usuwa wpisy sprzed 14 miesięcy (od dołu, żeby numery wierszy się nie przesuwały).
+function _przytnijMiejscowosci(sh) {
+  var ile = sh.getLastRow();
+  if (ile <= MIEJSCOWOSCI_WIERSZE_MAKS) return;
+  var d = new Date(); d.setMonth(d.getMonth() - 14);
+  var prog = d.getFullYear() * 100 + d.getMonth() + 1;
+  var mies = sh.getRange(2, 1, ile - 1, 1).getValues();
+  for (var i = mies.length - 1; i >= 0; i--) { if (Number(mies[i][0]) < prog) sh.deleteRow(i + 2); }
+}
+
+
+/* ====== DROGI Z GOOGLE MAPS: dokładna odległość odcinków z adresu zamieszkania ==================
+   Odcinki między miejscowościami z bazy aplikacja bierze z gotowej tabeli dróg (OpenStreetMap, plik drogi.bin). Pierwszy i ostatni odcinek
+   dnia zaczyna się w domu użytkownika, którego tabela nie zna, więc aplikacja pyta tu o ich DOKŁADNĄ drogę: wbudowana usługa Maps (Google) pod
+   Twoim kontem — bez klucza i bez karty; limit usługi to 1000 zapytań dziennie (konto prywatne) albo 10 000 (Workspace). Nowe uprawnienie:
+   raz uruchom w edytorze funkcję autoryzujMapy() i zatwierdź zgodę, potem Wdróż → Nowa wersja.
+   Zabezpieczenia: podpis aplikacji ORAZ podpis hasłem użytkownika (jak hasło paczki), współrzędne tylko z obszaru Polski i nie dalej niż
+   DROGA_MAKS_KM w linii prostej (to nie jest otwarty serwer tras), do DROGA_PAR_MAKS par w zapytaniu, limit nowych par na konto i wspólny
+   w oknie 6 h (wyczerpany = „limit”: aplikacja zostaje przy tabeli). Wyniki żyją w pamięci podręcznej skryptu do 6 h (ta sama para nie liczy się dwa razy);
+   współrzędne nie trafiają ani do arkusza, ani do Log — tylko liczba par. Odpowiedź: { status:"ok", wyniki:[{km, min}|null, …], limit:true|false }. */
+var DROGA_PAR_MAKS = 60;
+var DROGA_NA_KONTO_W_OKNIE = 160;      // jedna delegacja to ok. 50–110 par (każdy zaplanowany postój)
+var DROGA_WSPOLNIE_W_OKNIE = 480;      // wspólny bezpiecznik na okno 6 h (limit usługi Maps: 1000/dobę konto prywatne, 10 000 Workspace — wyczerpanie obsługuje „limit”)
+var DROGA_OKNO_S = 21600;
+var DROGA_MAKS_KM = 400;
+var DROGA_ZAKRES = { latMin: 48.8, latMax: 55.2, lngMin: 13.9, lngMax: 24.4 };
+function _wspPolski(la, lo) {
+  return typeof la === "number" && typeof lo === "number" && isFinite(la) && isFinite(lo)
+    && la >= DROGA_ZAKRES.latMin && la <= DROGA_ZAKRES.latMax && lo >= DROGA_ZAKRES.lngMin && lo <= DROGA_ZAKRES.lngMax;
+}
+function _prostaKm(la1, lo1, la2, lo2) {
+  var p = Math.PI / 180, x = (lo2 - lo1) * p * Math.cos((la1 + la2) * p / 2), y = (la2 - la1) * p;
+  return 6371 * Math.sqrt(x * x + y * y);
+}
+function _kluczDrogi(la1, lo1, la2, lo2) {
+  var a = la1.toFixed(4) + "," + lo1.toFixed(4), c = la2.toFixed(4) + "," + lo2.toFixed(4);
+  return "dr:" + (a <= c ? a + ";" + c : c + ";" + a);
+}
+// Dodaje „ile” do licznika z oknem stałym (jak _licznik, ale o więcej niż 1) i zwraca nową wartość.
+function _licznikIle(klucz, okno, ile) {
+  var pam = CacheService.getScriptCache(), teraz = Date.now(), n = 0, t0 = teraz, zap = pam.get(klucz);
+  if (zap) { var cz = String(zap).split("|"); n = Number(cz[0]) || 0; t0 = Number(cz[1]) || teraz; }
+  n += ile;
+  pam.put(klucz, n + "|" + t0, Math.max(1, Math.round(okno - (teraz - t0) / 1000)));
+  return n;
+}
+function _droga1(la1, lo1, la2, lo2) {
+  var r = Maps.newDirectionFinder().setOrigin(la1, lo1).setDestination(la2, lo2).setMode(Maps.DirectionFinder.Mode.DRIVING).getDirections();
+  var noga = r && r.routes && r.routes.length && r.routes[0].legs && r.routes[0].legs[0];
+  if (!noga || !noga.distance || !(noga.distance.value > 0)) return null;
+  var km = noga.distance.value / 1000, prosta = _prostaKm(la1, lo1, la2, lo2);
+  if (km < prosta * 0.9 || km > prosta * 4 + 5) return null;      // niedorzeczny wynik (zły punkt, objazd przez pół kraju): lepiej tabela
+  return { km: Math.round(km * 10) / 10, min: Math.round((noga.duration && noga.duration.value ? noga.duration.value : 0) / 6) / 10 };
+}
+function obsluzDroge(dane, zwolnijBlokade) {
+  var kod = String(dane.kod || "").trim();
+  if (!_kodPoprawny(kod)) return { status: "odmowa" };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []);
+  var wiersze = shU.getDataRange().getValues(), w = null;
+  for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
+  if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
+    _log(ss, kod, "droga_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
+    return { status: "odmowa" };
+  }
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
+  var pary = dane.pary;
+  if (!Array.isArray(pary) || pary.length < 1 || pary.length > DROGA_PAR_MAKS) return { status: "blad", opis: "Nieprawidlowa liczba par" };
+  var wejscie = [];
+  for (var q = 0; q < pary.length; q++) {
+    var p = pary[q];
+    if (!Array.isArray(p) || p.length !== 4 || !_wspPolski(p[0], p[1]) || !_wspPolski(p[2], p[3])) return { status: "blad", opis: "Nieprawidlowe wspolrzedne" };
+    if (_prostaKm(p[0], p[1], p[2], p[3]) > DROGA_MAKS_KM) return { status: "blad", opis: "Odcinek za dlugi" };
+    wejscie.push(p);
+  }
+  var pam = CacheService.getScriptCache(), wyniki = new Array(wejscie.length), doLiczenia = [];
+  for (var k = 0; k < wejscie.length; k++) {
+    var zap = pam.get(_kluczDrogi(wejscie[k][0], wejscie[k][1], wejscie[k][2], wejscie[k][3]));
+    if (zap === "-") { wyniki[k] = null; continue; }      // wcześniej: Google nie znalazł sensownej trasy
+    if (zap) { var cz = String(zap).split("|"); wyniki[k] = { km: Number(cz[0]), min: Number(cz[1]) }; continue; }
+    doLiczenia.push(k);
+  }
+  var limit = false, wolneKonto = DROGA_NA_KONTO_W_OKNIE - _licznik("dr:k:" + kod, DROGA_OKNO_S, false), wolneWspolne = DROGA_WSPOLNIE_W_OKNIE - _licznik("dr:w", DROGA_OKNO_S, false);
+  var ile = Math.max(0, Math.min(doLiczenia.length, wolneKonto, wolneWspolne));
+  if (ile < doLiczenia.length) limit = true;
+  doLiczenia = doLiczenia.slice(0, ile);
+  if (ile > 0) { _licznikIle("dr:k:" + kod, DROGA_OKNO_S, ile); _licznikIle("dr:w", DROGA_OKNO_S, ile); }
+  _log(ss, kod, "droga", wejscie.length + " par, nowych " + ile + (limit ? ", LIMIT" : ""), "raz");
+  zwolnijBlokade();      // zapytania do Google (sekundy) nie mogą wstrzymywać innych użytkowników
+  for (var m = 0; m < doLiczenia.length; m++) {
+    var idx = doLiczenia[m], pp = wejscie[idx];
+    try {
+      var d = _droga1(pp[0], pp[1], pp[2], pp[3]);
+      wyniki[idx] = d;
+      pam.put(_kluczDrogi(pp[0], pp[1], pp[2], pp[3]), d ? d.km + "|" + d.min : "-", DROGA_OKNO_S);
+    } catch (e) {
+      limit = true;      // wyczerpany dzienny limit usługi Maps albo błąd usługi: reszta zostaje przy tabeli
+      break;
+    }
+  }
+  for (var z = 0; z < wyniki.length; z++) { if (wyniki[z] === undefined) wyniki[z] = null; }
+  return { status: "ok", wyniki: wyniki, limit: limit };
+}
+// Jednorazowo w edytorze: uruchom, zatwierdź uprawnienie do Map Google, potem Wdróż → Zarządzaj wdrożeniami → ołówek → Wersja: Nowa → Wdróż.
+function autoryzujMapy() {
+  var d = _droga1(51.4027, 21.1471, 50.8661, 20.6286);      // Radom → Kielce
+  Logger.log("Maps działa: " + JSON.stringify(d));
+  return d;
+}
+
+
+/* ====== „KTO ZLOZYL”: zgloszenie, ze uzytkownik wyslal dokumenty miesiaca ==============================
+   Aplikacja zglasza tu samo ZDARZENIE: miesiac, liczbe plikow w paczce, skrot SHA-256 paczki i sposob wyslania — nigdy same dokumenty, PESEL ani tresc.
+   Jeden wiersz = jeden uzytkownik w jednym miesiacu (ponowne zgloszenie aktualizuje wiersz i zwieksza „Razy”; „Cofnij wysylanie” w aplikacji
+   ustawia status „cofnieto”). UWAGA: to moment, w ktorym uzytkownik kliknal „Wyslij” i poczta dostala gotowa wiadomosc — NIE potwierdzenie, ze list doszedl
+   do ksiegowosci (to wymagaloby wysylki przez serwer). Skrot paczki pozwala sprawdzic, czy paczka, ktora dotarla, jest tym samym plikiem.
+   Dostep: podpis aplikacji ORAZ podpis haslem uzytkownika (jak haslo paczki). Zakladka „Zlozone” widoczna tylko dla administratora arkusza.
+   Przegladowy raport „kto zlozyl, kto nie” robi odswiezKompletnosc() — uruchom w edytorze (albo ustaw wyzwalacz czasowy); wynik trafia do zakladki „Kompletnosc”. */
+var ZAKLADKA_ZLOZONE = "Zlozone";
+var ZAKLADKA_KOMPLETNOSC = "Kompletnosc";
+var NAGLOWKI_ZLOZONE = ["Miesiac", "Kod", "Imie i nazwisko", "Kiedy", "Plikow", "Skrot paczki (SHA-256)", "Sposob", "Razy", "Status"];
+var ZLOZONE_WIERSZE_MAKS = 4000;
+var ZLOZONE_SPOSOBY = { folder: 1, poczta: 1, outlook: 1, pulpit: 1, telefon: 1, plik: 1 };
+function obsluzZlozono(dane) {
+  var kod = String(dane.kod || "").trim();
+  if (!_kodPoprawny(kod)) return { status: "odmowa" };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []);
+  var wiersze = shU.getDataRange().getValues(), w = null;
+  for (var i = 1; i < wiersze.length; i++) { if (String(wiersze[i][0]).trim() === kod) { w = wiersze[i]; break; } }
+  if (!w || !_podpisHaslaOk(dane, String(w[13] || "").trim())) {
+    _log(ss, kod, "zlozono_odmowa", "brak podpisu hasla albo nieznany kod", "raz");
+    return { status: "odmowa" };
+  }
+  var wazne = _dataKomorki(ss, kod, "Wazne do", w[3]);
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  if (!(wazne && wazne >= dzis)) return { status: "wygasla" };
+  var miesiac = _miesiacRejestru(dane.miesiac);
+  if (!miesiac) return { status: "blad", opis: "Nieprawidlowy miesiac" };
+  var op = String(dane.op || "");
+  var sh = _zakladka(ss, ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE);
+  var wpisy = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues() : [];
+  var moj = -1;
+  for (var j = 0; j < wpisy.length; j++) {
+    if (String(wpisy[j][0]).trim() === miesiac && String(wpisy[j][1]).trim() === kod) { moj = j; break; }
+  }
+  var teraz = new Date();
+  if (op === "cofnij") {
+    if (moj >= 0) { var r = wpisy[moj]; sh.getRange(moj + 2, 1, 1, 9).setValues([[r[0], r[1], r[2], teraz, r[4], r[5], r[6], r[7], "cofnieto"]]); }
+    _log(ss, kod, "zlozono", "cofniete " + miesiac, "raz");
+    return { status: "ok" };
+  }
+  if (op === "zloz") {
+    var liczba = Math.round(Number(dane.liczba));      // bez obcinania: liczba spoza 1–60 to błąd, nie „60”
+    var skrot = String(dane.skrot || "").trim().toLowerCase();
+    var sposob = String(dane.sposob || "").trim();
+    if (!(liczba >= 1 && liczba <= 60)) return { status: "blad", opis: "Nieprawidlowa liczba plikow" };
+    if (!/^[0-9a-f]{64}$/.test(skrot)) return { status: "blad", opis: "Nieprawidlowy skrot" };
+    if (!ZLOZONE_SPOSOBY.hasOwnProperty(sposob)) return { status: "blad", opis: "Nieprawidlowy sposob" };
+    var razy = moj >= 0 ? (Number(wpisy[moj][7]) || 0) + 1 : 1;
+    var wiersz = [miesiac, kod, _tekst(w[1], 60), teraz, liczba, skrot, sposob, razy, "zlozono"];
+    if (moj >= 0) sh.getRange(moj + 2, 1, 1, 9).setValues([wiersz]);
+    else { _przytnijZlozone(sh); sh.appendRow(wiersz); }
+    _log(ss, kod, "zlozono", miesiac + ": " + liczba + " plikow, " + sposob, "raz");
+    return { status: "ok", razy: razy };
+  }
+  return { status: "blad", opis: "Nieznana operacja" };
+}
+function _przytnijZlozone(sh) {
+  var ile = sh.getLastRow();
+  if (ile <= ZLOZONE_WIERSZE_MAKS) return;
+  var d = new Date(); d.setMonth(d.getMonth() - 24);
+  var prog = d.getFullYear() * 100 + d.getMonth() + 1;
+  var mies = sh.getRange(2, 1, ile - 1, 1).getValues();
+  for (var i = mies.length - 1; i >= 0; i--) { if (Number(mies[i][0]) < prog) sh.deleteRow(i + 2); }
+}
+/* Raport kompletnosci: dla kazdego uzytkownika z waznym dostepem (kolumna „Wazne do”) status poprzedniego i biezacego miesiaca. Najpierw ci, ktorzy NIE zlozyli
+   poprzedniego miesiaca. Tylko wartosci (bez formul). Uruchom w edytorze albo ustaw wyzwalacz czasowy (np. codziennie rano). */
+function odswiezKompletnosc() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var teraz = new Date(), poprz = new Date(teraz.getFullYear(), teraz.getMonth() - 1, 1);
+  var m0 = teraz.getFullYear() * 100 + teraz.getMonth() + 1, m1 = poprz.getFullYear() * 100 + poprz.getMonth() + 1;
+  var dzis = new Date(); dzis.setHours(0, 0, 0, 0);
+  var shZ = _zakladka(ss, ZAKLADKA_ZLOZONE, NAGLOWKI_ZLOZONE), wpisy = shZ.getLastRow() > 1 ? shZ.getRange(2, 1, shZ.getLastRow() - 1, 9).getValues() : [];
+  var po = {};
+  for (var i = 0; i < wpisy.length; i++) po[String(wpisy[i][0]).trim() + "|" + String(wpisy[i][1]).trim()] = wpisy[i];
+  var fmt = function (m, kod) {
+    var r = po[m + "|" + kod];
+    if (!r || r[8] !== "zlozono") return r ? "COFNIETO" : "BRAK";
+    return "zlozono " + Utilities.formatDate(new Date(r[3]), "Europe/Warsaw", "yyyy-MM-dd HH:mm") + " (" + r[6] + ", " + r[4] + " plikow)";
+  };
+  var shU = _zakladka(ss, ZAKLADKA_UZYTKOWNICY, []), u = shU.getDataRange().getValues(), wynik = [];
+  for (var k = 1; k < u.length; k++) {
+    var kod = String(u[k][0]).trim();
+    if (!_kodPoprawny(kod)) continue;
+    var wazne = _data(u[k][3]);
+    if (!(wazne && wazne >= dzis)) continue;      // konta wygasle pomijamy
+    wynik.push([kod, _tekst(u[k][1], 60), _tekst(u[k][2], 40), fmt(m1, kod), fmt(m0, kod)]);
+  }
+  wynik.sort(function (a, b) { return (a[3] === "BRAK" ? 0 : 1) - (b[3] === "BRAK" ? 0 : 1) || String(a[1]).localeCompare(String(b[1])); });
+  var sh = ss.getSheetByName(ZAKLADKA_KOMPLETNOSC) || ss.insertSheet(ZAKLADKA_KOMPLETNOSC);
+  sh.clear();
+  var etyk = function (m) { return String(m).slice(0, 4) + "-" + String(m).slice(4); };
+  sh.appendRow(["Kod", "Imie i nazwisko", "Rejon", "Miesiac " + etyk(m1), "Miesiac " + etyk(m0)]);
+  if (wynik.length) sh.getRange(2, 1, wynik.length, 5).setValues(wynik);
+  sh.getRange(1, 1, 1, 5).setFontWeight("bold"); sh.setFrozenRows(1);
+  return { poprzedni: m1, biezacy: m0, uzytkownikow: wynik.length, brakPoprzedniego: wynik.filter(function (x) { return x[3] === "BRAK"; }).length };
 }
 
 

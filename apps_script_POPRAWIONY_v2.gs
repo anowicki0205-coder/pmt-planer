@@ -910,8 +910,9 @@ function _miesiacRejestru(m) {
 }
 function _nazwaMiejscowosci(n) {
   var s = String(n === null || n === undefined ? "" : n).replace(/\s+/g, " ").trim();
-  // zaczyna się od litery (nigdy od = + - @, więc nie bywa formułą), dalej litery, cyfry, spacja, kropka, apostrof, myślnik
-  return /^[A-Za-zÀ-ž][A-Za-zÀ-ž0-9 .'\-]{0,39}$/.test(s) ? s : "";
+  // zaczyna się od litery (nigdy od = + - @, więc nie bywa formułą), dalej litery, cyfry, spacja, kropka, apostrof, myślnik i NAWIASY
+  // (w bazie są nazwy z dopiskiem, np. „Józefów (otwocki)”, „Wierzbica (radomska)” — bez nawiasów odrzucały cały zapis rejestru)
+  return /^[A-Za-zÀ-ž][A-Za-zÀ-ž0-9 .'()\-]{0,39}$/.test(s) ? s : "";
 }
 function obsluzMiejscowosci(dane) {
   var kod = String(dane.kod || "").trim();
@@ -954,17 +955,22 @@ function obsluzMiejscowosci(dane) {
   if (op === "zapisz") {
     var nadeslane = dane.miejscowosci;
     if (!Array.isArray(nadeslane) || nadeslane.length > MIEJSCOWOSCI_MAKS) return { status: "blad", opis: "Za duzo miejscowosci" };
-    var czyste = [], widziane = {};
+    // Nazwa, która nie przechodzi walidacji, jest POMIJANA (z licznikiem), a nie odrzuca całej listy: jedna nietypowa nazwa nie może po cichu zerować rejestru osoby.
+    var czyste = [], widziane = {}, pominieto = 0;
     for (var q = 0; q < nadeslane.length; q++) {
       var nz = _nazwaMiejscowosci(nadeslane[q]);
-      if (!nz) return { status: "blad", opis: "Nieprawidlowa nazwa miejscowosci" };
+      if (!nz) { pominieto++; continue; }
       if (!widziane[nz.toLowerCase()]) { widziane[nz.toLowerCase()] = true; czyste.push(nz); }
+    }
+    if (!czyste.length && nadeslane.length) {      // same nieprawidłowe nazwy: niczego nie zapisujemy
+      _log(ss, kod, "miejscowosci", "pominiete " + miesiac + ": " + pominieto + " nieprawidlowych nazw, nic nie zapisano", "raz");
+      return { status: "ok", zapisano: 0, pominieto: pominieto };
     }
     var wiersz = [miesiac, kod, _tekst(w[1], 60), czyste.length, czyste.join("|"), new Date()];
     if (moj >= 0) sh.getRange(moj + 2, 1, 1, 6).setValues([wiersz]);
     else { _przytnijMiejscowosci(sh); sh.appendRow(wiersz); }
-    _log(ss, kod, "miejscowosci", "zapisane " + miesiac + ": " + czyste.length, "raz");
-    return { status: "ok", zapisano: czyste.length };
+    _log(ss, kod, "miejscowosci", "zapisane " + miesiac + ": " + czyste.length + (pominieto ? " (pominieto nieprawidlowych: " + pominieto + ")" : ""), "raz");
+    return { status: "ok", zapisano: czyste.length, pominieto: pominieto };
   }
   return { status: "blad", opis: "Nieznana operacja" };
 }

@@ -373,6 +373,13 @@ Część backend / silnik / program / CI — zrobiona (każdy pakiet z recenzją
       dla karty graficznej; wygląd jest taki sam w Nocy i w Dniu (kafle mają wspólny biały tekst na kolorze). Reguła: css/aplikacja.css, blok „BENTO v3”. Test wykres_kalendarz_app.js czyta teraz kolor BAZOWY kafla (ostatni
       gradient), bo wyżej leżą białe warstwy przeszklenia. ODRZUCONE po podglądzie: chmury w tle sceny (zbyt ciężkie, na pulpicie zasłonięte kaflami; wymagałyby wyłączania na słabszych komputerach) oraz wersja
       półprzezroczysta z rozmyciem tła (brudne kolory, gorszy kontrast tekstu, koszt).
+- [x] 28.11 — BŁĄD REJESTRU MIEJSCOWOŚCI ZNALEZIONY NA PRÓBIE (właściciel: zakładka „Miejscowosci” w arkuszu pusta mimo działających tras): backend przepuszczał w nazwie tylko litery, cyfry, spację, kropkę, apostrof i myślnik, a w bazie
+      silnika jest 6 nazw z dopiskiem w nawiasie („Józefów (otwocki)”, „Wierzbica (radomska)”, „Zakrzew (radomski)”, „Zakrzew (lubelski)”, „Wierzbica (chełmska)”, „Józefów (biłgorajski)”). Lista miejscowości z dokumentów miesiąca zawierająca
+      choć jedną z nich była odrzucana w CAŁOŚCI („Nieprawidlowa nazwa miejscowosci”), a klient uznawał odmowę za trwałą i po cichu usuwał zapis z kolejki — dla okolic Warszawy (Józefów otwocki) i Radomia rejestr nie dostawał niczego.
+      Atrapa backendu nie walidowała nazw, więc testy przeglądarkowe tego nie wykryły. NAPRAWA (apps_script_POPRAWIONY_v2.gs): nawiasy dozwolone w _nazwaMiejscowosci; nieprawidłowa nazwa jest POMIJANA (odpowiedź niesie „pominieto”, w „Log” ślad),
+      a nie odrzuca całej listy; lista złożona z samych nieprawidłowych nazw niczego nie zapisuje. Testy: backend_gs_test.js (220 kontroli: nawiasy, mieszana lista, błędy strukturalne), testy_pmt.py (KAŻDA nazwa z bazy przechodzi regułę backendu —
+      pilnuje, żeby nowa nietypowa nazwa nie zerowała rejestru po cichu). Wpisy zapisane przed naprawą przepadły (kolejka na urządzeniu jest usuwana po odmowie) — miesiąc trzeba wygenerować ponownie („Usuń i zacznij od nowa”).
+      WYMAGA ponownego wklejenia .gs i „Nowa wersja” (strona bez zmian).
 - [x] 23.11 — „KTO ZŁOŻYŁ” (zatwierdzone przez właściciela: odbiorcą dokumentów jest księgowość, nie on, więc potrzebuje wiedzieć, kto wysłał, a kto jeszcze nie):
       CO: kliknięcie „Wyślij” w kroku 5 (każdy sposób: folder, poczta, Outlook, pulpit, telefon, plik .eml) zgłasza do backendu samo ZDARZENIE — miesiąc RRRRMM, liczbę plików w paczce, skrót SHA-256 paczki (to dokładnie
       ten plik, który jest w wiadomości) i sposób. Nigdy dokumenty, imię w zgłoszeniu, PESEL, adres odbiorcy, hasło paczki ani nazwy plików. „Cofnij wysłanie” zgłasza cofnięcie. CZEGO NIE ROBI: nie potwierdza, że list doszedł do księgowości

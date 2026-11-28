@@ -8037,6 +8037,27 @@ try:
     sprawdz("backend: podpis obejmuje każdą obsługiwaną akcję",
             _podp21 is not None
             and sorted(re.findall(r"'(\w+)'", _podp21.group(1))) == _akcje21, str(_podp21 and _podp21.group(1)))
+    # Rejestr miejscowości: backend dopuszcza tylko nazwy z reguły _nazwaMiejscowosci. Nazwy z nawiasami („Józefów (otwocki)”, „Wierzbica (radomska)”) kiedyś jej nie spełniały i
+    # zapis całego rejestru osoby był odrzucany po cichu (zakładka „Miejscowosci” zostawała pusta dla okolic Warszawy i Radomia). KAŻDA nazwa z bazy musi przechodzić tę regułę.
+    _rx_mj21 = re.search(r"function _nazwaMiejscowosci[\s\S]*?return /(.+?)/\.test\(s\)", _gs21)
+    _nazwy_mj21 = set()
+    def _zbierz_mj21(_v):
+        if isinstance(_v, dict):
+            if isinstance(_v.get("n"), str):
+                _nazwy_mj21.add(_v["n"])
+            for _x in _v.values():
+                _zbierz_mj21(_x)
+        elif isinstance(_v, (list, tuple)):
+            for _x in _v:
+                _zbierz_mj21(_x)
+    for _nm21 in ("MIASTA_RAW", "MIASTA_ROZSZERZENIE", "MIASTA_ROZSZERZENIE_2026_11"):
+        _zbierz_mj21(getattr(P, _nm21, {}))
+    for _nm21 in ("MIASTA_DUZE", "MIASTA_WIELKIE"):
+        _nazwy_mj21 |= {_k for _k in getattr(P, _nm21, {}) if isinstance(_k, str)}
+    _re_mj21 = re.compile(_rx_mj21.group(1)) if _rx_mj21 else None
+    _zle_mj21 = sorted(_n for _n in _nazwy_mj21 if not (_re_mj21 and _re_mj21.match(re.sub(r"\s+", " ", _n).strip())))
+    sprawdz("rejestr miejscowości: KAŻDA nazwa z bazy silnika przechodzi regułę backendu (_nazwaMiejscowosci), więc zapis rejestru nie bywa odrzucany przez jedną nietypową nazwę",
+            _re_mj21 is not None and len(_nazwy_mj21) > 1000 and not _zle_mj21, f"{len(_nazwy_mj21)} nazw, odrzucane: {_zle_mj21[:8]}")
     sprawdz("backend bez akcji telefonu: nie woła API Anthropic i nie udostępnia plików z Dysku",
             "UrlFetchApp" not in _gs21 and "ANYONE_WITH_LINK" not in _gs21
             and "DriveApp" not in _gs21 and "function analizaPolki" not in _gs21)

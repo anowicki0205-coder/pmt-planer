@@ -9,6 +9,10 @@ name: Drogi OSRM
 
 on:
   push:
+    # NIE na głównej gałęzi: scalenie tej zmiany nie może samo uruchomić liczenia ani dopisać nowej tabeli do main (zadanie dopisuje commit do gałęzi, na której wystartowało).
+    # Na main uruchamiasz je ręcznie (Run workflow) — i świadomie.
+    branches-ignore:
+      - "main"
     paths:
       - "web/narzedzia/drogi/ZLECENIE.txt"
   workflow_dispatch:

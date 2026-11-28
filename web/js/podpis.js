@@ -231,15 +231,14 @@ export function zainstalujPodpis(k) {
   const zapiszStanFolderu = st => magUst.ustaw(kluczFolderu(), st);
   const nazwaPodfolderu = () => `${String(k.MIES[M().mies - 1]).toLowerCase()} ${M().rok}`;      // np. „wrzesień 2026” — podfolder miesiąca w folderze „delegacje”
   const godz = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
-  /* Jednolinijkowa, opcjonalna podpowiedź: gov.pl oddaje podpisane pliki do folderu Pobrane (strona nie może tego zmienić, a przeglądarka nie pozwala aplikacji czytać Pobranych). Gdy raz ustawi się
-     „Pobrane → Lokalizacja” na folder „delegacje”, podpisane pliki trafiają tam same i aplikacja je wczytuje — bez przenoszenia. Znika po pierwszym wczytanym pliku, po „Ukryj” i gdy wszystko jest podpisane. */
+  /* Jednolinijkowa, opcjonalna wskazówka: gov.pl oddaje podpisane pliki do folderu Pobrane, a przeglądarka nie pozwala aplikacji czytać Pobranych (ani zmienić tego z poziomu strony). NIE radzimy zmieniać „Pobrane → Lokalizacja”
+     na folder „delegacje”: wtedy KAŻDY pobrany plik (nie tylko z tej aplikacji) trafiałby do tego folderu. Zamiast tego: przeciągnąć podpisane pliki na okno (albo do folderu miesiąca) albo „Wgraj ręcznie”.
+     Znika po pierwszym wczytanym pliku, po „Ukryj” i gdy wszystko jest podpisane. */
   const radaPobraneUkryta = () => { try { return localStorage.getItem('pmt-ui-pobrane-rada') === '1'; } catch (e) { return false; } };
   function radaPobrane() {
     if (radaPobraneUkryta() || fol.wykryto > 0 || wszystkoPodpisane()) return '';
-    const adres = (przegladarka() === 'edge' ? 'edge' : 'chrome') + '://settings/downloads';
-    return `<div class="kk-pobrane" id="kk-pobrane-rada"><span>Raz ustaw w przeglądarce <b>Pobrane → Lokalizacja</b> na ten folder — podpisane pliki z gov.pl trafią tu same, bez przenoszenia.</span>
-      <div class="kk-pobrane-dol"><details class="kk-jak"><summary>Jak to zrobić?</summary><ol><li>Skopiuj adres <span class="adr">${adres}</span> <button type="button" class="przycisk maly" data-akcja="pobrane-kopiuj" data-adres="${adres}">Kopiuj</button> i wklej go w pasku adresu przeglądarki.</li><li>Przy „Lokalizacja” kliknij „Zmień” i wskaż folder „${NAZWA_FOLDERU}” (na Pulpicie).</li></ol><small>Firma może to blokować — wtedy po podpisaniu przeciągnij pliki z Pobranych do folderu albo użyj „Wgraj ręcznie”.</small></details>
-      <button type="button" class="kk-link" data-akcja="pobrane-rada-ok">Ukryj</button></div></div>`;
+    return `<div class="kk-pobrane" id="kk-pobrane-rada"><span>Gov.pl zapisuje podpisane pliki w folderze <b>Pobrane</b>. Przeciągnij je na to okno albo do folderu „${esc(NAZWA_FOLDERU)}” › „${esc(nazwaPodfolderu())}” — wczytam je i sprawdzę same (albo użyj „Wgraj ręcznie”).</span>
+      <div class="kk-pobrane-dol"><button type="button" class="kk-link" data-akcja="pobrane-rada-ok">Ukryj</button></div></div>`;
   }
   function odswiezFolder() { if (widok !== 'glowny') return; odswiezPobieranie(); }
   /** Przy otwarciu okna: wczytuje zapamiętany folder i sprawdza, czy przeglądarka pamięta zgodę; jeśli dokumenty już są w folderze, zaczyna go obserwować. */
@@ -923,10 +922,11 @@ export function zainstalujPodpis(k) {
       if (metoda === 'folder') {
         if (!czyFolder() || (await zgodaFolderu(fol.uchwyt, false)) !== 'granted') { stanW('Przeglądarka nie daje teraz dostępu do folderu „' + NAZWA_FOLDERU + '” — kliknij „Pozwól” w kroku „Podpisz” i „Wyślij” jeszcze raz, albo <button type="button" class="przycisk maly" data-akcja="wyslij-plik">Wyślij plikiem .eml</button>', true); return; }
         const eml = zbudujEml({ adres, temat: tem, tresc: tr, zalacznik: { nazwa: nazwaZip(), bajty: new Uint8Array(await blob.arrayBuffer()), typ: 'application/zip' } });
-        await zapiszPlik(fol.korzen, EML, eml);      // wprost do folderu (File System Access API): bez pobierania, więc bez ostrzeżenia o „niebezpiecznym pliku”
+        const folMiesiaca = await podfolder(fol.korzen, nazwaPodfolderu());      // tam, gdzie leżą dokumenty tego miesiąca („delegacje” › „październik 2026”); każdy miesiąc ma własną wiadomość
+        await zapiszPlik(folMiesiaca, EML, eml);      // wprost do folderu (File System Access API): bez pobierania, więc bez ostrzeżenia o „niebezpiecznym pliku”
         oznaczWyslane();
-        stanW(`<b>Wiadomość gotowa w folderze „${esc(fol.korzen.name)}”.</b> Zostały dwa kliknięcia:<ol class="as-lista"><li>Otwórz folder „${esc(fol.korzen.name)}” (na Pulpicie) i <b>kliknij dwukrotnie</b> plik <span class="adr">${EML}</span> — otworzy się poczta z gotową wiadomością i paczką.</li><li>W poczcie kliknij <b>„Wyślij”</b>.</li></ol>${duza}`);
-        pokazToast('Wiadomość czeka w folderze „' + fol.korzen.name + '” — kliknij ją dwukrotnie');
+        stanW(`<b>Wiadomość gotowa w folderze „${esc(fol.korzen.name)}” › „${esc(nazwaPodfolderu())}”.</b> Zostały dwa kliknięcia:<ol class="as-lista"><li>Otwórz folder „${esc(fol.korzen.name)}” (na Pulpicie), a w nim „${esc(nazwaPodfolderu())}”, i <b>kliknij dwukrotnie</b> plik <span class="adr">${EML}</span> — otworzy się poczta z gotową wiadomością i paczką.</li><li>W poczcie kliknij <b>„Wyślij”</b>.</li></ol>${duza}`);
+        pokazToast('Wiadomość czeka w folderze „' + fol.korzen.name + '” › „' + nazwaPodfolderu() + '” — kliknij ją dwukrotnie');
         return;
       }
       if (metoda === 'pulpit') {
@@ -992,7 +992,6 @@ export function zainstalujPodpis(k) {
     else if (a === 'widok-podpisu') ustawWidokPodpisu(b.dataset.w);
     else if (a === 'rada-przegladarki-ok') { try { localStorage.setItem('pmt-ui-rada-przegladarki', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#as-rada-przegl', arkTresc); if (r) r.remove(); }
     else if (a === 'pobrane-rada-ok') { try { localStorage.setItem('pmt-ui-pobrane-rada', '1'); } catch (e) { /* bez pamięci przeglądarki podpowiedź wróci przy następnym otwarciu */ } const r = $('#kk-pobrane-rada', arkTresc); if (r) r.remove(); }
-    else if (a === 'pobrane-kopiuj') { try { await navigator.clipboard.writeText(b.dataset.adres); pokazToast('Skopiowano — wklej adres w pasku adresu przeglądarki'); } catch (e) { pokazToast('Nie udało się skopiować — zaznacz adres i skopiuj go ręcznie'); } }
     else if (a === 'glowny') pokaz('glowny');
     else if (a === 'wyslij') { const m = dostepneMetody().includes(b.dataset.metoda) ? b.dataset.metoda : 'plik'; wyslij(m, m === 'outlook' ? otworzOknoLogowania() : null, m === 'pulpit' ? zapytajOMiejsceZapisu() : null); }      // okno logowania otwieramy tu, w obsłudze kliknięcia (inaczej zablokuje je przeglądarka)
     else if (a === 'wyslij-plik') wyslij('plik', null);
